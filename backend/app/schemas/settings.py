@@ -1,6 +1,6 @@
 from pydantic import AnyHttpUrl, BaseModel, Field, SecretStr, field_validator, model_validator
 
-from app.config import PortalContour
+from app.config import PortalContour, validate_harbor_base_url
 
 
 class HarborSettingsResponse(BaseModel):
@@ -16,6 +16,11 @@ class HarborSettingsPatch(BaseModel):
     url: AnyHttpUrl | None = None
     username: str | None = Field(default=None, max_length=256)
     verify_tls: bool | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:
+        return validate_harbor_base_url(value)
 
     @field_validator("username")
     @classmethod
