@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harbor-transfer-portal.local/schema/receipt-v1.schema.json",
+  "title": "Harbor Transfer Portal Import Receipt v1",
+  "type": "object",
+  "required": ["schema_version", "delivery_id", "operation_id", "status", "completed_at", "artifacts"],
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "delivery_id": {"type": "string", "pattern": "^DELIVERY-[0-9]{8}-[A-Z0-9]{6,32}$"},
+    "operation_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["COMPLETED", "FAILED", "REJECTED", "CANCELLED"]},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["artifact_index", "status"],
+        "properties": {
+          "artifact_index": {"type": "integer", "minimum": 0},
+          "status": {"enum": ["IMPORTED", "SKIPPED", "CONFLICT", "FAILED", "VERIFIED"]},
+          "message": {"type": ["string", "null"]},
+          "target_digest": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
