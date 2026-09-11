@@ -70,11 +70,17 @@ class FakeRunner:
         return self.results.pop(0)
 
 
-def _settings(tmp_path: Path, *, verify_tls: bool = True, ca_file: Path | None = None) -> Settings:
+def _settings(
+    tmp_path: Path,
+    *,
+    verify_tls: bool = True,
+    ca_file: Path | None = None,
+    harbor_url: str = "https://harbor.local",
+) -> Settings:
     workspace = tmp_path / "packages"
     workspace.mkdir(parents=True, exist_ok=True)
     return Settings(
-        harbor_url="https://harbor.local",
+        harbor_url=harbor_url,
         harbor_user="robot$portal",
         harbor_password=SecretStr(TEST_SECRET),
         harbor_verify_tls=verify_tls,
@@ -93,11 +99,17 @@ def _service(
     *,
     verify_tls: bool = True,
     ca_file: Path | None = None,
+    harbor_url: str = "https://harbor.local",
 ) -> HelmOciService:
     values = iter(digests)
     return HelmOciService(
         DummySession(),  # type: ignore[arg-type]
-        _settings(tmp_path, verify_tls=verify_tls, ca_file=ca_file),
+        _settings(
+            tmp_path,
+            verify_tls=verify_tls,
+            ca_file=ca_file,
+            harbor_url=harbor_url,
+        ),
         runner=runner,
         digest_resolver=lambda _chart: next(values),
     )
@@ -172,6 +184,38 @@ def test_pull_uses_password_stdin_isolated_homes_custom_ca_and_validates_package
         assert str(tmp_path / "helm-tmp") in login["env"][key]
 
 
+def test_helm_subprocess_environment_does_not_inherit_portal_secrets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JWT_SECRET", "j" * 40)
+    monkeypatch.setenv("HARBOR_PASSWORD", "environment-secret-that-must-not-reach-helm")
+    monkeypatch.setenv("PORTAL_INTERNAL_SECRET", "another-secret")
+    destination = tmp_path / "packages" / "isolated-env"
+
+    def create_package(argv: tuple[str, ...]) -> None:
+        if len(argv) > 1 and argv[1] == "pull":
+            _write_chart(destination / "sample-app-1.2.3.tgz")
+
+    runner = FakeRunner(
+        [
+            HelmCommandResult(0, "", ""),
+            HelmCommandResult(0, "", ""),
+            HelmCommandResult(0, "name: sample-app\nversion: 1.2.3\n", ""),
+        ],
+        on_call=create_package,
+    )
+    service = _service(tmp_path, runner, [DIGEST_A])
+    asyncio.run(service.pull_chart(_chart(), destination))
+
+    child_env = runner.calls[0]["env"]
+    assert "JWT_SECRET" not in child_env
+    assert "HARBOR_PASSWORD" not in child_env
+    assert "PORTAL_INTERNAL_SECRET" not in child_env
+    assert child_env["HOME"].startswith(str(tmp_path / "helm-tmp"))
+    assert child_env["PATH"]
+
+
 def test_explicit_tls_disable_is_propagated_without_silent_fallback(tmp_path: Path) -> None:
     destination = tmp_path / "packages" / "export-2"
 
@@ -192,6 +236,38 @@ def test_explicit_tls_disable_is_propagated_without_silent_fallback(tmp_path: Pa
 
     assert "--insecure" in runner.calls[0]["argv"]
     assert "--insecure-skip-tls-verify" in runner.calls[1]["argv"]
+    assert "--plain-http" not in runner.calls[0]["argv"]
+
+
+def test_explicit_http_harbor_uses_plain_http_flags(tmp_path: Path) -> None:
+    destination = tmp_path / "packages" / "plain-http"
+
+    def create_package(argv: tuple[str, ...]) -> None:
+        if len(argv) > 1 and argv[1] == "pull":
+            _write_chart(destination / "sample-app-1.2.3.tgz")
+
+    runner = FakeRunner(
+        [
+            HelmCommandResult(0, "", ""),
+            HelmCommandResult(0, "", ""),
+            HelmCommandResult(0, "name: sample-app\nversion: 1.2.3\n", ""),
+        ],
+        on_call=create_package,
+    )
+    service = _service(
+        tmp_path,
+        runner,
+        [DIGEST_A],
+        harbor_url="http://harbor.local:5000",
+    )
+    asyncio.run(service.pull_chart(_chart(), destination))
+
+    login_argv = runner.calls[0]["argv"]
+    pull_argv = runner.calls[1]["argv"]
+    assert "--plain-http" in login_argv
+    assert "--plain-http" in pull_argv
+    assert "--insecure" not in login_argv
+    assert "--insecure-skip-tls-verify" not in pull_argv
 
 
 def test_metadata_mismatch_is_rejected(tmp_path: Path) -> None:
@@ -224,25 +300,33 @@ def test_unsafe_archive_member_is_rejected_before_helm(tmp_path: Path) -> None:
     assert runner.calls == []
 
 
+def test_special_archive_member_is_rejected_before_helm(tmp_path: Path) -> None:
+    package = tmp_path / "packages" / "fifo.tgz"
+    package.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(package, "w:gz") as archive:
+        info = tarfile.TarInfo("sample-app/pipe")
+        info.type = tarfile.FIFOTYPE
+        archive.addfile(info)
+    runner = FakeRunner([])
+    service = _service(tmp_path, runner, [])
+
+    with pytest.raises(HelmServiceError) as exc:
+        asyncio.run(service.validate_package(package, _chart()))
+
+    assert exc.value.code == "helm_package_unsafe_path"
+    assert runner.calls == []
+
+
 def test_target_inspection_reports_absent_same_and_conflict(tmp_path: Path) -> None:
     runner = FakeRunner([])
     absent = asyncio.run(
-        _service(tmp_path, runner, [None]).inspect_target(
-            _chart(),
-            expected_digest=DIGEST_A,
-        )
+        _service(tmp_path, runner, [None]).inspect_target(_chart(), expected_digest=DIGEST_A)
     )
     same = asyncio.run(
-        _service(tmp_path, runner, [DIGEST_A]).inspect_target(
-            _chart(),
-            expected_digest=DIGEST_A,
-        )
+        _service(tmp_path, runner, [DIGEST_A]).inspect_target(_chart(), expected_digest=DIGEST_A)
     )
     conflict = asyncio.run(
-        _service(tmp_path, runner, [DIGEST_B]).inspect_target(
-            _chart(),
-            expected_digest=DIGEST_A,
-        )
+        _service(tmp_path, runner, [DIGEST_B]).inspect_target(_chart(), expected_digest=DIGEST_A)
     )
     assert absent.state == HelmTargetState.ABSENT
     assert same.state == HelmTargetState.SAME_DIGEST
@@ -304,9 +388,7 @@ def test_workspace_escape_is_rejected(tmp_path: Path) -> None:
     assert exc.value.code == "helm_workspace_path_outside_root"
 
 
-def test_asyncio_runner_uses_exec_redacts_and_bounds_output(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_asyncio_runner_redacts_and_bounds_output(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
     async def scenario() -> HelmCommandResult:
@@ -348,9 +430,7 @@ def test_asyncio_runner_uses_exec_redacts_and_bounds_output(
     assert "[output truncated]" in result.stdout
 
 
-def test_asyncio_runner_timeout_and_cancellation_kill_child(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_runner_timeout_and_cancel_kill_child(monkeypatch: pytest.MonkeyPatch) -> None:
     async def run_case(cancel: bool) -> bool:
         killed = False
 
