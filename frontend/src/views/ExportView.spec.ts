@@ -8,6 +8,7 @@ import { useRuntimeStore } from '@/stores/runtime'
 import ExportView from './ExportView.vue'
 
 const DIGEST = `sha256:${'a'.repeat(64)}`
+let pinia = createPinia()
 
 function button(wrapper: VueWrapper, label: string) {
   const found = wrapper.findAll('button').find((item) => item.text().includes(label))
@@ -124,7 +125,8 @@ function mockHappyPath(): void {
 
 beforeEach(() => {
   sessionStorage.clear()
-  setActivePinia(createPinia())
+  pinia = createPinia()
+  setActivePinia(pinia)
 })
 
 afterEach(() => {
@@ -135,11 +137,11 @@ afterEach(() => {
 describe('SOURCE export wizard view', () => {
   it('completes selection, preview and ready UI with exact digest and download actions', async () => {
     mockHappyPath()
-    const runtime = useRuntimeStore()
+    const runtime = useRuntimeStore(pinia)
     runtime.setContour('SOURCE')
     const wrapper = mount(ExportView, {
       global: {
-        plugins: [runtime.$pinia],
+        plugins: [pinia],
         stubs: { RouterLink: { template: '<a><slot /></a>' } },
       },
     })
@@ -176,11 +178,11 @@ describe('SOURCE export wizard view', () => {
 
   it('renders an actionable TARGET fallback and does not browse Harbor', async () => {
     const connection = vi.spyOn(exportsApi, 'getHarborConnection')
-    const runtime = useRuntimeStore()
+    const runtime = useRuntimeStore(pinia)
     runtime.setContour('TARGET')
     const wrapper = mount(ExportView, {
       global: {
-        plugins: [runtime.$pinia],
+        plugins: [pinia],
         stubs: { RouterLink: { template: '<a><slot /></a>' } },
       },
     })
