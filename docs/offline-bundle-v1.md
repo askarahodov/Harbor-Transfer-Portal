@@ -40,6 +40,10 @@
 
 Подлинность `manifest.json` подтверждается Ed25519-подписью. Контрольная сумма и размер каждого payload дополнительно записываются в соответствующем descriptor манифеста.
 
+Для payload, представленного одним файлом, `payload_sha256` равен SHA-256 этого файла, а `payload_size` — размеру файла.
+
+Для payload-каталога OCI image-layout descriptor использует детерминированный tree checksum. Все строки `checksums.sha256`, относящиеся к файлам под `payload_path`, сортируются лексикографически по полному archive path и сериализуются в точном формате `<sha256>  <archive/path>\n`. `payload_sha256` равен SHA-256 UTF-8 concatenation этих строк, а `payload_size` равен сумме размеров файлов. Tree checksum является transport-integrity metadata и **не является** OCI digest; authoritative source OCI digest хранится отдельно в `source_digest`.
+
 Порядок проверки на TARGET:
 
 1. безопасная структура архива;
@@ -100,6 +104,10 @@ Reader/verifier обязан отклонять:
 - иные неподдерживаемые типы файлов.
 
 Критические элементы `manifest.json`, `manifest.sig` и `checksums.sha256` должны встречаться ровно по одному разу. Распаковка разрешена только в новый контролируемый каталог.
+
+Реализация verifier должна применять конфигурируемые верхние пределы archive size, суммарного extracted size, количества members и длины path. Для gzip/tar также применяется defensible compression-ratio limit до extraction, чтобы malformed/high-expansion archive отклонялся до записи payload на диск.
+
+В штатном layout container image payload располагается под `images/`, Helm package — обычный `.tgz` под `charts/`. Каждый payload-файл должен быть покрыт ровно одной checksum-строкой и ровно одним artifact descriptor root; undeclared и пересекающиеся payload roots запрещены.
 
 ## Модель состояний операций
 

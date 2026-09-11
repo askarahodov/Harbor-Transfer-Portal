@@ -62,6 +62,28 @@ class Settings(BaseSettings):
     helm_workspace_root: Path = Path("./data/packages")
     helm_temp_root: Path = Path("./data/tmp/helm")
 
+    bundle_payload_root: Path = Path("./data")
+    bundle_temp_root: Path = Path("./data/tmp/bundles")
+    bundle_outgoing_root: Path = Path("./data/outgoing")
+    bundle_extract_root: Path = Path("./data/incoming/verified")
+    bundle_signing_private_key_file: Path = Path("./data/keys/source-signing-private.pem")
+    bundle_trusted_public_keys_dir: Path = Path("./data/keys/trusted-source")
+    bundle_max_archive_bytes: int = Field(
+        default=50 * 1024**3,
+        ge=1,
+        le=1024**4,
+    )
+    bundle_max_extracted_bytes: int = Field(
+        default=100 * 1024**3,
+        ge=1,
+        le=2 * 1024**4,
+    )
+    bundle_max_member_count: int = Field(default=100_000, ge=4, le=1_000_000)
+    bundle_max_path_bytes: int = Field(default=512, ge=64, le=4096)
+    bundle_max_metadata_bytes: int = Field(default=2 * 1024**2, ge=4096, le=16 * 1024**2)
+    bundle_max_compression_ratio: float = Field(default=200.0, ge=1.0, le=10_000.0)
+    bundle_max_trusted_keys: int = Field(default=32, ge=1, le=256)
+
     jwt_secret: SecretStr | None = None
     jwt_access_token_minutes: int = Field(default=30, ge=1, le=1440)
     login_rate_limit_window_seconds: int = Field(default=300, ge=1, le=86400)
