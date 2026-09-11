@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import ssl
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -55,6 +56,19 @@ class HarborClientError(Exception):
 
     def __str__(self) -> str:
         return self.message
+
+
+def _is_tls_error(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        if isinstance(current, ssl.SSLError):
+            return True
+        if "certificate verify failed" in str(current).casefold():
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 class HarborClient:
@@ -188,6 +202,16 @@ class HarborClient:
             response = self._client.request(method, path, **kwargs)
         except httpx.TimeoutException as exc:
             raise HarborClientError("timeout", "Local Harbor request timed out") from exc
+        except httpx.ConnectError as exc:
+            if _is_tls_error(exc):
+                raise HarborClientError(
+                    "tls_failed",
+                    "Local Harbor TLS verification failed",
+                ) from exc
+            raise HarborClientError(
+                "connection_failed",
+                "Unable to connect to local Harbor",
+            ) from exc
         except httpx.HTTPError as exc:
             raise HarborClientError(
                 "connection_failed",
