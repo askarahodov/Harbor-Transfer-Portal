@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime data / databases
+data/*
+!data/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated transfer artifacts
+artifacts/
+bundles/
+exports/
+imports/
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+
+# Logs / temp
+*.log
+logs/
+tmp/
+.cache/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local tooling
+.python-version
+.npmrc.local
