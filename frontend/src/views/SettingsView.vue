@@ -313,7 +313,7 @@ input[type='text'], input[type='url'], input[type='password'], input[type='file'
 input[type='file'] { padding-top: 9px; }
 .check-row { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; color: var(--color-deep-harbor); }
 .check-row input { width: 18px; height: 18px; }
-.warning-card { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-warning-amber) 14%, white); color: var(--color-deep-harbor); }
+.warning-card { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-alert-amber) 14%, white); color: var(--color-deep-harbor); }
 .inline-action { display: flex; align-items: end; gap: var(--space-4); }
 .grow-field { flex: 1; }
 .grow-field small { color: var(--color-steel); font-weight: 400; }
@@ -325,7 +325,7 @@ input[type='file'] { padding-top: 9px; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .status-card { margin: 0; }
 .status-card--error { border-color: color-mix(in srgb, var(--color-stop-red) 45%, var(--color-mist)); color: var(--color-stop-red); }
-.status-card--success { border-color: color-mix(in srgb, var(--color-success-green) 45%, var(--color-mist)); color: var(--color-deep-harbor); }
+.status-card--success { border-color: color-mix(in srgb, var(--color-transfer-green) 45%, var(--color-mist)); color: var(--color-deep-harbor); }
 input:focus-visible, button:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-bridge-blue) 30%, transparent); outline-offset: 2px; }
 @media (max-width: 760px) {
   .settings-heading, .card-heading, .inline-action { flex-direction: column; align-items: stretch; }
