@@ -14,6 +14,9 @@ export default tseslint.config(
         ...globals.browser,
         ...globals.node,
       },
+      parserOptions: {
+        parser: tseslint.parser,
+      },
     },
     rules: {
       'vue/multi-word-component-names': 'off',
