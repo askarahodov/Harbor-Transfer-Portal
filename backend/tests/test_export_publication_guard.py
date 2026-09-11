@@ -3,13 +3,13 @@ from pathlib import Path
 
 import pytest
 
-import app.services.export_publication_guard as export_publication_guard
 from app.config import Settings
 from app.db.base import Base
 from app.db.models import Operation
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import OperationStatus, OperationType
 from app.services.bundle_package_service import BundlePackageError
+from app.services.export_publication_guard import PublicationSafeExportOrchestrator
 from app.services.export_recovery import reconcile_incomplete_export_publications
 from app.services.operation_manager import OperationManager
 
@@ -30,7 +30,7 @@ def _settings(tmp_path: Path) -> Settings:
 
 
 def _orchestrator(tmp_path: Path) -> tuple[
-    export_publication_guard.PublicationSafeExportOrchestrator,
+    PublicationSafeExportOrchestrator,
     object,
     Settings,
 ]:
@@ -40,7 +40,7 @@ def _orchestrator(tmp_path: Path) -> tuple[
     session_factory = create_session_factory(engine)
     manager = OperationManager(session_factory, settings)
     return (
-        export_publication_guard.PublicationSafeExportOrchestrator(
+        PublicationSafeExportOrchestrator(
             session_factory,
             settings,
             manager,
@@ -74,6 +74,8 @@ def _operation(session_factory, *, metadata: bool = False) -> int:  # type: igno
 
 
 def test_atomic_publish_does_not_replace_preexisting_archive(tmp_path: Path) -> None:
+    from app.services.export_publication_guard import _OwnedBundlePackageService
+
     settings = _settings(tmp_path)
     settings.bundle_outgoing_root.mkdir(parents=True)
     source = tmp_path / "new.htp.tar.gz"
@@ -83,7 +85,7 @@ def test_atomic_publish_does_not_replace_preexisting_archive(tmp_path: Path) -> 
     final_archive.write_bytes(b"foreign")
     recorded: list[str] = []
 
-    service = export_publication_guard._OwnedBundlePackageService(
+    service = _OwnedBundlePackageService(
         settings,
         on_publication_recorded=lambda delivery_id, _name, _sha, _size: recorded.append(
             delivery_id
@@ -106,6 +108,8 @@ def test_atomic_publish_does_not_replace_preexisting_archive(tmp_path: Path) -> 
 
 
 def test_sidecar_collision_rolls_back_only_owned_archive(tmp_path: Path) -> None:
+    from app.services.export_publication_guard import _OwnedBundlePackageService
+
     settings = _settings(tmp_path)
     settings.bundle_outgoing_root.mkdir(parents=True)
     source = tmp_path / "new.htp.tar.gz"
@@ -116,7 +120,7 @@ def test_sidecar_collision_rolls_back_only_owned_archive(tmp_path: Path) -> None
     recorded: list[str] = []
     rolled_back: list[str] = []
 
-    service = export_publication_guard._OwnedBundlePackageService(
+    service = _OwnedBundlePackageService(
         settings,
         on_publication_recorded=lambda delivery_id, _name, _sha, _size: recorded.append(
             delivery_id
