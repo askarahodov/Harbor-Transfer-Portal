@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request, status
 
 from app.auth.dependencies import CurrentUserDep, SessionDep
-from app.auth.security import create_access_token, verify_password
+from app.auth.security import create_access_token, verify_login_password
 from app.db.repositories import UserRepository
 from app.schemas.auth import CurrentUserResponse, LoginRequest, TokenResponse
 
@@ -20,7 +20,9 @@ def login(
 
     repo = UserRepository(session)
     user = repo.get_by_username(payload.username)
-    if user is None or not user.is_active or not verify_password(payload.password, user.password_hash):
+    password_hash = user.password_hash if user is not None and user.is_active else None
+    password_valid = verify_login_password(payload.password, password_hash)
+    if user is None or not user.is_active or not password_valid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
     repo.mark_login(user)
