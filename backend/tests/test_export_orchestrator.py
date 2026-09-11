@@ -170,13 +170,13 @@ def _environment(tmp_path: Path):  # type: ignore[no-untyped-def]
     )
     package_service = BundlePackageService(settings)
     orchestrator = ExportOrchestrator(
-        settings,
         session_factory,
+        settings,
         manager,
-        harbor_client_factory=lambda _session: harbor,
+        harbor_client_factory=lambda: harbor,
         skopeo_factory=lambda _session: FakeSkopeoService(),
         helm_factory=lambda _session: FakeHelmService(),
-        package_service_factory=lambda: package_service,
+        package_factory=lambda: package_service,
     )
     return settings, manager, harbor, package_service, orchestrator
 
@@ -263,13 +263,13 @@ def test_digest_change_between_start_preview_and_worker_fails_without_bundle(tmp
 def test_one_artifact_failure_aborts_delivery_and_marks_no_ready_bundle(tmp_path: Path) -> None:
     settings, manager, harbor, package_service, _orchestrator = _environment(tmp_path)
     orchestrator = ExportOrchestrator(
-        settings,
         manager.session_factory,
+        settings,
         manager,
-        harbor_client_factory=lambda _session: harbor,
+        harbor_client_factory=lambda: harbor,
         skopeo_factory=lambda _session: FakeSkopeoService(),
         helm_factory=lambda _session: FakeHelmService(fail=True),
-        package_service_factory=lambda: package_service,
+        package_factory=lambda: package_service,
     )
 
     async def scenario() -> int:
@@ -296,13 +296,13 @@ def test_one_artifact_failure_aborts_delivery_and_marks_no_ready_bundle(tmp_path
 def test_failure_after_publication_removes_archive_and_readiness_sidecar(tmp_path: Path) -> None:
     settings, manager, harbor, package_service, _orchestrator = _environment(tmp_path)
     orchestrator = ExportOrchestrator(
-        settings,
         manager.session_factory,
+        settings,
         manager,
-        harbor_client_factory=lambda _session: harbor,
+        harbor_client_factory=lambda: harbor,
         skopeo_factory=lambda _session: FakeSkopeoService(),
         helm_factory=lambda _session: FakeHelmService(),
-        package_service_factory=lambda: PublishThenFailPackageService(package_service),
+        package_factory=lambda: PublishThenFailPackageService(package_service),
     )
 
     async def scenario() -> int:
