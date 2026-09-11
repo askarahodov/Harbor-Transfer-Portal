@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -111,14 +112,42 @@ def test_target_contour_rejects_export_with_stable_error_code(tmp_path: Path) ->
     assert response.json()["error"]["code"] == "export_wrong_contour"
 
 
+def test_export_selection_rejects_duplicate_reference_and_invalid_image_tag(
+    tmp_path: Path,
+) -> None:
+    app, _user_ids = _app_with_users(tmp_path, PortalContour.SOURCE)
+    duplicate = _selection_payload()
+    first = duplicate["artifacts"][0]  # type: ignore[index]
+    duplicate["artifacts"] = [  # type: ignore[index]
+        first,
+        {**first, "digest": "sha256:" + "b" * 64},  # type: ignore[arg-type]
+    ]
+    invalid = _selection_payload()
+    invalid["artifacts"][0]["reference"] = "bad/tag"  # type: ignore[index]
+
+    with TestClient(app) as client:
+        operator = _login(client, "operator")
+        duplicate_response = client.post(
+            "/api/exports/preview",
+            headers=_auth(operator),
+            json=duplicate,
+        )
+        invalid_response = client.post(
+            "/api/exports/preview",
+            headers=_auth(operator),
+            json=invalid,
+        )
+
+    assert duplicate_response.status_code == 422
+    assert invalid_response.status_code == 422
+
+
 def test_download_is_owner_scoped_and_exposes_length_and_sha256(tmp_path: Path) -> None:
     app, user_ids = _app_with_users(tmp_path, PortalContour.SOURCE)
     archive = app.state.settings.bundle_outgoing_root / f"{DELIVERY_ID}.htp.tar.gz"
     sidecar = archive.with_name(archive.name + ".sha256")
     archive.parent.mkdir(parents=True, exist_ok=True)
     archive.write_bytes(b"large-bundle-stream-path")
-
-    import hashlib
 
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     sidecar.write_text(f"{digest}  {archive.name}\n", encoding="utf-8")
