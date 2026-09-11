@@ -5,9 +5,9 @@ import io
 import json
 import os
 import tarfile
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -79,7 +79,10 @@ def _inputs(tmp_path: Path) -> list[ContainerImagePackageInput | HelmChartPackag
     data = tmp_path / "data"
     image = data / "export" / "image"
     (image / "blobs" / "sha256").mkdir(parents=True, exist_ok=True)
-    (image / "oci-layout").write_text('{"imageLayoutVersion":"1.0.0"}', encoding="utf-8")
+    (image / "oci-layout").write_text(
+        '{"imageLayoutVersion":"1.0.0"}',
+        encoding="utf-8",
+    )
     (image / "index.json").write_text('{"schemaVersion":2}', encoding="utf-8")
     (image / "blobs" / "sha256" / "abc").write_bytes(b"blob-content")
     chart = data / "packages" / "sample-1.2.3.tgz"
@@ -133,7 +136,8 @@ def _rewrite_archive(
     entries: list[tuple[tarfile.TarInfo, bytes | None]] = []
     with tarfile.open(source, "r:gz") as archive:
         for member in archive.getmembers():
-            payload = archive.extractfile(member).read() if member.isfile() else None  # type: ignore[union-attr]
+            stream = archive.extractfile(member) if member.isfile() else None
+            payload = stream.read() if stream is not None else None
             if payload is not None:
                 payload = transform(member.name, payload)
                 if payload is None:
@@ -144,13 +148,25 @@ def _rewrite_archive(
         with gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=0) as compressed:
             with tarfile.open(fileobj=compressed, mode="w") as archive:
                 for member, payload in entries:
-                    archive.addfile(member, io.BytesIO(payload) if payload is not None else None)
+                    archive.addfile(
+                        member,
+                        io.BytesIO(payload) if payload is not None else None,
+                    )
                 if extra is not None:
                     extra.size = len(extra_bytes) if extra.isfile() else extra.size
                     archive.addfile(
                         extra,
                         io.BytesIO(extra_bytes) if extra.isfile() else None,
                     )
+
+
+def _canonical(payload: dict[str, object]) -> bytes:
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
 
 
 def test_valid_bundle_round_trip_and_independent_target_verification(tmp_path: Path) -> None:
@@ -185,17 +201,29 @@ def test_manifest_tamper_breaks_signature(tmp_path: Path) -> None:
             return payload
         manifest = json.loads(payload)
         manifest["created_by"] = "attacker"
-        return json.dumps(
-            manifest,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
+        return _canonical(manifest)
 
     _rewrite_archive(built.archive_path, tampered, transform)
     with pytest.raises(BundlePackageError) as exc:
         service.verify_bundle(tampered)
     assert exc.value.code == "bundle_signature_untrusted"
+
+
+def test_json_schema_is_checked_before_signature(tmp_path: Path) -> None:
+    service, built = _build(tmp_path)
+    tampered = tmp_path / "schema-before-signature.tar.gz"
+
+    def transform(name: str, payload: bytes) -> bytes:
+        if name != "manifest.json":
+            return payload
+        manifest = json.loads(payload)
+        del manifest["created_by"]
+        return _canonical(manifest)
+
+    _rewrite_archive(built.archive_path, tampered, transform)
+    with pytest.raises(BundlePackageError) as exc:
+        service.verify_bundle(tampered)
+    assert exc.value.code == "bundle_schema_invalid"
 
 
 def test_payload_tamper_breaks_checksum(tmp_path: Path) -> None:
@@ -221,12 +249,7 @@ def test_unsupported_schema_is_rejected_before_signature_check(tmp_path: Path) -
             return payload
         manifest = json.loads(payload)
         manifest["schema_version"] = "2.0"
-        return json.dumps(
-            manifest,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
+        return _canonical(manifest)
 
     _rewrite_archive(built.archive_path, tampered, transform)
     with pytest.raises(BundlePackageError) as exc:
@@ -301,9 +324,29 @@ def test_malicious_archive_members_are_rejected(
     assert exc.value.code == "bundle_archive_unsafe"
 
 
+def test_member_outside_allowed_top_level_is_rejected(tmp_path: Path) -> None:
+    service, built = _build(tmp_path)
+    malformed = tmp_path / "unexpected-top-level.tar.gz"
+    member = tarfile.TarInfo("unexpected/file.bin")
+    member.type = tarfile.REGTYPE
+    _rewrite_archive(
+        built.archive_path,
+        malformed,
+        lambda _name, payload: payload,
+        extra=member,
+        extra_bytes=b"unexpected",
+    )
+
+    with pytest.raises(BundlePackageError) as exc:
+        service.verify_bundle(malformed)
+    assert exc.value.code == "bundle_archive_unsafe"
+
+
 def test_member_limit_is_enforced_before_payload_read(tmp_path: Path) -> None:
     service, built = _build(tmp_path)
-    limited_settings = service.settings.model_copy(update={"bundle_max_member_count": 4})
+    limited_settings = service.settings.model_copy(
+        update={"bundle_max_member_count": 4}
+    )
     limited = BundlePackageService(limited_settings)
 
     with pytest.raises(BundlePackageError) as exc:
@@ -393,23 +436,20 @@ def test_publish_writes_archive_before_readiness_sidecar(
     assert destinations[-2:] == [result.archive_path.name, result.sidecar_path.name]
 
 
-def test_failed_publish_cleans_archive_and_sidecar(
+def test_failed_sidecar_publish_cleans_archive_and_sidecar(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = _settings(tmp_path)
     service = BundlePackageService(settings)
+    real_replace = os.replace
 
-    def failing_publish(
-        temporary_archive: Path,
-        final_archive: Path,
-        _final_sidecar: Path,
-        _archive_sha: str,
-    ) -> None:
-        os.replace(temporary_archive, final_archive)
-        raise OSError("synthetic publish failure")
+    def failing_replace(source: str | Path, destination: str | Path) -> None:
+        if Path(destination).name.endswith(".sha256"):
+            raise OSError("synthetic sidecar publish failure")
+        real_replace(source, destination)
 
-    monkeypatch.setattr(service, "_atomic_publish", failing_publish)
+    monkeypatch.setattr(package_module.os, "replace", failing_replace)
     with pytest.raises(BundlePackageError) as exc:
         service.build_bundle(
             source=BundleSource(contour="SOURCE", harbor="harbor.source.local"),
@@ -422,6 +462,46 @@ def test_failed_publish_cleans_archive_and_sidecar(
     outgoing = settings.bundle_outgoing_root
     assert not (outgoing / f"{DELIVERY_ID}.htp.tar.gz").exists()
     assert not (outgoing / f"{DELIVERY_ID}.htp.tar.gz.sha256").exists()
+
+
+def test_concurrent_delivery_reservation_is_rejected(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    service = BundlePackageService(settings)
+    service.outgoing_root.mkdir(parents=True, exist_ok=True)
+    reservation = service.outgoing_root / f".{DELIVERY_ID}.reserve"
+    reservation.write_text("reserved", encoding="utf-8")
+
+    with pytest.raises(BundlePackageError) as exc:
+        service.build_bundle(
+            source=BundleSource(contour="SOURCE", harbor="harbor.source.local"),
+            created_by="operator",
+            artifacts=_inputs(tmp_path),
+            delivery_id=DELIVERY_ID,
+        )
+    assert exc.value.code == "bundle_delivery_exists"
+
+
+def test_non_normalized_payload_path_is_rejected(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    image = inputs[0]
+    assert isinstance(image, ContainerImagePackageInput)
+    inputs[0] = ContainerImagePackageInput(
+        repository=image.repository,
+        reference=image.reference,
+        source_digest=image.source_digest,
+        source_path=image.source_path,
+        payload_path="images//project-app",
+    )
+    service = BundlePackageService(_settings(tmp_path))
+
+    with pytest.raises(BundlePackageError) as exc:
+        service.build_bundle(
+            source=BundleSource(contour="SOURCE", harbor="harbor.source.local"),
+            created_by="operator",
+            artifacts=inputs,
+            delivery_id=DELIVERY_ID,
+        )
+    assert exc.value.code == "bundle_payload_path_invalid"
 
 
 def test_runtime_manifest_schema_matches_normative_document(tmp_path: Path) -> None:
