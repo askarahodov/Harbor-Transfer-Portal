@@ -27,7 +27,8 @@
 3. для **текущих архитектурных границ и статуса реализации** — `architecture.md` + текущий code/tests;
 4. для **компонента** — специализированный service/API/frontend document + code/tests;
 5. для **deployment/runtime** — `deploy/README.md` + `compose.yaml`/Dockerfiles/`.env.example`;
-6. исторический design document не должен переопределять ни один из перечисленных источников.
+6. для **администрирования установки** — `admin-guide.md` вместе с deployment/security sources;
+7. исторический design document не должен переопределять ни один из перечисленных источников.
 
 Обнаруженное противоречие считается documentation defect и должно исправляться в той же или отдельной сфокусированной задаче.
 
@@ -37,6 +38,7 @@
 |---|---|---|
 | [project-passport.md](project-passport.md) | простое описание продукта и целевого процесса | актуальный product overview |
 | [architecture.md](architecture.md) | компоненты, boundaries, data flows, current implementation state | актуальный |
+| [admin-guide.md](admin-guide.md) | администрирование установки: bootstrap, Harbor, keys, backup/restore, limits и эксплуатация | актуальный для current Compose; не финальный offline installer |
 | [offline-bundle-v1.md](offline-bundle-v1.md) | формат Bundle v1, signing/checksum/archive contract | **нормативный** |
 | `schema/` | machine-readable protocol schemas | **нормативный** |
 | [package-service.md](package-service.md) | реализационная граница Bundle build/verify | актуальный component doc |
@@ -61,14 +63,14 @@
 - #56 — полная security/trust model — выполнено;
 - #57 — deployment/config/credential/key synchronization — выполнено;
 - #58 — ADR/docs hygiene и карта документации — выполнено;
-- #59 — `user-guide.md` для operator/viewer;
-- #60 — `admin-guide.md`;
-- #61 — `troubleshooting.md`;
+- #59 — `user-guide.md` для operator/viewer — ждёт стабильных #17/#19 UI/API flows;
+- #60 — `admin-guide.md` — текущая итерация;
+- #61 — `troubleshooting.md` — следующий эксплуатационный документ;
 - #67 — automated documentation link gate — выполнено;
-- #71 — синхронизация architecture с persistent OperationManager — текущая итерация;
-- #68 — свежий root README поверх актуальных sources — следующий documentation step.
+- #71 — синхронизация architecture с persistent OperationManager — выполнено;
+- #68 — свежий root README поверх актуальных sources — выполнено.
 
-`user-guide.md`, `admin-guide.md` и `troubleshooting.md` не следует заполнять вымышленными завершёнными flow. Разделы, зависящие от ещё не реализованной feature-specific export/import/history/report функциональности, создаются после стабилизации соответствующего поведения либо явно маркируются как незавершённые.
+`user-guide.md` не следует заполнять вымышленными завершёнными flow. Разделы, зависящие от ещё не реализованной feature-specific export/import/history/report функциональности, создаются после стабилизации соответствующего поведения либо явно маркируются как незавершённые.
 
 Generic `OperationManager` уже реализован, но это execution foundation, а не доказательство готовности пользовательских export/import flows.
 
