@@ -1,9 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, HTTPException, Request, status
 
-from app.auth.dependencies import get_current_user, get_db_session
+from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.auth.security import create_access_token, verify_password
-from app.db.models import User
 from app.db.repositories import UserRepository
 from app.schemas.auth import CurrentUserResponse, LoginRequest, TokenResponse
 
@@ -14,7 +12,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def login(
     payload: LoginRequest,
     request: Request,
-    session: Session = Depends(get_db_session),
+    session: SessionDep,
 ) -> TokenResponse:
     settings = request.app.state.settings
     if settings.jwt_secret is None:
@@ -36,7 +34,7 @@ def login(
 
 
 @router.get("/me", response_model=CurrentUserResponse)
-def me(user: User = Depends(get_current_user)) -> CurrentUserResponse:
+def me(user: CurrentUserDep) -> CurrentUserResponse:
     return CurrentUserResponse(
         id=user.id,
         username=user.username,
