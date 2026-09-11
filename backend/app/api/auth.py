@@ -16,7 +16,10 @@ def login(
 ) -> TokenResponse:
     settings = request.app.state.settings
     if settings.jwt_secret is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="authentication is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="authentication is not configured",
+        )
 
     repo = UserRepository(session)
     user = repo.get_by_username(payload.username)

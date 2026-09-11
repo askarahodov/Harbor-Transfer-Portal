@@ -1,12 +1,17 @@
 from pathlib import Path
 
-from alembic import command
+import pytest
 from alembic.config import Config
 from pydantic import ValidationError
-import pytest
 
+from alembic import command
 from app.auth.bootstrap import bootstrap_admin
-from app.auth.security import create_access_token, decode_access_token, hash_password, verify_password
+from app.auth.security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
 from app.config import Settings
 from app.db.models import UserRole
 from app.db.session import create_db_engine, create_session_factory

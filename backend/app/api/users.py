@@ -13,7 +13,12 @@ AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
 
 
 def _to_response(user: User) -> UserResponse:
-    return UserResponse(id=user.id, username=user.username, role=user.role, is_active=user.is_active)
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        role=user.role,
+        is_active=user.is_active,
+    )
 
 
 @router.get("", response_model=list[UserResponse])

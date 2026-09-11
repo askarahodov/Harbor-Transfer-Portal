@@ -92,4 +92,4 @@ Endpoints состояния и готовности не раскрывают �
 - Ошибки тестов и линтеров должны делать проверку красной.
 - Во время разработки используются минимально достаточные scoped-тесты; полный обязательный CI является merge checkpoint.
 
-Правила работы описаны в [CONTRIBUTING.md](CONTRIBUTING.md), а реестр архитектурных решений — в [docs/decisions.md](docs/decisions.md).
+Правила работы описаны в [CONTRIBUTING.md](CONTRIBUTING.md), реестр архитектурных решений — в [docs/decisions.md](docs/decisions.md), стратегия CI и тестирования — в [docs/testing.md](docs/testing.md).

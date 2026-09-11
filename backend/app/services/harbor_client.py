@@ -220,7 +220,10 @@ class HarborClient:
         except ValueError as exc:
             raise HarborClientError("invalid_response", "Harbor returned invalid JSON") from exc
         if not isinstance(payload, dict):
-            raise HarborClientError("invalid_response", "Harbor returned an invalid object response")
+            raise HarborClientError(
+                "invalid_response",
+                "Harbor returned an invalid object response",
+            )
         return payload
 
     @staticmethod
