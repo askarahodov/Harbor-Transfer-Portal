@@ -40,6 +40,7 @@
 | [offline-bundle-v1.md](offline-bundle-v1.md) | формат Bundle v1, signing/checksum/archive contract | **нормативный** |
 | `schema/` | machine-readable protocol schemas | **нормативный** |
 | [package-service.md](package-service.md) | реализационная граница Bundle build/verify | актуальный component doc |
+| [operation-manager.md](operation-manager.md) | background execution, progress, cancellation, worker ownership и restart reconciliation | актуальный component doc |
 | [skopeo-service.md](skopeo-service.md) | container image transfer service | актуальный component doc |
 | [helm-oci-service.md](helm-oci-service.md) | Helm OCI transfer service | актуальный component doc |
 | [harbor-browse-api.md](harbor-browse-api.md) | Harbor API projection/policies | актуальный component doc |
@@ -63,10 +64,13 @@
 - #59 — `user-guide.md` для operator/viewer;
 - #60 — `admin-guide.md`;
 - #61 — `troubleshooting.md`;
-- #67 — automated documentation link gate — текущая итерация;
-- #68 — свежий root README поверх актуальных sources — после #67.
+- #67 — automated documentation link gate — выполнено;
+- #71 — синхронизация architecture с persistent OperationManager — текущая итерация;
+- #68 — свежий root README поверх актуальных sources — следующий documentation step.
 
-`user-guide.md`, `admin-guide.md` и `troubleshooting.md` не следует заполнять вымышленными завершёнными flow. Разделы, зависящие от ещё не реализованной orchestration/history/report функциональности, создаются после стабилизации соответствующего поведения либо явно маркируются как незавершённые.
+`user-guide.md`, `admin-guide.md` и `troubleshooting.md` не следует заполнять вымышленными завершёнными flow. Разделы, зависящие от ещё не реализованной feature-specific export/import/history/report функциональности, создаются после стабилизации соответствующего поведения либо явно маркируются как незавершённые.
+
+Generic `OperationManager` уже реализован, но это execution foundation, а не доказательство готовности пользовательских export/import flows.
 
 ## Автоматическая проверка документации
 
@@ -98,6 +102,7 @@ Path-aware CI включает отдельный `Documentation — local links
 |---|---|
 | Bundle schema/protocol | protocol doc + schema + tests + ADR при несовместимом решении |
 | Architecture/service boundary | architecture + specialized doc + ADR при значимом решении |
+| Background operation lifecycle/restart/cancel | architecture + operation-manager + testing/user/admin docs по мере появления UX |
 | Auth/security/secret handling | security + ADR + deployment/admin docs |
 | Environment/configuration | `.env.example` + deployment/admin docs |
 | Frontend flow | frontend + user guide/current-state marker |
