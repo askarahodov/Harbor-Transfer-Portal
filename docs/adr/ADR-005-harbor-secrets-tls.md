@@ -29,12 +29,13 @@ Credential хранится отдельным файлом с режимом `0
 2. Credential, установленный через admin API, атомарно записывается в `HARBOR_MANAGED_SECRET_FILE` (по умолчанию `./data/secrets/harbor-password`) с режимом `0600`.
 3. Bootstrap fallback разрешён в порядке: managed credential file → `HARBOR_PASSWORD_FILE` → `HARBOR_PASSWORD`. API сообщает только `credential_configured: true/false` и никогда не возвращает источник или значение.
 4. `PATCH /api/settings/harbor` физически не содержит поля credential. Rotation выполняется только `PUT /api/settings/harbor/credential`, поэтому изменение URL/username/TLS не может случайно очистить credential.
-5. TLS verification по умолчанию включена. `verify_tls=false` требует явного admin action и отображается в UI как предупреждение; автоматического fallback на insecure TLS нет.
-6. Пользовательский CA загружается как PEM/CRT через portal API, валидируется стандартным SSL loader и атомарно сохраняется в `HARBOR_MANAGED_CA_FILE` с режимом `0600`. Пользователь не задаёт server-side path через API.
-7. Deployment-provided `HARBOR_CA_FILE` остаётся bootstrap fallback, если managed CA отсутствует.
-8. Effective Harbor configuration разрешается на каждый запрос из DB overrides + file/env bootstrap, поэтому изменения применяются без рестарта backend.
-9. Изменения settings/credential/CA создают `AuditEvent`. Metadata содержит только `changed_fields`; старые/новые значения credential и CA содержимое туда не записываются.
-10. API одного экземпляра содержит только один набор полей локального Harbor; секций SOURCE Harbor + TARGET Harbor одновременно не существует.
+5. Harbor base URL обязан описывать только origin вида `https://harbor.example`: userinfo (`user:password@host`), query, fragment и subpath запрещены. Одинаковая валидация применяется к bootstrap-конфигурации, admin API и сохранённому DB override, чтобы credential нельзя было замаскировать под non-secret URL.
+6. TLS verification по умолчанию включена. `verify_tls=false` требует явного admin action и отображается в UI как предупреждение; автоматического fallback на insecure TLS нет.
+7. Пользовательский CA загружается как PEM/CRT через portal API, валидируется стандартным SSL loader и атомарно сохраняется в `HARBOR_MANAGED_CA_FILE` с режимом `0600`. Пользователь не задаёт server-side path через API.
+8. Deployment-provided `HARBOR_CA_FILE` остаётся bootstrap fallback, если managed CA отсутствует.
+9. Effective Harbor configuration разрешается на каждый запрос из DB overrides + file/env bootstrap, поэтому изменения применяются без рестарта backend.
+10. Изменения settings/credential/CA создают `AuditEvent`. Metadata содержит только `changed_fields`; старые/новые значения credential и CA содержимое туда не записываются.
+11. API одного экземпляра содержит только один набор полей локального Harbor; секций SOURCE Harbor + TARGET Harbor одновременно не существует.
 
 ## Security consequences
 
@@ -42,12 +43,12 @@ Credential хранится отдельным файлом с режимом `0
 - Тот, кто может читать backend persistent volume, потенциально может прочитать managed credential; права каталога/файла и host-level доступ остаются deployment security boundary.
 - Environment secret поддерживается только как bootstrap compatibility path и не считается предпочтительным вариантом для новой установки.
 - CA является публичным trust material, но хранится в том же закрытом каталоге, чтобы исключить подмену через произвольные пользовательские пути.
-- Harbor connection errors нормализуются; upstream body/credential не возвращаются frontend.
+- Harbor connection errors и validation errors нормализуются; upstream body, credential и исходное значение URL с embedded secret не возвращаются frontend.
 
 ## Совместимость и миграции
 
-Добавляется таблица `audit_events`. Существующие `HARBOR_URL`, `HARBOR_USER`, `HARBOR_PASSWORD`, `HARBOR_VERIFY_TLS`, `HARBOR_CA_FILE` продолжают работать как bootstrap fallback, поэтому существующие Compose-инсталляции не требуют немедленной миграции конфигурации.
+Добавляется таблица `audit_events`. Существующие `HARBOR_URL`, `HARBOR_USER`, `HARBOR_PASSWORD`, `HARBOR_VERIFY_TLS`, `HARBOR_CA_FILE` продолжают работать как bootstrap fallback, поэтому существующие Compose-инсталляции не требуют немедленной миграции конфигурации. Если ранее `HARBOR_URL` содержал userinfo или subpath, его необходимо разделить на безопасный origin и штатные credential-поля до запуска новой версии.
 
 ## Проверка
 
-Обязательные tests проверяют admin-only mutation, отсутствие credential в API/audit, сохранение credential при PATCH, atomic file mode `0600`, explicit TLS disable, managed CA, sanitized connection-test failures и frontend no-prefill behavior.
+Обязательные tests проверяют admin-only mutation, отсутствие credential в API/audit, сохранение credential при PATCH, atomic file mode `0600`, explicit TLS disable, managed CA, sanitized connection-test failures, отказ от URL с embedded credential/query/fragment/subpath и frontend no-prefill behavior.
