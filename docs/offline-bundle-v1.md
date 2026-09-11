@@ -1,60 +1,128 @@
-# Harbor Transfer Portal Offline Bundle Protocol v1
+# Протокол офлайн-пакета Harbor Transfer Portal v1
 
-Status: normative for schema family `1.x`.
+Статус: нормативный документ для семейства схем `1.x`.
 
-## Purpose
+## Назначение
 
-SOURCE and TARGET installations have no network connectivity to one another. Compatibility is defined by this bundle protocol only. A bundle contains no Harbor credentials, tokens or private signing keys.
+Установки SOURCE и TARGET не имеют сетевого соединения друг с другом. Совместимость между ними определяется только этим протоколом пакета доставки. Пакет не содержит учётных данных Harbor, токенов или закрытых ключей подписи.
 
-## Bundle filename
+## Имя файла пакета
 
-Recommended filename: `DELIVERY-YYYYMMDD-RANDOM.htp.tar.gz`, where `RANDOM` is 6–32 uppercase alphanumeric characters generated from cryptographically secure randomness. `delivery_id` uses the same `DELIVERY-YYYYMMDD-RANDOM` value and is immutable.
+Рекомендуемый формат: `DELIVERY-YYYYMMDD-RANDOM.htp.tar.gz`, где `RANDOM` — 6–32 заглавных латинских букв или цифр, полученных из криптографически стойкого источника случайности. `delivery_id` использует то же значение `DELIVERY-YYYYMMDD-RANDOM` и после создания не изменяется.
 
-## Required top-level members
+## Обязательные элементы верхнего уровня
 
-- `manifest.json`
-- `manifest.sig`
-- `checksums.sha256`
-- one or more payload files/directories referenced by `manifest.json`
+- `manifest.json`;
+- `manifest.sig`;
+- `checksums.sha256`;
+- один или несколько payload-файлов/каталогов, указанных в `manifest.json`.
 
-All paths use `/` separators and are relative to archive root.
+Все пути используют `/` как разделитель и задаются относительно корня архива.
 
-## Signed bytes
+## Подписываемые байты
 
-`manifest.sig` is an Ed25519 signature over the exact canonical UTF-8 bytes of `manifest.json`. Canonical JSON is: no BOM, UTF-8, sorted object keys, no insignificant whitespace, JSON separators `,` and `:`, and omission of fields whose value is `null`. Implementations must not parse and reserialize using another convention before verification.
+`manifest.sig` содержит Ed25519-подпись точных канонических UTF-8 байтов `manifest.json`.
 
-## Checksums
+Канонический JSON определяется следующим образом:
 
-`checksums.sha256` contains SHA-256 entries for every payload file. It MUST NOT contain an entry for itself or `manifest.sig`, avoiding circular definitions. `manifest.json` is authenticated by the Ed25519 signature; payload checksum and size are also duplicated in the manifest descriptor.
+- без BOM;
+- кодировка UTF-8;
+- ключи объектов отсортированы;
+- отсутствуют незначащие пробелы;
+- используются разделители JSON `,` и `:`;
+- поля со значением `null` не сериализуются.
 
-TARGET verification order is: safe archive structure → supported schema major → canonical manifest/signature → checksum file syntax → payload hashes/sizes → semantic manifest validation → import.
+Перед проверкой подписи реализация не должна разбирать и повторно сериализовать манифест по другим правилам.
 
-## Manifest
+## Контрольные суммы
 
-Required fields: `schema_version`, `delivery_id`, UTC `created_at`, `created_by`, non-secret `source` metadata and non-empty `artifacts`.
+`checksums.sha256` содержит SHA-256 для каждого payload-файла. Он **не должен** содержать запись для самого себя или `manifest.sig`, чтобы не создавать циклических зависимостей.
 
-Container image descriptors use `type=container-image`, repository, tag/reference, source OCI digest, payload path, SHA-256 and size. Helm descriptors use `type=helm-chart`, repository/name, version, optional reliable OCI digest, payload path, SHA-256 and size.
+Подлинность `manifest.json` подтверждается Ed25519-подписью. Контрольная сумма и размер каждого payload дополнительно записываются в соответствующем descriptor манифеста.
 
-Unknown optional fields within major version 1 SHOULD be ignored when safe. Unsupported major versions MUST be rejected before import.
+Порядок проверки на TARGET:
 
-## Image payload representation
+1. безопасная структура архива;
+2. поддерживаемая major-версия схемы;
+3. канонический манифест и Ed25519-подпись;
+4. синтаксис `checksums.sha256`;
+5. SHA-256 и размеры payload;
+6. семантическая валидация манифеста;
+7. только после этого — импорт.
 
-Container images use an OCI image-layout directory (`skopeo copy --all ... oci:<path>:<tag>` style representation), not Docker archive. This preserves multi-architecture index/manifest structure and OCI digests more reliably than a single-image Docker tar representation. The bundle tar provides physical portability; the OCI directory remains an internal payload structure.
+## Манифест
 
-## Archive security
+Обязательные поля: `schema_version`, `delivery_id`, UTC `created_at`, `created_by`, несекретные metadata `source` и непустой массив `artifacts`.
 
-Readers MUST reject absolute paths, path traversal, backslashes used as path separators, NUL-containing names, duplicate members, symlinks, hardlinks, device nodes, FIFOs and other unsupported file types. Security-critical members (`manifest.json`, `manifest.sig`, `checksums.sha256`) must occur exactly once. Extraction must occur only into a newly created controlled directory.
+Descriptor контейнерного образа содержит как минимум:
 
-## Operation state model
+- `type=container-image`;
+- repository;
+- tag/reference;
+- исходный OCI digest;
+- относительный путь payload;
+- SHA-256 payload;
+- размер payload.
 
-Export legal baseline:
+Descriptor Helm-чарта содержит как минимум:
+
+- `type=helm-chart`;
+- repository/name;
+- version;
+- исходный OCI digest, если его можно получить с достаточной надёжностью;
+- относительный путь `.tgz` payload;
+- SHA-256;
+- размер.
+
+Неизвестные необязательные поля внутри major-версии 1 следует игнорировать, если это безопасно. Неподдерживаемая major-версия должна быть отклонена до импорта.
+
+## Представление контейнерных образов
+
+Контейнерные образы хранятся внутри пакета как каталог OCI image-layout, соответствующий подходу `skopeo copy --all ... oci:<path>:<tag>`, а не как Docker archive.
+
+Такое представление лучше сохраняет multi-architecture index/manifest и OCI digests. Внешний `.htp.tar.gz` уже обеспечивает переносимость одним файлом, поэтому дополнительный Docker-style tar внутри пакета не требуется.
+
+Архитектурное решение подробно зафиксировано в [ADR-009](adr/ADR-009-oci-layout-payload.md).
+
+## Безопасность архива
+
+Reader/verifier обязан отклонять:
+
+- абсолютные пути;
+- path traversal (`..`);
+- `\` как разделитель пути;
+- имена с NUL;
+- дублирующиеся archive members;
+- symlink;
+- hardlink;
+- device nodes;
+- FIFO;
+- иные неподдерживаемые типы файлов.
+
+Критические элементы `manifest.json`, `manifest.sig` и `checksums.sha256` должны встречаться ровно по одному разу. Распаковка разрешена только в новый контролируемый каталог.
+
+## Модель состояний операций
+
+Базовая цепочка экспорта:
+
 `CREATED → VALIDATING → RUNNING → PACKAGING → VERIFYING → COMPLETED`.
-`FAILED` and `CANCELLED` are terminal failure/abort exits from active stages.
 
-Import legal baseline:
+`FAILED` и `CANCELLED` — терминальные выходы из активных стадий при ошибке или отмене.
+
+Базовая цепочка импорта:
+
 `UPLOADED|DISCOVERED → VERIFYING → READY → IMPORTING → VERIFYING_TARGET → COMPLETED`.
-`FAILED`, `REJECTED` and `CANCELLED` are terminal states. `REJECTED` means the bundle was refused before import due to trust, compatibility or validation policy.
 
-Illegal transitions are domain errors and must never be silently coerced.
+`FAILED`, `REJECTED` и `CANCELLED` — терминальные состояния. `REJECTED` означает, что пакет отклонён до импорта из-за ошибки доверия, совместимости или политики валидации.
 
-Per-artifact states: `PENDING`, `RUNNING`, `IMPORTED`, `SKIPPED`, `CONFLICT`, `FAILED`, `VERIFIED`. `SKIPPED` is a successful idempotent outcome only when policy confirms the target already contains the expected artifact. `CONFLICT` means the same logical destination exists with different verified content.
+Недопустимый переход состояния является доменной ошибкой и не должен автоматически приводиться к другому состоянию.
+
+## Состояния отдельных артефактов
+
+Используются состояния:
+
+`PENDING`, `RUNNING`, `IMPORTED`, `SKIPPED`, `CONFLICT`, `FAILED`, `VERIFIED`.
+
+`SKIPPED` считается успешным идемпотентным результатом только тогда, когда политика подтверждает, что TARGET уже содержит ожидаемый артефакт.
+
+`CONFLICT` означает, что в той же логической точке назначения уже существует другое проверенное содержимое.
