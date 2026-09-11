@@ -44,7 +44,14 @@ def test_manifest_round_trip_and_canonical_bytes_are_deterministic() -> None:
 
 def test_payload_path_rejects_traversal() -> None:
     with pytest.raises(ValidationError):
-        make_manifest().artifacts[0].model_copy(update={"payload_path": "../escape"})
+        ContainerImageArtifact(
+            repository="project/app",
+            reference="1.0.0",
+            source_digest="sha256:" + "a" * 64,
+            payload_path="../escape",
+            payload_sha256="b" * 64,
+            payload_size=123,
+        )
 
 
 def test_operation_state_machine_rejects_illegal_transition() -> None:
