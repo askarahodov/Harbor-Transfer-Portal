@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { History, LogIn, PackageOpen, Settings, Upload } from '@lucide/vue-next'
+import { History, LogIn, PackageOpen, Settings, Upload } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 
 import { useRuntimeStore } from '@/stores/runtime'
