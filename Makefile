@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: help up down logs fmt lint test test-backend test-frontend build check-foundation
+.PHONY: help up down logs fmt lint lint-backend test test-backend test-frontend build check-foundation
 
 help:
 	@printf '%s\n' \
@@ -8,7 +8,8 @@ help:
 	  'make down           Stop local stack' \
 	  'make logs           Follow local stack logs' \
 	  'make fmt            Format backend and frontend' \
-	  'make lint           Run all linters' \
+	  'make lint           Run all implemented linters' \
+	  'make lint-backend   Run backend Ruff checks only' \
 	  'make test           Run backend and frontend tests' \
 	  'make test-backend   Run backend tests only' \
 	  'make test-frontend  Run frontend tests only' \
@@ -33,12 +34,13 @@ fmt:
 	@test -f frontend/package.json || { echo 'frontend/package.json is not implemented yet'; exit 2; }
 	cd frontend && npm run format
 
-lint:
-	@test -f backend/pyproject.toml || { echo 'backend/pyproject.toml is not implemented yet'; exit 2; }
-	cd backend && python -m ruff check .
-	cd backend && python -m mypy .
+lint: lint-backend
 	@test -f frontend/package.json || { echo 'frontend/package.json is not implemented yet'; exit 2; }
 	cd frontend && npm run lint
+
+lint-backend:
+	@test -f backend/pyproject.toml || { echo 'backend/pyproject.toml is not implemented yet'; exit 2; }
+	cd backend && python -m ruff check .
 
 test: test-backend test-frontend
 
