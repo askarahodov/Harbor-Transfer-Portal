@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from typing import Annotated
 
-from app.auth.dependencies import get_db_session, require_roles
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.auth.dependencies import SessionDep, require_roles
 from app.auth.security import hash_password
 from app.db.models import User, UserRole
 from app.db.repositories import UserRepository
 from app.schemas.users import UserCreateRequest, UserResponse, UserUpdateRequest
 
 router = APIRouter(prefix="/users", tags=["users"])
+AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
 
 
 def _to_response(user: User) -> UserResponse:
@@ -16,8 +18,8 @@ def _to_response(user: User) -> UserResponse:
 
 @router.get("", response_model=list[UserResponse])
 def list_users(
-    _admin: User = Depends(require_roles(UserRole.ADMIN)),
-    session: Session = Depends(get_db_session),
+    _admin: AdminDep,
+    session: SessionDep,
 ) -> list[UserResponse]:
     return [_to_response(user) for user in UserRepository(session).list()]
 
@@ -25,8 +27,8 @@ def list_users(
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreateRequest,
-    _admin: User = Depends(require_roles(UserRole.ADMIN)),
-    session: Session = Depends(get_db_session),
+    _admin: AdminDep,
+    session: SessionDep,
 ) -> UserResponse:
     repo = UserRepository(session)
     if repo.get_by_username(payload.username) is not None:
@@ -44,8 +46,8 @@ def create_user(
 def update_user(
     user_id: int,
     payload: UserUpdateRequest,
-    _admin: User = Depends(require_roles(UserRole.ADMIN)),
-    session: Session = Depends(get_db_session),
+    _admin: AdminDep,
+    session: SessionDep,
 ) -> UserResponse:
     user = UserRepository(session).get(user_id)
     if user is None:
