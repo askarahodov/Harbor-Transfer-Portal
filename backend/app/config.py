@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     harbor_url: AnyHttpUrl | None = None
     harbor_user: str | None = None
     harbor_password: SecretStr | None = None
+    harbor_verify_tls: bool = True
+    harbor_ca_file: Path | None = None
+    harbor_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
+    harbor_read_timeout_seconds: float = Field(default=20.0, gt=0, le=300)
 
     jwt_secret: SecretStr | None = None
     jwt_access_token_minutes: int = Field(default=30, ge=1, le=1440)
