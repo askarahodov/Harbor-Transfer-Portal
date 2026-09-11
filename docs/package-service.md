@@ -7,7 +7,7 @@
 Build разрешён только при `PORTAL_CONTOUR=SOURCE`. Сервис принимает несекретные metadata артефактов и пути уже экспортированных payload внутри `BUNDLE_PAYLOAD_ROOT`, затем:
 
 1. создаёт private temporary workspace mode `0700`;
-2. snapshot-копирует payload, отклоняя symlink и special files;
+2. разрешает source path только после `resolve()` внутри `BUNDLE_PAYLOAD_ROOT`, snapshot-копирует payload и отклоняет symlink/special files внутри payload tree;
 3. вычисляет SHA-256 каждого payload-файла и `checksums.sha256`;
 4. формирует typed `BundleManifest` и canonical UTF-8 `manifest.json`;
 5. подписывает точные canonical bytes Ed25519 private key;
@@ -32,14 +32,15 @@ Verifier выполняет проверки до extraction и до любых 
 
 1. размер archive и, если передан, whole-file `.sha256` sidecar;
 2. tar member count, total extracted size и compression ratio;
-3. path safety, duplicate names, links и special file types;
-4. наличие ровно одного `manifest.json`, `manifest.sig`, `checksums.sha256`;
-5. raw UTF-8 JSON canonical form и поддерживаемый schema major;
-6. Ed25519 signature exact manifest bytes;
-7. Draft 2020-12 JSON Schema и typed semantic validation;
-8. точное соответствие checksum file set файлам archive;
-9. SHA-256 каждого payload-файла;
-10. signed descriptor checksum/size metadata и отсутствие undeclared payload.
+3. canonical path safety: raw path aliases (`./`, повторные `/`), normalized duplicates, links и special file types отклоняются;
+4. security-critical entries обязаны быть обычными файлами и встречаться ровно по одному разу;
+5. payload archive layout ограничен `images/` и `charts/`; посторонние top-level/empty directory-only members отклоняются;
+6. raw UTF-8 JSON canonical form и поддерживаемый schema major;
+7. Ed25519 signature exact manifest bytes;
+8. Draft 2020-12 JSON Schema и typed semantic validation;
+9. точное соответствие checksum file set файлам archive;
+10. SHA-256 каждого payload-файла;
+11. signed descriptor checksum/size metadata и отсутствие undeclared payload.
 
 Только после всех проверок разрешена ручная extraction в новый каталог внутри `BUNDLE_EXTRACT_ROOT`. Используется контролируемая запись файлов, а не небезопасный `tar.extractall()` над непроверенным archive.
 
@@ -51,7 +52,7 @@ Container image descriptor должен указывать на каталог �
 
 ## Ed25519 keys
 
-SOURCE private key задаётся `BUNDLE_SIGNING_PRIVATE_KEY_FILE`. Файл должен быть regular PEM Ed25519 PKCS#8, не symlink, и не иметь group/other permissions; штатный режим — `0600`.
+SOURCE private key задаётся `BUNDLE_SIGNING_PRIVATE_KEY_FILE`. После разрешения configured path целевой объект должен быть regular PEM Ed25519 PKCS#8 и не иметь group/other permissions; штатный режим — `0600`. Каталог и механизм монтирования ключа являются deployment boundary и не должны быть доступны непривилегированным пользователям.
 
 Пример генерации через OpenSSL на административной машине:
 
