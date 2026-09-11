@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     harbor_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
     harbor_read_timeout_seconds: float = Field(default=20.0, gt=0, le=300)
 
+    skopeo_binary: str = "skopeo"
+    skopeo_timeout_seconds: float = Field(default=300.0, gt=0, le=3600)
+    skopeo_output_limit_bytes: int = Field(default=65_536, ge=4096, le=1_048_576)
+    skopeo_payload_root: Path = Path("./data")
+    skopeo_temp_root: Path = Path("./data/tmp")
+
     jwt_secret: SecretStr | None = None
     jwt_access_token_minutes: int = Field(default=30, ge=1, le=1440)
     login_rate_limit_window_seconds: int = Field(default=300, ge=1, le=86400)
