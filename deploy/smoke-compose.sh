@@ -45,7 +45,7 @@ wait_frontend
 
 docker compose exec -T frontend wget -q -O - http://127.0.0.1/api/health | grep -F '"status":"ok"' >/dev/null
 docker compose exec -T frontend wget -q -O - http://127.0.0.1/runtime-config.js | grep -E "contour: '(SOURCE|TARGET)'" >/dev/null
-docker compose exec -T backend sh -c "test \"$(id -u)\" -ne 0"
+docker compose exec -T backend sh -c 'test "$(id -u)" -ne 0'
 docker compose exec -T backend sh -c "skopeo --version | grep -F '1.9.3' >/dev/null"
 docker compose exec -T backend sh -c "helm version --short | grep -F 'v3.22.0' >/dev/null"
 
