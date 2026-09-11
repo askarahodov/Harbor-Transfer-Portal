@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.auth import router as auth_router
+from app.api.exports import router as exports_router
 from app.api.harbor import router as harbor_router
 from app.api.health import router as health_router
 from app.api.operations import router as operations_router
@@ -14,3 +15,4 @@ api_router.include_router(users_router)
 api_router.include_router(harbor_router)
 api_router.include_router(settings_router)
 api_router.include_router(operations_router)
+api_router.include_router(exports_router)

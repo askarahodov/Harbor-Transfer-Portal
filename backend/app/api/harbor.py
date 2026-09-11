@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.auth.dependencies import CurrentUserDep, SessionDep
+from app.domain.artifacts import classify_artifact_kind
 from app.schemas.harbor import (
     ArtifactKind,
     HarborArtifactResponse,
@@ -61,17 +62,11 @@ def _repository_name(project: str, harbor_name: str) -> str:
 
 
 def _classify(artifact: HarborArtifact) -> ArtifactKind:
-    artifact_type = (artifact.type or "").upper()
-    haystack = " ".join(filter(None, [artifact.type, artifact.media_type])).casefold()
-    annotations = artifact.extra_attrs.get("annotations") if artifact.extra_attrs else None
-    if isinstance(annotations, dict):
-        haystack += " " + " ".join(str(value).casefold() for value in annotations.values())
-
-    if artifact_type in {"CHART", "HELM", "HELM_CHART"} or "helm" in haystack:
-        return ArtifactKind.HELM_CHART
-    if artifact_type == "IMAGE" or "image" in haystack or "container" in haystack:
-        return ArtifactKind.CONTAINER_IMAGE
-    return ArtifactKind.UNKNOWN_OCI
+    return classify_artifact_kind(
+        artifact.type,
+        artifact.media_type,
+        artifact.extra_attrs,
+    )
 
 
 def _artifact_response(

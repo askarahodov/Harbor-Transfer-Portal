@@ -36,6 +36,12 @@ class OperationProgressResponse(BaseModel):
     running_artifact_ids: list[int]
 
 
+class OperationBundleResponse(BaseModel):
+    filename: str
+    size_bytes: int
+    sha256: str
+
+
 class OperationResponse(BaseModel):
     id: int
     delivery_id: str | None
@@ -48,5 +54,6 @@ class OperationResponse(BaseModel):
     error_code: str | None
     error_message: str | None
     cancel_requested: bool
+    bundle: OperationBundleResponse | None
     progress: OperationProgressResponse
     artifacts: list[OperationArtifactResponse]

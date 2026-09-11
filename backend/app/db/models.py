@@ -86,9 +86,13 @@ class Operation(TimestampMixin, Base):
     worker_started_at: Mapped[datetime | None] = mapped_column(nullable=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(nullable=True)
     cancel_requested_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    bundle_filename: Mapped[str | None] = mapped_column(String(192), nullable=True)
+    bundle_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bundle_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     artifacts: Mapped[list["ArtifactResult"]] = relationship(
-        back_populates="operation", cascade="all, delete-orphan"
+        back_populates="operation",
+        cascade="save-update, merge, refresh-expire, delete, delete-orphan",
     )
 
 

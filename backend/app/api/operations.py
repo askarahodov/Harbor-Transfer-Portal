@@ -6,6 +6,7 @@ from app.db.repositories import OperationRepository
 from app.domain.bundle import ArtifactStatus
 from app.schemas.operations import (
     OperationArtifactResponse,
+    OperationBundleResponse,
     OperationProgressResponse,
     OperationResponse,
 )
@@ -32,6 +33,17 @@ def _serialize_operation(operation: Operation) -> OperationResponse:
         }
         for artifact in artifacts
     )
+    bundle = None
+    if (
+        operation.bundle_filename is not None
+        and operation.bundle_sha256 is not None
+        and operation.bundle_size_bytes is not None
+    ):
+        bundle = OperationBundleResponse(
+            filename=operation.bundle_filename,
+            size_bytes=operation.bundle_size_bytes,
+            sha256=operation.bundle_sha256,
+        )
     return OperationResponse(
         id=operation.id,
         delivery_id=operation.delivery_id,
@@ -44,6 +56,7 @@ def _serialize_operation(operation: Operation) -> OperationResponse:
         error_code=operation.error_code,
         error_message=operation.error_message,
         cancel_requested=operation.cancel_requested_at is not None,
+        bundle=bundle,
         progress=OperationProgressResponse(
             total_artifacts=operation.total_artifacts,
             completed_artifacts=completed,

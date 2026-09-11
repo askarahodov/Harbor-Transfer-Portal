@@ -9,6 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.router import api_router
 from app.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
+from app.services.export_recovery import reconcile_incomplete_export_publications
 from app.services.operation_manager import OperationManager
 from app.utils.errors import http_exception_handler, validation_exception_handler
 
@@ -21,6 +22,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        reconcile_incomplete_export_publications(session_factory, resolved_settings)
         await operation_manager.startup()
         try:
             yield
