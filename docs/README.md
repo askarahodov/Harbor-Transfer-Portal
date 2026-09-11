@@ -58,7 +58,7 @@
 
 - #55 — актуальная architecture и separation от historical master-document — выполнено;
 - #56 — полная security/trust model — выполнено;
-- #57 — deployment/config/credential/key synchronization — выполняется/проверяется;
+- #57 — deployment/config/credential/key synchronization — выполнено;
 - #58 — этот docs hygiene workstream;
 - #59 — `user-guide.md` для operator/viewer;
 - #60 — `admin-guide.md`;
