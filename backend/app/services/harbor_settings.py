@@ -10,7 +10,7 @@ from typing import Any, Final
 from pydantic import AnyHttpUrl, SecretStr, TypeAdapter
 from sqlalchemy.orm import Session
 
-from app.config import Settings
+from app.config import Settings, validate_harbor_base_url
 from app.db.models import AuditEvent, SettingMetadata, User
 
 HARBOR_URL_KEY: Final = "harbor.url"
@@ -75,7 +75,6 @@ def _read_secret_file(path: Path) -> str:
 def _atomic_write_private(path: Path, value: str) -> None:
     try:
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(path.parent, 0o700)
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
@@ -89,6 +88,11 @@ def _atomic_write_private(path: Path, value: str) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp_path, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     except OSError as exc:
         try:
             if "temp_path" in locals() and temp_path.exists():
@@ -144,7 +148,8 @@ def resolve_harbor_settings(session: Session, bootstrap: Settings) -> Settings:
             updates["harbor_url"] = None
         elif isinstance(stored_url, str):
             try:
-                updates["harbor_url"] = _HTTP_URL.validate_python(stored_url)
+                parsed_url = _HTTP_URL.validate_python(stored_url)
+                updates["harbor_url"] = validate_harbor_base_url(parsed_url)
             except ValueError as exc:
                 raise HarborSettingsError(
                     "harbor_configuration_invalid",
