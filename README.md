@@ -27,6 +27,21 @@ Backend предоставляет локальный API портала и по
 
 Нормативное описание текущего протокола находится в [docs/offline-bundle-v1.md](docs/offline-bundle-v1.md).
 
+## Документация
+
+| Документ | Описание |
+|---|---|
+| [docs/harbor-transfer-portal.md](docs/harbor-transfer-portal.md) | Мастер-дocument: архитектура, UI-макеты, фазы разработки |
+| [docs/offline-bundle-v1.md](docs/offline-bundle-v1.md) | Протокол офлайн-пакета v1: структура, подпись, проверка |
+| [docs/skopeo-service.md](docs/skopeo-service.md) | Сервис работы с контейнерными образами через Skopeo |
+| [docs/helm-oci-service.md](docs/helm-oci-service.md) | Сервис работы с Helm OCI-чартами |
+| [docs/harbor-browse-api.md](docs/harbor-browse-api.md) | Harbor REST API v2: проекция DTO и политики |
+| [docs/frontend.md](docs/frontend.md) | Фронтенд: стек, маршруты, токены, структура |
+| [docs/security.md](docs/security.md) | Защита локального входа: rate limiting, хранение, настройка |
+| [docs/testing.md](docs/testing.md) | Стратегия тестирования и CI |
+| [docs/decisions.md](docs/decisions.md) | Реестр архитектурных решений (ADR) |
+| [deploy/README.md](deploy/README.md) | Развертывание: Docker Compose, persistent data, smoke test |
+
 ## Быстрый старт разработки
 
 Текущие базовые требования:
@@ -93,10 +108,6 @@ npm test
 npm run build
 ```
 
-Frontend использует Vue Router, Pinia, Axios, Element Plus и Lucide. Маршруты foundation: `/login`, `/`, `/export`, `/import`, `/history`, `/settings`.
-
-Значение контура не hardcode в страницах: основным источником является локальный `GET /api/health`; `runtime-config.js` используется только как offline-safe bootstrap fallback.
-
 ### Docker Compose
 
 После заполнения `.env` локальный двухсервисный стек можно проверить и запустить командами:
@@ -106,23 +117,15 @@ make compose-config
 make up
 ```
 
-Backend перед стартом API автоматически применяет все Alembic migrations до текущего head, frontend публикует HTTP-порт и проксирует `/api/` во внутреннюю Compose-сеть. Полная эксплуатационная инструкция, правила persistent data, bootstrap администратора и smoke test описаны в [deploy/README.md](deploy/README.md).
+Детали: настройка окружения, persistent data, bootstrap администратора и smoke test — в [deploy/README.md](deploy/README.md).
 
 Общие Make-цели остаются строгими: если требуемый компонент отсутствует или проверка завершается ошибкой, команда должна вернуть ненулевой код, а не молча пропустить проверку.
 
 ## Конфигурация
 
-`PORTAL_CONTOUR` принимает только `SOURCE` или `TARGET`. Каждая установка использует один нейтральный набор `HARBOR_*` для собственного локального Harbor. Учётные данные противоположного контура в этой установке не хранятся и не настраиваются.
+`PORTAL_CONTOUR` принимает только `SOURCE` или `TARGET`. Каждая установка использует один нейтральный набор `HARBOR_*` для собственного локального Harbor. Учётные данные противоположного контура в этой установке не хранятся и не настраивают.
 
 Endpoints состояния и готовности не раскрывают пароль Harbor или другую секретную конфигурацию.
-
-### Защита локального входа
-
-Backend ограничивает неуспешные попытки входа одновременно по нормализованному имени пользователя и адресу клиента, который FastAPI получает от доверенного ASGI-соединения. По умолчанию для username допускается 5 ошибок за 300 секунд, для одного client address — 20 ошибок; после достижения порога действует блокировка на 900 секунд. Адресный порог специально выше пользовательского, чтобы снизить риск блокировки нескольких операторов за общим адресом.
-
-Состояние ограничителя хранится в SQLite и поэтому сохраняется при обычном рестарте приложения. Исходные username и client address в таблицу ограничителя не записываются: вместо них используется HMAC-SHA256 отпечаток на ключе установки `JWT_SECRET`. Успешный вход очищает счётчик конкретного username; адресный счётчик ошибок сбрасывается естественно после окна. Заблокированные и обычные неверные попытки возвращают одинаковую ошибку `invalid credentials`, поэтому механизм не должен использоваться как признак существования учётной записи.
-
-Параметры `LOGIN_RATE_LIMIT_WINDOW_SECONDS`, `LOGIN_RATE_LIMIT_USERNAME_MAX_FAILURES`, `LOGIN_RATE_LIMIT_ADDRESS_MAX_FAILURES` и `LOGIN_RATE_LIMIT_LOCKOUT_SECONDS` можно изменить через окружение. Не устанавливайте слишком низкий адресный порог без анализа схемы reverse proxy: приложение намеренно не доверяет произвольному пользовательскому `X-Forwarded-For` само по себе.
 
 ## Принципы разработки
 
