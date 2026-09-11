@@ -23,11 +23,11 @@ data/      local runtime state; generated contents are ignored
 deploy/    deployment and offline packaging assets
 ```
 
-The planned backend integrates with the local Harbor API, Skopeo for container-image transport, and Helm OCI for chart transport. Bundle creation and import include explicit metadata, checksums and verification so a successful process exit is not treated as proof of a successful delivery.
+The backend integrates with the local Harbor API, Skopeo for container-image transport, and Helm OCI for chart transport. Bundle creation and import include explicit metadata, checksums and verification so a successful process exit is not treated as proof of a successful delivery.
 
 ## Development quick start
 
-Prerequisites for later implementation stages:
+Prerequisites:
 
 - GNU Make
 - Docker with Docker Compose v2
@@ -41,7 +41,7 @@ Prepare local configuration:
 cp .env.example .env
 ```
 
-Common commands:
+Common repository commands:
 
 ```bash
 make up
@@ -52,7 +52,22 @@ make build
 make down
 ```
 
-At the repository-foundation stage implementation-backed targets intentionally report missing backend/frontend/compose files. Missing checks must never silently pass.
+Implementation-backed Make targets fail clearly while their corresponding project stage is not yet present; missing checks must never silently pass.
+
+### Frontend
+
+The frontend foundation uses Vue 3, Vite, TypeScript, Pinia, Vue Router, Axios, Element Plus and Lucide. It has no runtime CDN dependency.
+
+```bash
+cd frontend
+npm install
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
+
+Contour identity is read at runtime from `public/runtime-config.js` through `window.__HTP_CONFIG__`. Deployment tooling may replace that file with `SOURCE` or `TARGET` configuration without rebuilding the SPA; production pages do not hardcode contour values.
 
 ## Engineering principles
 
