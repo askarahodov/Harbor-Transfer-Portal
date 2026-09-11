@@ -1,0 +1,260 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: Определение области изменений
+    runs-on: ubuntu-24.04
+    outputs:
+      backend: ${{ steps.scope.outputs.backend }}
+      frontend: ${{ steps.scope.outputs.frontend }}
+      protocol: ${{ steps.scope.outputs.protocol }}
+      compose: ${{ steps.scope.outputs.compose }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Определить затронутые области
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          changed_file="${RUNNER_TEMP}/changed-files.txt"
+          : > "${changed_file}"
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --name-only \
+              "${{ github.event.pull_request.base.sha }}" \
+              "${{ github.event.pull_request.head.sha }}" > "${changed_file}"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" > "${changed_file}"
+          else
+            git ls-files > "${changed_file}"
+          fi
+
+          backend=false
+          frontend=false
+          protocol=false
+          compose=false
+          workflow_changed=false
+
+          while IFS= read -r file; do
+            [[ -z "${file}" ]] && continue
+
+            case "${file}" in
+              backend/*|Makefile)
+                backend=true
+                ;;
+            esac
+
+            case "${file}" in
+              frontend/*|Makefile)
+                frontend=true
+                ;;
+            esac
+
+            case "${file}" in
+              backend/app/domain/*|backend/tests/test_bundle_protocol.py|backend/tests/test_bundle_schema.py|docs/schema/*|docs/offline-bundle-v1.md|docs/adr/ADR-009-*)
+                protocol=true
+                ;;
+            esac
+
+            case "${file}" in
+              compose.yaml|.dockerignore|backend/Dockerfile|frontend/Dockerfile|frontend/nginx.conf|frontend/docker-entrypoint.d/*|deploy/*)
+                compose=true
+                ;;
+            esac
+
+            case "${file}" in
+              .github/workflows/ci.yml)
+                workflow_changed=true
+                ;;
+            esac
+          done < "${changed_file}"
+
+          # Изменение самого workflow должно проверить все уже реализованные области.
+          if [[ "${workflow_changed}" == "true" ]]; then
+            backend=true
+            protocol=true
+            [[ -f frontend/package.json ]] && frontend=true
+            [[ -f compose.yaml ]] && compose=true
+          fi
+
+          # Не создаём ложный job для компонента, которого ещё нет в проверяемой ревизии.
+          [[ -f backend/pyproject.toml ]] || backend=false
+          [[ -f frontend/package.json ]] || frontend=false
+          [[ -f backend/tests/test_bundle_protocol.py ]] || protocol=false
+          [[ -f compose.yaml && -f deploy/smoke-compose.sh ]] || compose=false
+
+          echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
+          echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
+          echo "protocol=${protocol}" >> "${GITHUB_OUTPUT}"
+          echo "compose=${compose}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "### Область CI"
+            echo
+            echo "| Область | Запуск |"
+            echo "| --- | --- |"
+            echo "| Backend | ${backend} |"
+            echo "| Frontend | ${frontend} |"
+            echo "| Bundle protocol | ${protocol} |"
+            echo "| Compose | ${compose} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  backend:
+    name: Backend — lint и unit/API tests
+    needs: scope
+    if: needs.scope.outputs.backend == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Python 3.12
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Установить backend dependencies
+        run: python -m pip install -e './backend[dev]'
+
+      - name: Ruff
+        run: make lint-backend
+
+      - name: Pytest
+        run: make test-backend
+
+  frontend:
+    name: Frontend — lint, types, unit, build
+    needs: scope
+    if: needs.scope.outputs.frontend == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Node.js 22
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '22'
+
+      - name: Установить frontend dependencies
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f package-lock.json ]]; then
+            npm ci --no-audit --no-fund
+          else
+            echo 'package-lock.json пока отсутствует; используется переходный npm install.' >&2
+            npm install --no-audit --no-fund
+          fi
+
+      - name: ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: TypeScript
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Unit/component tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+
+  protocol:
+    name: Bundle protocol — contract/security regression
+    needs: scope
+    if: needs.scope.outputs.protocol == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Python 3.12
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Установить backend dependencies
+        run: python -m pip install -e './backend[dev]'
+
+      - name: Проверить Bundle Protocol v1
+        working-directory: backend
+        run: python -m pytest tests/test_bundle_protocol.py tests/test_bundle_schema.py
+
+  compose:
+    name: Compose — build и smoke
+    needs: scope
+    if: needs.scope.outputs.compose == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Подготовить безопасную CI-конфигурацию
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          cat >> .env <<'EOF'
+          JWT_SECRET=ci-only-secret-not-for-production-0123456789abcdef0123456789abcdef
+          EOF
+
+      - name: Compose smoke test
+        run: sh deploy/smoke-compose.sh
+
+  quality-gate:
+    name: quality-gate
+    if: always()
+    needs: [scope, backend, frontend, protocol, compose]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Проверить результаты обязательных jobs
+        shell: bash
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          PROTOCOL_RESULT: ${{ needs.protocol.result }}
+          COMPOSE_RESULT: ${{ needs.compose.result }}
+        run: |
+          set -euo pipefail
+
+          for result in \
+            "${SCOPE_RESULT}" \
+            "${BACKEND_RESULT}" \
+            "${FRONTEND_RESULT}" \
+            "${PROTOCOL_RESULT}" \
+            "${COMPOSE_RESULT}"; do
+            case "${result}" in
+              success|skipped)
+                ;;
+              *)
+                echo "Обязательный CI job завершился со статусом: ${result}" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          echo 'Все требуемые для этого diff проверки прошли.'
