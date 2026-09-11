@@ -39,6 +39,7 @@
 |---|---|---|
 | [project-passport.md](project-passport.md) | простое описание продукта и целевого процесса | актуальный product overview |
 | [architecture.md](architecture.md) | компоненты, boundaries, data flows, current implementation state | актуальный |
+| [export-orchestration.md](export-orchestration.md) | SOURCE export backend API/workflow, fail-fast, publication/cancellation/recovery semantics | актуальный component/API doc |
 | [admin-guide.md](admin-guide.md) | администрирование установки: bootstrap, Harbor, keys, backup/restore, limits и эксплуатация | актуальный для current Compose; не финальный offline installer |
 | [troubleshooting.md](troubleshooting.md) | симптом → причина → диагностика → безопасное решение по current error semantics | актуальный; planned import-only cases отмечены явно |
 | [offline-bundle-v1.md](offline-bundle-v1.md) | формат Bundle v1, signing/checksum/archive contract | **нормативный** |
@@ -65,16 +66,17 @@
 - #56 — полная security/trust model — выполнено;
 - #57 — deployment/config/credential/key synchronization — выполнено;
 - #58 — ADR/docs hygiene и карта документации — выполнено;
-- #59 — `user-guide.md` для operator/viewer — ждёт стабильных #17/#19 UI/API flows;
+- #59 — `user-guide.md` для operator/viewer — ждёт законченных #18/#19 UI flows;
 - #60 — `admin-guide.md` — выполнено;
-- #61 — `troubleshooting.md` — текущая итерация;
+- #61 — `troubleshooting.md` — выполнено;
 - #67 — automated documentation link gate — выполнено;
 - #71 — синхронизация architecture с persistent OperationManager — выполнено;
-- #68 — свежий root README поверх актуальных sources — выполнено.
+- #68 — свежий root README поверх актуальных sources — выполнено;
+- #17 — SOURCE export backend orchestration/API — выполнено в текущей feature iteration; UI остаётся #18.
 
-`user-guide.md` не следует заполнять вымышленными завершёнными flow. Разделы, зависящие от ещё не реализованной feature-specific export/import/history/report функциональности, создаются после стабилизации соответствующего поведения либо явно маркируются как незавершённые.
+`user-guide.md` не следует заполнять вымышленными завершёнными flow. SOURCE backend API уже стабилизирован, но пользовательские шаги export/import должны описываться после завершения соответствующего UI и TARGET orchestration.
 
-Generic `OperationManager` уже реализован, но это execution foundation, а не доказательство готовности пользовательских export/import flows.
+Generic `OperationManager` является execution foundation. SOURCE export orchestration уже использует его как feature-specific worker flow; TARGET import orchestration остаётся отдельной задачей #19.
 
 ## Автоматическая проверка документации
 
