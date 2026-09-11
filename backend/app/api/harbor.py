@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from app.auth.dependencies import CurrentUserDep
+from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.schemas.harbor import (
     ArtifactKind,
     HarborArtifactResponse,
@@ -16,19 +16,26 @@ from app.schemas.harbor import (
     PageResponse,
 )
 from app.services.harbor_client import HarborArtifact, HarborClient, HarborClientError
+from app.services.harbor_settings import HarborSettingsError, resolve_harbor_settings
 
 router = APIRouter(prefix="/harbor", tags=["harbor"])
 
 
-def _api_error(status_code: int, code: str, message: str) -> HTTPException:
+def api_error(status_code: int, code: str, message: str) -> HTTPException:
     return HTTPException(status_code=status_code, detail={"code": code, "message": message})
 
 
-def get_harbor_client(request: Request) -> Generator[HarborClient, None, None]:
+def get_harbor_client(
+    request: Request,
+    session: SessionDep,
+) -> Generator[HarborClient, None, None]:
     try:
-        client = HarborClient.from_settings(request.app.state.settings)
+        effective = resolve_harbor_settings(session, request.app.state.settings)
+        client = HarborClient.from_settings(effective)
+    except HarborSettingsError as exc:
+        raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code, exc.message) from exc
     except ValueError as exc:
-        raise _api_error(
+        raise api_error(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "harbor_not_configured",
             "Локальный Harbor не настроен",
@@ -93,7 +100,7 @@ def _artifact_response(
     )
 
 
-def _harbor_error(exc: HarborClientError) -> HTTPException:
+def harbor_http_error(exc: HarborClientError) -> HTTPException:
     mapping = {
         "unauthorized": (
             status.HTTP_502_BAD_GATEWAY,
@@ -144,7 +151,7 @@ def _harbor_error(exc: HarborClientError) -> HTTPException:
             "Ошибка обращения к локальному Harbor",
         ),
     )
-    return _api_error(status_code, code, message)
+    return api_error(status_code, code, message)
 
 
 @router.get("/connection", response_model=HarborConnectionResponse)
@@ -152,7 +159,7 @@ def connection(_user: CurrentUserDep, client: HarborClientDep) -> HarborConnecti
     try:
         info = client.system_info()
     except HarborClientError as exc:
-        raise _harbor_error(exc) from exc
+        raise harbor_http_error(exc) from exc
     return HarborConnectionResponse(
         connected=True,
         version=info.harbor_version,
@@ -175,7 +182,7 @@ def projects(
             if _matches(item.name, search)
         ]
     except HarborClientError as exc:
-        raise _harbor_error(exc) from exc
+        raise harbor_http_error(exc) from exc
 
     items.sort(key=lambda item: item.name.casefold())
     page_items, pagination = _page(items, page, page_size)
@@ -207,7 +214,7 @@ def repositories(
                     )
                 )
     except HarborClientError as exc:
-        raise _harbor_error(exc) from exc
+        raise harbor_http_error(exc) from exc
 
     items.sort(key=lambda item: item.name.casefold())
     page_items, pagination = _page(items, page, page_size)
@@ -233,7 +240,7 @@ def artifacts(
             for artifact in client.list_artifacts(project, repository)
         ]
     except HarborClientError as exc:
-        raise _harbor_error(exc) from exc
+        raise harbor_http_error(exc) from exc
 
     if search:
         needle = search.casefold()
