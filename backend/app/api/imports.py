@@ -13,6 +13,7 @@ from app.schemas.imports import (
     ImportReceiptResponse,
     ImportStartResponse,
 )
+from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_orchestrator import ImportOrchestrationError, ImportOrchestrator
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -23,10 +24,12 @@ ImportActorDep = Annotated[
 
 
 def get_import_orchestrator(request: Request) -> ImportOrchestrator:
+    settings = request.app.state.settings
     return ImportOrchestrator(
         request.app.state.session_factory,
-        request.app.state.settings,
+        settings,
         request.app.state.operation_manager,
+        helm_factory=lambda session: ImportHelmOciService(session, settings),
     )
 
 
