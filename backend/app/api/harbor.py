@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from typing import Annotated, TypeVar
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
@@ -18,7 +18,6 @@ from app.schemas.harbor import (
 from app.services.harbor_client import HarborArtifact, HarborClient, HarborClientError
 
 router = APIRouter(prefix="/harbor", tags=["harbor"])
-T = TypeVar("T")
 
 
 def _api_error(status_code: int, code: str, message: str) -> HTTPException:
@@ -43,7 +42,7 @@ def get_harbor_client(request: Request) -> Generator[HarborClient, None, None]:
 HarborClientDep = Annotated[HarborClient, Depends(get_harbor_client)]
 
 
-def _page(items: list[T], page: int, page_size: int) -> tuple[list[T], PageResponse]:
+def _page[T](items: list[T], page: int, page_size: int) -> tuple[list[T], PageResponse]:
     start = (page - 1) * page_size
     end = start + page_size
     pagination = PageResponse(page=page, page_size=page_size, total=len(items))
@@ -69,10 +68,10 @@ def _classify(artifact: HarborArtifact) -> ArtifactKind:
         haystack += " " + " ".join(str(value).casefold() for value in annotations.values())
 
     if artifact_type in {"CHART", "HELM", "HELM_CHART"} or "helm" in haystack:
-        return "helm-chart"
+        return ArtifactKind.HELM_CHART
     if artifact_type == "IMAGE" or "image" in haystack or "container" in haystack:
-        return "container-image"
-    return "unknown-oci"
+        return ArtifactKind.CONTAINER_IMAGE
+    return ArtifactKind.UNKNOWN_OCI
 
 
 def _artifact_response(
