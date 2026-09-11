@@ -245,6 +245,7 @@ def artifacts(
         ]
     normalized.sort(
         key=lambda item: (
+            not item.references,
             item.references[0].casefold() if item.references else "",
             item.digest,
         )
