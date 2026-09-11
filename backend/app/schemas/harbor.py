@@ -1,10 +1,13 @@
 from datetime import datetime
-from typing import Literal
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-ArtifactKind = Literal["container-image", "helm-chart", "unknown-oci"]
+class ArtifactKind(StrEnum):
+    CONTAINER_IMAGE = "container-image"
+    HELM_CHART = "helm-chart"
+    UNKNOWN_OCI = "unknown-oci"
 
 
 class HarborProjectResponse(BaseModel):
