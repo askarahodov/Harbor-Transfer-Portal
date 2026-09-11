@@ -25,6 +25,8 @@ _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9
 _CHART_NAME_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
 _VERSION_PATTERN = r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}"
 _DIGEST_PATTERN = r"sha256:[a-f0-9]{64}"
+_DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+_SAFE_LOCALE_ENV = ("LANG", "LC_ALL", "LC_CTYPE")
 
 
 class HelmPhase(StrEnum):
@@ -423,7 +425,9 @@ class HelmOciService:
             harbor.username,
             "--password-stdin",
         ]
-        if harbor.verify_tls and security.ca_file is not None:
+        if self._uses_plain_http(harbor):
+            argv.append("--plain-http")
+        elif harbor.verify_tls and security.ca_file is not None:
             argv.extend(("--ca-file", str(security.ca_file)))
         elif not harbor.verify_tls:
             argv.append("--insecure")
@@ -467,15 +471,18 @@ class HelmOciService:
             data_home = root / "data"
             for directory in (config_home, cache_home, data_home):
                 directory.mkdir(mode=0o700)
-            env = dict(os.environ)
-            env.update(
-                {
-                    "HELM_CONFIG_HOME": str(config_home),
-                    "HELM_CACHE_HOME": str(cache_home),
-                    "HELM_DATA_HOME": str(data_home),
-                    "HELM_REGISTRY_CONFIG": str(config_home / "registry.json"),
-                }
-            )
+            env = {
+                "PATH": os.environ.get("PATH", _DEFAULT_PATH),
+                "HOME": str(root),
+                "HELM_CONFIG_HOME": str(config_home),
+                "HELM_CACHE_HOME": str(cache_home),
+                "HELM_DATA_HOME": str(data_home),
+                "HELM_REGISTRY_CONFIG": str(config_home / "registry.json"),
+            }
+            for key in _SAFE_LOCALE_ENV:
+                value = os.environ.get(key)
+                if value:
+                    env[key] = value
             ca_file = None
             if harbor.verify_tls and harbor.ca_file is not None:
                 if not harbor.ca_file.is_file():
@@ -530,23 +537,32 @@ class HelmOciService:
         return parsed.netloc
 
     @staticmethod
+    def _uses_plain_http(harbor: EffectiveHarborSettings) -> bool:
+        if not harbor.url:
+            return False
+        return urlsplit(harbor.url).scheme == "http"
+
+    @classmethod
+    def _tls_flags(
+        cls,
+        harbor: EffectiveHarborSettings,
+        security: _HelmSecurityContext,
+    ) -> tuple[str, ...]:
+        if cls._uses_plain_http(harbor):
+            return ("--plain-http",)
+        if not harbor.verify_tls:
+            return ("--insecure-skip-tls-verify",)
+        if security.ca_file is not None:
+            return ("--ca-file", str(security.ca_file))
+        return ()
+
+    @staticmethod
     def _chart_oci_reference(registry: str, chart: HelmChartReference) -> str:
         return f"oci://{registry}/{chart.repository}/{chart.name}"
 
     @staticmethod
     def _repository_oci_reference(registry: str, chart: HelmChartReference) -> str:
         return f"oci://{registry}/{chart.repository}"
-
-    @staticmethod
-    def _tls_flags(
-        harbor: EffectiveHarborSettings,
-        security: _HelmSecurityContext,
-    ) -> tuple[str, ...]:
-        if not harbor.verify_tls:
-            return ("--insecure-skip-tls-verify",)
-        if security.ca_file is not None:
-            return ("--ca-file", str(security.ca_file))
-        return ()
 
     def _validate_destination(self, path: Path) -> Path:
         resolved = path.resolve()
@@ -611,6 +627,7 @@ class HelmOciService:
                 or "\x00" in member.name
                 or member.issym()
                 or member.islnk()
+                or not (member.isfile() or member.isdir())
             ):
                 raise HelmServiceError(
                     "helm_package_unsafe_path",
