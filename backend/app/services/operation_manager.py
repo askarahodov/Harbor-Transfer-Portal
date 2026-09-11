@@ -94,7 +94,7 @@ OperationWorker = Callable[["OperationContext"], Awaitable[None]]
 class OperationContext:
     def __init__(
         self,
-        manager: "OperationManager",
+        manager: OperationManager,
         operation_id: int,
         worker_token: str,
     ) -> None:
