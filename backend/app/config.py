@@ -29,8 +29,11 @@ class Settings(BaseSettings):
     harbor_url: AnyHttpUrl | None = None
     harbor_user: str | None = None
     harbor_password: SecretStr | None = None
+    harbor_password_file: Path | None = None
+    harbor_runtime_password_file: Path = Path("/app/data/secrets/harbor-password")
     harbor_verify_tls: bool = True
     harbor_ca_file: Path | None = None
+    harbor_runtime_ca_file: Path = Path("/app/data/secrets/harbor-ca.crt")
     harbor_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
     harbor_read_timeout_seconds: float = Field(default=20.0, gt=0, le=300)
 
