@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: help up down logs fmt lint lint-backend test test-backend test-frontend build check-foundation
+.PHONY: help up down logs fmt lint lint-backend test test-backend test-frontend migrate build check-foundation
 
 help:
 	@printf '%s\n' \
@@ -13,6 +13,7 @@ help:
 	  'make test           Run backend and frontend tests' \
 	  'make test-backend   Run backend tests only' \
 	  'make test-frontend  Run frontend tests only' \
+	  'make migrate        Apply backend Alembic migrations' \
 	  'make build          Build backend/frontend artifacts' \
 	  'make check-foundation Validate repository scaffolding'
 
@@ -51,6 +52,10 @@ test-backend:
 test-frontend:
 	@test -f frontend/package.json || { echo 'frontend/package.json is not implemented yet'; exit 2; }
 	cd frontend && npm test
+
+migrate:
+	@test -f backend/alembic.ini || { echo 'backend/alembic.ini is not implemented yet'; exit 2; }
+	cd backend && python -m alembic upgrade head
 
 build:
 	@test -f backend/pyproject.toml || { echo 'backend/pyproject.toml is not implemented yet'; exit 2; }

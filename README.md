@@ -1,40 +1,42 @@
 # Harbor Transfer Portal
 
-Harbor Transfer Portal is an air-gap artifact transfer application for moving container images and Helm OCI charts between two physically and network-isolated environments.
+Harbor Transfer Portal — приложение для офлайн-передачи контейнерных образов и Helm OCI-чартов между двумя физически и сетево изолированными контурами.
 
-## Core operating model
+## Основная модель эксплуатации
 
-There are two independent installations:
+Существуют две независимые установки портала:
 
-- **SOURCE** runs inside the source isolated contour and can communicate only with the Harbor available in that contour.
-- **TARGET** runs inside the target isolated contour and can communicate only with the Harbor available in that contour.
-- There is **no network connection between SOURCE and TARGET**.
-- Artifact exchange happens through a portable, verifiable bundle moved by an approved offline transport process.
+- **SOURCE** работает в исходном изолированном контуре и взаимодействует только с Harbor этого контура;
+- **TARGET** работает в целевом изолированном контуре и взаимодействует только с Harbor этого контура;
+- между SOURCE и TARGET **нет прямого сетевого соединения**;
+- артефакты переносятся через проверяемый офлайн-пакет доставки на разрешённом физическом носителе.
 
-The portal must never depend on direct Harbor-to-Harbor replication across the isolation boundary.
+Портал не использует и не должен использовать прямую Harbor-to-Harbor репликацию через границу изоляции.
 
-## Architecture
+## Архитектура
 
 ```text
-backend/   Python/FastAPI API, domain logic and transfer services
-frontend/  Vue/Vite administrative UI
-docs/      architecture, protocol and operational documentation
-data/      local runtime state; generated contents are ignored
-deploy/    deployment and offline packaging assets
+backend/   Python/FastAPI API, доменная логика и сервисы передачи
+frontend/  Vue 3/Vite/TypeScript пользовательский интерфейс
+docs/      архитектурная, протокольная и эксплуатационная документация
+data/      локальные данные времени выполнения; сгенерированное содержимое не коммитится
+deploy/    материалы развертывания и офлайн-поставки
 ```
 
-The backend will integrate with the local Harbor API, Skopeo for container-image transport, and Helm OCI for chart transport. Bundle creation and import include explicit metadata, checksums and verification so a successful process exit is not treated as proof of a successful delivery.
+Backend предоставляет локальный API портала и по мере развития проекта интегрируется с Harbor REST API, Skopeo для контейнерных образов и Helm OCI для чартов. Передача между контурами определяется версионированным протоколом пакета: успешное завершение команды само по себе не считается подтверждением успешной доставки.
 
-## Development quick start
+Нормативное описание текущего протокола находится в [docs/offline-bundle-v1.md](docs/offline-bundle-v1.md).
 
-Prerequisites:
+## Быстрый старт разработки
 
-- GNU Make
-- Python 3.12
-- Docker with Docker Compose v2 for later deployment stages
-- Node.js 22+ and npm
+Текущие базовые требования:
 
-Prepare local configuration:
+- GNU Make;
+- Python 3.12;
+- Node.js 22+ и npm;
+- Docker с Docker Compose v2 — для контейнерного runtime на соответствующем этапе.
+
+Подготовьте локальную конфигурацию:
 
 ```bash
 cp .env.example .env
@@ -42,7 +44,7 @@ cp .env.example .env
 
 ### Backend
 
-Create an isolated Python environment and install the backend with development dependencies:
+Создайте отдельное окружение Python и установите backend с зависимостями для разработки:
 
 ```bash
 python3.12 -m venv .venv
@@ -50,14 +52,14 @@ python3.12 -m venv .venv
 python -m pip install -e './backend[dev]'
 ```
 
-Start the API from `backend/`:
+Запустите API из каталога `backend/`:
 
 ```bash
 cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8080
 ```
 
-Current local endpoints:
+Базовые локальные endpoints:
 
 ```text
 GET /api/health
@@ -65,7 +67,7 @@ GET /api/ready
 GET /docs
 ```
 
-Run scoped backend checks from the repository root:
+Scoped-проверки backend из корня репозитория:
 
 ```bash
 make lint-backend
@@ -74,35 +76,43 @@ make test-backend
 
 ### Frontend
 
-Install dependencies, then run the scoped frontend checks:
+Установите зависимости и запустите Vite dev server:
 
 ```bash
 cd frontend
 npm install
-npm run typecheck
+npm run dev
+```
+
+Scoped-проверки frontend:
+
+```bash
 npm run lint
+npm run typecheck
 npm test
 npm run build
 ```
 
-The frontend has no runtime CDN dependency. Contour identity is loaded from the local backend `/api/health` response. `public/runtime-config.js` can seed contour identity during container startup without rebuilding the SPA and acts as a fallback if the backend is temporarily unavailable during initial rendering.
+Frontend использует Vue Router, Pinia, Axios, Element Plus и Lucide. Маршруты foundation: `/login`, `/`, `/export`, `/import`, `/history`, `/settings`.
 
-Repository-wide commands remain strict: if a later-stage component such as Compose is not implemented yet, the corresponding all-project target fails explicitly instead of silently skipping it.
+Значение контура не hardcode в страницах: основным источником является локальный `GET /api/health`; `runtime-config.js` используется только как offline-safe bootstrap fallback.
 
-## Configuration
+Общие Make-цели остаются строгими: если требуемый компонент отсутствует или проверка завершается ошибкой, команда должна вернуть ненулевой код, а не молча пропустить проверку.
 
-`PORTAL_CONTOUR` accepts only `SOURCE` or `TARGET`. Each installation uses one neutral set of `HARBOR_*` settings for its local Harbor; SOURCE and TARGET credentials are never configured together in one portal instance.
+## Конфигурация
 
-Health and readiness endpoints do not expose Harbor credentials or other secret configuration.
+`PORTAL_CONTOUR` принимает только `SOURCE` или `TARGET`. Каждая установка использует один нейтральный набор `HARBOR_*` для собственного локального Harbor. Учётные данные противоположного контура в этой установке не хранятся и не настраиваются.
 
-## Engineering principles
+Endpoints состояния и готовности не раскрывают пароль Harbor или другую секретную конфигурацию.
 
-- No credentials or private keys in Git.
-- No internet dependency is allowed for runtime operation in the closed contours.
-- Each installation talks only to its local Harbor.
-- Subprocesses must use structured argument arrays rather than shell interpolation of untrusted input.
-- TLS verification is explicit; custom CA support is preferred over disabling verification.
-- Tests and linters must fail the build when they fail.
-- Development uses scoped tests for touched areas; the complete required CI suite is the merge checkpoint.
+## Принципы разработки
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and [docs/decisions.md](docs/decisions.md) for architectural decisions.
+- Учётные данные и закрытые ключи не хранятся в Git.
+- Runtime в изолированном контуре не должен зависеть от интернета или CDN.
+- Каждая установка обращается только к своему локальному Harbor.
+- Подпроцессы получают структурированные массивы аргументов; недоверенные значения не интерполируются в shell-команды.
+- Проверка TLS включена по умолчанию; для частных PKI предусматривается явная поддержка пользовательского CA.
+- Ошибки тестов и линтеров должны делать проверку красной.
+- Во время разработки используются минимально достаточные scoped-тесты; полный обязательный CI является merge checkpoint.
+
+Правила работы описаны в [CONTRIBUTING.md](CONTRIBUTING.md), а реестр архитектурных решений — в [docs/decisions.md](docs/decisions.md).

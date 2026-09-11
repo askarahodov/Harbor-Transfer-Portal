@@ -1,29 +1,39 @@
-# ADR-008: Frontend UI kit
+# ADR-008: UI-kit для frontend
 
-Status: Accepted
+## Статус
 
-## Context
-Harbor Transfer Portal needs offline-safe, consistent forms, tables, steps, dialogs and status feedback for export/import workflows. The project specification permits Element Plus or Naive UI and forbids runtime CDN dependencies.
+Принято.
 
-## Options
-- Element Plus
-- Naive UI
-- project-owned component library from scratch
+## Контекст
 
-## Decision
-Use **Element Plus** as the single general-purpose UI kit and Lucide for icons. Keep product-specific primitives (contour/status badges, shell and state placeholders) small and token-driven instead of wrapping every Element Plus component.
+Harbor Transfer Portal нужны единообразные формы, таблицы, шаги мастеров, диалоги и состояния обратной связи для сценариев экспорта и импорта. UI должен полностью работать в изолированном контуре без runtime-зависимости от CDN или внешних шрифтов.
 
-The local backend `GET /api/health` response is the authoritative runtime source for `SOURCE`/`TARGET` contour identity. `public/runtime-config.js` may seed the same value during container startup as an offline-safe fallback before backend bootstrap completes; pages must not hardcode contour values.
+Спецификация допускает Element Plus или Naive UI.
 
-## Reasons
-- mature Vue 3 + TypeScript support;
-- strong coverage of tables/forms/steps/dialogs needed by planned workflows;
-- packaged through npm and available entirely offline after build;
-- reduces bespoke UI surface while preserving product visual identity through project tokens;
-- reuses the existing backend health contract instead of creating a duplicate frontend-specific configuration API.
+## Рассмотренные варианты
 
-## Consequences
-- Element Plus becomes a frontend dependency and contributes to bundle size;
-- later work should import/use only needed functionality where bundle measurements justify optimization;
-- no Google Fonts or CDN assets are allowed at runtime; the foundation uses an offline-safe system-font stack;
-- deployment issue #5 must generate or preserve `runtime-config.js` without embedding credentials or other secret configuration.
+- Element Plus;
+- Naive UI;
+- собственная компонентная библиотека с нуля.
+
+## Решение
+
+Использовать **Element Plus** как основной универсальный UI-kit и Lucide для иконок.
+
+Проектные примитивы — badge контура/статуса, application shell и empty/loading/error states — остаются небольшими token-driven компонентами. Не требуется оборачивать каждый компонент Element Plus в собственную абстракцию.
+
+Ответ локального backend `GET /api/health` является основным runtime-источником значения `SOURCE`/`TARGET`. `public/runtime-config.js` может предварительно задать то же значение при запуске контейнера как offline-safe fallback до завершения backend bootstrap. Страницы не должны hardcode значение контура.
+
+## Причины
+
+- зрелая поддержка Vue 3 и TypeScript;
+- готовые компоненты для таблиц, форм, steps и dialogs, нужных будущим мастерам;
+- все зависимости попадают в локальную frontend-сборку и не требуют CDN в runtime;
+- уменьшается объём собственного UI-кода при сохранении визуальной идентичности через project tokens;
+- переиспользуется существующий backend health contract вместо отдельного frontend-specific configuration API.
+
+## Последствия
+
+- Element Plus увеличивает frontend bundle; оптимизация импортов выполняется только после измерения bundle size;
+- Google Fonts и внешние CDN-ресурсы в runtime запрещены; foundation использует системный font stack;
+- deployment issue #5 должен формировать или сохранять `runtime-config.js`, не помещая в него credentials или другую секретную конфигурацию.
