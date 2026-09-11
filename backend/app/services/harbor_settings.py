@@ -117,8 +117,13 @@ class HarborSettingsService:
     def install_ca(self, certificate_pem: str) -> None:
         encoded = certificate_pem.encode("utf-8")
         if len(encoded) > self.settings.harbor_ca_max_bytes:
-            raise HarborSettingsError("harbor_ca_too_large", "CA bundle превышает допустимый размер")
-        if "-----BEGIN CERTIFICATE-----" not in certificate_pem or "-----END CERTIFICATE-----" not in certificate_pem:
+            raise HarborSettingsError(
+                "harbor_ca_too_large",
+                "CA bundle превышает допустимый размер",
+            )
+        begin_marker = "-----BEGIN CERTIFICATE-----"
+        end_marker = "-----END CERTIFICATE-----"
+        if begin_marker not in certificate_pem or end_marker not in certificate_pem:
             raise HarborSettingsError("harbor_ca_invalid", "Ожидается PEM-сертификат CA")
 
         target = self.settings.harbor_managed_ca_file
