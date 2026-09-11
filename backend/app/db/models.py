@@ -13,7 +13,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin
+from app.db.base import Base, TimestampMixin, utc_now
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 
 
@@ -47,6 +47,20 @@ class LoginThrottle(TimestampMixin, Base):
     failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     window_started_at: Mapped[datetime] = mapped_column(nullable=False)
     locked_until: Mapped[datetime | None] = mapped_column(index=True, nullable=True)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now, nullable=False, index=True)
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    actor_username: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    result: Mapped[str] = mapped_column(String(32), nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
 
 
 class Operation(TimestampMixin, Base):
