@@ -1,4 +1,4 @@
-# <img src="docs/img/devops-logo-white.png" alt="Harbor Transfer Portal" width="48" height="48" /> Harbor Transfer Portal
+# ![Harbor Transfer Portal](docs/img/devops-logo-white.png)
 
 Harbor Transfer Portal — приложение для офлайн-передачи контейнерных образов и Helm OCI-чартов между двумя физически и сетево изолированными контурами.
 
