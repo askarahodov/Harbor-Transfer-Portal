@@ -215,7 +215,7 @@ class ExportOrchestrationService:
 
     def published_bundle(self, operation_id: int, actor: User) -> PublishedBundle:
         self._require_source_contour()
-        operation = self.operation_manager.get_operation(operation_id)
+        operation = self._load_operation(operation_id)
         if operation is None or operation.type is not OperationType.EXPORT:
             raise ExportOrchestrationError(
                 "export_operation_not_found",
@@ -379,7 +379,7 @@ class ExportOrchestrationService:
         publication = _PublicationState()
         final_archive, final_sidecar = self._final_paths(delivery_id)
         try:
-            operation = self.operation_manager.get_operation(context.operation_id)
+            operation = self._load_operation(context.operation_id)
             if operation is None:
                 raise OperationTaskFailure(
                     "export_operation_not_found",
@@ -771,6 +771,15 @@ class ExportOrchestrationService:
                 HTTPStatus.CONFLICT,
             )
         return digest
+
+    def _load_operation(self, operation_id: int) -> Operation | None:
+        with self.session_factory() as session:
+            operation = session.get(Operation, operation_id)
+            if operation is None:
+                return None
+            _ = list(operation.artifacts)
+            session.expunge_all()
+            return operation
 
     def _default_harbor_client(self) -> HarborClient:
         with self.session_factory() as session:

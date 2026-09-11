@@ -6,7 +6,7 @@ import pytest
 
 from app.config import PortalContour, Settings
 from app.db.base import Base
-from app.db.models import User, UserRole
+from app.db.models import Operation, User, UserRole
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import ArtifactStatus, OperationStatus
 from app.schemas.exports import ExportSelectionRequest
@@ -215,6 +215,15 @@ def _actor(factory, user_id: int) -> User:
         return user
 
 
+def _operation(factory, operation_id: int) -> Operation:
+    with factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        _ = list(operation.artifacts)
+        session.expunge_all()
+        return operation
+
+
 def _artifacts() -> dict[tuple[str, str, str], HarborArtifact]:
     return {
         ("project", "app", "1.0"): HarborArtifact(
@@ -286,7 +295,7 @@ def test_mixed_export_completes_and_publishes_controlled_bundle(tmp_path: Path) 
         handle, delivery_id = await service.start(_request(), actor)
         await manager.wait(handle.operation_id)
 
-        operation = manager.get_operation(handle.operation_id)
+        operation = _operation(factory, handle.operation_id)
         assert operation is not None
         assert operation.status is OperationStatus.COMPLETED
         assert operation.delivery_id == _DELIVERY_ID == delivery_id
@@ -378,7 +387,7 @@ def test_worker_detects_digest_change_and_marks_remaining_skipped(tmp_path: Path
         await manager.startup()
         handle, _delivery_id = await service.start(_request(), _actor(factory, user_id))
         await manager.wait(handle.operation_id)
-        operation = manager.get_operation(handle.operation_id)
+        operation = _operation(factory, handle.operation_id)
         assert operation is not None
         assert operation.status is OperationStatus.FAILED
         assert operation.error_code == "export_source_changed"
@@ -408,7 +417,7 @@ def test_artifact_failure_is_fail_fast_and_does_not_publish(tmp_path: Path) -> N
         await manager.startup()
         handle, _delivery_id = await service.start(_request(), _actor(factory, user_id))
         await manager.wait(handle.operation_id)
-        operation = manager.get_operation(handle.operation_id)
+        operation = _operation(factory, handle.operation_id)
         assert operation is not None
         assert operation.status is OperationStatus.FAILED
         assert operation.error_code == "skopeo_command_failed"
@@ -438,7 +447,7 @@ def test_package_self_verification_failure_does_not_publish(tmp_path: Path) -> N
         await manager.startup()
         handle, _delivery_id = await service.start(_request(), _actor(factory, user_id))
         await manager.wait(handle.operation_id)
-        operation = manager.get_operation(handle.operation_id)
+        operation = _operation(factory, handle.operation_id)
         assert operation is not None
         assert operation.status is OperationStatus.FAILED
         assert operation.error_code == "bundle_signature_untrusted"
@@ -471,7 +480,7 @@ def test_existing_delivery_collision_is_not_deleted_on_failure(tmp_path: Path) -
         await manager.startup()
         handle, _delivery_id = await service.start(_request(), _actor(factory, user_id))
         await manager.wait(handle.operation_id)
-        operation = manager.get_operation(handle.operation_id)
+        operation = _operation(factory, handle.operation_id)
         assert operation is not None
         assert operation.status is OperationStatus.FAILED
         assert archive.read_bytes() == b"pre-existing"
@@ -537,7 +546,7 @@ def test_cancellation_during_publication_removes_worker_owned_delivery(tmp_path:
         release.set()
         await cancel_task
 
-        operation = manager.get_operation(handle.operation_id)
+        operation = _operation(factory, handle.operation_id)
         assert operation is not None
         assert operation.status is OperationStatus.CANCELLED
         archive = settings.bundle_outgoing_root / f"{_DELIVERY_ID}.htp.tar.gz"
