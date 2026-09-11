@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from pydantic import AnyHttpUrl, SecretStr
+from pydantic import AnyHttpUrl, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,7 +14,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
-        case_sensitive=True,
+        case_sensitive=False,
     )
 
     app_name: str = "Harbor Transfer Portal"
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     harbor_user: str | None = None
     harbor_password: SecretStr | None = None
 
-    cors_origins: list[str] = []
+    cors_origins: list[str] = Field(default_factory=list)
 
 
 def get_settings() -> Settings:
