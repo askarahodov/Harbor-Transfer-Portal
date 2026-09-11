@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
+import app.services.export_publication_guard as export_publication_guard
 from app.config import Settings
 from app.db.base import Base
 from app.db.models import Operation
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import OperationStatus, OperationType
-from app.services import export_publication_guard
 from app.services.bundle_package_service import BundlePackageError
 from app.services.export_recovery import reconcile_incomplete_export_publications
 from app.services.operation_manager import OperationManager
