@@ -59,12 +59,36 @@
 - #55 — актуальная architecture и separation от historical master-document — выполнено;
 - #56 — полная security/trust model — выполнено;
 - #57 — deployment/config/credential/key synchronization — выполнено;
-- #58 — этот docs hygiene workstream;
+- #58 — ADR/docs hygiene и карта документации — выполнено;
 - #59 — `user-guide.md` для operator/viewer;
 - #60 — `admin-guide.md`;
-- #61 — `troubleshooting.md`.
+- #61 — `troubleshooting.md`;
+- #67 — automated documentation link gate — текущая итерация;
+- #68 — свежий root README поверх актуальных sources — после #67.
 
 `user-guide.md`, `admin-guide.md` и `troubleshooting.md` не следует заполнять вымышленными завершёнными flow. Разделы, зависящие от ещё не реализованной orchestration/history/report функциональности, создаются после стабилизации соответствующего поведения либо явно маркируются как незавершённые.
+
+## Автоматическая проверка документации
+
+Локальный gate:
+
+```bash
+make docs-check
+```
+
+Он запускает stdlib-only checker `tools/check_doc_links.py` и его unit tests.
+
+Checker проверяет repository-relative Markdown links в root Markdown, `docs/**/*.md` и `deploy/**/*.md`:
+
+- target file должен существовать;
+- local link не может выходить за repository root;
+- links внутри fenced code block не трактуются как реальные документы;
+- external `http(s)`, `mailto`, `tel`, `data` links не проверяются по сети;
+- pure `#anchor` не требует file lookup.
+
+Проверка намеренно **не является внешним URL crawler**: CI не должен зависеть от доступности интернета или третьих сайтов только для проверки документационного diff.
+
+Path-aware CI включает отдельный `Documentation — local links` job для human documentation/tooling scope. Его результат входит в общий `quality-gate`.
 
 ## Правило documentation impact
 
@@ -107,7 +131,7 @@
 - нет реальных secrets/credentials/private keys;
 - planned behavior не описано как implemented;
 - normative protocol не переопределён prose-примером;
-- links указывают на актуальные источники;
+- `make docs-check` зелёный;
 - security-sensitive recommendation не ослабляет TLS/signature/path/RBAC controls;
 - scope diff не включает несвязанный code/refactoring;
 - CI выбрал проверки согласно реальному blast radius.
