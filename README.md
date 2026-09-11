@@ -34,7 +34,7 @@ Backend предоставляет локальный API портала и по
 - GNU Make;
 - Python 3.12;
 - Node.js 22+ и npm;
-- Docker с Docker Compose v2 — для контейнерного runtime на соответствующем этапе.
+- Docker с Docker Compose v2 — для контейнерного runtime.
 
 Подготовьте локальную конфигурацию:
 
@@ -96,6 +96,17 @@ npm run build
 Frontend использует Vue Router, Pinia, Axios, Element Plus и Lucide. Маршруты foundation: `/login`, `/`, `/export`, `/import`, `/history`, `/settings`.
 
 Значение контура не hardcode в страницах: основным источником является локальный `GET /api/health`; `runtime-config.js` используется только как offline-safe bootstrap fallback.
+
+### Docker Compose
+
+После заполнения `.env` локальный двухсервисный стек можно проверить и запустить командами:
+
+```bash
+make compose-config
+make up
+```
+
+Backend перед стартом API автоматически применяет все Alembic migrations до текущего head, frontend публикует HTTP-порт и проксирует `/api/` во внутреннюю Compose-сеть. Полная эксплуатационная инструкция, правила persistent data, bootstrap администратора и smoke test описаны в [deploy/README.md](deploy/README.md).
 
 Общие Make-цели остаются строгими: если требуемый компонент отсутствует или проверка завершается ошибкой, команда должна вернуть ненулевой код, а не молча пропустить проверку.
 

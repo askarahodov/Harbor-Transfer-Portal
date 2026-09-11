@@ -18,6 +18,19 @@ def migrate_database(path: Path) -> None:
     command.upgrade(config, "head")
 
 
+def test_database_url_environment_overrides_alembic_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = tmp_path / "environment.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database}")
+
+    command.upgrade(Config("alembic.ini"), "head")
+
+    assert database.exists()
+    tables = set(inspect(create_db_engine(f"sqlite:///{database}")).get_table_names())
+    assert {"users", "operations", "artifact_results", "setting_metadata"} <= tables
+
+
 def test_empty_database_migrates_and_persists(tmp_path: Path) -> None:
     database = tmp_path / "portal.db"
     migrate_database(database)
