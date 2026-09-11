@@ -1,10 +1,11 @@
 from pathlib import Path
 
-from alembic import command
+import pytest
 from alembic.config import Config
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 
+from alembic import command
 from app.db.models import UserRole
 from app.db.repositories import OperationRepository, UserRepository
 from app.db.session import create_db_engine, create_session_factory
@@ -56,15 +57,20 @@ def test_username_is_unique_after_normalization(tmp_path: Path) -> None:
     migrate_database(database)
     sessions = create_session_factory(create_db_engine(f"sqlite:///{database}"))
     with sessions() as session:
-        UserRepository(session).create(username="Admin", password_hash="hash", role=UserRole.ADMIN)
+        UserRepository(session).create(
+            username="Admin",
+            password_hash="hash",
+            role=UserRole.ADMIN,
+        )
         session.commit()
-        UserRepository(session).create(username=" admin ", password_hash="hash2", role=UserRole.ADMIN)
-        try:
-            session.commit()
-        except IntegrityError:
-            session.rollback()
-        else:
-            raise AssertionError("normalized duplicate username must fail")
+
+        with pytest.raises(IntegrityError):
+            UserRepository(session).create(
+                username=" admin ",
+                password_hash="hash2",
+                role=UserRole.ADMIN,
+            )
+        session.rollback()
 
 
 def test_user_model_has_hash_only_not_plaintext_password() -> None:

@@ -34,8 +34,14 @@ class Operation(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     delivery_id: Mapped[str | None] = mapped_column(String(96), unique=True, nullable=True)
-    type: Mapped[OperationType] = mapped_column(Enum(OperationType, native_enum=False), nullable=False)
-    status: Mapped[OperationStatus] = mapped_column(Enum(OperationStatus, native_enum=False), nullable=False)
+    type: Mapped[OperationType] = mapped_column(
+        Enum(OperationType, native_enum=False),
+        nullable=False,
+    )
+    status: Mapped[OperationStatus] = mapped_column(
+        Enum(OperationStatus, native_enum=False),
+        nullable=False,
+    )
     actor_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -71,7 +77,10 @@ class ArtifactResult(Base):
     version: Mapped[str | None] = mapped_column(String(256), nullable=True)
     source_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
     target_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    status: Mapped[ArtifactStatus] = mapped_column(Enum(ArtifactStatus, native_enum=False), nullable=False)
+    status: Mapped[ArtifactStatus] = mapped_column(
+        Enum(ArtifactStatus, native_enum=False),
+        nullable=False,
+    )
     error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
