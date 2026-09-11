@@ -82,7 +82,7 @@ def _settings(tmp_path: Path, *, verify_tls: bool = True, ca_file: Path | None =
         helm_workspace_root=workspace,
         helm_temp_root=tmp_path / "helm-tmp",
         helm_timeout_seconds=0.05,
-        helm_output_limit_bytes=32,
+        helm_output_limit_bytes=4096,
     )
 
 
@@ -208,6 +208,7 @@ def test_metadata_mismatch_is_rejected(tmp_path: Path) -> None:
 
 def test_unsafe_archive_member_is_rejected_before_helm(tmp_path: Path) -> None:
     package = tmp_path / "packages" / "unsafe.tgz"
+    package.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(package, "w:gz") as archive:
         payload = b"bad"
         info = tarfile.TarInfo("../escape")
