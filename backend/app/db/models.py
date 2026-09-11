@@ -120,3 +120,16 @@ class SettingMetadata(TimestampMixin, Base):
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AuditEvent(TimestampMixin, Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    actor_username: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    result: Mapped[str] = mapped_column(String(32), nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
