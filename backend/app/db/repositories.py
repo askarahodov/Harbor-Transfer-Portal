@@ -1,9 +1,11 @@
+import json
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import ArtifactResult, Operation, User, UserRole
+from app.db.models import AuditEvent, ArtifactResult, Operation, SettingMetadata, User, UserRole
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.domain.operations import validate_transition
 
@@ -98,3 +100,47 @@ class OperationRepository:
         self.session.add(artifact)
         self.session.flush()
         return artifact
+
+
+class SettingMetadataRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get_value(self, key: str) -> str | None:
+        item = self.session.get(SettingMetadata, key)
+        return item.value if item is not None else None
+
+    def set_value(self, key: str, value: str, *, description: str | None = None) -> None:
+        item = self.session.get(SettingMetadata, key)
+        if item is None:
+            item = SettingMetadata(key=key, value=value, description=description)
+            self.session.add(item)
+        else:
+            item.value = value
+            if description is not None:
+                item.description = description
+        self.session.flush()
+
+
+class AuditEventRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def create(
+        self,
+        *,
+        actor: User,
+        event_type: str,
+        result: str = "success",
+        metadata: dict[str, Any] | None = None,
+    ) -> AuditEvent:
+        event = AuditEvent(
+            actor_user_id=actor.id,
+            actor_username=actor.username,
+            event_type=event_type,
+            result=result,
+            metadata_json=json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
+        )
+        self.session.add(event)
+        self.session.flush()
+        return event
