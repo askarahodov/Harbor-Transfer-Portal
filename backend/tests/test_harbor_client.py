@@ -11,7 +11,10 @@ def test_project_pagination_collects_all_pages() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         page = int(request.url.params["page"])
         payloads = {
-            1: [{"project_id": 1, "name": "one"}, {"project_id": 2, "name": "two"}],
+            1: [
+                {"project_id": 1, "name": "one"},
+                {"project_id": 2, "name": "two"},
+            ],
             2: [{"project_id": 3, "name": "three"}],
         }
         return httpx.Response(200, json=payloads[page], headers={"X-Total-Count": "3"})
@@ -40,7 +43,10 @@ def test_repository_and_artifact_paths_are_encoded() -> None:
             },
         )
 
-    client = HarborClient(base_url="https://harbor.local", transport=httpx.MockTransport(handler))
+    client = HarborClient(
+        base_url="https://harbor.local",
+        transport=httpx.MockTransport(handler),
+    )
     assert client.list_repositories("team/name")[0].name == "team/app"
     artifact = client.get_artifact("team/name", "nested/repo", "release/1")
     assert artifact.tags[0].name == "1.0.0"
@@ -50,13 +56,22 @@ def test_repository_and_artifact_paths_are_encoded() -> None:
 
 @pytest.mark.parametrize(
     ("status_code", "expected_code"),
-    [(401, "unauthorized"), (403, "forbidden"), (404, "not_found"), (429, "rate_limited"), (503, "harbor_unavailable")],
+    [
+        (401, "unauthorized"),
+        (403, "forbidden"),
+        (404, "not_found"),
+        (429, "rate_limited"),
+        (503, "harbor_unavailable"),
+    ],
 )
 def test_http_errors_are_normalized(status_code: int, expected_code: str) -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(status_code, text="secret raw upstream body")
 
-    client = HarborClient(base_url="https://harbor.local", transport=httpx.MockTransport(handler))
+    client = HarborClient(
+        base_url="https://harbor.local",
+        transport=httpx.MockTransport(handler),
+    )
     with pytest.raises(HarborClientError) as exc_info:
         client.system_info()
     assert exc_info.value.code == expected_code
@@ -67,13 +82,19 @@ def test_missing_reference_returns_none_but_forbidden_does_not() -> None:
     def missing(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(404)
 
-    client = HarborClient(base_url="https://harbor.local", transport=httpx.MockTransport(missing))
+    client = HarborClient(
+        base_url="https://harbor.local",
+        transport=httpx.MockTransport(missing),
+    )
     assert client.reference_digest("p", "repo", "missing") is None
 
     def forbidden(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(403)
 
-    client = HarborClient(base_url="https://harbor.local", transport=httpx.MockTransport(forbidden))
+    client = HarborClient(
+        base_url="https://harbor.local",
+        transport=httpx.MockTransport(forbidden),
+    )
     with pytest.raises(HarborClientError, match="denied"):
         client.reference_digest("p", "repo", "hidden")
 
@@ -82,13 +103,16 @@ def test_timeout_is_mapped() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("timeout", request=request)
 
-    client = HarborClient(base_url="https://harbor.local", transport=httpx.MockTransport(handler))
+    client = HarborClient(
+        base_url="https://harbor.local",
+        transport=httpx.MockTransport(handler),
+    )
     with pytest.raises(HarborClientError) as exc_info:
         client.system_info()
     assert exc_info.value.code == "timeout"
 
 
-def test_custom_ca_and_tls_configuration_are_plumbed() -> None:
+def test_custom_ca_and_tls_configuration_are_plumbed(caplog: pytest.LogCaptureFixture) -> None:
     transport = httpx.MockTransport(lambda _request: httpx.Response(200, json={}))
     custom_ca = Path("/etc/harbor-transfer-portal/ca.crt")
     settings = Settings(
@@ -105,3 +129,4 @@ def test_custom_ca_and_tls_configuration_are_plumbed() -> None:
         transport=transport,
     )
     assert insecure.verify is False
+    assert "verification is explicitly disabled" in caplog.text
