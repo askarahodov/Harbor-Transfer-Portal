@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from app.auth.dependencies import CurrentUserDep
+from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.schemas.harbor import (
     ArtifactKind,
     HarborArtifactResponse,
@@ -16,6 +16,7 @@ from app.schemas.harbor import (
     PageResponse,
 )
 from app.services.harbor_client import HarborArtifact, HarborClient, HarborClientError
+from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 
 router = APIRouter(prefix="/harbor", tags=["harbor"])
 
@@ -24,15 +25,14 @@ def _api_error(status_code: int, code: str, message: str) -> HTTPException:
     return HTTPException(status_code=status_code, detail={"code": code, "message": message})
 
 
-def get_harbor_client(request: Request) -> Generator[HarborClient, None, None]:
+def get_harbor_client(
+    request: Request,
+    session: SessionDep,
+) -> Generator[HarborClient, None, None]:
     try:
-        client = HarborClient.from_settings(request.app.state.settings)
-    except ValueError as exc:
-        raise _api_error(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "harbor_not_configured",
-            "Локальный Harbor не настроен",
-        ) from exc
+        client = HarborSettingsService(session, request.app.state.settings).build_client()
+    except HarborSettingsError as exc:
+        raise _api_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code, exc.message) from exc
     try:
         yield client
     finally:
@@ -114,6 +114,11 @@ def _harbor_error(exc: HarborClientError) -> HTTPException:
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "harbor_unavailable",
             "Локальный Harbor не ответил вовремя",
+        ),
+        "tls_failed": (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "harbor_tls_failed",
+            "Не удалось проверить TLS-сертификат локального Harbor",
         ),
         "connection_failed": (
             status.HTTP_503_SERVICE_UNAVAILABLE,
