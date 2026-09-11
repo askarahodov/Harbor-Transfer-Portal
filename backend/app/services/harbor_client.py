@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -10,6 +10,8 @@ import httpx
 from pydantic import BaseModel, Field
 
 from app.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class HarborProject(BaseModel):
@@ -97,6 +99,8 @@ class HarborClient:
             verify = str(settings.harbor_ca_file)
         else:
             verify = settings.harbor_verify_tls
+        if verify is False:
+            logger.warning("Harbor TLS certificate verification is explicitly disabled")
         password = settings.harbor_password.get_secret_value() if settings.harbor_password else None
         return cls(
             base_url=str(settings.harbor_url),
@@ -119,10 +123,13 @@ class HarborClient:
 
     def system_info(self) -> HarborSystemInfo:
         response = self._request("GET", "/api/v2.0/systeminfo")
-        return HarborSystemInfo.model_validate(response.json())
+        return HarborSystemInfo.model_validate(self._json_object(response))
 
     def list_projects(self) -> list[HarborProject]:
-        return [HarborProject.model_validate(item) for item in self._paginate("/api/v2.0/projects")]
+        return [
+            HarborProject.model_validate(item)
+            for item in self._paginate("/api/v2.0/projects")
+        ]
 
     def list_repositories(self, project: str) -> list[HarborRepository]:
         encoded_project = quote(project, safe="")
@@ -133,7 +140,10 @@ class HarborClient:
         encoded_project = quote(project, safe="")
         encoded_repo = quote(repository, safe="")
         path = f"/api/v2.0/projects/{encoded_project}/repositories/{encoded_repo}/artifacts"
-        return [HarborArtifact.model_validate(item) for item in self._paginate(path, params={"with_tag": "true"})]
+        return [
+            HarborArtifact.model_validate(item)
+            for item in self._paginate(path, params={"with_tag": "true"})
+        ]
 
     def get_artifact(self, project: str, repository: str, reference: str) -> HarborArtifact:
         encoded_project = quote(project, safe="")
@@ -144,7 +154,7 @@ class HarborClient:
             f"/artifacts/{encoded_reference}"
         )
         response = self._request("GET", path, params={"with_tag": "true"})
-        return HarborArtifact.model_validate(response.json())
+        return HarborArtifact.model_validate(self._json_object(response))
 
     def reference_digest(self, project: str, repository: str, reference: str) -> str | None:
         try:
@@ -154,16 +164,18 @@ class HarborClient:
                 return None
             raise
 
-    def _paginate(self, path: str, params: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    def _paginate(
+        self,
+        path: str,
+        params: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
         page = 1
         collected: list[dict[str, Any]] = []
         while True:
             query: dict[str, str | int] = dict(params or {})
             query.update({"page": page, "page_size": self.page_size})
             response = self._request("GET", path, params=query)
-            payload = response.json()
-            if not isinstance(payload, list):
-                raise HarborClientError("invalid_response", "Harbor returned an invalid list response")
+            payload = self._json_list(response)
             collected.extend(payload)
             total_header = response.headers.get("X-Total-Count")
             total = int(total_header) if total_header and total_header.isdigit() else None
@@ -177,7 +189,10 @@ class HarborClient:
         except httpx.TimeoutException as exc:
             raise HarborClientError("timeout", "Local Harbor request timed out") from exc
         except httpx.HTTPError as exc:
-            raise HarborClientError("connection_failed", "Unable to connect to local Harbor") from exc
+            raise HarborClientError(
+                "connection_failed",
+                "Unable to connect to local Harbor",
+            ) from exc
 
         if response.is_success:
             return response
@@ -191,5 +206,29 @@ class HarborClient:
             code, message = mapping[response.status_code]
             raise HarborClientError(code, message, response.status_code)
         if response.status_code >= 500:
-            raise HarborClientError("harbor_unavailable", "Local Harbor is temporarily unavailable", response.status_code)
+            raise HarborClientError(
+                "harbor_unavailable",
+                "Local Harbor is temporarily unavailable",
+                response.status_code,
+            )
         raise HarborClientError("harbor_error", "Local Harbor request failed", response.status_code)
+
+    @staticmethod
+    def _json_object(response: httpx.Response) -> dict[str, Any]:
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise HarborClientError("invalid_response", "Harbor returned invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise HarborClientError("invalid_response", "Harbor returned an invalid object response")
+        return payload
+
+    @staticmethod
+    def _json_list(response: httpx.Response) -> list[dict[str, Any]]:
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise HarborClientError("invalid_response", "Harbor returned invalid JSON") from exc
+        if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+            raise HarborClientError("invalid_response", "Harbor returned an invalid list response")
+        return payload
