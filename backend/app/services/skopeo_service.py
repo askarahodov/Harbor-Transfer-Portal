@@ -448,7 +448,12 @@ class SkopeoService:
 
     @staticmethod
     def _validate_oci_layout(path: Path) -> None:
-        if not path.is_dir() or not (path / "oci-layout").is_file() or not (path / "index.json").is_file():
+        required_files_exist = (
+            path.is_dir()
+            and (path / "oci-layout").is_file()
+            and (path / "index.json").is_file()
+        )
+        if not required_files_exist:
             raise SkopeoServiceError(
                 "skopeo_payload_invalid",
                 "Каталог не является OCI image-layout payload",
@@ -502,7 +507,8 @@ class SkopeoService:
     @staticmethod
     def _raise_command_error(result: CommandResult) -> None:
         lowered = result.stderr.casefold()
-        if any(marker in lowered for marker in ("unauthorized", "authentication required", "denied")):
+        auth_markers = ("unauthorized", "authentication required", "denied")
+        if any(marker in lowered for marker in auth_markers):
             code = "skopeo_auth_failed"
             message = "Harbor отклонил аутентификацию Skopeo"
         elif any(marker in lowered for marker in ("x509", "certificate", "tls handshake")):
