@@ -14,6 +14,7 @@
 4. Полный regression/E2E нужен перед release, после крупных shared/core изменений или когда blast radius нельзя надёжно ограничить.
 5. CI на merge checkpoint является authoritative gate даже если локально агент запускал только scoped subset.
 6. Planned test job не создаётся как пустой зелёный placeholder: gate появляется вместе с поведением, которое он реально проверяет.
+7. Documentation gate не выполняет network crawling: локальная целостность репозитория должна проверяться детерминированно и без зависимости от внешних сайтов.
 
 ## 2. Текущие локальные gates
 
@@ -39,6 +40,23 @@ npm run build
 ```
 
 CI выполняет ESLint, TypeScript, unit/component tests и production build.
+
+### Documentation
+
+```bash
+make docs-check
+```
+
+Gate запускает:
+
+```text
+python3 -m unittest tools.test_check_doc_links
+python3 tools/check_doc_links.py
+```
+
+Checker использует только Python stdlib и проверяет repository-relative Markdown links в root Markdown, `docs/**/*.md` и `deploy/**/*.md`.
+
+External HTTP(S)/mailto/tel/data links не проверяются по сети. Это осознанно: docs-only CI не должен становиться flaky из-за третьего сайта или отсутствия internet access.
 
 ### Bundle Protocol / security regression
 
@@ -70,6 +88,21 @@ Compose smoke является обязательным для затронут�
 ### Component
 
 Проверяет frontend component/view или backend component с ближайшими dependencies без полного transfer flow.
+
+### Documentation integrity
+
+Проверяет, что документационная навигация внутри репозитория не ведёт на отсутствующие файлы и не выходит за repository root.
+
+Unit tests документационного checker покрывают:
+
+- валидную relative-ссылку;
+- отсутствующий target;
+- external/pure-anchor skip;
+- попытку path escape;
+- fenced-code example;
+- image path.
+
+Anchor semantics внутри Markdown и доступность внешних URL пока не входят в gate. Их можно расширить отдельной задачей, если появится практическая потребность без ухудшения надёжности CI.
 
 ### Protocol / security regression
 
@@ -152,16 +185,16 @@ Integration fixture должен быть локальным/disposable и не 
 | Auth/RBAC | backend auth tests + frontend role/session tests при затронутом UI |
 | DB model/migration | backend tests + migration/persistence integration |
 | Только frontend view/component | ESLint + typecheck + unit/component + build |
-| Bundle protocol/schema/domain | protocol/security regression + affected backend tests |
+| Bundle protocol/schema/domain | docs-check + protocol/security regression + affected backend tests |
 | Harbor client/settings | backend tests + mocked/integration Harbor scenarios |
 | Skopeo | argv/redaction/timeout/path/digest tests + local integration при orchestration impact |
 | Helm OCI | argv/redaction/timeout/archive/metadata tests + local integration при orchestration impact |
 | Package verifier/build | backend + protocol/security regression |
 | Export/import orchestration | unit + protocol/security + relevant integration |
 | Compose/Docker/Nginx/deploy runtime | Compose config/build/smoke |
-| Обычная docs-only правка | scope detection + quality-gate; тяжёлые code/E2E jobs skipped |
-| `deploy/*` docs/runtime | Compose smoke согласно current path policy |
-| Workflow `.github/workflows/ci.yml` | все уже реализованные areas включаются для проверки самого workflow |
+| Обычная docs-only правка | docs-check + quality-gate; тяжёлые code/E2E jobs skipped |
+| `deploy/*.md` | docs-check + Compose smoke согласно current path policy |
+| Workflow `.github/workflows/ci.yml` | все уже реализованные areas, включая docs, для проверки самого workflow |
 | Release/install | полный required suite + E2E |
 
 ## 5. Path-aware GitHub Actions
@@ -171,7 +204,14 @@ Integration fixture должен быть локальным/disposable и не 
 - `backend`;
 - `frontend`;
 - `protocol`;
-- `compose`.
+- `compose`;
+- `docs`.
+
+### PR diff semantics
+
+Для pull request changed files вычисляются относительно **merge base** base/head, а не прямым `base.sha → head.sha` diff.
+
+Это важно для отставшей, но неконфликтующей ветки: изменения, которые уже попали в `main` после создания branch, не должны ошибочно считаться «изменениями PR» и запускать unrelated jobs.
 
 ### Backend scope
 
@@ -195,13 +235,41 @@ Integration fixture должен быть локальным/disposable и не 
 - Nginx/entrypoint runtime files;
 - `deploy/*`.
 
+### Documentation scope
+
+Включается для:
+
+- root `README.md`/`CONTRIBUTING.md`;
+- `docs/*`;
+- Markdown в `deploy/`;
+- documentation checker/tests;
+- `Makefile`, потому что он содержит локальный `docs-check` entrypoint.
+
 ### Workflow self-test
 
-Изменение `.github/workflows/ci.yml` включает все уже существующие applicable areas, чтобы workflow не мог изменить собственную логику без реальных checks.
+Изменение `.github/workflows/ci.yml` включает все уже существующие applicable areas, включая documentation, чтобы workflow не мог изменить собственную логику без реальных checks.
 
-## 6. `quality-gate`
+## 6. Documentation job
 
-Финальный job `quality-gate` выполняется всегда.
+Job `Documentation — local links`:
+
+1. checkout repository;
+2. устанавливает Python 3.12 через уже используемый pinned setup action;
+3. выполняет `make docs-check`;
+4. не устанавливает дополнительные Python/npm packages и не обращается к внешним URL.
+
+Missing local target или path escape возвращает non-zero и делает job красным.
+
+## 7. `quality-gate`
+
+Финальный job `quality-gate` выполняется всегда и зависит от:
+
+- scope;
+- backend;
+- frontend;
+- protocol;
+- compose;
+- docs.
 
 Он принимает только:
 
@@ -210,9 +278,9 @@ Integration fixture должен быть локальным/disposable и не 
 
 Любой другой результат делает gate красным.
 
-Так docs-only PR не запускает полный transfer E2E, но required merge check остаётся единым и строгим.
+Так docs-only PR запускает дешёвый documentation gate, но не полный transfer E2E.
 
-## 7. Merge gate / branch protection
+## 8. Merge gate / branch protection
 
 Для `main` в GitHub Rulesets/Branch protection рекомендуется/требуется включить:
 
@@ -222,7 +290,7 @@ Integration fixture должен быть локальным/disposable и не 
 
 Если connector/app не имеет administration permission для изменения branch protection, эта настройка остаётся действием владельца repository.
 
-## 8. Dependency reproducibility
+## 9. Dependency reproducibility
 
 ### Frontend
 
@@ -239,13 +307,18 @@ Python dependencies в `backend/pyproject.toml` используют совме�
 
 Поэтому dependency reproducibility work #26 ещё не считается полностью завершённым только на основании рабочего CI baseline.
 
-## 9. Текущее состояние CI
+### Documentation checker
 
-Реально работающие current jobs:
+Не добавляет third-party dependency: checker и tests используют Python stdlib, поэтому docs gate не создаёт новый lock/supply-chain dependency.
+
+## 10. Текущее состояние CI
+
+Реально работающие current jobs после #67:
 
 | Job | Статус |
 |---|---|
 | Scope detection | реализовано |
+| Documentation local-link gate | реализовано |
 | Backend Ruff + unit/API | реализовано |
 | Frontend lint/type/unit/build | реализовано |
 | Bundle Protocol contract/security regression | реализовано |
@@ -255,9 +328,7 @@ Python dependencies в `backend/pyproject.toml` используют совме�
 | Full SOURCE→TARGET E2E | ещё требуется после orchestration |
 | Release/offline-install gate | ещё требуется в #28 |
 
-Это заменяет старую формулировку «job будет добавлен после появления frontend/Compose»: соответствующие компоненты и current jobs уже существуют.
-
-## 10. Test selection examples
+## 11. Test selection examples
 
 ### Изменён только `frontend/src/views/LoginView.vue`
 
@@ -269,21 +340,26 @@ Python dependencies в `backend/pyproject.toml` используют совме�
 
 ### Изменён только `docs/architecture.md`
 
-Обычный docs-only scope: heavy runtime jobs не требуются.
+Запускается documentation gate + quality-gate. Backend/frontend/Compose не нужны.
 
 ### Изменён `deploy/README.md`
 
-Current CI path policy включает Compose smoke, поскольку `deploy/*` рассматривается как deployment scope. Это осознанно более строгий gate, чем для обычной документации.
+Запускаются docs-check и Compose smoke, поскольку `deploy/*` остаётся deployment scope, а Markdown одновременно относится к documentation scope.
+
+### Отставшая docs-ветка не меняет deployment
+
+PR scope определяется от merge base, поэтому уже merged изменение `deploy/README.md` в base не должно само по себе включить Compose job для такой ветки.
 
 ### Изменён `.github/workflows/ci.yml`
 
-Запускаются все уже реализованные areas, чтобы проверить сам механизм test selection.
+Запускаются все уже реализованные areas, включая docs, чтобы проверить сам механизм test selection.
 
-## 11. Правило root cause
+## 12. Правило root cause
 
 При падении проверки определить тип:
 
 - product/code defect;
+- documentation defect;
 - test defect;
 - environment/fixture defect;
 - flaky behavior;
@@ -296,13 +372,14 @@ Current CI path policy включает Compose smoke, поскольку `deplo
 - скрывать exit code;
 - отключать required job;
 - использовать `continue-on-error` для обязательной проверки;
-- превращать интеграционный дефект в mock-only green test без объяснения.
+- добавлять исключение для сломанной локальной ссылки вместо исправления ссылки/структуры без документированной причины;
+- превращать интеграционный defect в mock-only green test без объяснения.
 
-## 12. Documentation impact
+## 13. Documentation impact
 
 Если test/CI behavior меняется, в той же итерации обновить этот документ.
 
-Если documentation-only path неожиданно запускает или пропускает тяжёлый job, сначала проверить, является ли это intentional policy (например `deploy/*` → Compose), а затем исправлять workflow или docs.
+Если documentation-only path неожиданно запускает или пропускает тяжёлый job, проверить merge-base scope и intentional path policy (например `deploy/*.md` → docs + Compose), затем исправлять workflow или docs.
 
 Связанные документы:
 
@@ -311,14 +388,16 @@ Current CI path policy включает Compose smoke, поскольку `deplo
 - [Security](security.md)
 - [CONTRIBUTING](../CONTRIBUTING.md)
 - `.github/workflows/ci.yml`
+- `tools/check_doc_links.py`
 
-## 13. Remaining quality work
+## 14. Remaining quality work
 
 Следующие расширения не считаются реализованными только потому, что упомянуты здесь:
 
 - backend static type gate;
 - reproducible Python dependency lock/constraints;
 - frontend lockfile;
+- optional Markdown anchor validation, если будет оправдано;
 - Skopeo/Helm local-registry integration;
 - import/export orchestration integration;
 - final SOURCE→TARGET E2E;
