@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, Inbox, LoaderCircle } from '@lucide/vue-next'
+import { AlertTriangle, Inbox, LoaderCircle } from 'lucide-vue-next'
 
 const props = withDefaults(
   defineProps<{
