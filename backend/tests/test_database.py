@@ -1,11 +1,11 @@
 from pathlib import Path
 
 import pytest
-from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 
+from alembic import command
 from app.db.models import UserRole
 from app.db.repositories import OperationRepository, UserRepository
 from app.db.session import create_db_engine, create_session_factory
