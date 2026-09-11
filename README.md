@@ -73,10 +73,11 @@ Harbor TARGET
 |---|---|
 | хотите понять, что это за продукт | [Паспорт проекта](docs/project-passport.md) |
 | хотите увидеть всю карту документации | [docs/README.md](docs/README.md) |
+| администрируете установку, Harbor credentials/CA, keys или backup | [Admin Guide](docs/admin-guide.md) |
+| настраиваете development/runtime Compose | [Deployment](deploy/README.md) |
 | проектируете/разрабатываете backend или интеграции | [Архитектура](docs/architecture.md) |
 | реализуете совместимость SOURCE/TARGET | [Offline Bundle Protocol v1](docs/offline-bundle-v1.md) |
 | разбираете security/trust boundaries | [Security](docs/security.md) |
-| настраиваете development/runtime Compose | [Deployment](deploy/README.md) |
 | меняете background execution | [OperationManager](docs/operation-manager.md) |
 | работаете с Skopeo/Helm | [Skopeo](docs/skopeo-service.md) / [Helm OCI](docs/helm-oci-service.md) |
 | меняете frontend | [Frontend](docs/frontend.md) |
@@ -169,7 +170,7 @@ make compose-config
 make up
 ```
 
-Portal по умолчанию публикуется через frontend на `http://localhost:${PORTAL_HTTP_PORT:-8080}`. Подробности bootstrap admin, Harbor credential/CA, keys, persistent volume и smoke checks находятся в [deploy/README.md](deploy/README.md).
+Portal по умолчанию публикуется через frontend на `http://localhost:${PORTAL_HTTP_PORT:-8080}`. Подробности bootstrap admin, Harbor credential/CA, keys, persistent volume и smoke checks находятся в [Admin Guide](docs/admin-guide.md) и [deploy/README.md](deploy/README.md).
 
 ## SOURCE и TARGET configuration
 
@@ -220,7 +221,7 @@ Documentation gate проверяет repository-relative Markdown links без 
 2. закончить TARGET intake/preview/import orchestration;
 3. подключить законченные export/import UI flows;
 4. завершить history/audit/report user experience;
-5. заполнить user/admin/troubleshooting guides фактическими шагами;
+5. завершить user guide и troubleshooting по фактическим flows;
 6. собрать финальный offline installation kit и выполнить SOURCE→TARGET acceptance E2E.
 
 Актуальная детализация работ ведётся в GitHub Issues; README намеренно не дублирует issue backlog.
