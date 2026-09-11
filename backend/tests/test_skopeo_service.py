@@ -38,6 +38,8 @@ class FakeRunner:
     def __init__(self, results: list[CommandResult]) -> None:
         self.results = results
         self.calls: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+        self.auth_modes: list[int] = []
+        self.ca_files_present: list[bool] = []
         self.copy_callback = None
 
     async def run(
@@ -51,6 +53,14 @@ class FakeRunner:
         assert timeout_seconds > 0
         assert output_limit_bytes >= 4096
         self.calls.append((argv, redact_values))
+        for flag in ("--authfile", "--src-authfile", "--dest-authfile"):
+            if flag in argv:
+                auth_file = argv[argv.index(flag) + 1]
+                self.auth_modes.append(os.stat(auth_file).st_mode & 0o777)
+        for flag in ("--cert-dir", "--src-cert-dir", "--dest-cert-dir"):
+            if flag in argv:
+                cert_dir = Path(argv[argv.index(flag) + 1])
+                self.ca_files_present.append((cert_dir / "ca.crt").is_file())
         if len(argv) > 1 and argv[1] == "copy" and self.copy_callback is not None:
             self.copy_callback(argv)
         if not self.results:
@@ -187,8 +197,8 @@ def test_export_builds_exact_secure_argv_and_preserves_digest(tmp_path: Path) ->
     )
     assert TEST_CREDENTIAL in copy_redactions
     assert TEST_CREDENTIAL not in " ".join(copy_argv)
-    assert os.stat(src_auth_file).st_mode & 0o777 == 0o600
-    assert Path(src_cert_dir, "ca.crt").is_file()
+    assert runner.auth_modes == [0o600, 0o600]
+    assert runner.ca_files_present == [True, True]
 
 
 def test_explicit_tls_disable_is_reflected_without_ca_fallback(tmp_path: Path) -> None:
