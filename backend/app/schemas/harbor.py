@@ -1,13 +1,8 @@
 from datetime import datetime
-from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-
-class ArtifactKind(StrEnum):
-    CONTAINER_IMAGE = "container-image"
-    HELM_CHART = "helm-chart"
-    UNKNOWN_OCI = "unknown-oci"
+from app.domain.artifacts import ArtifactKind
 
 
 class HarborProjectResponse(BaseModel):
