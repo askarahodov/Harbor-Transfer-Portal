@@ -389,22 +389,22 @@ def test_asyncio_runner_timeout_kills_child(monkeypatch: pytest.MonkeyPatch) -> 
             self.stderr.feed_eof()
             self.done.set()
 
-    process = Process()
+    async def scenario() -> None:
+        process = Process()
 
-    async def fake_exec(*args, **kwargs):
-        return process
+        async def fake_exec(*args, **kwargs):
+            return process
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-    with pytest.raises(SkopeoServiceError) as exc:
-        asyncio.run(
-            AsyncioCommandRunner().run(
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        with pytest.raises(SkopeoServiceError) as exc:
+            await AsyncioCommandRunner().run(
                 ("skopeo", "inspect", "oci:/tmp/test:image"),
                 timeout_seconds=0.001,
                 output_limit_bytes=4096,
             )
-        )
+        assert exc.value.code == "skopeo_timeout"
 
-    assert exc.value.code == "skopeo_timeout"
+    asyncio.run(scenario())
     assert killed is True
 
 
@@ -430,14 +430,13 @@ def test_asyncio_runner_cancellation_kills_child(monkeypatch: pytest.MonkeyPatch
             self.stderr.feed_eof()
             self.done.set()
 
-    process = Process()
-
-    async def fake_exec(*args, **kwargs):
-        return process
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-
     async def scenario() -> None:
+        process = Process()
+
+        async def fake_exec(*args, **kwargs):
+            return process
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
         task = asyncio.create_task(
             AsyncioCommandRunner().run(
                 ("skopeo", "copy", "oci:/a:image", "oci:/b:image"),
