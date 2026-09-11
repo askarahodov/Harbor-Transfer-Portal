@@ -6,15 +6,17 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import AnyHttpUrl, TypeAdapter
 from sqlalchemy.orm import Session
 
-from app.config import Settings
+from app.config import Settings, validate_harbor_base_url
 from app.db.repositories import SettingMetadataRepository
 from app.services.harbor_client import HarborClient
 
 HARBOR_URL_KEY = "harbor.url"
 HARBOR_USERNAME_KEY = "harbor.username"
 HARBOR_VERIFY_TLS_KEY = "harbor.verify_tls"
+_HARBOR_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,9 +49,9 @@ class HarborSettingsService:
         verify_override = self.metadata.get_value(HARBOR_VERIFY_TLS_KEY)
 
         url = (
-            url_override
+            self._validated_url(url_override)
             if url_override is not None
-            else (str(self.settings.harbor_url) if self.settings.harbor_url else None)
+            else (str(self.settings.harbor_url).rstrip("/") if self.settings.harbor_url else None)
         )
         username = (
             (username_override or None)
@@ -65,7 +67,7 @@ class HarborSettingsService:
         ca_file = self._effective_ca_file() if verify_tls else None
 
         return EffectiveHarborSettings(
-            url=url.rstrip("/") if url else None,
+            url=url,
             username=username,
             password=password,
             verify_tls=verify_tls,
@@ -95,7 +97,7 @@ class HarborSettingsService:
         )
 
     def set_url(self, value: str | None) -> None:
-        self.metadata.set_value(HARBOR_URL_KEY, value or "")
+        self.metadata.set_value(HARBOR_URL_KEY, self._validated_url(value) or "")
 
     def set_username(self, value: str | None) -> None:
         self.metadata.set_value(HARBOR_USERNAME_KEY, value or "")
@@ -169,6 +171,20 @@ class HarborSettingsService:
         if self.settings.harbor_managed_ca_file.is_file():
             return self.settings.harbor_managed_ca_file
         return self.settings.harbor_ca_file
+
+    @staticmethod
+    def _validated_url(value: str | None) -> str | None:
+        if value is None or not value:
+            return None
+        try:
+            parsed = _HARBOR_URL_ADAPTER.validate_python(value)
+            validated = validate_harbor_base_url(parsed)
+        except ValueError as exc:
+            raise HarborSettingsError(
+                "harbor_configuration_invalid",
+                "URL локального Harbor некорректен",
+            ) from exc
+        return str(validated).rstrip("/") if validated is not None else None
 
     @staticmethod
     def _atomic_write(path: Path, value: str, mode: int) -> None:
