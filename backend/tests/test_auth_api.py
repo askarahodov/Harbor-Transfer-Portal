@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 
+from alembic import command
 from app.auth.security import hash_password
 from app.config import Settings
 from app.db.models import UserRole
@@ -64,7 +64,11 @@ def test_viewer_cannot_manage_users_but_admin_can(tmp_path: Path) -> None:
     viewer = _login(client, "viewer", "viewer-password-123")
     admin = _login(client, "admin", "admin-password-123")
 
-    assert client.get("/api/users", headers={"Authorization": f"Bearer {viewer}"}).status_code == 403
+    viewer_response = client.get(
+        "/api/users",
+        headers={"Authorization": f"Bearer {viewer}"},
+    )
+    assert viewer_response.status_code == 403
     response = client.get("/api/users", headers={"Authorization": f"Bearer {admin}"})
     assert response.status_code == 200
     assert {user["username"] for user in response.json()} == {"admin", "viewer"}
@@ -91,4 +95,8 @@ def test_disabled_user_token_is_rejected(tmp_path: Path) -> None:
         user.is_active = False
         session.commit()
 
-    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+    response = client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 401

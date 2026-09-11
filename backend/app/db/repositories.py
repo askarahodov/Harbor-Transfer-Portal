@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -32,7 +32,7 @@ class UserRepository:
         return list(self.session.scalars(select(User).order_by(User.username)))
 
     def mark_login(self, user: User) -> None:
-        user.last_login_at = datetime.now(timezone.utc)
+        user.last_login_at = datetime.now(UTC)
         self.session.flush()
 
 

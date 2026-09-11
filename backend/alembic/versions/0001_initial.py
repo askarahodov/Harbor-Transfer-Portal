@@ -1,7 +1,8 @@
 """initial persistent schema"""
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0001_initial"
 down_revision = None
@@ -15,7 +16,17 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("username", sa.String(128), nullable=False),
         sa.Column("password_hash", sa.String(512), nullable=False),
-        sa.Column("role", sa.Enum("ADMIN", "OPERATOR", "VIEWER", name="userrole", native_enum=False), nullable=False),
+        sa.Column(
+            "role",
+            sa.Enum(
+                "ADMIN",
+                "OPERATOR",
+                "VIEWER",
+                name="userrole",
+                native_enum=False,
+            ),
+            nullable=False,
+        ),
         sa.Column("is_active", sa.Boolean(), nullable=False),
         sa.Column("last_login_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
@@ -28,13 +39,30 @@ def upgrade() -> None:
         "operations",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("delivery_id", sa.String(96), nullable=True),
-        sa.Column("type", sa.Enum("EXPORT", "IMPORT", name="operationtype", native_enum=False), nullable=False),
+        sa.Column(
+            "type",
+            sa.Enum("EXPORT", "IMPORT", name="operationtype", native_enum=False),
+            nullable=False,
+        ),
         sa.Column(
             "status",
             sa.Enum(
-                "CREATED", "VALIDATING", "RUNNING", "PACKAGING", "VERIFYING", "UPLOADED",
-                "DISCOVERED", "READY", "IMPORTING", "VERIFYING_TARGET", "COMPLETED", "FAILED",
-                "REJECTED", "CANCELLED", name="operationstatus", native_enum=False,
+                "CREATED",
+                "VALIDATING",
+                "RUNNING",
+                "PACKAGING",
+                "VERIFYING",
+                "UPLOADED",
+                "DISCOVERED",
+                "READY",
+                "IMPORTING",
+                "VERIFYING_TARGET",
+                "COMPLETED",
+                "FAILED",
+                "REJECTED",
+                "CANCELLED",
+                name="operationstatus",
+                native_enum=False,
             ),
             nullable=False,
         ),
@@ -53,12 +81,28 @@ def upgrade() -> None:
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["actor_user_id"], ["users.id"], name="fk_operations_actor_user_id_users", ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["actor_user_id"],
+            ["users.id"],
+            name="fk_operations_actor_user_id_users",
+            ondelete="SET NULL",
+        ),
         sa.UniqueConstraint("delivery_id", name="uq_operations_delivery_id"),
-        sa.CheckConstraint("progress_current >= 0", name="ck_operations_progress_current_nonnegative"),
-        sa.CheckConstraint("progress_total >= 0", name="ck_operations_progress_total_nonnegative"),
+        sa.CheckConstraint(
+            "progress_current >= 0",
+            name="ck_operations_progress_current_nonnegative",
+        ),
+        sa.CheckConstraint(
+            "progress_total >= 0",
+            name="ck_operations_progress_total_nonnegative",
+        ),
     )
-    op.create_index("ix_operations_actor_user_id", "operations", ["actor_user_id"], unique=False)
+    op.create_index(
+        "ix_operations_actor_user_id",
+        "operations",
+        ["actor_user_id"],
+        unique=False,
+    )
 
     op.create_table(
         "artifact_results",
@@ -71,15 +115,39 @@ def upgrade() -> None:
         sa.Column("version", sa.String(256), nullable=True),
         sa.Column("source_digest", sa.String(128), nullable=True),
         sa.Column("target_digest", sa.String(128), nullable=True),
-        sa.Column("status", sa.Enum("PENDING", "RUNNING", "IMPORTED", "SKIPPED", "CONFLICT", "FAILED", "VERIFIED", name="artifactstatus", native_enum=False), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "PENDING",
+                "RUNNING",
+                "IMPORTED",
+                "SKIPPED",
+                "CONFLICT",
+                "FAILED",
+                "VERIFIED",
+                name="artifactstatus",
+                native_enum=False,
+            ),
+            nullable=False,
+        ),
         sa.Column("error_code", sa.String(128), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("size_bytes", sa.Integer(), nullable=True),
         sa.Column("started_at", sa.DateTime(), nullable=True),
         sa.Column("finished_at", sa.DateTime(), nullable=True),
-        sa.ForeignKeyConstraint(["operation_id"], ["operations.id"], name="fk_artifact_results_operation_id_operations", ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["operation_id"],
+            ["operations.id"],
+            name="fk_artifact_results_operation_id_operations",
+            ondelete="CASCADE",
+        ),
     )
-    op.create_index("ix_artifact_results_operation_id", "artifact_results", ["operation_id"], unique=False)
+    op.create_index(
+        "ix_artifact_results_operation_id",
+        "artifact_results",
+        ["operation_id"],
+        unique=False,
+    )
 
     op.create_table(
         "setting_metadata",

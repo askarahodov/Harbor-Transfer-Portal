@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import tarfile
+from collections.abc import Iterable
 from pathlib import PurePosixPath
-from typing import Iterable
 
 from app.domain.bundle import BundleManifest
 

@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
 import tarfile
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -19,7 +19,7 @@ def make_manifest() -> BundleManifest:
     return BundleManifest(
         schema_version="1.0",
         delivery_id="DELIVERY-20260911-ABC123",
-        created_at=datetime(2026, 9, 11, 6, 0, tzinfo=timezone.utc),
+        created_at=datetime(2026, 9, 11, 6, 0, tzinfo=UTC),
         created_by="operator",
         source=BundleSource(contour="SOURCE", harbor="harbor.source.local"),
         artifacts=[
@@ -55,13 +55,25 @@ def test_payload_path_rejects_traversal() -> None:
 
 
 def test_operation_state_machine_rejects_illegal_transition() -> None:
-    validate_transition(OperationType.EXPORT, OperationStatus.CREATED, OperationStatus.VALIDATING)
+    validate_transition(
+        OperationType.EXPORT,
+        OperationStatus.CREATED,
+        OperationStatus.VALIDATING,
+    )
     with pytest.raises(IllegalOperationTransition):
-        validate_transition(OperationType.EXPORT, OperationStatus.CREATED, OperationStatus.COMPLETED)
+        validate_transition(
+            OperationType.EXPORT,
+            OperationStatus.CREATED,
+            OperationStatus.COMPLETED,
+        )
 
 
 def test_archive_validation_rejects_links_and_traversal() -> None:
-    required = [tarfile.TarInfo("manifest.json"), tarfile.TarInfo("manifest.sig"), tarfile.TarInfo("checksums.sha256")]
+    required = [
+        tarfile.TarInfo("manifest.json"),
+        tarfile.TarInfo("manifest.sig"),
+        tarfile.TarInfo("checksums.sha256"),
+    ]
     validate_archive_members(required)
 
     link = tarfile.TarInfo("payload/link")
