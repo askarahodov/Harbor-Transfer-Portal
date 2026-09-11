@@ -124,6 +124,8 @@ Scoped smoke test:
 - запуск backend под UID `10001`, а не root;
 - ожидаемые версии Skopeo и Helm;
 - отсутствие `HARBOR_*`, `JWT_SECRET` и `DATABASE_URL` во frontend environment;
-- сохранение marker-файла в named volume после restart.
+- сохранение marker-файла после `docker compose restart`;
+- сохранение того же marker-файла после `docker compose down` и повторного `up`;
+- запуск **тех же уже собранных образов** в противоположном `SOURCE`/`TARGET` contour через `--no-build --pull never`.
 
-Smoke test останавливает контейнеры при завершении, но сохраняет `portal-data`.
+Последний этап одновременно подтверждает, что штатный повторный runtime start не требует build или загрузки образов из сети. Smoke test останавливает контейнеры при завершении, но сохраняет `portal-data`.
