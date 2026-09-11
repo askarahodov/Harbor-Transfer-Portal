@@ -58,7 +58,7 @@ def set_metadata(session: Session, key: str, value: Any, *, description: str) ->
 
 def _read_secret_file(path: Path) -> str:
     try:
-        value = path.read_text(encoding="utf-8")
+        value = path.read_text(encoding="utf-8").rstrip("\r\n")
     except OSError as exc:
         raise HarborSettingsError(
             "harbor_secret_unreadable",
@@ -69,7 +69,7 @@ def _read_secret_file(path: Path) -> str:
             "harbor_secret_invalid",
             "Файл учётных данных локального Harbor пуст",
         )
-    return value.rstrip("\r\n")
+    return value
 
 
 def _atomic_write_private(path: Path, value: str) -> None:
@@ -89,7 +89,6 @@ def _atomic_write_private(path: Path, value: str) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp_path, path)
-        os.chmod(path, 0o600)
     except OSError as exc:
         try:
             if "temp_path" in locals() and temp_path.exists():
