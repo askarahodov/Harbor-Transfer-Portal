@@ -28,7 +28,8 @@
 4. для **компонента** — специализированный service/API/frontend document + code/tests;
 5. для **deployment/runtime** — `deploy/README.md` + `compose.yaml`/Dockerfiles/`.env.example`;
 6. для **администрирования установки** — `admin-guide.md` вместе с deployment/security sources;
-7. исторический design document не должен переопределять ни один из перечисленных источников.
+7. для **операционной диагностики** — `troubleshooting.md` + соответствующий component/security source;
+8. исторический design document не должен переопределять ни один из перечисленных источников.
 
 Обнаруженное противоречие считается documentation defect и должно исправляться в той же или отдельной сфокусированной задаче.
 
@@ -39,6 +40,7 @@
 | [project-passport.md](project-passport.md) | простое описание продукта и целевого процесса | актуальный product overview |
 | [architecture.md](architecture.md) | компоненты, boundaries, data flows, current implementation state | актуальный |
 | [admin-guide.md](admin-guide.md) | администрирование установки: bootstrap, Harbor, keys, backup/restore, limits и эксплуатация | актуальный для current Compose; не финальный offline installer |
+| [troubleshooting.md](troubleshooting.md) | симптом → причина → диагностика → безопасное решение по current error semantics | актуальный; planned import-only cases отмечены явно |
 | [offline-bundle-v1.md](offline-bundle-v1.md) | формат Bundle v1, signing/checksum/archive contract | **нормативный** |
 | `schema/` | machine-readable protocol schemas | **нормативный** |
 | [package-service.md](package-service.md) | реализационная граница Bundle build/verify | актуальный component doc |
@@ -64,8 +66,8 @@
 - #57 — deployment/config/credential/key synchronization — выполнено;
 - #58 — ADR/docs hygiene и карта документации — выполнено;
 - #59 — `user-guide.md` для operator/viewer — ждёт стабильных #17/#19 UI/API flows;
-- #60 — `admin-guide.md` — текущая итерация;
-- #61 — `troubleshooting.md` — следующий эксплуатационный документ;
+- #60 — `admin-guide.md` — выполнено;
+- #61 — `troubleshooting.md` — текущая итерация;
 - #67 — automated documentation link gate — выполнено;
 - #71 — синхронизация architecture с persistent OperationManager — выполнено;
 - #68 — свежий root README поверх актуальных sources — выполнено.
@@ -109,6 +111,7 @@ Path-aware CI включает отдельный `Documentation — local links
 | Environment/configuration | `.env.example` + deployment/admin docs |
 | Frontend flow | frontend + user guide/current-state marker |
 | Operation states/history/reports | architecture + user/admin/troubleshooting/report docs |
+| Stable user-facing error code | troubleshooting + affected user/admin guide |
 | CI/test policy | testing + workflow documentation |
 | Release/install | deployment + admin + release notes/checklist |
 
