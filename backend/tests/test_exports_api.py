@@ -79,6 +79,29 @@ def _selection_payload() -> dict[str, object]:
     }
 
 
+def _completed_export(app, user_id: int) -> tuple[int, Path, str]:
+    archive = app.state.settings.bundle_outgoing_root / f"{DELIVERY_ID}.htp.tar.gz"
+    sidecar = archive.with_name(archive.name + ".sha256")
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    archive.write_bytes(b"large-bundle-stream-path")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    sidecar.write_text(f"{digest}  {archive.name}\n", encoding="utf-8")
+    with app.state.session_factory() as session:
+        operation = Operation(
+            delivery_id=DELIVERY_ID,
+            type=OperationType.EXPORT,
+            status=OperationStatus.COMPLETED,
+            actor_user_id=user_id,
+            actor_username="operator",
+            bundle_filename=archive.name,
+            bundle_sha256=digest,
+            bundle_size_bytes=archive.stat().st_size,
+        )
+        session.add(operation)
+        session.commit()
+        return operation.id, archive, digest
+
+
 def test_viewer_cannot_preview_or_start_export(tmp_path: Path) -> None:
     app, _user_ids = _app_with_users(tmp_path, PortalContour.SOURCE)
     with TestClient(app) as client:
@@ -144,27 +167,7 @@ def test_export_selection_rejects_duplicate_reference_and_invalid_image_tag(
 
 def test_download_is_owner_scoped_and_exposes_length_and_sha256(tmp_path: Path) -> None:
     app, user_ids = _app_with_users(tmp_path, PortalContour.SOURCE)
-    archive = app.state.settings.bundle_outgoing_root / f"{DELIVERY_ID}.htp.tar.gz"
-    sidecar = archive.with_name(archive.name + ".sha256")
-    archive.parent.mkdir(parents=True, exist_ok=True)
-    archive.write_bytes(b"large-bundle-stream-path")
-
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    sidecar.write_text(f"{digest}  {archive.name}\n", encoding="utf-8")
-    with app.state.session_factory() as session:
-        operation = Operation(
-            delivery_id=DELIVERY_ID,
-            type=OperationType.EXPORT,
-            status=OperationStatus.COMPLETED,
-            actor_user_id=user_ids["operator"],
-            actor_username="operator",
-            bundle_filename=archive.name,
-            bundle_sha256=digest,
-            bundle_size_bytes=archive.stat().st_size,
-        )
-        session.add(operation)
-        session.commit()
-        operation_id = operation.id
+    operation_id, archive, digest = _completed_export(app, user_ids["operator"])
 
     with TestClient(app) as client:
         owner = _login(client, "operator")
@@ -182,7 +185,59 @@ def test_download_is_owner_scoped_and_exposes_length_and_sha256(tmp_path: Path) 
     assert response.status_code == 200
     assert response.headers["content-length"] == str(archive.stat().st_size)
     assert response.headers["x-checksum-sha256"] == digest
+    assert response.headers["cache-control"] == "no-store"
     assert response.content == b"large-bundle-stream-path"
+
+
+def test_download_ticket_allows_native_browser_stream_without_bearer(tmp_path: Path) -> None:
+    app, user_ids = _app_with_users(tmp_path, PortalContour.SOURCE)
+    operation_id, archive, digest = _completed_export(app, user_ids["operator"])
+
+    with TestClient(app) as client:
+        owner = _login(client, "operator")
+        ticket = client.post(
+            f"/api/exports/{operation_id}/download-ticket",
+            headers=_auth(owner),
+        )
+        assert ticket.status_code == 200
+        assert ticket.json() == {
+            "download_url": f"/api/exports/{operation_id}/download",
+            "expires_in_seconds": 120,
+        }
+        set_cookie = ticket.headers["set-cookie"].lower()
+        assert "httponly" in set_cookie
+        assert "samesite=strict" in set_cookie
+        assert f"path=/api/exports/{operation_id}/download" in set_cookie
+
+        response = client.get(f"/api/exports/{operation_id}/download")
+
+    assert response.status_code == 200
+    assert response.headers["content-length"] == str(archive.stat().st_size)
+    assert response.headers["x-checksum-sha256"] == digest
+    assert response.content == b"large-bundle-stream-path"
+
+
+def test_download_ticket_is_owner_scoped_and_viewer_cannot_mint_it(tmp_path: Path) -> None:
+    app, user_ids = _app_with_users(tmp_path, PortalContour.SOURCE)
+    operation_id, _archive, _digest = _completed_export(app, user_ids["operator"])
+
+    with TestClient(app) as client:
+        other = _login(client, "other")
+        viewer = _login(client, "viewer")
+        other_response = client.post(
+            f"/api/exports/{operation_id}/download-ticket",
+            headers=_auth(other),
+        )
+        viewer_response = client.post(
+            f"/api/exports/{operation_id}/download-ticket",
+            headers=_auth(viewer),
+        )
+        unauthenticated = client.get(f"/api/exports/{operation_id}/download")
+
+    assert other_response.status_code == 403
+    assert viewer_response.status_code == 403
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.json()["error"]["code"] == "download_auth_required"
 
 
 def test_generic_operation_status_projects_persisted_bundle_metadata(tmp_path: Path) -> None:
