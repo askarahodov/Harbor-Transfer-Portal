@@ -6,7 +6,12 @@ import {
 } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
-  { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { public: true, layout: 'bare' },
+  },
   { path: '/', name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
   { path: '/export', name: 'export', component: () => import('@/views/ExportView.vue') },
   { path: '/import', name: 'import', component: () => import('@/views/ImportView.vue') },
