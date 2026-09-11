@@ -21,7 +21,7 @@ def _client_with_users(tmp_path: Path) -> TestClient:
     app = create_app(
         Settings(
             database_url=database_url,
-            jwt_secret="test-jwt-secret-not-for-production",
+            jwt_secret="test-jwt-secret-not-for-production-123456",
         )
     )
     with app.state.session_factory() as session:
@@ -68,6 +68,17 @@ def test_viewer_cannot_manage_users_but_admin_can(tmp_path: Path) -> None:
     response = client.get("/api/users", headers={"Authorization": f"Bearer {admin}"})
     assert response.status_code == 200
     assert {user["username"] for user in response.json()} == {"admin", "viewer"}
+
+
+def test_admin_create_user_rejects_whitespace_username(tmp_path: Path) -> None:
+    client = _client_with_users(tmp_path)
+    admin = _login(client, "admin", "admin-password-123")
+    response = client.post(
+        "/api/users",
+        headers={"Authorization": f"Bearer {admin}"},
+        json={"username": "   ", "password": "new-user-password-123", "role": "viewer"},
+    )
+    assert response.status_code == 422
 
 
 def test_disabled_user_token_is_rejected(tmp_path: Path) -> None:
