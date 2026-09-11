@@ -84,6 +84,17 @@ class Settings(BaseSettings):
     bundle_max_compression_ratio: float = Field(default=200.0, ge=1.0, le=10_000.0)
     bundle_max_trusted_keys: int = Field(default=32, ge=1, le=256)
 
+    import_discovery_root: Path = Path("./data/incoming")
+    import_staging_root: Path = Path("./data/incoming/staged")
+    import_receipt_root: Path = Path("./data/receipts/imports")
+    import_max_upload_bytes: int = Field(default=50 * 1024**3, ge=1, le=1024**4)
+    import_stream_chunk_bytes: int = Field(
+        default=1024**2,
+        ge=64 * 1024,
+        le=8 * 1024**2,
+    )
+    import_allow_overwrite: bool = False
+
     operation_workspace_root: Path = Path("./data/tmp/operations")
     operation_max_concurrent: int = Field(default=2, ge=1, le=32)
     operation_disk_reserve_bytes: int = Field(default=512 * 1024**2, ge=0, le=1024**4)

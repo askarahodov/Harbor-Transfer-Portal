@@ -89,6 +89,13 @@ class Operation(TimestampMixin, Base):
     bundle_filename: Mapped[str | None] = mapped_column(String(192), nullable=True)
     bundle_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     bundle_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    import_storage_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    import_intake_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    source_delivery_id: Mapped[str | None] = mapped_column(String(96), nullable=True, index=True)
+    bundle_signing_key_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    import_preview_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    import_policy_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    import_receipt_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     artifacts: Mapped[list["ArtifactResult"]] = relationship(
         back_populates="operation",
