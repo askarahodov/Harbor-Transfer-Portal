@@ -36,6 +36,10 @@ class Settings(BaseSettings):
 
     jwt_secret: SecretStr | None = None
     jwt_access_token_minutes: int = Field(default=30, ge=1, le=1440)
+    login_rate_limit_window_seconds: int = Field(default=300, ge=1, le=86400)
+    login_rate_limit_username_max_failures: int = Field(default=5, ge=1, le=100)
+    login_rate_limit_address_max_failures: int = Field(default=20, ge=1, le=1000)
+    login_rate_limit_lockout_seconds: int = Field(default=900, ge=1, le=86400)
 
     cors_origins: list[str] = Field(default_factory=list)
 

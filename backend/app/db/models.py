@@ -1,7 +1,16 @@
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, CheckConstraint, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -23,6 +32,21 @@ class User(TimestampMixin, Base):
     role: Mapped[UserRole] = mapped_column(Enum(UserRole, native_enum=False), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
+class LoginThrottle(TimestampMixin, Base):
+    __tablename__ = "login_throttles"
+    __table_args__ = (
+        UniqueConstraint("scope", "subject_hash", name="uq_login_throttles_scope_subject_hash"),
+        CheckConstraint("failure_count >= 0", name="failure_count_nonnegative"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    subject_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    window_started_at: Mapped[datetime] = mapped_column(nullable=False)
+    locked_until: Mapped[datetime | None] = mapped_column(index=True, nullable=True)
 
 
 class Operation(TimestampMixin, Base):
