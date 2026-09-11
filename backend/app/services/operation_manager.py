@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
-from app.db.models import ArtifactResult, Operation, User
+from app.db.models import Operation, User
 from app.db.repositories import OperationRepository
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.domain.operations import TERMINAL_STATES
@@ -77,7 +77,7 @@ OperationWorker = Callable[["OperationExecutionContext"], Awaitable[None]]
 class OperationExecutionContext:
     def __init__(
         self,
-        manager: "OperationManager",
+        manager: OperationManager,
         operation_id: int,
         workspace: Path,
     ) -> None:
