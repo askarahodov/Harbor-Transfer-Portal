@@ -74,6 +74,7 @@ Harbor TARGET
 | хотите понять, что это за продукт | [Паспорт проекта](docs/project-passport.md) |
 | хотите увидеть всю карту документации | [docs/README.md](docs/README.md) |
 | администрируете установку, Harbor credentials/CA, keys или backup | [Admin Guide](docs/admin-guide.md) |
+| устраняете ошибку или отказ | [Troubleshooting](docs/troubleshooting.md) |
 | настраиваете development/runtime Compose | [Deployment](deploy/README.md) |
 | проектируете/разрабатываете backend или интеграции | [Архитектура](docs/architecture.md) |
 | реализуете совместимость SOURCE/TARGET | [Offline Bundle Protocol v1](docs/offline-bundle-v1.md) |
@@ -221,7 +222,7 @@ Documentation gate проверяет repository-relative Markdown links без 
 2. закончить TARGET intake/preview/import orchestration;
 3. подключить законченные export/import UI flows;
 4. завершить history/audit/report user experience;
-5. завершить user guide и troubleshooting по фактическим flows;
+5. завершить user guide и дополнять troubleshooting фактическими #17/#19 error flows;
 6. собрать финальный offline installation kit и выполнить SOURCE→TARGET acceptance E2E.
 
 Актуальная детализация работ ведётся в GitHub Issues; README намеренно не дублирует issue backlog.
