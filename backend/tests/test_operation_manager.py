@@ -58,7 +58,6 @@ def test_progress_and_artifact_results_are_persistent(tmp_path: Path) -> None:
             context.transition(OperationStatus.VALIDATING)
             context.transition(OperationStatus.RUNNING)
             context.set_progress(0, 2)
-            snapshot = manager.get_snapshot(operation_id)
             artifact_ids = []
             with manager.session_factory() as session:
                 operation = session.get(Operation, operation_id)
