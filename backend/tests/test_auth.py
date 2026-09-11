@@ -2,10 +2,12 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from pydantic import ValidationError
 import pytest
 
 from app.auth.bootstrap import bootstrap_admin
 from app.auth.security import create_access_token, decode_access_token, hash_password, verify_password
+from app.config import Settings
 from app.db.models import UserRole
 from app.db.session import create_db_engine, create_session_factory
 
@@ -23,6 +25,13 @@ def test_access_token_round_trip_and_invalid_signature() -> None:
     assert decode_access_token(token, "secret-one") == 42
     with pytest.raises(ValueError):
         decode_access_token(token, "secret-two")
+
+
+def test_settings_reject_weak_or_placeholder_jwt_secret() -> None:
+    with pytest.raises(ValidationError):
+        Settings(jwt_secret="short")
+    with pytest.raises(ValidationError):
+        Settings(jwt_secret="replace-with-random-high-entropy-secret")
 
 
 def test_bootstrap_admin_is_idempotent(tmp_path: Path) -> None:
