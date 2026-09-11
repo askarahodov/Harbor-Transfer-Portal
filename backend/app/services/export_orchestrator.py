@@ -9,10 +9,12 @@ from pathlib import Path
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import PortalContour, Settings
+from app.db.models import Operation
 from app.domain.artifacts import ArtifactKind, classify_artifact_kind
 from app.domain.bundle import ArtifactStatus, BundleSource, OperationStatus, OperationType
 from app.schemas.exports import ExportArtifactSelection
 from app.services.bundle_package_service import (
+    BundleBuildResult,
     BundlePackageError,
     BundlePackageService,
     ContainerImagePackageInput,
@@ -28,6 +30,7 @@ from app.services.helm_oci_service import (
 )
 from app.services.operation_manager import (
     OperationArtifactSpec,
+    OperationCancelled,
     OperationContext,
     OperationManager,
     OperationManagerError,
@@ -107,7 +110,9 @@ class ExportOrchestrator:
         self._require_source_contour()
         client = self._build_harbor_client()
         try:
-            resolved = tuple(self._resolve_selection(client, selection) for selection in selections)
+            resolved = tuple(
+                self._resolve_selection(client, selection) for selection in selections
+            )
         finally:
             client.close()
         return resolved
@@ -146,7 +151,8 @@ class ExportOrchestrator:
                 "export_operation_create_failed",
                 "Не удалось загрузить созданную export-операцию",
             )
-        artifact_ids = tuple(artifact.id for artifact in sorted(operation.artifacts, key=lambda x: x.id))
+        ordered_artifacts = sorted(operation.artifacts, key=lambda item: item.id)
+        artifact_ids = tuple(artifact.id for artifact in ordered_artifacts)
         if len(artifact_ids) != len(selection_snapshot):
             raise ExportOrchestrationError(
                 "export_operation_create_failed",
@@ -181,11 +187,25 @@ class ExportOrchestrator:
                 "export_not_ready",
                 "Export bundle ещё не готов к выдаче",
             )
+        if (
+            operation.bundle_filename is None
+            or operation.bundle_sha256 is None
+            or operation.bundle_size_bytes is None
+        ):
+            raise ExportOrchestrationError(
+                "export_bundle_metadata_invalid",
+                "У завершённой export-операции отсутствует bundle metadata",
+            )
 
-        archive_name = f"{operation.delivery_id}.htp.tar.gz"
+        expected_name = f"{operation.delivery_id}.htp.tar.gz"
+        if operation.bundle_filename != expected_name:
+            raise ExportOrchestrationError(
+                "export_bundle_metadata_invalid",
+                "Имя export bundle не соответствует delivery_id",
+            )
         root = self.settings.bundle_outgoing_root.resolve()
-        archive = (root / archive_name).resolve()
-        sidecar = (root / f"{archive_name}.sha256").resolve()
+        archive = (root / operation.bundle_filename).resolve()
+        sidecar = (root / f"{operation.bundle_filename}.sha256").resolve()
         try:
             archive.relative_to(root)
             sidecar.relative_to(root)
@@ -224,11 +244,17 @@ class ExportOrchestrator:
                 "export_bundle_metadata_invalid",
                 "Checksum sidecar export bundle содержит неверный SHA-256",
             )
+        archive_size = archive.stat().st_size
+        if digest != operation.bundle_sha256 or archive_size != operation.bundle_size_bytes:
+            raise ExportOrchestrationError(
+                "export_bundle_metadata_invalid",
+                "Файловая metadata export bundle не совпадает с persisted operation metadata",
+            )
         return ExportBundleMetadata(
             operation_id=operation_id,
             delivery_id=operation.delivery_id,
             archive_path=archive,
-            archive_size=archive.stat().st_size,
+            archive_size=archive_size,
             sha256=digest,
         )
 
@@ -259,7 +285,9 @@ class ExportOrchestrator:
         package_inputs: list[PackageArtifactInput] = []
         completed = False
         try:
-            for index, (artifact_id, item) in enumerate(zip(artifact_ids, resolved, strict=True)):
+            for index, (artifact_id, item) in enumerate(
+                zip(artifact_ids, resolved, strict=True)
+            ):
                 context.raise_if_cancelled()
                 context.set_artifact_status(artifact_id, ArtifactStatus.RUNNING)
                 try:
@@ -293,8 +321,7 @@ class ExportOrchestrator:
                 portal_version=self.settings.app_version,
             )
             try:
-                build = await asyncio.to_thread(
-                    self._package_service().build_bundle,
+                build = await self._build_bundle_cancellation_safe(
                     source=source,
                     created_by=actor_username,
                     artifacts=tuple(package_inputs),
@@ -302,24 +329,154 @@ class ExportOrchestrator:
                     comment=comment,
                 )
             except BundlePackageError as exc:
+                self._cleanup_published_delivery(delivery_id)
                 raise OperationTaskFailure(exc.code, exc.message) from exc
 
-            # build_bundle выполняет verifier path до атомарной публикации archive/sidecar.
-            context.transition(OperationStatus.VERIFYING)
-            if build.manifest.delivery_id != delivery_id:
-                raise OperationTaskFailure(
-                    "export_delivery_mismatch",
-                    "Опубликованный bundle имеет неожиданный delivery_id",
-                )
-            for artifact_id in artifact_ids:
-                context.set_artifact_status(artifact_id, ArtifactStatus.VERIFIED)
-            context.set_progress(current=len(artifact_ids), total=len(artifact_ids))
-            context.transition(OperationStatus.COMPLETED)
-            completed = True
+            try:
+                context.raise_if_cancelled()
+                context.transition(OperationStatus.VERIFYING)
+                if build.manifest.delivery_id != delivery_id:
+                    raise OperationTaskFailure(
+                        "export_delivery_mismatch",
+                        "Опубликованный bundle имеет неожиданный delivery_id",
+                    )
+                self._persist_bundle_metadata(context.operation_id, delivery_id, build)
+                for artifact_id in artifact_ids:
+                    context.set_artifact_status(artifact_id, ArtifactStatus.VERIFIED)
+                context.set_progress(current=len(artifact_ids), total=len(artifact_ids))
+                context.transition(OperationStatus.COMPLETED)
+                completed = True
+            except asyncio.CancelledError:
+                self._clear_bundle_metadata(context.operation_id)
+                self._cleanup_published_delivery(delivery_id)
+                raise
+            except Exception:
+                self._clear_bundle_metadata(context.operation_id)
+                self._cleanup_published_delivery(delivery_id)
+                raise
         finally:
             self._cleanup_helm_root(helm_root)
             if completed:
                 context.cleanup_workspace()
+
+    async def _build_bundle_cancellation_safe(
+        self,
+        *,
+        source: BundleSource,
+        created_by: str,
+        artifacts: tuple[PackageArtifactInput, ...],
+        delivery_id: str,
+        comment: str | None,
+    ) -> BundleBuildResult:
+        package_service = self._package_service()
+        task = asyncio.create_task(
+            asyncio.to_thread(
+                package_service.build_bundle,
+                source=source,
+                created_by=created_by,
+                artifacts=artifacts,
+                delivery_id=delivery_id,
+                comment=comment,
+            )
+        )
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            try:
+                await task
+            except Exception:
+                pass
+            self._cleanup_published_delivery(delivery_id)
+            raise
+
+    def _persist_bundle_metadata(
+        self,
+        operation_id: int,
+        delivery_id: str,
+        build: BundleBuildResult,
+    ) -> None:
+        expected_archive, expected_sidecar = self._delivery_paths(delivery_id)
+        if (
+            build.archive_path.resolve() != expected_archive
+            or build.sidecar_path.resolve() != expected_sidecar
+        ):
+            raise OperationTaskFailure(
+                "export_bundle_path_invalid",
+                "BundlePackageService вернул путь вне ожидаемого delivery location",
+            )
+        if build.archive_sha256 != self._sidecar_digest(expected_sidecar, expected_archive.name):
+            raise OperationTaskFailure(
+                "export_bundle_metadata_invalid",
+                "SHA-256 опубликованного bundle не совпадает с readiness sidecar",
+            )
+        if expected_archive.stat().st_size != build.archive_size:
+            raise OperationTaskFailure(
+                "export_bundle_metadata_invalid",
+                "Размер опубликованного bundle изменился до фиксации metadata",
+            )
+        with self.session_factory() as session:
+            operation = session.get(Operation, operation_id)
+            if operation is None:
+                raise OperationTaskFailure(
+                    "export_operation_not_found",
+                    "Export-операция исчезла до фиксации bundle metadata",
+                )
+            operation.bundle_filename = expected_archive.name
+            operation.bundle_sha256 = build.archive_sha256
+            operation.bundle_size_bytes = build.archive_size
+            session.commit()
+
+    def _clear_bundle_metadata(self, operation_id: int) -> None:
+        with self.session_factory() as session:
+            operation = session.get(Operation, operation_id)
+            if operation is None:
+                return
+            operation.bundle_filename = None
+            operation.bundle_sha256 = None
+            operation.bundle_size_bytes = None
+            session.commit()
+
+    def _cleanup_published_delivery(self, delivery_id: str) -> None:
+        archive, sidecar = self._delivery_paths(delivery_id)
+        sidecar.unlink(missing_ok=True)
+        archive.unlink(missing_ok=True)
+
+    def _delivery_paths(self, delivery_id: str) -> tuple[Path, Path]:
+        root = self.settings.bundle_outgoing_root.resolve()
+        archive = (root / f"{delivery_id}.htp.tar.gz").resolve()
+        sidecar = (root / f"{delivery_id}.htp.tar.gz.sha256").resolve()
+        try:
+            archive.relative_to(root)
+            sidecar.relative_to(root)
+        except ValueError as exc:
+            raise OperationTaskFailure(
+                "export_bundle_path_invalid",
+                "Путь export bundle вышел за разрешённый outgoing root",
+            ) from exc
+        return archive, sidecar
+
+    @staticmethod
+    def _sidecar_digest(sidecar: Path, archive_name: str) -> str:
+        try:
+            text = sidecar.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise OperationTaskFailure(
+                "export_bundle_metadata_invalid",
+                "Не удалось прочитать readiness sidecar export bundle",
+            ) from exc
+        suffix = f"  {archive_name}\n"
+        if len(text) != 64 + len(suffix) or not text.endswith(suffix):
+            raise OperationTaskFailure(
+                "export_bundle_metadata_invalid",
+                "Readiness sidecar export bundle имеет неверный формат",
+            )
+        digest = text[:64]
+        if any(character not in "0123456789abcdef" for character in digest):
+            raise OperationTaskFailure(
+                "export_bundle_metadata_invalid",
+                "Readiness sidecar содержит неверный SHA-256",
+            )
+        return digest
 
     async def _export_artifact(
         self,
@@ -495,7 +652,9 @@ class ExportOrchestrator:
 
     def _prepare_helm_root(self, operation_id: int) -> Path:
         workspace_root = self.settings.helm_workspace_root.resolve()
-        target = (workspace_root / "export-operations" / f"operation-{operation_id}").resolve()
+        target = (
+            workspace_root / "export-operations" / f"operation-{operation_id}"
+        ).resolve()
         try:
             target.relative_to(workspace_root)
         except ValueError as exc:
@@ -545,7 +704,10 @@ class ExportOrchestrator:
             "connection_failed": ("harbor_unavailable", "Не удалось подключиться к Harbor"),
             "harbor_unavailable": ("harbor_unavailable", "Harbor временно недоступен"),
             "rate_limited": ("harbor_rate_limited", "Harbor ограничил частоту запросов"),
-            "invalid_response": ("harbor_invalid_response", "Harbor вернул некорректный ответ"),
+            "invalid_response": (
+                "harbor_invalid_response",
+                "Harbor вернул некорректный ответ",
+            ),
         }
         code, message = mapping.get(
             exc.code,
