@@ -3,8 +3,10 @@ import stat
 from pathlib import Path
 
 import certifi
+import pytest
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from alembic import command
@@ -12,10 +14,10 @@ from app.api.harbor import get_harbor_client
 from app.auth.security import hash_password
 from app.config import Settings
 from app.db.models import AuditEvent, UserRole
-from app.db.repositories import UserRepository
+from app.db.repositories import SettingMetadataRepository, UserRepository
 from app.main import create_app
 from app.services.harbor_client import HarborClientError, HarborSystemInfo
-from app.services.harbor_settings import HarborSettingsService
+from app.services.harbor_settings import HARBOR_URL_KEY, HarborSettingsError, HarborSettingsService
 
 JWT_TEST_KEY = "jwt-test-key-" + "x" * 32
 TEST_CREDENTIAL = "credential-" + "y" * 32
@@ -100,6 +102,67 @@ def test_harbor_settings_are_admin_only_and_never_return_credential(tmp_path: Pa
             headers=_auth(tokens[role]),
         )
         assert denied.status_code == 403
+
+
+def test_harbor_url_rejects_embedded_credentials_and_validation_response_is_redacted(
+    tmp_path: Path,
+) -> None:
+    client, _app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    secret = "must-not-be-reflected"
+
+    response = client.patch(
+        "/api/settings/harbor",
+        json={"url": f"https://svc-transfer:{secret}@harbor.local"},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    assert secret not in response.text
+    safe = client.get("/api/settings/harbor", headers=headers)
+    assert safe.json()["url"] == "https://bootstrap.harbor.local"
+
+
+def test_harbor_url_policy_applies_to_bootstrap_and_persisted_override(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        Settings(harbor_url="https://bootstrap-user:bootstrap-secret@harbor.local")
+
+    _client, app, _tokens = _app_client(tmp_path)
+    with app.state.session_factory() as session:
+        SettingMetadataRepository(session).set_value(
+            HARBOR_URL_KEY,
+            "https://db-user:db-secret@harbor.local",
+        )
+        session.commit()
+
+        with pytest.raises(HarborSettingsError) as exc_info:
+            HarborSettingsService(session, app.state.settings).resolve()
+
+    assert exc_info.value.code == "harbor_configuration_invalid"
+    assert "db-secret" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "unsafe_url",
+    [
+        "https://harbor.local/api/v2.0",
+        "https://harbor.local?token=secret",
+        "https://harbor.local#fragment",
+    ],
+)
+def test_harbor_base_url_rejects_subpath_query_and_fragment(
+    tmp_path: Path,
+    unsafe_url: str,
+) -> None:
+    client, _app, tokens = _app_client(tmp_path)
+    response = client.patch(
+        "/api/settings/harbor",
+        json={"url": unsafe_url},
+        headers=_auth(tokens["admin"]),
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 def test_nonsecret_patch_preserves_rotated_file_credential_and_audit_redacts_it(
