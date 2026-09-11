@@ -266,12 +266,16 @@ def test_target_inspection_reports_absent_same_and_conflict(tmp_path: Path) -> N
     image = ImageReference("team/app", "latest")
 
     absent_runner = FakeRunner([CommandResult(1, "", "manifest unknown: not found")])
-    absent = asyncio.run(_service(tmp_path, absent_runner).inspect_target(image, expected_digest=DIGEST_A))
+    absent = asyncio.run(
+        _service(tmp_path, absent_runner).inspect_target(image, expected_digest=DIGEST_A)
+    )
     assert absent.state == TargetState.ABSENT
     assert absent.digest is None
 
     same_runner = FakeRunner([_inspection(DIGEST_A)])
-    same = asyncio.run(_service(tmp_path, same_runner).inspect_target(image, expected_digest=DIGEST_A))
+    same = asyncio.run(
+        _service(tmp_path, same_runner).inspect_target(image, expected_digest=DIGEST_A)
+    )
     assert same.state == TargetState.SAME_DIGEST
 
     conflict_runner = FakeRunner([_inspection(DIGEST_B)])
@@ -308,7 +312,9 @@ def test_payload_path_must_stay_inside_configured_root(tmp_path: Path) -> None:
     assert runner.calls == []
 
 
-def test_asyncio_runner_uses_exec_redacts_and_bounds_output(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_asyncio_runner_uses_exec_redacts_and_bounds_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     class Process:
