@@ -53,8 +53,10 @@ RUN mkdir -p \
         /app/data/outgoing \
         /app/data/logs \
         /app/data/receipts \
+        /app/data/secrets \
         /app/data/tmp \
-    && chown -R htp:htp /app /home/htp
+    && chown -R htp:htp /app /home/htp \
+    && chmod 0700 /app/data/secrets
 
 USER htp
 EXPOSE 8000
