@@ -41,7 +41,7 @@ Backend предоставляет локальный API портала и по
 | [docs/helm-oci-service.md](docs/helm-oci-service.md) | Сервис работы с Helm OCI-чартами |
 | [docs/harbor-browse-api.md](docs/harbor-browse-api.md) | Harbor REST API v2: проекция DTO и политики |
 | [docs/frontend.md](docs/frontend.md) | Фронтенд: стек, маршруты, токены, структура |
-| [docs/security.md](docs/security.md) | Текущая security-документация; расширение полной threat/trust model отслеживается в #56 |
+| [docs/security.md](docs/security.md) | Security/trust model: auth/RBAC, Harbor secrets/TLS, subprocess boundaries, Bundle signing/verification и ограничения v1 |
 | [docs/testing.md](docs/testing.md) | Стратегия тестирования и CI |
 | [docs/decisions.md](docs/decisions.md) | Реестр архитектурных решений (ADR) |
 | [deploy/README.md](deploy/README.md) | Развертывание: Docker Compose, persistent data, smoke test |
