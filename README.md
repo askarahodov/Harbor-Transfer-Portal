@@ -1,48 +1,48 @@
 # Harbor Transfer Portal
 
-Harbor Transfer Portal is an air-gap artifact transfer application for moving container images and Helm OCI charts between two physically and network-isolated environments.
+Harbor Transfer Portal — это приложение для air-gap передачи артефактов, предназначенное для перемещения контейнерных образов и OCI-чартов Helm между двумя физически и сетевыми изолированными средами.
 
-## Core operating model
+## Основная модель эксплуатации
 
-There are two independent installations:
+Существуют две независимые установки:
 
-- **SOURCE** runs inside the source isolated contour and can communicate only with the Harbor available in that contour.
-- **TARGET** runs inside the target isolated contour and can communicate only with the Harbor available in that contour.
-- There is **no network connection between SOURCE and TARGET**.
-- Artifact exchange happens through a portable, verifiable bundle moved by an approved offline transport process.
+- **SOURCE** работает внутри исходного изолированного контура и может общаться только с Harbor, доступным в этом контуре.
+- **TARGET** работает внутри целевого изолированного контура и может общаться только с Harbor, доступным в этом контуре.
+- **Прямого сетевого соединения между SOURCE и TARGET не существует.**
+- Обмен артефактами происходит через переносимый, проверяемый пакет, перемещаемый утверждённым автономным процессом транспортировки.
 
-The portal must never depend on direct Harbor-to-Harbor replication across the isolation boundary.
+Портал ни в коем случае не должен полагаться на прямую репликацию Harbor-to-Harbor через границу изоляции.
 
-## Architecture
+## Архитектура
 
 ```text
-backend/   Python/FastAPI API, domain logic and transfer services
-frontend/  Vue/Vite administrative UI
-docs/      architecture, protocol and operational documentation
-data/      local runtime state; generated contents are ignored
-deploy/    deployment and offline packaging assets
+backend/   Python/FastAPI API, доменная логика и сервисы передачи
+frontend/  Vue/Vite административный интерфейс
+docs/      архитектурная, протокольная и эксплуатационная документация
+data/      локальное состояние выполнения; генерируемое содержимое игнорируется
+deploy/    активы развертывания и автономной упаковки
 ```
 
-The backend will integrate with the local Harbor API, Skopeo for container-image transport, and Helm OCI for chart transport. Bundle creation and import include explicit metadata, checksums and verification so a successful process exit is not treated as proof of a successful delivery.
+Бэкенд будет интегрироваться с локальным Harbor API, Skopeo для транспорта контейных образов и Helm OCI для транспорта чартов. Создание и импорт пакетов включают явные метаданные, чеки и проверку, так что успешное завершение процесса не трактуется как доказательство успешной доставки.
 
-## Development quick start
+## Быстрый старт разработки
 
-Prerequisites:
+Предварительные требования:
 
 - GNU Make
 - Python 3.12
-- Docker with Docker Compose v2 for later deployment stages
-- Node.js 22+ and npm for the later frontend stage
+- Docker с Docker Compose v2 для более поздних этапов развертывания
+- Node.js 22+ и npm для более позднего этапа фронта
 
-Prepare local configuration:
+Подготовьте локальную конфигурацию:
 
 ```bash
 cp .env.example .env
 ```
 
-### Backend
+### Бэкенд
 
-Create an isolated Python environment and install the backend with development dependencies:
+Создайте изолированную среду Python и установите бэкенд с зависимостями для разработки:
 
 ```bash
 python3.12 -m venv .venv
@@ -50,14 +50,14 @@ python3.12 -m venv .venv
 python -m pip install -e './backend[dev]'
 ```
 
-Start the API from `backend/`:
+Запустите API из `backend/`:
 
 ```bash
 cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8080
 ```
 
-Current local endpoints:
+Текущие локальные эндпоинты:
 
 ```text
 GET /api/health
@@ -65,29 +65,29 @@ GET /api/ready
 GET /docs
 ```
 
-Run scoped backend checks from the repository root:
+Запустите скоупированные проверки бэкенда из корня репозитория:
 
 ```bash
 make lint-backend
 make test-backend
 ```
 
-Repository-wide commands remain strict: if a later-stage component such as frontend or Compose is not implemented yet, the corresponding all-project target fails explicitly instead of silently skipping it.
+Команды на уровне всего репозитория остаются строгими: если более поздний компонент, например фронт или Compose, ещё не реализован, соответствующая цель для всего проекта явно завершается ошибкой вместо молчаливого пропуска.
 
-## Configuration
+## Конфигурация
 
-`PORTAL_CONTOUR` accepts only `SOURCE` or `TARGET`. Each installation uses one neutral set of `HARBOR_*` settings for its local Harbor; SOURCE and TARGET credentials are never configured together in one portal instance.
+`PORTAL_CONTOUR` принимает только значения `SOURCE` или `TARGET`. Каждая установка использует один нейтральный набор настроек `HARBOR_*` для своего локального Harbor; учётные данные SOURCE и TARGET никогда не на configuring together in one portal instance.
 
-Health and readiness endpoints do not expose Harbor credentials or other secret configuration.
+Эндпоинты состояния и готовности не раскрывают учётные данные Harbor или другую секретную конфигурацию.
 
-## Engineering principles
+## Принципы разработки
 
-- No credentials or private keys in Git.
-- No internet dependency is allowed for runtime operation in the closed contours.
-- Each installation talks only to its local Harbor.
-- Subprocesses must use structured argument arrays rather than shell interpolation of untrusted input.
-- TLS verification is explicit; custom CA support is preferred over disabling verification.
-- Tests and linters must fail the build when they fail.
-- Development uses scoped tests for touched areas; the complete required CI suite is the merge checkpoint.
+- В Git не хранятся учётные данные или закрытые ключи.
+- Работа в замкнутых контурах не должна зависеть от интернета.
+- Каждая установка общается только со своим локальным Harbor.
+- Подпроцессы должны использовать структурированные массивы аргументов, а не интерполяцию shell для ненадёжного ввода.
+- Проверка TLS должна быть явной; поддержка пользовательского CA предпочтительнее отключения проверки.
+- Тесты и линтеры должны прерывать сбор при неудаче.
+- В разработке используются скоупированные тесты для затронутых областей; полный требуемый CI suite — это чекпоинт слияния.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and [docs/decisions.md](docs/decisions.md) for architectural decisions.
+См. [CONTRIBUTING.md](CONTRIBUTING.md) по рабочему процессу и [docs/decisions.md](docs/decisions.md) по архитектурным решениям.

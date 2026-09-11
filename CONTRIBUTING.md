@@ -1,19 +1,19 @@
 # Contributing
 
-This repository is developed by humans and AI coding agents. The same engineering rules apply to both.
+Этот репозиторий разрабатывается людьми и ИИ-агентами для кодирования. одни и те же правила разработки применяются к обоим.
 
-## Branches and pull requests
+## Ветки и pull requests
 
-- Create focused branches from `main`.
-- Suggested branch names: `feat/<scope>`, `fix/<scope>`, `docs/<scope>`, `chore/<scope>`.
-- One pull request should represent one coherent issue or independently reviewable change.
-- PR titles should follow Conventional Commits style, for example `feat: add bundle manifest model`.
-- Reference the GitHub issue in the PR body and describe scope, tests executed, known limitations and security-sensitive decisions.
-- Do not mix opportunistic refactors into unrelated delivery work.
+- Создавайте focused ветки от `main`.
+- Рекомендуемые имена веток: `feat/<scope>`, `fix/<scope>`, `docs/<scope>`, `chore/<scope>`.
+- Один pull request должен представлять одну согласованную задачу или независимо проверяемое изменение.
+- Заголовки PR должны следовать стилю Conventional Commits, например `feat: add bundle manifest model`.
+- Ссылайте на GitHub issue в теле PR и описывайте scope, выполненные тесты, известные ограничения и решения, затрагивающие безопасность.
+- Не смешивайте импровизированные рефакторинг с неродственной работой по доставке.
 
-## Commits
+## Коммиты
 
-Use Conventional Commits:
+Используйте Conventional Commits:
 
 ```text
 feat: add export task model
@@ -24,46 +24,46 @@ refactor: isolate harbor client
  chore: update developer tooling
 ```
 
-Keep commits understandable and avoid generated/runtime data.
+Сохраняйте коммиты понятными и избегайте сгенерированных/временных данных.
 
-## Testing policy
+## Политика тестирования
 
-During development, run the smallest meaningful test set that covers the code you touched. Examples:
+Во время разработки запускайте минимальный осмысленный набор тестов, покрывающий код, к которому вы касались. Примеры:
 
-- backend-only change: backend unit/type/lint checks;
-- frontend-only change: frontend unit/lint/build checks;
-- protocol or shared contract change: both affected backend and frontend checks plus contract tests;
-- transfer engine change: focused unit tests and the relevant local integration fixture;
-- deployment/packaging change: build/package smoke checks.
+- изменение только бэкенда: проверки бэкенда юнит/тип/линт;
+- изменение только фронта: проверки фронта юнит/линт/сборка;
+- изменение протокола или общего контракта: проверки обоих затронутых бэкенда и фронта плюс контракт-тесты;
+- изменение транспортного движка: фокусированные юнит-тесты и соответствующий локальный интеграционный фикстура;
+- изменение развертывания/упаковки: дымовые проверки сборки/упаковки.
 
-At the merge checkpoint, all CI checks required by the repository must be green.
+На чекпоинте слияния все проверки CI, требуемые репозиторию, должны быть зелёными.
 
-Never make a red check green by weakening or skipping the check. In particular, do not add failure masking such as `|| true`, `; true`, ignored subprocess exit codes, or CI `continue-on-error` for required lint/tests.
+Никогда не делайте красную проверку зелёной, ослабляя или пропуская её. В частности, не добавляйте маскировку сбоев такую как `|| true`, `; true`, игнорирование кодов выхода подпроцессов или CI `continue-on-error` для требуемых линтеров/тестов.
 
-## Rules for AI agents
+## Правила для ИИ-агентов
 
-1. Read the issue, affected architecture decision records and existing implementation before editing.
-2. Keep changes within issue scope and preserve interfaces owned by parallel work unless coordination is explicit.
-3. Fix root causes rather than adapting tests to incorrect behavior.
-4. Treat Harbor credentials, bundle contents and imported paths as untrusted/sensitive data.
-5. Never place credentials in source, tests, command logs, PR text or fixtures.
-6. Prefer structured subprocess arguments and explicit validation over shell command construction.
-7. Add or update focused tests with behavior changes.
-8. Review the final diff for security, accidental files, generated data and unrelated edits.
-9. Update documentation when contracts, operations or architecture change.
-10. Stop at a real blocker; do not invent implementations for unresolved protocol/security decisions.
+1. Прочитайте issue, затронутые архитектурные решения и существующую реализацию перед редактированием.
+2. Держите изменения в пределах scope issue и сохраняйте интерфейсы, принадлежащие параллельной работе, если координация не явна.
+3. Исправляйте корневые причины, а не адаптируйте тесты к некорректному поведению.
+4. Считайте учётные данные Harbor, содержимое пакетов и импортируемые пути ненадёжными/конфиденциальными данными.
+5. Никогда не размещайте учётные данные в исходном коде, тестах, логах команд, тексте PR или фикстурах.
+6. Предпочтите структурированные подпроцессные аргументы и явную валидацию вместо построения shell-команд.
+7. Добавляйте или обновляйте фокусированные тесты при изменениях поведения.
+8. Проверьте финальный diff на безопасность, случайные файлы, генерируемые данные и неуместные правки.
+9. Обновляйте документацию, когда изменяются контракты, эксплуатация или архитектура.
+10. Остановитесь на настоящей проблеме; не изобретайте реализации для неразрешённых решений по протоколу/безопасности.
 
-## Local configuration
+## Локальная конфигурация
 
-Copy `.env.example` to `.env`. The `.env` file is intentionally ignored. Example values are placeholders only and are not credentials.
+Скопируйте `.env.example` в `.env`. Файл `.env` намеренно игнорируется. Примерные значения — это placeholders, а не учётные данные.
 
-## Failure propagation check
+## Проверка распространения ошибок
 
-Required Make targets are intentionally strict. A reproducible manual check is:
+Требуемые цели Make намеренно строгие. Воспроизводимая ручная проверка:
 
 ```bash
 make test-backend
 printf 'exit code: %s\n' "$?"
 ```
 
-Before the backend project exists this returns a non-zero exit code. After the backend exists, a failing pytest invocation must likewise propagate a non-zero result through Make.
+До появления проекта бэкенда это возвращает ненулевой код выхода. После появления бэкенда неудачный вызов pytest должен также распространять ненулевой результат через Make.

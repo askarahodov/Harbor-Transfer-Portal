@@ -1,28 +1,28 @@
-# Architecture decision index
+# Реестр архитектурных решений (ADR)
 
-Architectural decisions are recorded before implementation when they affect protocol compatibility, security boundaries, persistence, transfer verification, deployment or multiple workstreams.
+Архитектурные решения фиксируются до начала реализации, когда они влияют на совместимость протоколов, границы безопасности, персистентность, проверку передачи, развертывание или несколько рабочих потоков.
 
-| ID | Decision | Status |
+| ID | Решение | Статус |
 | --- | --- | --- |
-| ADR-001 | SOURCE/TARGET isolation model and trust boundary | Planned |
-| ADR-002 | Portable bundle format, manifest and checksum/signature model | Planned |
-| ADR-003 | Container image payload representation and multi-architecture handling | Planned |
-| ADR-004 | Authentication, authorization and local user/session model | Planned |
-| ADR-005 | Harbor TLS/custom CA and secret storage policy | Planned |
-| ADR-006 | Import conflict/idempotency policy | Planned |
-| ADR-007 | Offline installation and dependency packaging model | Planned |
-| ADR-009 | OCI image-layout payload representation for bundle protocol v1 | Accepted |
+| ADR-001 | Модель изоляции SOURCE/TARGET и граница доверия | Запланировано |
+| ADR-002 | Формат переносимого пакета, манифест и модель чеков/подписей | Запланировано |
+| ADR-003 | Представление полезной нагрузки образа контейнера и обработка мультиархитектурных образов | Запланировано |
+| ADR-004 | Аутентификация, авторизация и модель локальных пользователей/сессий | Запланировано |
+| ADR-005 | Политика TLS/пользовательского CA для Harbor и хранилища секретов | Запланировано |
+| ADR-006 | Политика разрешения конфликтов импорта и идемпотентности | Запланировано |
+| ADR-007 | Модель автономной установки и упаковки зависимостей | Запланировано |
+| ADR-009 | Представление полезной нагрузки OCI image-layout для протокола пакета v1 | Принято |
 
-## Decision record template
+## Шаблон записи решения
 
-Each ADR should state:
+Каждое ADR должно содержать:
 
-- context and problem;
-- constraints, especially air-gap and security constraints;
-- considered options;
-- chosen decision;
-- consequences and trade-offs;
-- verification/testing implications;
-- migration/compatibility impact when applicable.
+- контекст и проблему;
+- ограничения, особенно air-gap и ограничения безопасности;
+- рассмотренные варианты;
+- выбранное решение;
+- последствия и компромиссы;
+- последствия для проверки/тестирования;
+- влияние на миграцию/совместимость, если применимо.
 
-Do not silently change an accepted cross-cutting decision in an implementation PR. Update or supersede the ADR explicitly.
+Не silently изменяйте принятое кросс- cuttin решение в PR реализации. Явно обновляйте или заменяйте ADR.
