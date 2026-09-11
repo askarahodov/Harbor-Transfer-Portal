@@ -55,9 +55,11 @@ Resume середины Skopeo/Helm-команды в v1 **не поддержи
 
 Если backend был остановлен/потерян в одном из этих состояний, операция переводится в `FAILED` с кодом `operation_interrupted_restart`; активные `RUNNING` artifacts также становятся `FAILED`, временный workspace удаляется. Такая операция никогда не считается успешно завершённой после рестарта.
 
-Ожидающие состояния `CREATED`, `UPLOADED`, `DISCOVERED`, `READY` не считаются начатым внешним mutation/workflow. Для stale claim manager освобождает worker ownership. Workspace состояния `READY` сохраняется, потому что он может содержать уже проверенный intake, необходимый будущему import orchestration.
+Persistent `worker_token` означает, что конкретная операция уже была передана worker manager. Поэтому захваченная операция, которая ещё не успела перейти из `CREATED`, `UPLOADED` или `DISCOVERED` в следующую фазу и была прервана restart, также считается non-resumable и переводится в `FAILED` с `operation_interrupted_restart`. Это предотвращает появление операций без worker, которые навсегда остаются в нетерминальном состоянии.
 
-При штатной остановке backend локальные tasks отменяются. Если task уже вошёл в active execution state, операция получает `FAILED` с `operation_interrupted_shutdown`. Если task только стоял в очереди semaphore, его persisted wait state сохраняется и ложный failure не создаётся.
+`READY` — единственное ожидающее состояние, stale worker claim которого освобождается без failure. Workspace `READY` сохраняется, потому что он может содержать уже проверенный intake, необходимый будущему import orchestration.
+
+При штатной остановке backend все локальные tasks отменяются. Любая уже захваченная non-terminal операция, кроме `READY`, завершается `FAILED` с `operation_interrupted_shutdown`, даже если task ещё ожидал свободный semaphore slot и не выполнил первый state transition. Для `READY` ownership освобождается, а подготовленный workspace сохраняется.
 
 ## Concurrency, workspace и диск
 

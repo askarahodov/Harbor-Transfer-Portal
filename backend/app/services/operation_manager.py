@@ -399,7 +399,7 @@ class OperationManager:
                     )
                     self.cleanup_workspace(operation.id)
                     recovered += 1
-                elif operation.status in _ACTIVE_EXECUTION_STATES:
+                elif operation.status is not OperationStatus.READY:
                     validate_transition(
                         operation.type,
                         operation.status,
@@ -420,9 +420,6 @@ class OperationManager:
                     )
                     self.cleanup_workspace(operation.id)
                     recovered += 1
-                else:
-                    if operation.status is not OperationStatus.READY:
-                        self.cleanup_workspace(operation.id)
                 operation.worker_token = None
                 operation.worker_started_at = None
                 operation.heartbeat_at = None
@@ -579,8 +576,8 @@ class OperationManager:
             operation = session.get(Operation, operation_id)
             if operation is None or operation.status in TERMINAL_STATES:
                 return False
-            if operation.status not in _ACTIVE_EXECUTION_STATES:
-                return operation.status is not OperationStatus.READY
+            if operation.status is OperationStatus.READY:
+                return False
             validate_transition(operation.type, operation.status, OperationStatus.FAILED)
             operation.status = OperationStatus.FAILED
             operation.finished_at = now
