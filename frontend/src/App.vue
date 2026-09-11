@@ -1,5 +1,14 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
+
 import PageShell from '@/components/PageShell.vue'
+import { useRuntimeStore } from '@/stores/runtime'
+
+const runtime = useRuntimeStore()
+
+onMounted(() => {
+  void runtime.loadRuntime()
+})
 </script>
 
 <template>
