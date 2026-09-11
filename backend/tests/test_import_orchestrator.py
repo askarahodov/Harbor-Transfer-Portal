@@ -29,7 +29,12 @@ from app.services.helm_oci_service import (
 )
 from app.services.import_orchestrator import ImportOrchestrationError, ImportOrchestrator
 from app.services.operation_manager import OperationManager
-from app.services.skopeo_service import ImportResult, SkopeoServiceError, TargetInspection, TargetState
+from app.services.skopeo_service import (
+    ImportResult,
+    SkopeoServiceError,
+    TargetInspection,
+    TargetState,
+)
 
 IMAGE_DIGEST = "sha256:" + "a" * 64
 CHART_DIGEST = "sha256:" + "b" * 64
