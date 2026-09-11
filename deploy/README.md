@@ -27,7 +27,8 @@ cp .env.example .env
 - `HARBOR_URL`, `HARBOR_USER`, `HARBOR_PASSWORD` для локального Harbor;
 - `HARBOR_VERIFY_TLS=true` в штатной конфигурации;
 - уникальный `JWT_SECRET` длиной не менее 32 случайных символов;
-- `DATABASE_URL`, если используется путь, отличный от стандартного SQLite в `/app/data`.
+- `DATABASE_URL`, если используется путь, отличный от стандартного SQLite в `/app/data`;
+- параметры `LOGIN_RATE_LIMIT_*`, если политика установки требует значений, отличных от безопасных defaults шаблона.
 
 `.env` исключён из Git и Docker build context. Не коммитьте реальные пароли, JWT secrets, приватные ключи и закрытые сертификаты.
 
@@ -47,7 +48,7 @@ Named volume `portal-data` монтируется в `/app/data`. В нём со
 - `/app/data/receipts` — отчёты и receipts импорта;
 - `/app/data/tmp` — временные данные операций.
 
-Стандартный `DATABASE_URL=sqlite:///./data/harbor-transfer-portal.db` указывает на файл `/app/data/harbor-transfer-portal.db` внутри persistent volume.
+Стандартный `DATABASE_URL=sqlite:///./data/harbor-transfer-portal.db` указывает на файл `/app/data/harbor-transfer-portal.db` внутри persistent volume. Здесь же сохраняется серверное состояние login throttling.
 
 Перед каждым запуском backend entrypoint выполняет:
 
@@ -55,7 +56,7 @@ Named volume `portal-data` монтируется в `/app/data`. В нём со
 python -m alembic -c /app/alembic.ini upgrade head
 ```
 
-Alembic использует `DATABASE_URL` из окружения, если он задан. Uvicorn запускается только после успешного применения миграций; при ошибке миграции backend не начинает обслуживать API.
+Alembic использует `DATABASE_URL` из окружения, если он задан. Uvicorn запускается только после успешного применения миграций; при ошибке миграции backend не начинает обслуживать API. Smoke test дополнительно выполняет `alembic current --check-heads`, поэтому развертывание считается готовым только когда БД находится на всех текущих migration heads.
 
 `docker compose down` сохраняет named volume. Команда `docker compose down -v` удаляет его вместе с постоянными данными и не должна использоваться, если данные требуется сохранить.
 
@@ -120,7 +121,7 @@ Scoped smoke test:
 - корректность `docker compose config`;
 - сборку и healthy-состояние обоих сервисов;
 - `/api/` proxy и runtime contour config;
-- применение Alembic migration `0001_initial`;
+- нахождение БД на всех текущих Alembic migration heads;
 - запуск backend под UID `10001`, а не root;
 - ожидаемые версии Skopeo и Helm;
 - отсутствие `HARBOR_*`, `JWT_SECRET` и `DATABASE_URL` во frontend environment;

@@ -65,7 +65,7 @@ docker compose exec -T frontend wget -q -O - http://127.0.0.1/runtime-config.js 
 docker compose exec -T backend sh -c 'test "$(id -u)" -eq 10001'
 docker compose exec -T backend sh -c "skopeo --version | grep -F '1.9.3' >/dev/null"
 docker compose exec -T backend sh -c "helm version --short | grep -F 'v3.22.0' >/dev/null"
-docker compose exec -T backend sh -c "python -m alembic -c /app/alembic.ini current | grep -F '0001_initial (head)' >/dev/null"
+docker compose exec -T backend python -m alembic -c /app/alembic.ini current --check-heads >/dev/null
 
 if docker compose exec -T frontend env | grep -E '^(HARBOR_|JWT_SECRET=|DATABASE_URL=)' >/dev/null; then
     echo 'Frontend-контейнер неожиданно получил backend-only конфигурацию или секреты.' >&2
@@ -91,4 +91,4 @@ docker compose exec -T frontend wget -q -O - http://127.0.0.1/api/health | grep 
 docker compose exec -T backend test -f /app/data/.compose-smoke
 docker compose exec -T backend rm /app/data/.compose-smoke
 
-printf '%s\n' 'Compose smoke test пройден: миграции, proxy health, SOURCE/TARGET, изоляция runtime и persistent volume проверены без повторной сборки/загрузки образов.'
+printf '%s\n' 'Compose smoke test пройден: миграции до текущего head, proxy health, SOURCE/TARGET, изоляция runtime и persistent volume проверены без повторной сборки/загрузки образов.'
