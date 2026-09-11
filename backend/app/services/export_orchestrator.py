@@ -30,7 +30,6 @@ from app.services.helm_oci_service import (
 )
 from app.services.operation_manager import (
     OperationArtifactSpec,
-    OperationCancelled,
     OperationContext,
     OperationManager,
     OperationManagerError,
@@ -110,12 +109,11 @@ class ExportOrchestrator:
         self._require_source_contour()
         client = self._build_harbor_client()
         try:
-            resolved = tuple(
+            return tuple(
                 self._resolve_selection(client, selection) for selection in selections
             )
         finally:
             client.close()
-        return resolved
 
     async def start_export(
         self,
@@ -134,16 +132,14 @@ class ExportOrchestrator:
         except OperationTaskFailure as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
 
-        package_service = self._package_service()
-        delivery_id = package_service.allocate_delivery_id()
-        specs = tuple(self._operation_spec(item) for item in resolved)
+        delivery_id = self._package_service().allocate_delivery_id()
         operation_id = self.operation_manager.create_operation(
             operation_type=OperationType.EXPORT,
             actor_user_id=actor_user_id,
             actor_username=actor_username,
             comment=comment,
             delivery_id=delivery_id,
-            artifacts=specs,
+            artifacts=tuple(self._operation_spec(item) for item in resolved),
         )
         operation = self.operation_manager.get_operation(operation_id)
         if operation is None:
@@ -151,8 +147,8 @@ class ExportOrchestrator:
                 "export_operation_create_failed",
                 "Не удалось загрузить созданную export-операцию",
             )
-        ordered_artifacts = sorted(operation.artifacts, key=lambda item: item.id)
-        artifact_ids = tuple(artifact.id for artifact in ordered_artifacts)
+        ordered = sorted(operation.artifacts, key=lambda item: item.id)
+        artifact_ids = tuple(artifact.id for artifact in ordered)
         if len(artifact_ids) != len(selection_snapshot):
             raise ExportOrchestrationError(
                 "export_operation_create_failed",
@@ -203,17 +199,7 @@ class ExportOrchestrator:
                 "export_bundle_metadata_invalid",
                 "Имя export bundle не соответствует delivery_id",
             )
-        root = self.settings.bundle_outgoing_root.resolve()
-        archive = (root / operation.bundle_filename).resolve()
-        sidecar = (root / f"{operation.bundle_filename}.sha256").resolve()
-        try:
-            archive.relative_to(root)
-            sidecar.relative_to(root)
-        except ValueError as exc:
-            raise ExportOrchestrationError(
-                "export_bundle_path_invalid",
-                "Путь export bundle вышел за разрешённый outgoing root",
-            ) from exc
+        archive, sidecar = self._delivery_paths(operation.delivery_id)
         if (
             not archive.is_file()
             or archive.is_symlink()
@@ -226,24 +212,9 @@ class ExportOrchestrator:
             )
 
         try:
-            text = sidecar.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise ExportOrchestrationError(
-                "export_bundle_metadata_invalid",
-                "Не удалось прочитать checksum metadata export bundle",
-            ) from exc
-        expected_suffix = f"  {archive.name}\n"
-        if len(text) != 64 + len(expected_suffix) or not text.endswith(expected_suffix):
-            raise ExportOrchestrationError(
-                "export_bundle_metadata_invalid",
-                "Checksum sidecar export bundle имеет неверный формат",
-            )
-        digest = text[:64]
-        if any(character not in "0123456789abcdef" for character in digest):
-            raise ExportOrchestrationError(
-                "export_bundle_metadata_invalid",
-                "Checksum sidecar export bundle содержит неверный SHA-256",
-            )
+            digest = self._sidecar_digest(sidecar, archive.name)
+        except OperationTaskFailure as exc:
+            raise ExportOrchestrationError(exc.code, exc.message) from exc
         archive_size = archive.stat().st_size
         if digest != operation.bundle_sha256 or archive_size != operation.bundle_size_bytes:
             raise ExportOrchestrationError(
@@ -330,6 +301,7 @@ class ExportOrchestrator:
                 )
             except BundlePackageError as exc:
                 self._cleanup_published_delivery(delivery_id)
+                self._clear_bundle_metadata(context.operation_id)
                 raise OperationTaskFailure(exc.code, exc.message) from exc
 
             try:
@@ -346,11 +318,7 @@ class ExportOrchestrator:
                 context.set_progress(current=len(artifact_ids), total=len(artifact_ids))
                 context.transition(OperationStatus.COMPLETED)
                 completed = True
-            except asyncio.CancelledError:
-                self._clear_bundle_metadata(context.operation_id)
-                self._cleanup_published_delivery(delivery_id)
-                raise
-            except Exception:
+            except BaseException:
                 self._clear_bundle_metadata(context.operation_id)
                 self._cleanup_published_delivery(delivery_id)
                 raise
@@ -404,7 +372,8 @@ class ExportOrchestrator:
                 "export_bundle_path_invalid",
                 "BundlePackageService вернул путь вне ожидаемого delivery location",
             )
-        if build.archive_sha256 != self._sidecar_digest(expected_sidecar, expected_archive.name):
+        sidecar_digest = self._sidecar_digest(expected_sidecar, expected_archive.name)
+        if build.archive_sha256 != sidecar_digest:
             raise OperationTaskFailure(
                 "export_bundle_metadata_invalid",
                 "SHA-256 опубликованного bundle не совпадает с readiness sidecar",
@@ -701,7 +670,10 @@ class ExportOrchestrator:
             "forbidden": ("harbor_forbidden", "Harbor запретил доступ порталу"),
             "timeout": ("harbor_unavailable", "Harbor не ответил вовремя"),
             "tls_failed": ("harbor_tls_failed", "Не удалось проверить TLS Harbor"),
-            "connection_failed": ("harbor_unavailable", "Не удалось подключиться к Harbor"),
+            "connection_failed": (
+                "harbor_unavailable",
+                "Не удалось подключиться к Harbor",
+            ),
             "harbor_unavailable": ("harbor_unavailable", "Harbor временно недоступен"),
             "rate_limited": ("harbor_rate_limited", "Harbor ограничил частоту запросов"),
             "invalid_response": (
