@@ -200,6 +200,11 @@ def _selections() -> tuple[ExportArtifactSelection, ExportArtifactSelection]:
     )
 
 
+def _outgoing_is_empty(settings: Settings) -> bool:
+    root = settings.bundle_outgoing_root
+    return not root.exists() or not any(root.iterdir())
+
+
 def test_mixed_export_creates_one_signed_verified_bundle(tmp_path: Path) -> None:
     settings, manager, _harbor, package_service, orchestrator = _environment(tmp_path)
 
@@ -235,7 +240,9 @@ def test_mixed_export_creates_one_signed_verified_bundle(tmp_path: Path) -> None
     assert len(verified.manifest.artifacts) == 2
 
 
-def test_digest_change_between_start_preview_and_worker_fails_without_bundle(tmp_path: Path) -> None:
+def test_digest_change_between_start_preview_and_worker_fails_without_bundle(
+    tmp_path: Path,
+) -> None:
     settings, manager, harbor, _package_service, orchestrator = _environment(tmp_path)
     harbor.changed_after_first.add(("team", "app", "1.0.0"))
 
@@ -257,7 +264,7 @@ def test_digest_change_between_start_preview_and_worker_fails_without_bundle(tmp
     assert operation.status is OperationStatus.FAILED
     assert operation.error_code == "export_source_changed"
     assert operation.artifacts[0].status is ArtifactStatus.FAILED
-    assert not settings.bundle_outgoing_root.exists() or not any(settings.bundle_outgoing_root.iterdir())
+    assert _outgoing_is_empty(settings)
 
 
 def test_one_artifact_failure_aborts_delivery_and_marks_no_ready_bundle(tmp_path: Path) -> None:
@@ -290,7 +297,7 @@ def test_one_artifact_failure_aborts_delivery_and_marks_no_ready_bundle(tmp_path
     assert operation.status is OperationStatus.FAILED
     assert operation.error_code == "helm_command_failed"
     assert all(artifact.status is ArtifactStatus.FAILED for artifact in operation.artifacts)
-    assert not settings.bundle_outgoing_root.exists() or not any(settings.bundle_outgoing_root.iterdir())
+    assert _outgoing_is_empty(settings)
 
 
 def test_failure_after_publication_removes_archive_and_readiness_sidecar(tmp_path: Path) -> None:
@@ -322,4 +329,4 @@ def test_failure_after_publication_removes_archive_and_readiness_sidecar(tmp_pat
     assert operation is not None
     assert operation.status is OperationStatus.FAILED
     assert operation.error_code == "bundle_post_publish_failure"
-    assert not settings.bundle_outgoing_root.exists() or not any(settings.bundle_outgoing_root.iterdir())
+    assert _outgoing_is_empty(settings)
