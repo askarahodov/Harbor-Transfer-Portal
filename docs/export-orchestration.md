@@ -60,7 +60,7 @@ Preview повторно читает локальный Harbor и не дове
 - `size_bytes`;
 - `sha256`.
 
-Эти значения сохраняются в БД только после успешной verified публикации.
+Bundle metadata также используется как internal ownership marker в коротком окне публикации: после атомарного создания archive, но до readiness sidecar. Наружу готовый bundle всё равно выдаётся только после terminal `COMPLETED` и повторной проверки файловой metadata.
 
 ### Bundle metadata и download
 
@@ -82,10 +82,12 @@ Worker выполняет следующие стадии:
 5. digest результата снова сравнивается с pinned SOURCE digest;
 6. `PACKAGING` — BundlePackageService строит canonical Offline Bundle v1;
 7. BundlePackageService проверяет manifest schema, checksums и Ed25519 signature до готовности публикации;
-8. archive публикуется атомарно, readiness `.sha256` создаётся последним;
-9. `VERIFYING` — orchestration проверяет delivery identity, controlled paths, sidecar digest/size и фиксирует bundle metadata;
-10. artifact rows переходят в `VERIFIED`;
-11. только после этого операция получает `COMPLETED`.
+8. archive публикуется с atomic no-replace semantics;
+9. ownership metadata (`filename`, `sha256`, `size`) фиксируется для текущей operation;
+10. readiness `.sha256` публикуется последним и тоже не может перезаписать существующий файл;
+11. `VERIFYING` — orchestration проверяет delivery identity, controlled paths, sidecar digest/size и подтверждает bundle metadata;
+12. artifact rows переходят в `VERIFIED`;
+13. только после этого операция получает `COMPLETED`.
 
 Для v1 выбран fail-fast режим. Частичный delivery не считается успешным.
 
@@ -106,21 +108,24 @@ Packaging выполняется в worker thread через `asyncio.to_thread`
 Поэтому orchestration использует cancellation barrier:
 
 - при cancel во время packaging backend ждёт завершения уже запущенного packaging thread;
-- возможные archive/readiness sidecar удаляются до завершения cancellation;
-- persisted bundle metadata очищается;
+- cleanup удаляет archive/readiness sidecar только если ownership текущей operation подтверждён persisted metadata;
+- unowned pre-existing delivery при collision не удаляется и не перезаписывается;
+- persisted ownership metadata очищается вместе с rollback;
 - только после cleanup OperationManager фиксирует terminal `CANCELLED`.
 
-Это предотвращает состояние, в котором отменённая операция оставляет delivery, выглядящий готовым к переносу.
+Это предотвращает одновременно два класса ошибок: отменённая операция не оставляет собственный delivery, выглядящий готовым к переносу, и не может удалить уже существующий чужой delivery с совпавшим generated id.
 
 ## Crash/restart recovery publication boundary
 
-Существует отдельное окно между физической публикацией archive + `.sha256` и terminal commit `COMPLETED`. Если процесс аварийно завершится именно в этот момент, одних restart semantics OperationManager недостаточно: на диске мог бы остаться ready-looking delivery.
+Существует отдельное окно между физической публикацией archive и terminal commit `COMPLETED`. Если процесс аварийно завершится именно в этот момент, одних restart semantics OperationManager недостаточно: на диске мог бы остаться partial либо ready-looking delivery.
 
 Поэтому application startup до `OperationManager.startup()` выполняет reconciliation SOURCE export publications:
 
 - выбирает export operations, которые не находятся в `COMPLETED`;
-- удаляет их generated archive/readiness sidecar из controlled outgoing root;
-- очищает неполную persisted bundle metadata;
+- считает publication принадлежащей operation только при наличии persisted ownership metadata;
+- для owned publication удаляет generated archive/readiness sidecar из controlled outgoing root и очищает metadata;
+- совпавший delivery без ownership metadata считается внешним/pre-existing и не удаляется;
+- incomplete/partial metadata очищается без удаления неподтверждённых файлов;
 - завершённые `COMPLETED` delivery не трогает.
 
 После этого обычная OperationManager reconciliation переводит interrupted active operation в `FAILED`. Автоматический resume export v1 не поддерживается.
@@ -132,10 +137,10 @@ Packaging выполняется в worker thread через `asyncio.to_thread`
 - текущий artifact получает `FAILED`;
 - ещё не начатые artifacts получают `FAILED / export_aborted`;
 - ранее выполнявшиеся artifact rows не превращают delivery в успешный;
-- packaging не запускается либо его публикация удаляется;
+- packaging не запускается либо owned publication удаляется;
 - operation завершается `FAILED`.
 
-Ошибка проверки/подписи bundle также не оставляет readiness sidecar.
+Ошибка проверки/подписи bundle также не оставляет readiness sidecar текущей operation.
 
 ## Stable error semantics
 
@@ -181,8 +186,10 @@ Regression suite покрывает:
 - logical duplicate selection и invalid reference;
 - fail-fast при ошибке одного artifact;
 - package/verification failure без ready bundle;
-- cancellation во время packaging без оставшейся публикации;
-- startup cleanup незавершённой ready-looking publication;
+- cancellation во время packaging без оставшейся owned publication;
+- no-replace collision для archive и sidecar;
+- сохранность unowned pre-existing delivery при runtime cleanup и startup recovery;
+- startup cleanup persisted owned publication;
 - viewer RBAC;
 - TARGET contour rejection;
 - owner-scoped download;
