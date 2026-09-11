@@ -1,7 +1,22 @@
+import { createPinia } from 'pinia'
 import { createMemoryHistory } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 
-import { createAppRouter } from './index'
+import { useAuthStore, type UserRole } from '@/stores/auth'
+
+import { createAppRouter, installAuthGuards } from './index'
+
+function guardedRouter(role?: UserRole) {
+  const pinia = createPinia()
+  const auth = useAuthStore(pinia)
+  auth.initialized = true
+  auth.user = role
+    ? { id: 1, username: role, role, is_active: true }
+    : null
+  const router = createAppRouter(createMemoryHistory())
+  installAuthGuards(router, pinia)
+  return router
+}
 
 describe('router', () => {
   it.each(['/login', '/', '/export', '/import', '/history', '/settings'])('resolves %s', async (path) => {
@@ -9,5 +24,42 @@ describe('router', () => {
     await router.push(path)
     await router.isReady()
     expect(router.currentRoute.value.path).toBe(path)
+  })
+
+  it('redirects an unauthenticated request to login once', async () => {
+    const router = guardedRouter()
+    await router.push('/history')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/history')
+  })
+
+  it('blocks viewer from transfer routes', async () => {
+    const router = guardedRouter('viewer')
+    await router.push('/export')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('dashboard')
+  })
+
+  it('allows operator transfers but blocks settings', async () => {
+    const router = guardedRouter('operator')
+    await router.push('/import')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('import')
+
+    await router.push('/settings')
+    expect(router.currentRoute.value.name).toBe('dashboard')
+  })
+
+  it('allows admin settings and redirects authenticated login route', async () => {
+    const router = guardedRouter('admin')
+    await router.push('/settings')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('settings')
+
+    await router.push('/login')
+    expect(router.currentRoute.value.name).toBe('dashboard')
   })
 })

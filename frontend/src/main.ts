@@ -7,6 +7,9 @@ import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 
 import App from './App.vue'
-import { router } from './router'
+import { installAuthGuards, router } from './router'
 
-createApp(App).use(createPinia()).use(router).use(ElementPlus).mount('#app')
+const pinia = createPinia()
+installAuthGuards(router, pinia)
+
+createApp(App).use(pinia).use(router).use(ElementPlus).mount('#app')
