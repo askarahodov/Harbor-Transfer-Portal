@@ -10,6 +10,8 @@
 
 При изменении поведения обновляйте соответствующую русскоязычную документацию в той же итерации.
 
+Карта документации, её статусы и приоритет источников находятся в [docs/README.md](docs/README.md). Исторический design document не должен использоваться вместо актуального architecture/protocol/ADR source.
+
 ## Ветки и pull request
 
 - Создавайте сфокусированные ветки от актуальной базовой ветки.
@@ -42,7 +44,10 @@ chore: update developer tooling
 - только frontend → unit/component tests, lint, typecheck и build;
 - протокол или общий контракт → затронутые backend/frontend проверки плюс contract/security tests;
 - transfer engine → scoped unit tests и соответствующая локальная integration fixture;
-- deployment/packaging → config/build/smoke checks.
+- deployment/packaging → config/build/smoke checks;
+- документация → `make docs-check`; `deploy/*.md` дополнительно относится к Compose scope.
+
+`make docs-check` проверяет локальные Markdown-ссылки без сетевых запросов. Missing repository target или ссылка за пределы repository root являются ошибкой documentation gate.
 
 На merge checkpoint все обязательные CI-проверки репозитория должны быть зелёными.
 
@@ -74,4 +79,4 @@ make test-backend
 printf 'exit code: %s\n' "$?"
 ```
 
-Если pytest завершается ошибкой, `make test-backend` обязан вернуть ненулевой код. Аналогичное правило действует для остальных обязательных lint/test/build целей.
+Если pytest завершается ошибкой, `make test-backend` обязан вернуть ненулевой код. Аналогичное правило действует для остальных обязательных lint/test/build/docs целей.
