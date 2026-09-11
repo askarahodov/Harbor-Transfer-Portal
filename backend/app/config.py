@@ -13,6 +13,18 @@ class PortalContour(StrEnum):
     TARGET = "TARGET"
 
 
+def validate_harbor_base_url(value: AnyHttpUrl | None) -> AnyHttpUrl | None:
+    if value is None:
+        return None
+    if value.username is not None or value.password is not None:
+        raise ValueError("HARBOR_URL must not contain credentials")
+    if value.query is not None or value.fragment is not None:
+        raise ValueError("HARBOR_URL must not contain query or fragment")
+    if value.path not in (None, "", "/"):
+        raise ValueError("HARBOR_URL must point to the Harbor origin without a subpath")
+    return value
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",
@@ -52,6 +64,11 @@ class Settings(BaseSettings):
     login_rate_limit_lockout_seconds: int = Field(default=900, ge=1, le=86400)
 
     cors_origins: list[str] = Field(default_factory=list)
+
+    @field_validator("harbor_url")
+    @classmethod
+    def validate_harbor_url(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:
+        return validate_harbor_base_url(value)
 
     @field_validator("jwt_secret")
     @classmethod
