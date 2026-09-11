@@ -3,6 +3,7 @@ from app.domain.bundle import OperationStatus, OperationType
 EXPORT_TRANSITIONS: dict[OperationStatus, set[OperationStatus]] = {
     OperationStatus.CREATED: {
         OperationStatus.VALIDATING,
+        OperationStatus.FAILED,
         OperationStatus.CANCELLED,
     },
     OperationStatus.VALIDATING: {
@@ -30,11 +31,13 @@ EXPORT_TRANSITIONS: dict[OperationStatus, set[OperationStatus]] = {
 IMPORT_TRANSITIONS: dict[OperationStatus, set[OperationStatus]] = {
     OperationStatus.UPLOADED: {
         OperationStatus.VERIFYING,
+        OperationStatus.FAILED,
         OperationStatus.REJECTED,
         OperationStatus.CANCELLED,
     },
     OperationStatus.DISCOVERED: {
         OperationStatus.VERIFYING,
+        OperationStatus.FAILED,
         OperationStatus.REJECTED,
         OperationStatus.CANCELLED,
     },
@@ -46,6 +49,7 @@ IMPORT_TRANSITIONS: dict[OperationStatus, set[OperationStatus]] = {
     },
     OperationStatus.READY: {
         OperationStatus.IMPORTING,
+        OperationStatus.FAILED,
         OperationStatus.CANCELLED,
     },
     OperationStatus.IMPORTING: {

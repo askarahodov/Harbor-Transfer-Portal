@@ -79,8 +79,13 @@ class Operation(TimestampMixin, Base):
     successful_artifacts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     failed_artifacts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     skipped_artifacts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    conflict_artifacts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    worker_token: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    worker_started_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     artifacts: Mapped[list["ArtifactResult"]] = relationship(
         back_populates="operation", cascade="all, delete-orphan"
