@@ -21,6 +21,7 @@ from app.schemas.exports import (
     ExportStartResponse,
 )
 from app.services.export_orchestrator import ExportOrchestrationError, ExportOrchestrator
+from app.services.export_publication_guard import PublicationSafeExportOrchestrator
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 ExportActorDep = Annotated[
@@ -33,7 +34,7 @@ _EXPORT_DOWNLOAD_TTL_SECONDS = 120
 
 
 def get_export_orchestrator(request: Request) -> ExportOrchestrator:
-    return ExportOrchestrator(
+    return PublicationSafeExportOrchestrator(
         request.app.state.session_factory,
         request.app.state.settings,
         request.app.state.operation_manager,
