@@ -6,7 +6,7 @@
 
 Harbor Transfer Portal — локальный веб-портал для безопасной офлайн-передачи container images и Helm OCI charts между двумя физически и сетево изолированными Harbor-контурами.
 
-> **Статус:** активная разработка **v1**. Репозиторий уже содержит protocol/security/transfer foundations, но полный SOURCE→TARGET пользовательский flow и финальный offline installation kit ещё развиваются. Текущий `main` не следует автоматически считать готовым production-релизом.
+> **Статус:** активная разработка **v1**. SOURCE backend export orchestration уже реализован, но законченный export wizard, TARGET intake/import flow и финальный offline installation kit ещё развиваются. Текущий `main` не следует автоматически считать готовым production-релизом.
 
 ## За 30 секунд
 
@@ -44,8 +44,10 @@ Harbor TARGET
 | Offline Bundle Protocol v1 + JSON Schema | реализовано |
 | Bundle build/sign/verify/safe extraction | реализовано |
 | Persistent `OperationManager`, progress/cancel/restart reconciliation | реализовано |
+| SOURCE export feature-specific backend orchestration/API | реализовано |
+| SOURCE bundle metadata и disk-backed download | реализовано |
 | Vue shell/login/settings foundation | реализовано |
-| SOURCE export feature-specific orchestration/UI | в разработке |
+| SOURCE export wizard/UI | в разработке |
 | TARGET intake/import feature-specific orchestration/UI | в разработке |
 | Full history/audit/report UX | в разработке |
 | Final offline installer + acceptance E2E | запланировано |
@@ -64,6 +66,7 @@ Harbor TARGET
 - Skopeo/Helm запускаются через структурированный subprocess argv без shell-конкатенации пользовательского ввода.
 - Conflict не должен приводить к неявной перезаписи target artifact.
 - Operation status — persisted domain state, а не вывод из текста логов.
+- SOURCE delivery считается готовым только после verified publication и terminal `COMPLETED`; incomplete/cancelled/restarted export не должен оставлять ready-looking `.sha256`.
 
 Полная модель угроз и доверия: [docs/security.md](docs/security.md).
 
@@ -77,6 +80,7 @@ Harbor TARGET
 | устраняете ошибку или отказ | [Troubleshooting](docs/troubleshooting.md) |
 | настраиваете development/runtime Compose | [Deployment](deploy/README.md) |
 | проектируете/разрабатываете backend или интеграции | [Архитектура](docs/architecture.md) |
+| работаете с SOURCE export API/orchestration | [SOURCE export orchestration](docs/export-orchestration.md) |
 | реализуете совместимость SOURCE/TARGET | [Offline Bundle Protocol v1](docs/offline-bundle-v1.md) |
 | разбираете security/trust boundaries | [Security](docs/security.md) |
 | меняете background execution | [OperationManager](docs/operation-manager.md) |
@@ -218,11 +222,11 @@ Documentation gate проверяет repository-relative Markdown links без 
 
 Ближайшие продуктовые milestones:
 
-1. закончить SOURCE export orchestration;
-2. закончить TARGET intake/preview/import orchestration;
-3. подключить законченные export/import UI flows;
+1. подключить SOURCE export wizard к готовому backend orchestration API (#18);
+2. закончить TARGET intake/preview/import orchestration (#19);
+3. подключить законченный TARGET import UI flow;
 4. завершить history/audit/report user experience;
-5. завершить user guide и дополнять troubleshooting фактическими #17/#19 error flows;
+5. завершить user guide по фактическим SOURCE/TARGET UI flows;
 6. собрать финальный offline installation kit и выполнить SOURCE→TARGET acceptance E2E.
 
 Актуальная детализация работ ведётся в GitHub Issues; README намеренно не дублирует issue backlog.
