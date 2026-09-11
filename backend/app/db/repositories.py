@@ -1,7 +1,9 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import ArtifactResult, Operation, User
+from app.db.models import ArtifactResult, Operation, User, UserRole
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.domain.operations import validate_transition
 
@@ -10,7 +12,7 @@ class UserRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def create(self, *, username: str, password_hash: str, role) -> User:  # type: ignore[no-untyped-def]
+    def create(self, *, username: str, password_hash: str, role: UserRole) -> User:
         normalized = username.strip().lower()
         if not normalized:
             raise ValueError("username must not be empty")
@@ -18,6 +20,20 @@ class UserRepository:
         self.session.add(user)
         self.session.flush()
         return user
+
+    def get(self, user_id: int) -> User | None:
+        return self.session.get(User, user_id)
+
+    def get_by_username(self, username: str) -> User | None:
+        normalized = username.strip().lower()
+        return self.session.scalar(select(User).where(User.username == normalized))
+
+    def list(self) -> list[User]:
+        return list(self.session.scalars(select(User).order_by(User.username)))
+
+    def mark_login(self, user: User) -> None:
+        user.last_login_at = datetime.now(timezone.utc)
+        self.session.flush()
 
 
 class OperationRepository:
