@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     app_name: str = "Harbor Transfer Portal"
     app_version: str = "0.1.0"
     portal_contour: PortalContour = PortalContour.SOURCE
+    database_url: str = "sqlite:///./data/harbor-transfer-portal.db"
 
     harbor_url: AnyHttpUrl | None = None
     harbor_user: str | None = None
