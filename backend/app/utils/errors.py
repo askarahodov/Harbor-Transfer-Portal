@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -11,9 +13,24 @@ def _response(status_code: int, code: str, message: str) -> JSONResponse:
     )
 
 
+def _structured_detail(detail: Any) -> tuple[str, str] | None:
+    if not isinstance(detail, dict):
+        return None
+    code = detail.get("code")
+    message = detail.get("message")
+    if isinstance(code, str) and isinstance(message, str):
+        return code, message
+    return None
+
+
 async def http_exception_handler(
     _request: Request, exc: StarletteHTTPException
 ) -> JSONResponse:
+    structured = _structured_detail(exc.detail)
+    if structured is not None:
+        code, message = structured
+        return _response(exc.status_code, code, message)
+
     detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
     return _response(exc.status_code, f"http_{exc.status_code}", detail)
 
