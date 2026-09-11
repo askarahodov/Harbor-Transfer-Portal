@@ -27,20 +27,21 @@ deploy/    материалы развертывания и офлайн-пос�
 
 Backend предоставляет локальный API портала и по мере развития проекта интегрируется с Harbor REST API, Skopeo для контейнерных образов и Helm OCI для чартов. Передача между контурами определяется версионированным протоколом пакета: успешное завершение команды само по себе не считается подтверждением успешной доставки.
 
-Нормативное описание текущего протокола находится в [docs/offline-bundle-v1.md](docs/offline-bundle-v1.md).
+Актуальные архитектурные границы и статус реализации описаны в [docs/architecture.md](docs/architecture.md). Нормативное описание протокола передачи находится в [docs/offline-bundle-v1.md](docs/offline-bundle-v1.md).
 
 ## Документация
 
 | Документ | Описание |
 |---|---|
 | [docs/project-passport.md](docs/project-passport.md) | Паспорт проекта для операторов, руководителей и других нетехнических пользователей |
-| [docs/harbor-transfer-portal.md](docs/harbor-transfer-portal.md) | Мастер-дocument: архитектура, UI-макеты, фазы разработки |
-| [docs/offline-bundle-v1.md](docs/offline-bundle-v1.md) | Протокол офлайн-пакета v1: структура, подпись, проверка |
+| [docs/architecture.md](docs/architecture.md) | Актуальная архитектура, границы компонентов и текущий статус реализации |
+| [docs/offline-bundle-v1.md](docs/offline-bundle-v1.md) | Нормативный протокол офлайн-пакета v1: структура, подпись, проверка |
+| [docs/harbor-transfer-portal.md](docs/harbor-transfer-portal.md) | Исторический product/design document: исходная постановка, ранние UI-макеты и план; не является нормативным runtime/protocol source |
 | [docs/skopeo-service.md](docs/skopeo-service.md) | Сервис работы с контейнерными образами через Skopeo |
 | [docs/helm-oci-service.md](docs/helm-oci-service.md) | Сервис работы с Helm OCI-чартами |
 | [docs/harbor-browse-api.md](docs/harbor-browse-api.md) | Harbor REST API v2: проекция DTO и политики |
 | [docs/frontend.md](docs/frontend.md) | Фронтенд: стек, маршруты, токены, структура |
-| [docs/security.md](docs/security.md) | Защита локального входа: rate limiting, хранение, настройка |
+| [docs/security.md](docs/security.md) | Security/trust model: auth/RBAC, Harbor secrets/TLS, subprocess boundaries, Bundle signing/verification и ограничения v1 |
 | [docs/testing.md](docs/testing.md) | Стратегия тестирования и CI |
 | [docs/decisions.md](docs/decisions.md) | Реестр архитектурных решений (ADR) |
 | [deploy/README.md](deploy/README.md) | Развертывание: Docker Compose, persistent data, smoke test |
