@@ -1,17 +1,21 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from alembic import command
 from app.auth.security import hash_password
 from app.config import Settings
-from app.db.models import UserRole
+from app.db.models import LoginThrottle, UserRole
 from app.db.repositories import UserRepository
 from app.main import create_app
 
+JWT_SECRET = "test-jwt-secret-not-for-production-123456"
 
-def _client_with_users(tmp_path: Path) -> TestClient:
+
+def _client_with_users(tmp_path: Path, **settings_overrides: int) -> TestClient:
     db_path = tmp_path / "auth-api.db"
     database_url = f"sqlite:///{db_path}"
     config = Config("alembic.ini")
@@ -21,7 +25,8 @@ def _client_with_users(tmp_path: Path) -> TestClient:
     app = create_app(
         Settings(
             database_url=database_url,
-            jwt_secret="test-jwt-secret-not-for-production-123456",
+            jwt_secret=JWT_SECRET,
+            **settings_overrides,
         )
     )
     with app.state.session_factory() as session:
@@ -52,6 +57,56 @@ def test_invalid_login_is_generic(tmp_path: Path) -> None:
     wrong = client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
     assert missing.status_code == wrong.status_code == 401
     assert missing.json() == wrong.json()
+
+
+def test_throttled_login_is_generic_persistent_and_recovers(tmp_path: Path) -> None:
+    settings = {
+        "login_rate_limit_window_seconds": 300,
+        "login_rate_limit_username_max_failures": 2,
+        "login_rate_limit_address_max_failures": 100,
+        "login_rate_limit_lockout_seconds": 60,
+    }
+    client = _client_with_users(tmp_path, **settings)
+    first = client.post("/api/auth/login", json={"username": " Admin ", "password": "wrong"})
+    threshold = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "wrong-again"},
+    )
+    blocked = client.post(
+        "/api/auth/login",
+        json={"username": "ADMIN", "password": "admin-password-123"},
+    )
+    assert first.status_code == threshold.status_code == blocked.status_code == 401
+    assert first.json() == threshold.json() == blocked.json()
+    client.close()
+
+    database_url = f"sqlite:///{tmp_path / 'auth-api.db'}"
+    restarted_app = create_app(
+        Settings(database_url=database_url, jwt_secret=JWT_SECRET, **settings)
+    )
+    with TestClient(restarted_app) as restarted:
+        still_blocked = restarted.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "admin-password-123"},
+        )
+        assert still_blocked.status_code == 401
+        assert still_blocked.json() == first.json()
+
+        now = datetime.now(UTC)
+        with restarted.app.state.session_factory() as session:
+            throttle = session.scalar(
+                select(LoginThrottle).where(LoginThrottle.scope == "username")
+            )
+            assert throttle is not None
+            throttle.locked_until = now - timedelta(seconds=1)
+            throttle.window_started_at = now - timedelta(seconds=301)
+            session.commit()
+
+        recovered = restarted.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "admin-password-123"},
+        )
+        assert recovered.status_code == 200
 
 
 def test_protected_endpoint_requires_authentication(tmp_path: Path) -> None:
