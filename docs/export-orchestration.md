@@ -58,7 +58,9 @@ Preview повторно читает локальный Harbor и не дове
 - `size_bytes`;
 - `sha256`.
 
-Эти значения сохраняются в БД только после успешной verified публикации.
+Служебная bundle metadata также используется как persisted ownership marker: она фиксируется после
+атомарного создания archive, но **до** readiness sidecar. Пользовательский API всё равно считает bundle
+готовым только после terminal `COMPLETED`; при rollback/cancel metadata очищается.
 
 ### Bundle metadata и download
 
@@ -80,10 +82,11 @@ Worker выполняет следующие стадии:
 5. digest результата снова сравнивается с pinned SOURCE digest;
 6. `PACKAGING` — BundlePackageService строит canonical Offline Bundle v1;
 7. BundlePackageService проверяет manifest schema, checksums и Ed25519 signature до готовности публикации;
-8. archive публикуется атомарно, readiness `.sha256` создаётся последним;
-9. `VERIFYING` — orchestration проверяет delivery identity и фиксирует bundle metadata;
-10. artifact rows переходят в `VERIFIED`;
-11. только после этого операция получает `COMPLETED`.
+8. archive публикуется с atomic no-replace семантикой; ownership metadata фиксируется в БД;
+9. readiness `.sha256` создаётся последним и также не может заменить существующий sidecar;
+10. `VERIFYING` — orchestration проверяет delivery identity и bundle metadata;
+11. artifact rows переходят в `VERIFIED`;
+12. только после этого операция получает `COMPLETED`.
 
 Для v1 выбран fail-fast режим. Частичный delivery не считается успешным.
 
@@ -103,11 +106,24 @@ Packaging выполняется в worker thread через `asyncio.to_thread`
 Поэтому orchestration использует cancellation barrier:
 
 - при cancel во время packaging backend ждёт завершения уже запущенного packaging thread;
-- возможные archive/readiness sidecar удаляются до завершения cancellation;
+- возможные archive/readiness sidecar удаляются только если текущая operation успела зафиксировать ownership;
 - persisted bundle metadata очищается;
 - только после cleanup OperationManager фиксирует terminal `CANCELLED`.
 
-Это предотвращает состояние, в котором отменённая операция оставляет delivery, выглядящий готовым к переносу.
+Публикация archive и sidecar использует no-replace semantics. Если delivery с таким ID уже существует
+или появляется во время публикации, существующий файл не перезаписывается и не удаляется как часть
+rollback чужой операции.
+
+Это предотвращает состояние, в котором отменённая операция оставляет delivery, выглядящий готовым к переносу, и одновременно защищает уже опубликованный delivery от collision cleanup.
+
+## Startup recovery
+
+При старте backend reconciliation рассматривает только незавершённые export operations. Файлы
+удаляются только когда в operation сохранена полная ownership metadata (`filename`, `sha256`,
+`size_bytes`) для ожидаемого `delivery_id`.
+
+Если незавершённая операция не успела подтвердить ownership, совпавшие archive/sidecar считаются
+чужими и сохраняются. Частичная/некорректная metadata очищается без удаления файлов.
 
 ## Fail-fast semantics
 
@@ -147,7 +163,9 @@ Regression suite покрывает:
 - изменение SOURCE digest между preview и worker;
 - fail-fast при ошибке одного artifact;
 - package/verification failure без ready bundle;
-- cancellation во время packaging без оставшейся публикации;
+- cancellation во время packaging без оставшейся собственной публикации;
+- no-replace collision для archive и sidecar;
+- сохранность pre-existing delivery при runtime cleanup и startup recovery;
 - viewer RBAC;
 - TARGET contour rejection;
 - owner-scoped download;
