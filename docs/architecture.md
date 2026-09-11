@@ -59,7 +59,7 @@ Harbor Transfer Portal предназначен для офлайн-переда
 └───────────────────────────────────────────────────────────┘
 ```
 
-На текущем этапе реализованы protocol-critical transfer primitives и общий persistent background operation foundation. Полный SOURCE export orchestration и TARGET import orchestration ещё развиваются. Наличие сервиса, API маршрута или UI route не означает автоматически готовность всего пользовательского end-to-end сценария.
+На текущем этапе реализованы protocol-critical transfer primitives, общий persistent background operation foundation и feature-specific backend SOURCE export orchestration. TARGET intake/import orchestration и завершённые пользовательские export/import UI продолжают развиваться. Наличие UI route само по себе не означает готовность пользовательского end-to-end сценария.
 
 ## 3. Runtime deployment
 
@@ -102,10 +102,12 @@ backend/app/
 - users;
 - Harbor browse/integration;
 - Harbor/settings administration;
+- SOURCE export preview/start: `POST /api/exports/preview`, `POST /api/exports`;
+- metadata/download завершённого SOURCE delivery: `GET /api/exports/{id}/bundle`, `GET /api/exports/{id}/download`;
 - чтения persisted operation state: `GET /api/operations/{id}`;
 - отмены операции по RBAC: `POST /api/operations/{id}/cancel`.
 
-Публичные request contracts запуска конкретного export/import принадлежат соответствующим orchestration задачам. Наличие generic operation polling/cancel API не означает готовность export/import endpoints.
+Feature-specific SOURCE export request contract реализован. TARGET intake/import request contracts остаются ответственностью #19. Generic operation polling/cancel API является общей execution boundary для обоих направлений.
 
 ### 4.2. Domain layer
 
@@ -131,6 +133,8 @@ backend/app/
 | `helm_oci_service.py` | Helm OCI pull/push и безопасный workspace/subprocess |
 | `bundle_package_service.py` | build/verify/publish/extract Offline Bundle v1 |
 | `operation_manager.py` | persistent background execution, progress, cancellation, worker ownership, restart reconciliation |
+| `export_orchestrator.py` | SOURCE selection validation, Skopeo/Helm orchestration, fail-fast packaging и bundle metadata |
+| `export_recovery.py` | startup cleanup незавершённых export publications |
 
 Harbor REST API отвечает за registry control plane/metadata, а payload transport делегируется Skopeo и Helm. Backend не переimplementирует registry copy protocol самостоятельно.
 
@@ -180,6 +184,8 @@ READY
 ```
 
 не считаются уже выполняемой registry mutation. Stale worker claim освобождается. Workspace состояния `READY` может быть сохранён для будущего import orchestration.
+
+Для SOURCE export перед запуском OperationManager выполняется дополнительная reconciliation publication boundary: archive/sidecar, относящиеся к export operation, которая не достигла `COMPLETED`, удаляются, а неполная persisted bundle metadata очищается. Это закрывает crash-window после физической публикации `.sha256`, но до terminal commit операции.
 
 Это означает **reconciliation, а не transparent resume**.
 
@@ -242,33 +248,47 @@ charts/...
 
 ## 8. SOURCE export flow
 
-Целевой flow:
+Текущий backend flow:
 
 ```text
-Operator
-  → Frontend
+Operator/Admin
   → Export API/orchestrator
-  → create persisted Operation
+  → authoritative Harbor selection validation
+  → create persisted Operation + artifact rows
   → OperationManager
-  → Harbor metadata resolution
+  → repeated Harbor metadata/digest validation
   → Skopeo / Helm payload export
   → BundlePackageService build + self-verify
-  → outgoing bundle + .sha256
-  → download / physical transfer
+  → atomic outgoing bundle + .sha256
+  → persisted bundle filename / size / SHA-256
+  → COMPLETED
+  → owner/admin download / physical transfer
 ```
 
 ### Текущий статус
 
-Уже реализованы Harbor integration, Skopeo, Helm OCI, BundlePackageService и generic persistent OperationManager foundation.
+Feature-specific backend SOURCE export orchestration реализован и покрыт regression tests.
+
+Реализовано:
+
+- `operator|admin` preview/start с SOURCE contour guard;
+- stable selection `project/repository/reference/digest` и повторная authoritative Harbor validation;
+- обнаружение digest/type drift между выбором и worker execution;
+- fail-fast mixed image + Helm delivery;
+- background execution через `OperationManager`;
+- bundle build/sign/self-verify и atomic publication;
+- cancellation barrier во время blocking packaging;
+- cleanup publication при failure/cancel/restart до `COMPLETED`;
+- persisted bundle filename/size/SHA-256;
+- owner/admin metadata и disk-backed download.
 
 Ещё не следует считать завершёнными:
 
-- feature-specific export orchestration service/API;
-- связку конкретных artifact selections с worker flow;
-- законченный export wizard;
-- полный end-to-end SOURCE acceptance.
+- законченный export wizard/frontend flow (#18);
+- полный пользовательский SOURCE acceptance через UI;
+- сквозной SOURCE→physical→TARGET acceptance до завершения #19/#28.
 
-Поэтому отдельные primitives или generic operation API не документируются как штатный готовый пользовательский экспорт.
+Подробный component/API contract: [export-orchestration.md](export-orchestration.md).
 
 ## 9. TARGET import flow
 
@@ -328,7 +348,7 @@ Terminal state дальше не переходит. Illegal transition явля
 
 ## 11. Persisted operation progress и cancellation
 
-`GET /api/operations/{id}` возвращает persisted structured state, включая текущий status/phase, artifact counters, running artifact ids и безопасные error fields.
+`GET /api/operations/{id}` возвращает persisted structured state, включая текущий status/phase, artifact counters, running artifact ids и безопасные error fields. Для завершённого SOURCE export response также проецирует persisted bundle filename/size/SHA-256.
 
 API не возвращает `worker_token`, raw subprocess logs или выдуманный ETA.
 
@@ -360,7 +380,7 @@ Compose монтирует `portal-data` в `/app/data`. Основные кла
     └── operations/
 ```
 
-SQLite содержит operation state, worker ownership/cancellation metadata и другую application metadata. `tmp/operations` используется для private operation workspaces и не является заменой persisted DB state.
+SQLite содержит operation state, worker ownership/cancellation metadata, completed export bundle metadata и другую application metadata. `tmp/operations` используется для private operation workspaces и не является заменой persisted DB state.
 
 SQLite, managed secrets/CA, signing/trust key material, receipts/history и retained packages имеют разные backup/retention требования.
 
@@ -417,7 +437,7 @@ Runtime contour identity берётся из local backend `GET /api/health`; о
 
 Health/readiness endpoints не должны раскрывать secret configuration.
 
-Generic persisted operation progress/cancellation API уже реализован. Полный history/audit/report UX и release-grade correlation продолжают развиваться отдельными v1 задачами.
+Generic persisted operation progress/cancellation API уже реализован. SOURCE export добавляет persisted delivery filename/size/SHA-256 только после verified publication. Полный history/audit/report UX и release-grade correlation продолжают развиваться отдельными v1 задачами.
 
 Источником истины о статусе операции является persisted domain state. Логи остаются диагностическим каналом, а не механизмом определения `COMPLETED`.
 
@@ -443,21 +463,23 @@ Controlled build/release environment может использовать вне�
 | Operation polling / cancellation API | реализовано |
 | Worker claim / concurrency / disk preflight | реализовано |
 | Restart reconciliation | реализовано; mid-command resume не поддерживается |
+| SOURCE export feature-specific backend orchestration/API | реализовано |
+| SOURCE export bundle metadata/download | реализовано |
 | Vue shell/login/settings foundation | реализовано |
-| Export feature-specific orchestration | в разработке |
 | Export wizard | scaffold / в разработке |
 | TARGET intake/import feature-specific orchestration | в разработке |
 | Import wizard | scaffold / в разработке |
 | Full history/audit/report UX | в разработке |
 | Final offline release kit / acceptance E2E | запланировано в #28 |
 
-Generic OperationManager foundation не следует смешивать с завершённым export/import flow: он предоставляет execution/lifecycle primitives, которые используют последующие orchestration services.
+Generic OperationManager foundation предоставляет execution/lifecycle primitives; SOURCE export orchestration уже использует их как feature-specific worker flow, TARGET import orchestration ещё предстоит реализовать.
 
 ## 19. Источники истины
 
 | Область | Authoritative source |
 |---|---|
 | Текущая архитектура/current state | этот `docs/architecture.md` |
+| SOURCE export orchestration/API | [export-orchestration.md](export-orchestration.md) |
 | Bundle Protocol v1 | [offline-bundle-v1.md](offline-bundle-v1.md) + JSON Schema |
 | Bundle package implementation boundary | [package-service.md](package-service.md) |
 | Background execution/restart/cancel | [operation-manager.md](operation-manager.md) |

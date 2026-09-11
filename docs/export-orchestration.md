@@ -30,10 +30,12 @@ Request содержит массив выбранных артефактов:
 - `kind` — `container-image` или `helm-chart`;
 - `project`;
 - `repository`;
-- `reference` — image tag либо Helm version/tag;
+- `reference` — image tag/digest либо Helm version/tag;
 - `digest` — SHA-256, полученный из Harbor browse API.
 
-Preview повторно читает локальный Harbor и не доверяет браузеру как источнику digest. Если artifact исчез, изменил digest или тип, запрос отклоняется стабильным error code.
+Preview повторно читает локальный Harbor и не доверяет браузеру как источнику digest или artifact kind. Один и тот же `project/repository/reference` нельзя передать дважды, даже с разными digest. Image reference и Helm version проходят те же синтаксические ограничения, что downstream Skopeo/Helm DTO.
+
+Если artifact исчез, изменил digest или тип, запрос отклоняется стабильным error code.
 
 ### Start
 
@@ -67,7 +69,7 @@ Preview повторно читает локальный Harbor и не дове
 
 Operator может читать только собственный export bundle; admin может читать любой. Download использует `FileResponse`, поэтому backend не загружает весь archive в память. Ответ содержит стандартный `Content-Length` и `X-Checksum-SHA256`.
 
-Имя файла всегда выводится из generated `delivery_id`; repository, comment и другие пользовательские строки не участвуют в filesystem path.
+Имя файла всегда выводится из generated `delivery_id`; repository, comment и другие пользовательские строки не участвуют в filesystem path. Перед выдачей backend повторно сверяет persisted filename/size/SHA-256 с archive и exact readiness sidecar.
 
 ## Workflow
 
@@ -81,7 +83,7 @@ Worker выполняет следующие стадии:
 6. `PACKAGING` — BundlePackageService строит canonical Offline Bundle v1;
 7. BundlePackageService проверяет manifest schema, checksums и Ed25519 signature до готовности публикации;
 8. archive публикуется атомарно, readiness `.sha256` создаётся последним;
-9. `VERIFYING` — orchestration проверяет delivery identity и фиксирует bundle metadata;
+9. `VERIFYING` — orchestration проверяет delivery identity, controlled paths, sidecar digest/size и фиксирует bundle metadata;
 10. artifact rows переходят в `VERIFIED`;
 11. только после этого операция получает `COMPLETED`.
 
@@ -89,10 +91,11 @@ Worker выполняет следующие стадии:
 
 ## Защита от изменения SOURCE
 
-Digest проверяется минимум в двух независимых точках:
+Digest проверяется в нескольких независимых точках:
 
 - при preview/start через Harbor API;
-- непосредственно в Skopeo/Helm export primitive.
+- повторно worker перед transfer;
+- в Skopeo/Helm export primitive после фактической выгрузки.
 
 Если artifact изменился между выбором и фактической выгрузкой, операция получает `FAILED`, а другой объект не подставляется молча в manifest.
 
@@ -109,6 +112,19 @@ Packaging выполняется в worker thread через `asyncio.to_thread`
 
 Это предотвращает состояние, в котором отменённая операция оставляет delivery, выглядящий готовым к переносу.
 
+## Crash/restart recovery publication boundary
+
+Существует отдельное окно между физической публикацией archive + `.sha256` и terminal commit `COMPLETED`. Если процесс аварийно завершится именно в этот момент, одних restart semantics OperationManager недостаточно: на диске мог бы остаться ready-looking delivery.
+
+Поэтому application startup до `OperationManager.startup()` выполняет reconciliation SOURCE export publications:
+
+- выбирает export operations, которые не находятся в `COMPLETED`;
+- удаляет их generated archive/readiness sidecar из controlled outgoing root;
+- очищает неполную persisted bundle metadata;
+- завершённые `COMPLETED` delivery не трогает.
+
+После этого обычная OperationManager reconciliation переводит interrupted active operation в `FAILED`. Автоматический resume export v1 не поддерживается.
+
 ## Fail-fast semantics
 
 Если любой artifact export завершается ошибкой:
@@ -120,6 +136,23 @@ Packaging выполняется в worker thread через `asyncio.to_thread`
 - operation завершается `FAILED`.
 
 Ошибка проверки/подписи bundle также не оставляет readiness sidecar.
+
+## Stable error semantics
+
+Основные export-owned коды:
+
+- `export_wrong_contour` — endpoint вызван не на SOURCE;
+- `export_source_not_found` — выбранный SOURCE artifact исчез;
+- `export_source_changed` — authoritative digest изменился;
+- `export_artifact_kind_changed` — Harbor теперь классифицирует artifact иначе;
+- `export_artifact_unsupported` — `unknown-oci` или иной неподдерживаемый type;
+- `export_aborted` — ещё не начатый artifact остановлен fail-fast политикой;
+- `export_not_ready` — bundle запрошен до `COMPLETED`;
+- `export_bundle_missing` — persisted completed delivery отсутствует на диске;
+- `export_bundle_metadata_invalid` — persisted/file/sidecar metadata расходятся;
+- `export_bundle_path_invalid` — path publication не соответствует controlled delivery location.
+
+Harbor/Skopeo/Helm/BundlePackageService ошибки сохраняют собственные безопасные стабильные коды. Raw stderr/upstream body/secrets наружу не проксируются.
 
 ## Storage boundary
 
@@ -143,11 +176,13 @@ Download заново проверяет, что generated archive path оста
 
 Regression suite покрывает:
 
-- mixed image + Helm happy path;
+- mixed image + Helm happy path с реальным BundlePackageService/signature verification;
 - изменение SOURCE digest между preview и worker;
+- logical duplicate selection и invalid reference;
 - fail-fast при ошибке одного artifact;
 - package/verification failure без ready bundle;
 - cancellation во время packaging без оставшейся публикации;
+- startup cleanup незавершённой ready-looking publication;
 - viewer RBAC;
 - TARGET contour rejection;
 - owner-scoped download;
