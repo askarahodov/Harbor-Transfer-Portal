@@ -13,7 +13,7 @@ There are two independent installations:
 
 The portal must never depend on direct Harbor-to-Harbor replication across the isolation boundary.
 
-## Planned architecture
+## Architecture
 
 ```text
 backend/   Python/FastAPI API, domain logic and transfer services
@@ -23,17 +23,16 @@ data/      local runtime state; generated contents are ignored
 deploy/    deployment and offline packaging assets
 ```
 
-The planned backend integrates with the local Harbor API, Skopeo for container-image transport, and Helm OCI for chart transport. Bundle creation and import include explicit metadata, checksums and verification so a successful process exit is not treated as proof of a successful delivery.
+The backend will integrate with the local Harbor API, Skopeo for container-image transport, and Helm OCI for chart transport. Bundle creation and import include explicit metadata, checksums and verification so a successful process exit is not treated as proof of a successful delivery.
 
 ## Development quick start
 
-Prerequisites for later implementation stages:
+Prerequisites:
 
 - GNU Make
-- Docker with Docker Compose v2
-- Python 3.12+
-- Node.js 22+
-- npm
+- Python 3.12
+- Docker with Docker Compose v2 for later deployment stages
+- Node.js 22+ and npm for the later frontend stage
 
 Prepare local configuration:
 
@@ -41,18 +40,45 @@ Prepare local configuration:
 cp .env.example .env
 ```
 
-Common commands:
+### Backend
+
+Create an isolated Python environment and install the backend with development dependencies:
 
 ```bash
-make up
-make logs
-make lint
-make test
-make build
-make down
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e './backend[dev]'
 ```
 
-At the repository-foundation stage implementation-backed targets intentionally report missing backend/frontend/compose files. Missing checks must never silently pass.
+Start the API from `backend/`:
+
+```bash
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8080
+```
+
+Current local endpoints:
+
+```text
+GET /api/health
+GET /api/ready
+GET /docs
+```
+
+Run scoped backend checks from the repository root:
+
+```bash
+make lint-backend
+make test-backend
+```
+
+Repository-wide commands remain strict: if a later-stage component such as frontend or Compose is not implemented yet, the corresponding all-project target fails explicitly instead of silently skipping it.
+
+## Configuration
+
+`PORTAL_CONTOUR` accepts only `SOURCE` or `TARGET`. Each installation uses one neutral set of `HARBOR_*` settings for its local Harbor; SOURCE and TARGET credentials are never configured together in one portal instance.
+
+Health and readiness endpoints do not expose Harbor credentials or other secret configuration.
 
 ## Engineering principles
 
