@@ -160,7 +160,12 @@ def install_ca(
     try:
         install_runtime_ca(bootstrap, payload.certificate_pem)
     except HarborSettingsError as exc:
-        raise api_error(status.HTTP_422_UNPROCESSABLE_ENTITY, exc.code, exc.message) from exc
+        status_code = (
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+            if exc.code == "harbor_ca_invalid"
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        raise api_error(status_code, exc.code, exc.message) from exc
 
     set_metadata(
         session,
