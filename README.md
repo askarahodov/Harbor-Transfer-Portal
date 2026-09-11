@@ -13,7 +13,7 @@ There are two independent installations:
 
 The portal must never depend on direct Harbor-to-Harbor replication across the isolation boundary.
 
-## Planned architecture
+## Architecture
 
 ```text
 backend/   Python/FastAPI API, domain logic and transfer services
@@ -23,17 +23,16 @@ data/      local runtime state; generated contents are ignored
 deploy/    deployment and offline packaging assets
 ```
 
-The backend integrates with the local Harbor API, Skopeo for container-image transport, and Helm OCI for chart transport. Bundle creation and import include explicit metadata, checksums and verification so a successful process exit is not treated as proof of a successful delivery.
+The backend will integrate with the local Harbor API, Skopeo for container-image transport, and Helm OCI for chart transport. Bundle creation and import include explicit metadata, checksums and verification so a successful process exit is not treated as proof of a successful delivery.
 
 ## Development quick start
 
 Prerequisites:
 
 - GNU Make
-- Docker with Docker Compose v2
-- Python 3.12+
-- Node.js 22+
-- npm
+- Python 3.12
+- Docker with Docker Compose v2 for later deployment stages
+- Node.js 22+ and npm
 
 Prepare local configuration:
 
@@ -41,22 +40,41 @@ Prepare local configuration:
 cp .env.example .env
 ```
 
-Common repository commands:
+### Backend
+
+Create an isolated Python environment and install the backend with development dependencies:
 
 ```bash
-make up
-make logs
-make lint
-make test
-make build
-make down
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e './backend[dev]'
 ```
 
-Implementation-backed Make targets fail clearly while their corresponding project stage is not yet present; missing checks must never silently pass.
+Start the API from `backend/`:
+
+```bash
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8080
+```
+
+Current local endpoints:
+
+```text
+GET /api/health
+GET /api/ready
+GET /docs
+```
+
+Run scoped backend checks from the repository root:
+
+```bash
+make lint-backend
+make test-backend
+```
 
 ### Frontend
 
-The frontend foundation uses Vue 3, Vite, TypeScript, Pinia, Vue Router, Axios, Element Plus and Lucide. It has no runtime CDN dependency.
+Install dependencies, then run the scoped frontend checks:
 
 ```bash
 cd frontend
@@ -67,7 +85,15 @@ npm test
 npm run build
 ```
 
-Contour identity is read at runtime from `public/runtime-config.js` through `window.__HTP_CONFIG__`. Deployment tooling may replace that file with `SOURCE` or `TARGET` configuration without rebuilding the SPA; production pages do not hardcode contour values.
+The frontend has no runtime CDN dependency. Contour identity is loaded from the local backend `/api/health` response. `public/runtime-config.js` can seed contour identity during container startup without rebuilding the SPA and acts as a fallback if the backend is temporarily unavailable during initial rendering.
+
+Repository-wide commands remain strict: if a later-stage component such as Compose is not implemented yet, the corresponding all-project target fails explicitly instead of silently skipping it.
+
+## Configuration
+
+`PORTAL_CONTOUR` accepts only `SOURCE` or `TARGET`. Each installation uses one neutral set of `HARBOR_*` settings for its local Harbor; SOURCE and TARGET credentials are never configured together in one portal instance.
+
+Health and readiness endpoints do not expose Harbor credentials or other secret configuration.
 
 ## Engineering principles
 
