@@ -10,7 +10,7 @@ cleanup() {
     set +e
     docker compose down >/dev/null 2>&1
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
 
 wait_backend() {
     attempts=0
@@ -44,14 +44,22 @@ wait_backend
 wait_frontend
 
 docker compose exec -T frontend wget -q -O - http://127.0.0.1/api/health | grep -F '"status":"ok"' >/dev/null
+docker compose exec -T frontend wget -q -O - http://127.0.0.1/runtime-config.js | grep -E "contour: '(SOURCE|TARGET)'" >/dev/null
+docker compose exec -T backend sh -c "test \"$(id -u)\" -ne 0"
 docker compose exec -T backend sh -c "skopeo --version | grep -F '1.9.3' >/dev/null"
 docker compose exec -T backend sh -c "helm version --short | grep -F 'v3.22.0' >/dev/null"
+
+if docker compose exec -T frontend env | grep -E '^HARBOR_(URL|USER|PASSWORD)=' >/dev/null; then
+    echo 'Frontend container unexpectedly received Harbor credentials.' >&2
+    exit 1
+fi
 
 docker compose exec -T backend sh -c "printf 'persistent\n' > /app/data/.compose-smoke"
 docker compose restart >/dev/null
 wait_backend
 wait_frontend
+docker compose exec -T frontend wget -q -O - http://127.0.0.1/api/health | grep -F '"status":"ok"' >/dev/null
 docker compose exec -T backend test -f /app/data/.compose-smoke
 docker compose exec -T backend rm /app/data/.compose-smoke
 
-printf '%s\n' 'Compose smoke test passed: proxy health, tool versions and named-volume persistence verified.'
+printf '%s\n' 'Compose smoke test passed: proxy health, runtime isolation, tool versions and named-volume persistence verified.'
