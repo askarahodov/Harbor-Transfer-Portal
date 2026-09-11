@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.db.models import UserRole
 
@@ -7,6 +7,14 @@ class UserCreateRequest(BaseModel):
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=12, max_length=4096)
     role: UserRole
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("username must not be empty")
+        return normalized
 
 
 class UserUpdateRequest(BaseModel):
