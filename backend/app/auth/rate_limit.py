@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 from sqlalchemy import delete, select
@@ -182,7 +182,7 @@ class LoginRateLimiter:
         return subjects
 
     def _fingerprint(self, scope: LoginThrottleScope, subject: str) -> str:
-        message = f"{scope.value}\0{subject}".encode("utf-8")
+        message = f"{scope.value}\0{subject}".encode()
         return hmac.new(self._secret, message, hashlib.sha256).hexdigest()
 
     @staticmethod
@@ -200,11 +200,11 @@ class LoginRateLimiter:
 
     @staticmethod
     def _normalize_now(now: datetime | None) -> datetime:
-        value = now or datetime.now(timezone.utc)
+        value = now or datetime.now(UTC)
         return LoginRateLimiter._as_utc(value)
 
     @staticmethod
     def _as_utc(value: datetime) -> datetime:
         if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)

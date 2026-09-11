@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -22,7 +22,7 @@ def _limiter(session: Session, **overrides: int) -> LoginRateLimiter:
 def test_username_threshold_is_normalized_and_recovers_after_window() -> None:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
-    now = datetime(2026, 9, 11, 8, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 11, 8, 0, tzinfo=UTC)
 
     with Session(engine) as session:
         limiter = _limiter(session)
@@ -46,7 +46,7 @@ def test_username_threshold_is_normalized_and_recovers_after_window() -> None:
 def test_address_limit_is_independent_from_username_limit() -> None:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
-    now = datetime(2026, 9, 11, 8, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 11, 8, 0, tzinfo=UTC)
 
     with Session(engine) as session:
         limiter = _limiter(session, username_max_failures=10, address_max_failures=2)
@@ -69,7 +69,7 @@ def test_address_limit_is_independent_from_username_limit() -> None:
 def test_success_clears_only_username_counter_and_subjects_are_not_stored_raw() -> None:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
-    now = datetime(2026, 9, 11, 8, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 11, 8, 0, tzinfo=UTC)
 
     with Session(engine) as session:
         limiter = _limiter(session, username_max_failures=3, address_max_failures=3)

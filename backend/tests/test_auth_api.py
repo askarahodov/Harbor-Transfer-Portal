@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from alembic.config import Config
@@ -92,7 +92,7 @@ def test_throttled_login_is_generic_persistent_and_recovers(tmp_path: Path) -> N
         assert still_blocked.status_code == 401
         assert still_blocked.json() == first.json()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with restarted.app.state.session_factory() as session:
             throttle = session.scalar(
                 select(LoginThrottle).where(LoginThrottle.scope == "username")
