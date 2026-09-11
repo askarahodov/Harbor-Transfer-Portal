@@ -1,11 +1,11 @@
 SHELL := /bin/sh
 
-.PHONY: help up down logs fmt lint lint-backend test test-backend test-frontend build check-foundation
+.PHONY: help up down logs fmt lint lint-backend test test-backend test-frontend build compose-config smoke-compose check-foundation
 
 help:
 	@printf '%s\n' \
-	  'make up             Start local stack' \
-	  'make down           Stop local stack' \
+	  'make up             Build and start local stack' \
+	  'make down           Stop local stack (persistent volume is preserved)' \
 	  'make logs           Follow local stack logs' \
 	  'make fmt            Format backend and frontend' \
 	  'make lint           Run all implemented linters' \
@@ -14,18 +14,18 @@ help:
 	  'make test-backend   Run backend tests only' \
 	  'make test-frontend  Run frontend tests only' \
 	  'make build          Build backend/frontend artifacts' \
+	  'make compose-config Validate Docker Compose configuration' \
+	  'make smoke-compose  Build/restart stack and verify persistence' \
 	  'make check-foundation Validate repository scaffolding'
 
 up:
-	@test -f compose.yaml || { echo 'compose.yaml is not implemented yet'; exit 2; }
-	docker compose up -d
+	@test -f .env || { echo '.env is required; copy .env.example to .env first'; exit 2; }
+	docker compose up -d --build
 
 down:
-	@test -f compose.yaml || { echo 'compose.yaml is not implemented yet'; exit 2; }
 	docker compose down
 
 logs:
-	@test -f compose.yaml || { echo 'compose.yaml is not implemented yet'; exit 2; }
 	docker compose logs -f
 
 fmt:
@@ -58,6 +58,13 @@ build:
 	@test -f frontend/package.json || { echo 'frontend/package.json is not implemented yet'; exit 2; }
 	cd frontend && npm run build
 
+compose-config:
+	@test -f .env || { echo '.env is required; copy .env.example to .env first'; exit 2; }
+	docker compose config >/dev/null
+
+smoke-compose:
+	./deploy/smoke-compose.sh
+
 check-foundation:
 	@test -f README.md
 	@test -f CONTRIBUTING.md
@@ -65,6 +72,7 @@ check-foundation:
 	@test -f .editorconfig
 	@test -f .env.example
 	@test -f docs/decisions.md
+	@test -f compose.yaml
 	@test -d backend
 	@test -d frontend
 	@test -d docs
