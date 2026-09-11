@@ -24,17 +24,34 @@ cp .env.example .env
 Перед запуском обязательно проверьте как минимум:
 
 - `PORTAL_CONTOUR=SOURCE` или `PORTAL_CONTOUR=TARGET`;
-- `HARBOR_URL`, `HARBOR_USER`, `HARBOR_PASSWORD` для локального Harbor;
+- bootstrap `HARBOR_URL` и `HARBOR_USER` локального Harbor;
 - `HARBOR_VERIFY_TLS=true` в штатной конфигурации;
+- credential через `HARBOR_PASSWORD_FILE` либо временный bootstrap `HARBOR_PASSWORD`; после первого входа credential можно ротировать через admin UI;
 - уникальный `JWT_SECRET` длиной не менее 32 случайных символов;
 - `DATABASE_URL`, если используется путь, отличный от стандартного SQLite в `/app/data`;
 - параметры `LOGIN_RATE_LIMIT_*`, если политика установки требует значений, отличных от безопасных defaults шаблона.
 
 `.env` исключён из Git и Docker build context. Не коммитьте реальные пароли, JWT secrets, приватные ключи и закрытые сертификаты.
 
+### Harbor credential
+
+Предпочтительный bootstrap-вариант — file-backed secret:
+
+```text
+HARBOR_PASSWORD_FILE=/run/secrets/harbor-password
+```
+
+Файл должен монтироваться только в backend. `HARBOR_PASSWORD` оставлен как совместимый fallback и является process environment secret; он не должен попадать в логи, диагностические dumps или frontend environment.
+
+После первого входа администратор может ротировать credential на странице `Настройки`. Portal атомарно сохраняет runtime credential в `/app/data/secrets/harbor-password` с mode `0600`. Этот managed runtime secret имеет приоритет над bootstrap file/env и сохраняется в `portal-data` между restart.
+
 ### Частный CA Harbor
 
-При частной PKI задайте `HARBOR_CA_FILE` как путь, доступный backend-контейнеру. Для Compose можно хранить доверенный сертификат в persistent volume, например `/app/data/harbor-ca.crt`. Сертификат должен быть помещён туда до первого обращения приложения к Harbor. Отключение `HARBOR_VERIFY_TLS` допустимо только как явное исключение для диагностики и оставляет warning в логах.
+При частной PKI можно задать bootstrap `HARBOR_CA_FILE` как путь, доступный backend-контейнеру, либо после входа загрузить PEM/CRT через admin UI. Runtime CA сохраняется в `/app/data/secrets/harbor-ca.crt`; пользовательский filesystem path через web API не принимается.
+
+Отключение `HARBOR_VERIFY_TLS` допустимо только как явное исключение для диагностики и оставляет warning в backend log. Нормальный способ работы с частным PKI — установить доверенный CA.
+
+Подробный контракт runtime-настроек и их приоритетов описан в [docs/harbor-settings.md](../docs/harbor-settings.md).
 
 ## Persistent data и миграции
 
@@ -46,9 +63,10 @@ Named volume `portal-data` монтируется в `/app/data`. В нём со
 - `/app/data/outgoing` — готовые пакеты SOURCE;
 - `/app/data/logs` — постоянные логи, когда их запись включена;
 - `/app/data/receipts` — отчёты и receipts импорта;
+- `/app/data/secrets` — managed Harbor credential/CA, каталог `0700`, файлы `0600`;
 - `/app/data/tmp` — временные данные операций.
 
-Стандартный `DATABASE_URL=sqlite:///./data/harbor-transfer-portal.db` указывает на файл `/app/data/harbor-transfer-portal.db` внутри persistent volume. Здесь же сохраняется серверное состояние login throttling.
+Стандартный `DATABASE_URL=sqlite:///./data/harbor-transfer-portal.db` указывает на файл `/app/data/harbor-transfer-portal.db` внутри persistent volume. Здесь же сохраняется серверное состояние login throttling, runtime non-secret Harbor settings и минимальные audit events security-sensitive изменений.
 
 Перед каждым запуском backend entrypoint выполняет:
 
@@ -58,7 +76,7 @@ python -m alembic -c /app/alembic.ini upgrade head
 
 Alembic использует `DATABASE_URL` из окружения, если он задан. Uvicorn запускается только после успешного применения миграций; при ошибке миграции backend не начинает обслуживать API. Smoke test дополнительно выполняет `alembic current --check-heads`, поэтому развертывание считается готовым только когда БД находится на всех текущих migration heads.
 
-`docker compose down` сохраняет named volume. Команда `docker compose down -v` удаляет его вместе с постоянными данными и не должна использоваться, если данные требуется сохранить.
+`docker compose down` сохраняет named volume. Команда `docker compose down -v` удаляет его вместе с постоянными данными, включая runtime Harbor credential/CA, и не должна использоваться, если данные требуется сохранить.
 
 ## Запуск
 
@@ -91,6 +109,16 @@ unset BOOTSTRAP_ADMIN_PASSWORD
 ```
 
 Команда идемпотентна: если bootstrap-admin уже существует, его пароль автоматически не перезаписывается.
+
+После входа администратор может открыть `Настройки` и:
+
+- изменить URL/username локального Harbor;
+- ротировать credential без чтения старого значения браузером;
+- загрузить доверенный CA;
+- явно включить/отключить TLS verification;
+- выполнить безопасную проверку подключения.
+
+Обычное сохранение URL/TLS не очищает существующий credential.
 
 ## Build-time зависимости и offline runtime
 
