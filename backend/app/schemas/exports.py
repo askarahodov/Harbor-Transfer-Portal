@@ -84,3 +84,12 @@ class ExportStartResponse(BaseModel):
     operation_id: int
     delivery_id: str
     status: OperationStatus
+
+
+class ExportBundleResponse(BaseModel):
+    operation_id: int
+    delivery_id: str
+    archive_name: str
+    archive_size: int
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    download_url: str
