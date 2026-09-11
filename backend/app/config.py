@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     bundle_max_compression_ratio: float = Field(default=200.0, ge=1.0, le=10_000.0)
     bundle_max_trusted_keys: int = Field(default=32, ge=1, le=256)
 
+    operation_workspace_root: Path = Path("./data/tmp/operations")
+    operation_max_concurrent_operations: int = Field(default=2, ge=1, le=32)
+    operation_min_free_bytes: int = Field(default=0, ge=0, le=2 * 1024**4)
+
     jwt_secret: SecretStr | None = None
     jwt_access_token_minutes: int = Field(default=30, ge=1, le=1440)
     login_rate_limit_window_seconds: int = Field(default=300, ge=1, le=86400)
