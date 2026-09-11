@@ -17,7 +17,7 @@ Harbor Transfer Portal — приложение для офлайн-переда
 
 ```text
 backend/   Python/FastAPI API, доменная логика и сервисы передачи
-frontend/  Vue/Vite пользовательский интерфейс
+frontend/  Vue 3/Vite/TypeScript пользовательский интерфейс
 docs/      архитектурная, протокольная и эксплуатационная документация
 data/      локальные данные времени выполнения; сгенерированное содержимое не коммитится
 deploy/    материалы развертывания и офлайн-поставки
@@ -33,8 +33,8 @@ Backend предоставляет локальный API портала и по
 
 - GNU Make;
 - Python 3.12;
-- Docker с Docker Compose v2 — для контейнерного runtime на соответствующем этапе;
-- Node.js 22+ и npm — для frontend-разработки.
+- Node.js 22+ и npm;
+- Docker с Docker Compose v2 — для контейнерного runtime на соответствующем этапе.
 
 Подготовьте локальную конфигурацию:
 
@@ -67,12 +67,35 @@ GET /api/ready
 GET /docs
 ```
 
-Запустите scoped-проверки backend из корня репозитория:
+Scoped-проверки backend из корня репозитория:
 
 ```bash
 make lint-backend
 make test-backend
 ```
+
+### Frontend
+
+Установите зависимости и запустите Vite dev server:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Scoped-проверки frontend:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+Frontend использует Vue Router, Pinia, Axios, Element Plus и Lucide. Маршруты foundation: `/login`, `/`, `/export`, `/import`, `/history`, `/settings`.
+
+Значение контура не hardcode в страницах: основным источником является локальный `GET /api/health`; `runtime-config.js` используется только как offline-safe bootstrap fallback.
 
 Общие Make-цели остаются строгими: если требуемый компонент отсутствует или проверка завершается ошибкой, команда должна вернуть ненулевой код, а не молча пропустить проверку.
 
