@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,20 +9,34 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.router import api_router
 from app.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
+from app.services.operation_manager import OperationManager
 from app.utils.errors import http_exception_handler, validation_exception_handler
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
+    db_engine = create_db_engine(resolved_settings.database_url)
+    session_factory = create_session_factory(db_engine)
+    operation_manager = OperationManager(session_factory, resolved_settings)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        await operation_manager.startup()
+        try:
+            yield
+        finally:
+            await operation_manager.shutdown()
 
     app = FastAPI(
         title=resolved_settings.app_name,
         version=resolved_settings.app_version,
         description="Air-gap artifact transfer portal API",
+        lifespan=lifespan,
     )
     app.state.settings = resolved_settings
-    app.state.db_engine = create_db_engine(resolved_settings.database_url)
-    app.state.session_factory = create_session_factory(app.state.db_engine)
+    app.state.db_engine = db_engine
+    app.state.session_factory = session_factory
+    app.state.operation_manager = operation_manager
 
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
