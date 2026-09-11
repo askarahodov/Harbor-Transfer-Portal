@@ -165,9 +165,10 @@ Harbor Transfer Portal сейчас развивается как **v1**. Реп
 Если нужен технический уровень, используйте следующие документы:
 
 - [README](../README.md) — краткий обзор репозитория и запуск разработки;
-- [мастер-документ проекта](harbor-transfer-portal.md) — архитектура, продуктовая модель и план развития;
-- [протокол Offline Bundle v1](offline-bundle-v1.md) — точный формат пакета и правила проверки;
-- [Security](security.md) — модель защиты;
+- [актуальная архитектура](architecture.md) — текущие компоненты, границы ответственности, data flows и статус реализации;
+- [протокол Offline Bundle v1](offline-bundle-v1.md) — точный нормативный формат пакета и правила проверки;
+- [исторический design document](harbor-transfer-portal.md) — исходная постановка, ранние UI-концепции и план; не является нормативным описанием текущего runtime/protocol поведения;
+- [Security](security.md) — текущая security-документация;
 - [Deployment](../deploy/README.md) — текущая эксплуатационная документация;
 - задача **#27** — полный user/admin/troubleshooting documentation set;
 - задача **#28** — финальный offline release kit и acceptance E2E.
