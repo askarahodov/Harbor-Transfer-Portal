@@ -11,6 +11,7 @@ Architectural decisions are recorded before implementation when they affect prot
 | ADR-005 | Harbor TLS/custom CA and secret storage policy | Planned |
 | ADR-006 | Import conflict/idempotency policy | Planned |
 | ADR-007 | Offline installation and dependency packaging model | Planned |
+| [ADR-008](adr/ADR-008-frontend-ui-kit.md) | Frontend UI kit: Element Plus + Lucide | Accepted |
 
 ## Decision record template
 
