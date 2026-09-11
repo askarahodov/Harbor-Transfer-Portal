@@ -225,10 +225,23 @@ def test_unsafe_archive_member_is_rejected_before_helm(tmp_path: Path) -> None:
 
 def test_target_inspection_reports_absent_same_and_conflict(tmp_path: Path) -> None:
     runner = FakeRunner([])
-    absent = asyncio.run(_service(tmp_path, runner, [None]).inspect_target(_chart(), expected_digest=DIGEST_A))
-    same = asyncio.run(_service(tmp_path, runner, [DIGEST_A]).inspect_target(_chart(), expected_digest=DIGEST_A))
+    absent = asyncio.run(
+        _service(tmp_path, runner, [None]).inspect_target(
+            _chart(),
+            expected_digest=DIGEST_A,
+        )
+    )
+    same = asyncio.run(
+        _service(tmp_path, runner, [DIGEST_A]).inspect_target(
+            _chart(),
+            expected_digest=DIGEST_A,
+        )
+    )
     conflict = asyncio.run(
-        _service(tmp_path, runner, [DIGEST_B]).inspect_target(_chart(), expected_digest=DIGEST_A)
+        _service(tmp_path, runner, [DIGEST_B]).inspect_target(
+            _chart(),
+            expected_digest=DIGEST_A,
+        )
     )
     assert absent.state == HelmTargetState.ABSENT
     assert same.state == HelmTargetState.SAME_DIGEST
@@ -290,7 +303,9 @@ def test_workspace_escape_is_rejected(tmp_path: Path) -> None:
     assert exc.value.code == "helm_workspace_path_outside_root"
 
 
-def test_asyncio_runner_uses_exec_redacts_and_bounds_output(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_asyncio_runner_uses_exec_redacts_and_bounds_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, Any] = {}
 
     async def scenario() -> HelmCommandResult:
@@ -332,7 +347,9 @@ def test_asyncio_runner_uses_exec_redacts_and_bounds_output(monkeypatch: pytest.
     assert "[output truncated]" in result.stdout
 
 
-def test_asyncio_runner_timeout_and_cancellation_kill_child(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_asyncio_runner_timeout_and_cancellation_kill_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def run_case(cancel: bool) -> bool:
         killed = False
 
