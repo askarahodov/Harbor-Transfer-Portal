@@ -4,7 +4,7 @@ set -eu
 case "${PORTAL_CONTOUR:-}" in
     SOURCE|TARGET) ;;
     *)
-        echo "PORTAL_CONTOUR must be SOURCE or TARGET" >&2
+        echo "PORTAL_CONTOUR должен быть SOURCE или TARGET" >&2
         exit 2
         ;;
 esac

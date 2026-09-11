@@ -5,6 +5,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.router import api_router
 from app.config import Settings, get_settings
+from app.db.session import create_db_engine, create_session_factory
 from app.utils.errors import http_exception_handler, validation_exception_handler
 
 
@@ -17,6 +18,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description="Air-gap artifact transfer portal API",
     )
     app.state.settings = resolved_settings
+    app.state.db_engine = create_db_engine(resolved_settings.database_url)
+    app.state.session_factory = create_session_factory(app.state.db_engine)
 
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)

@@ -1,67 +1,129 @@
-# Docker Compose runtime
+# Развертывание через Docker Compose
 
-This directory documents the single-instance SOURCE/TARGET runtime introduced by issue #5.
+Этот каталог описывает одиночную установку Harbor Transfer Portal в контуре `SOURCE` или `TARGET`. Одна и та же пара образов используется в обоих контурах; различается только локальная конфигурация установки.
 
-## Runtime model
+## Runtime-модель
 
-One deployment contains exactly two application services:
+Одна установка содержит два сервиса:
 
-- `backend`: FastAPI plus Skopeo and Helm, reachable only on the internal Compose network;
-- `frontend`: Nginx serving the compiled SPA and proxying `/api/` to the backend.
+- `backend` — FastAPI, Skopeo и Helm; доступен только во внутренней сети Compose;
+- `frontend` — Nginx со собранным SPA и reverse proxy `/api/` на backend.
 
-Only the frontend publishes a host port. The browser therefore uses same-origin API requests and does not require CORS in the normal Compose topology.
+Хостовый HTTP-порт публикует только frontend. Браузер обращается к API same-origin через Nginx, поэтому CORS в штатной Compose-топологии не требуется.
 
-The same images run in both contours. Set only `PORTAL_CONTOUR=SOURCE` or `PORTAL_CONTOUR=TARGET`; each backend receives credentials for its local Harbor only.
+Каждый backend получает настройки и учётные данные **только своего локального Harbor**. Конфигурация Harbor, `DATABASE_URL` и `JWT_SECRET` во frontend-контейнер не передаются.
 
-## Persistent data
+## Подготовка конфигурации
 
-The named Docker volume `portal-data` is mounted at `/app/data`. The backend image initializes these reserved paths:
-
-- `/app/data/database` — SQLite database once issue #7 introduces persistence;
-- `/app/data/packages` — controlled package workspace;
-- `/app/data/incoming` — verified/discovered incoming bundle area;
-- `/app/data/outgoing` — completed SOURCE bundles;
-- `/app/data/logs` — persisted application logs when enabled;
-- `/app/data/receipts` — import receipts/reports;
-- `/app/data/tmp` — operation-local temporary workspace.
-
-`docker compose down` preserves the named volume. `docker compose down -v` deliberately deletes it and must not be used when data must be retained.
-
-Large removable-media discovery/bind-mount policy is intentionally deferred to the TARGET intake workflow (#19); the foundation does not expose arbitrary host paths to the application.
-
-## Build-time dependencies
-
-Runtime containers do not download software or contact the internet at startup. Building images currently requires access to the following external sources:
-
-- Docker base images: `python:3.12.14-slim-bookworm`, `node:22.23.2-alpine3.24`, `nginx:1.30.1-alpine`;
-- Debian bookworm package repositories for `skopeo=1.9.3+ds1-1+b10`, CA certificates, tar and gzip;
-- Python package indexes for backend dependencies from `backend/pyproject.toml`;
-- npm registry for frontend dependencies from `frontend/package.json`;
-- `get.helm.sh` for Helm `v3.22.0` during backend image build only.
-
-Helm archives are verified against architecture-specific SHA256 values before installation. Supported backend build architectures in this foundation are `linux/amd64` and `linux/arm64`.
-
-The final offline release (#28) must ship prebuilt images so closed contours only load images and never repeat these online build steps.
-
-## Start
+Создайте локальный `.env`:
 
 ```bash
 cp .env.example .env
-# edit .env: local contour and local Harbor credentials only
+```
+
+Перед запуском обязательно проверьте как минимум:
+
+- `PORTAL_CONTOUR=SOURCE` или `PORTAL_CONTOUR=TARGET`;
+- `HARBOR_URL`, `HARBOR_USER`, `HARBOR_PASSWORD` для локального Harbor;
+- `HARBOR_VERIFY_TLS=true` в штатной конфигурации;
+- уникальный `JWT_SECRET` длиной не менее 32 случайных символов;
+- `DATABASE_URL`, если используется путь, отличный от стандартного SQLite в `/app/data`.
+
+`.env` исключён из Git и Docker build context. Не коммитьте реальные пароли, JWT secrets, приватные ключи и закрытые сертификаты.
+
+### Частный CA Harbor
+
+При частной PKI задайте `HARBOR_CA_FILE` как путь, доступный backend-контейнеру. Для Compose можно хранить доверенный сертификат в persistent volume, например `/app/data/harbor-ca.crt`. Сертификат должен быть помещён туда до первого обращения приложения к Harbor. Отключение `HARBOR_VERIFY_TLS` допустимо только как явное исключение для диагностики и оставляет warning в логах.
+
+## Persistent data и миграции
+
+Named volume `portal-data` монтируется в `/app/data`. В нём сохраняются база данных и рабочие области портала. Образ заранее создаёт каталоги:
+
+- `/app/data/database` — резерв для DB-related данных;
+- `/app/data/packages` — контролируемая рабочая область пакетов;
+- `/app/data/incoming` — входящие пакеты TARGET;
+- `/app/data/outgoing` — готовые пакеты SOURCE;
+- `/app/data/logs` — постоянные логи, когда их запись включена;
+- `/app/data/receipts` — отчёты и receipts импорта;
+- `/app/data/tmp` — временные данные операций.
+
+Стандартный `DATABASE_URL=sqlite:///./data/harbor-transfer-portal.db` указывает на файл `/app/data/harbor-transfer-portal.db` внутри persistent volume.
+
+Перед каждым запуском backend entrypoint выполняет:
+
+```text
+python -m alembic -c /app/alembic.ini upgrade head
+```
+
+Alembic использует `DATABASE_URL` из окружения, если он задан. Uvicorn запускается только после успешного применения миграций; при ошибке миграции backend не начинает обслуживать API.
+
+`docker compose down` сохраняет named volume. Команда `docker compose down -v` удаляет его вместе с постоянными данными и не должна использоваться, если данные требуется сохранить.
+
+## Запуск
+
+Проверьте конфигурацию и запустите стек:
+
+```bash
 docker compose config
 docker compose up -d --build
 ```
 
-Open `http://localhost:${PORTAL_HTTP_PORT:-8080}`. The proxied backend health endpoint is `/api/health`; Nginx itself exposes `/healthz` for container health checks.
+Или используйте Make targets:
 
-## Validation
+```bash
+make compose-config
+make up
+```
 
-A scoped smoke check builds the stack, verifies both health paths and the `/api/` proxy, checks Skopeo/Helm versions, restarts services and verifies the named-volume marker survived:
+Портал доступен на `http://localhost:${PORTAL_HTTP_PORT:-8080}`. Backend health через reverse proxy: `/api/health`; собственный health endpoint Nginx: `/healthz`.
+
+## Первичный администратор
+
+После первого запуска создайте администратора через локальный CLI. Пароль передаётся только через переменную окружения `BOOTSTRAP_ADMIN_PASSWORD` и не сохраняется в `.env.example`:
+
+```bash
+export BOOTSTRAP_ADMIN_PASSWORD='replace-with-a-strong-password'
+docker compose exec -T \
+  -e BOOTSTRAP_ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD" \
+  backend python -m app.auth.cli --username admin
+unset BOOTSTRAP_ADMIN_PASSWORD
+```
+
+Команда идемпотентна: если bootstrap-admin уже существует, его пароль автоматически не перезаписывается.
+
+## Build-time зависимости и offline runtime
+
+Во время **сборки** образов требуется доступ к внешним источникам:
+
+- `python:3.12.14-slim-bookworm`;
+- `node:22.23.2-alpine3.24`;
+- `nginx:1.30.1-alpine`;
+- Debian bookworm repositories для `skopeo=1.9.3+ds1-1+b10`, CA certificates, tar и gzip;
+- Python package index для `backend/pyproject.toml`;
+- npm registry для frontend dependencies;
+- `get.helm.sh` для Helm `v3.22.0` только на стадии build.
+
+Helm archive проверяется по architecture-specific SHA256 до установки. Backend foundation поддерживает сборку `linux/amd64` и `linux/arm64`.
+
+После сборки или загрузки готовых образов обычный `docker compose up -d`/restart не скачивает runtime-зависимости из интернета. Финальная offline-поставка должна распространять заранее собранные образы, а не повторять online build в закрытом контуре.
+
+## Проверка развертывания
+
+Scoped smoke test:
 
 ```bash
 ./deploy/smoke-compose.sh
 ```
 
-The smoke script stops containers on exit but preserves the named volume.
+Он проверяет:
 
-After images are built or loaded locally, normal `docker compose up -d`/restart does not require internet access.
+- корректность `docker compose config`;
+- сборку и healthy-состояние обоих сервисов;
+- `/api/` proxy и runtime contour config;
+- применение Alembic migration `0001_initial`;
+- запуск backend под UID `10001`, а не root;
+- ожидаемые версии Skopeo и Helm;
+- отсутствие `HARBOR_*`, `JWT_SECRET` и `DATABASE_URL` во frontend environment;
+- сохранение marker-файла в named volume после restart.
+
+Smoke test останавливает контейнеры при завершении, но сохраняет `portal-data`.

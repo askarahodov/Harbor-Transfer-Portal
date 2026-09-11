@@ -1,69 +1,77 @@
-# Contributing
+# Правила участия в разработке
 
-This repository is developed by humans and AI coding agents. The same engineering rules apply to both.
+Этот репозиторий разрабатывается людьми и ИИ-агентами. Для всех участников действуют одинаковые инженерные требования.
 
-## Branches and pull requests
+## Язык документации
 
-- Create focused branches from `main`.
-- Suggested branch names: `feat/<scope>`, `fix/<scope>`, `docs/<scope>`, `chore/<scope>`.
-- One pull request should represent one coherent issue or independently reviewable change.
-- PR titles should follow Conventional Commits style, for example `feat: add bundle manifest model`.
-- Reference the GitHub issue in the PR body and describe scope, tests executed, known limitations and security-sensitive decisions.
-- Do not mix opportunistic refactors into unrelated delivery work.
+Человекоориентированная документация проекта ведётся **на русском языке**: README, руководства, ADR, эксплуатационные инструкции, troubleshooting, security-документы и поясняющие разделы для разработчиков.
 
-## Commits
+Технические идентификаторы не переводятся, если это нарушит контракт или затруднит работу с кодом: имена API endpoints, переменных окружения, JSON-полей, enum, статусов, файлов, CLI-команд, библиотек и стандартов сохраняются в исходном виде. Код и машинные схемы могут использовать английские идентификаторы.
 
-Use Conventional Commits:
+При изменении поведения обновляйте соответствующую русскоязычную документацию в той же итерации.
+
+## Ветки и pull request
+
+- Создавайте сфокусированные ветки от актуальной базовой ветки.
+- Рекомендуемые имена: `feat/<scope>`, `fix/<scope>`, `docs/<scope>`, `chore/<scope>`.
+- Один pull request должен решать одну связную задачу или представлять одно независимо проверяемое изменение.
+- Заголовок PR должен следовать Conventional Commits, например `feat: add bundle manifest model`.
+- В описании PR указывайте связанную GitHub issue, scope, выполненные проверки, известные ограничения и решения, влияющие на безопасность.
+- Не добавляйте несвязанный рефакторинг в feature/bugfix PR.
+
+## Коммиты
+
+Используйте Conventional Commits:
 
 ```text
 feat: add export task model
 fix: reject unsafe bundle path
 refactor: isolate harbor client
- test: cover digest conflict handling
- docs: document bundle verification
- chore: update developer tooling
+test: cover digest conflict handling
+docs: document bundle verification
+chore: update developer tooling
 ```
 
-Keep commits understandable and avoid generated/runtime data.
+Коммиты должны оставаться понятными и не содержать runtime-данные или сгенерированные артефакты, которые не являются частью исходного кода.
 
-## Testing policy
+## Политика тестирования
 
-During development, run the smallest meaningful test set that covers the code you touched. Examples:
+Во время разработки запускайте минимально достаточный набор проверок для затронутого поведения. Примеры:
 
-- backend-only change: backend unit/type/lint checks;
-- frontend-only change: frontend unit/lint/build checks;
-- protocol or shared contract change: both affected backend and frontend checks plus contract tests;
-- transfer engine change: focused unit tests and the relevant local integration fixture;
-- deployment/packaging change: build/package smoke checks.
+- только backend → соответствующие unit/API tests и lint/type checks;
+- только frontend → unit/component tests, lint, typecheck и build;
+- протокол или общий контракт → затронутые backend/frontend проверки плюс contract/security tests;
+- transfer engine → scoped unit tests и соответствующая локальная integration fixture;
+- deployment/packaging → config/build/smoke checks.
 
-At the merge checkpoint, all CI checks required by the repository must be green.
+На merge checkpoint все обязательные CI-проверки репозитория должны быть зелёными.
 
-Never make a red check green by weakening or skipping the check. In particular, do not add failure masking such as `|| true`, `; true`, ignored subprocess exit codes, or CI `continue-on-error` for required lint/tests.
+Нельзя превращать красную проверку в зелёную ослаблением или пропуском контроля. В частности, запрещены `|| true`, `; true`, игнорирование кодов завершения подпроцессов и `continue-on-error: true` для обязательных lint/tests.
 
-## Rules for AI agents
+## Правила для ИИ-агентов
 
-1. Read the issue, affected architecture decision records and existing implementation before editing.
-2. Keep changes within issue scope and preserve interfaces owned by parallel work unless coordination is explicit.
-3. Fix root causes rather than adapting tests to incorrect behavior.
-4. Treat Harbor credentials, bundle contents and imported paths as untrusted/sensitive data.
-5. Never place credentials in source, tests, command logs, PR text or fixtures.
-6. Prefer structured subprocess arguments and explicit validation over shell command construction.
-7. Add or update focused tests with behavior changes.
-8. Review the final diff for security, accidental files, generated data and unrelated edits.
-9. Update documentation when contracts, operations or architecture change.
-10. Stop at a real blocker; do not invent implementations for unresolved protocol/security decisions.
+1. Перед изменением прочитайте issue, связанные ADR и актуальную реализацию.
+2. Держите diff в пределах scope задачи и учитывайте параллельную работу других агентов/разработчиков.
+3. Исправляйте первопричину, а не подгоняйте тесты под ошибочное поведение.
+4. Считайте учётные данные Harbor, содержимое пакетов и импортируемые пути недоверенными или чувствительными данными.
+5. Не размещайте секреты в исходниках, тестах, логах команд, тексте PR или fixtures.
+6. Для subprocess используйте структурированные аргументы и явную валидацию вместо shell-конкатенации.
+7. При изменении поведения добавляйте или обновляйте scoped-тесты.
+8. Перед завершением проверяйте итоговый diff на утечки секретов, случайные файлы, generated data, path traversal, shell injection и несвязанные правки.
+9. Обновляйте документацию в той же итерации, если изменился контракт, эксплуатация или архитектура.
+10. Останавливайтесь только при реальном blocker; не придумывайте реализацию для нерешённого security/protocol решения.
 
-## Local configuration
+## Локальная конфигурация
 
-Copy `.env.example` to `.env`. The `.env` file is intentionally ignored. Example values are placeholders only and are not credentials.
+Скопируйте `.env.example` в `.env`. Файл `.env` намеренно игнорируется Git. Значения в `.env.example` являются только безопасными placeholders и не должны использоваться как production credentials.
 
-## Failure propagation check
+## Проверка распространения ошибок
 
-Required Make targets are intentionally strict. A reproducible manual check is:
+Make-цели намеренно строгие. Пример ручной проверки:
 
 ```bash
 make test-backend
 printf 'exit code: %s\n' "$?"
 ```
 
-Before the backend project exists this returns a non-zero exit code. After the backend exists, a failing pytest invocation must likewise propagate a non-zero result through Make.
+Если pytest завершается ошибкой, `make test-backend` обязан вернуть ненулевой код. Аналогичное правило действует для остальных обязательных lint/test/build целей.

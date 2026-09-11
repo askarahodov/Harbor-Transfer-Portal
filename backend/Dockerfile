@@ -40,7 +40,11 @@ RUN groupadd --gid 10001 htp \
 WORKDIR /app
 COPY backend/pyproject.toml ./pyproject.toml
 COPY backend/app ./app
-RUN python -m pip install --no-cache-dir .
+COPY backend/alembic.ini ./alembic.ini
+COPY backend/alembic ./alembic
+COPY backend/docker-entrypoint.sh /usr/local/bin/harbor-transfer-portal-entrypoint
+RUN python -m pip install --no-cache-dir . \
+    && chmod 0755 /usr/local/bin/harbor-transfer-portal-entrypoint
 
 RUN mkdir -p \
         /app/data/database \
@@ -55,4 +59,5 @@ RUN mkdir -p \
 USER htp
 EXPOSE 8000
 
+ENTRYPOINT ["/usr/local/bin/harbor-transfer-portal-entrypoint"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
