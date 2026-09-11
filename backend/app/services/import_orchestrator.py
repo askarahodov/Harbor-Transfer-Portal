@@ -9,9 +9,8 @@ import shutil
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import PortalContour, Settings
@@ -24,7 +23,6 @@ from app.domain.bundle import (
     OperationType,
 )
 from app.domain.imports import ImportIntakeMode, ImportPreviewState
-from app.domain.operations import validate_transition
 from app.schemas.imports import (
     ImportArtifactPreviewResponse,
     ImportPreviewResponse,
@@ -110,16 +108,14 @@ class ImportOrchestrator:
         self._require_target()
         if content_length is not None:
             if content_length < 1:
-                raise ImportOrchestrationError(
-                    "import_upload_empty",
-                    "Upload не содержит bundle",
-                )
+                raise ImportOrchestrationError("import_upload_empty", "Upload не содержит bundle")
             if content_length > self.settings.import_max_upload_bytes:
                 raise ImportOrchestrationError(
                     "import_upload_too_large",
                     "Размер upload превышает допустимый лимит",
                 )
         self._require_disk(content_length or 0)
+
         storage_key = secrets.token_hex(24)
         storage_dir = self._prepare_storage_dir(storage_key)
         temporary = storage_dir / "bundle.htp.tar.gz.part"
@@ -143,10 +139,7 @@ class ImportOrchestrator:
                 handle.flush()
                 os.fsync(handle.fileno())
             if total == 0:
-                raise ImportOrchestrationError(
-                    "import_upload_empty",
-                    "Upload не содержит bundle",
-                )
+                raise ImportOrchestrationError("import_upload_empty", "Upload не содержит bundle")
             os.replace(temporary, archive)
             self._fsync_directory(storage_dir)
             operation_id = self._create_intake_operation(
@@ -164,11 +157,7 @@ class ImportOrchestrator:
             raise
 
         self._submit_preview(operation_id)
-        return ImportIntakeResult(
-            operation_id=operation_id,
-            status=OperationStatus.UPLOADED,
-            intake_mode=ImportIntakeMode.UPLOAD,
-        )
+        return ImportIntakeResult(operation_id, OperationStatus.UPLOADED, ImportIntakeMode.UPLOAD)
 
     async def discover_ready(
         self,
@@ -180,15 +169,19 @@ class ImportOrchestrator:
         self.discovery_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         ready: list[ImportIntakeResult] = []
         for archive in sorted(self.discovery_root.glob("*.htp.tar.gz")):
-            if archive.is_symlink() or not archive.is_file():
-                continue
             sidecar = archive.with_name(archive.name + ".sha256")
-            if sidecar.is_symlink() or not sidecar.is_file():
+            if (
+                archive.is_symlink()
+                or not archive.is_file()
+                or sidecar.is_symlink()
+                or not sidecar.is_file()
+            ):
                 continue
             size = archive.stat().st_size
             if size < 1 or size > self.settings.import_max_upload_bytes:
                 continue
             self._require_disk(size)
+
             storage_key = secrets.token_hex(24)
             storage_dir = self._prepare_storage_dir(storage_key)
             claimed_archive = storage_dir / archive.name
@@ -218,44 +211,32 @@ class ImportOrchestrator:
             self._submit_preview(operation_id)
             ready.append(
                 ImportIntakeResult(
-                    operation_id=operation_id,
-                    status=OperationStatus.DISCOVERED,
-                    intake_mode=ImportIntakeMode.INCOMING,
+                    operation_id,
+                    OperationStatus.DISCOVERED,
+                    ImportIntakeMode.INCOMING,
                 )
             )
         return tuple(ready)
 
     def preview(self, operation_id: int) -> ImportPreviewResponse:
         self._require_target()
-        with self.session_factory() as session:
-            operation = session.get(Operation, operation_id)
-            if operation is None or operation.type is not OperationType.IMPORT:
-                raise ImportOrchestrationError(
-                    "import_operation_not_found",
-                    "Import-операция не найдена",
-                )
-            if operation.import_preview_json is None:
-                raise ImportOrchestrationError(
-                    "import_preview_not_ready",
-                    "Verified preview ещё не готов",
-                )
-            return ImportPreviewResponse.model_validate_json(operation.import_preview_json)
+        operation = self._get_import_operation(operation_id)
+        if operation.import_preview_json is None:
+            raise ImportOrchestrationError(
+                "import_preview_not_ready",
+                "Verified preview ещё не готов",
+            )
+        return ImportPreviewResponse.model_validate_json(operation.import_preview_json)
 
     def receipt(self, operation_id: int) -> ImportReceiptResponse:
         self._require_target()
-        with self.session_factory() as session:
-            operation = session.get(Operation, operation_id)
-            if operation is None or operation.type is not OperationType.IMPORT:
-                raise ImportOrchestrationError(
-                    "import_operation_not_found",
-                    "Import-операция не найдена",
-                )
-            if operation.import_receipt_json is None:
-                raise ImportOrchestrationError(
-                    "import_receipt_not_ready",
-                    "Receipt ещё не сформирован",
-                )
-            return ImportReceiptResponse.model_validate_json(operation.import_receipt_json)
+        operation = self._get_import_operation(operation_id)
+        if operation.import_receipt_json is None:
+            raise ImportOrchestrationError(
+                "import_receipt_not_ready",
+                "Receipt ещё не сформирован",
+            )
+        return ImportReceiptResponse.model_validate_json(operation.import_receipt_json)
 
     async def start_import(
         self,
@@ -283,12 +264,12 @@ class ImportOrchestrator:
                     "Verified preview отсутствует",
                 )
             preview = ImportPreviewResponse.model_validate_json(operation.import_preview_json)
-            unsupported = [
+            unresolved = [
                 item
                 for item in preview.artifacts
                 if item.classification in {ImportPreviewState.UNKNOWN, ImportPreviewState.ERROR}
             ]
-            if unsupported:
+            if unresolved:
                 raise ImportOrchestrationError(
                     "import_preview_unresolved",
                     "Preview содержит UNKNOWN/ERROR; mutation Harbor запрещена",
@@ -319,7 +300,6 @@ class ImportOrchestrator:
                 separators=(",", ":"),
             )
             session.commit()
-
         try:
             self.operation_manager.submit(
                 operation_id,
@@ -353,20 +333,14 @@ class ImportOrchestrator:
             self._cleanup_storage(operation_id)
             return
 
-        with self.session_factory() as session:
-            operation = session.get(Operation, operation_id)
-            if operation is None or operation.bundle_sha256 is None:
-                raise OperationTaskFailure(
-                    "import_operation_not_found",
-                    "Import operation metadata отсутствует",
-                )
-            if verified.archive_sha256 != operation.bundle_sha256:
-                raise OperationTaskFailure(
-                    "import_bundle_changed",
-                    "Bundle изменился между intake и verification",
-                )
+        operation = self._get_import_operation(operation_id)
+        if operation.bundle_sha256 is None or verified.archive_sha256 != operation.bundle_sha256:
+            self._cleanup_storage(operation_id)
+            raise OperationTaskFailure(
+                "import_bundle_changed",
+                "Bundle изменился между intake и verification",
+            )
 
-        preview_items = await self._classify_manifest(verified.manifest.artifacts)
         preview = ImportPreviewResponse(
             operation_id=operation_id,
             status=OperationStatus.READY,
@@ -375,7 +349,7 @@ class ImportOrchestrator:
             bundle_size_bytes=verified.archive_size,
             signing_key_fingerprint=verified.signing_key_fingerprint,
             verified_at=datetime.now(UTC),
-            artifacts=preview_items,
+            artifacts=await self._classify_manifest(verified.manifest.artifacts),
         )
         self._persist_preview(operation_id, preview)
         context.transition(OperationStatus.READY)
@@ -390,10 +364,9 @@ class ImportOrchestrator:
             helm = self.helm_factory(session)
             for index, artifact in enumerate(artifacts):
                 if isinstance(artifact, ContainerImageArtifact):
-                    item = await self._classify_image(index, artifact, skopeo)
+                    result.append(await self._classify_image(index, artifact, skopeo))
                 else:
-                    item = await self._classify_chart(index, artifact, helm)
-                result.append(item)
+                    result.append(await self._classify_chart(index, artifact, helm))
         return result
 
     async def _classify_image(
@@ -407,12 +380,12 @@ class ImportOrchestrator:
                 ImageReference(artifact.repository, artifact.reference),
                 expected_digest=artifact.source_digest,
             )
-            mapping = {
+            classification = {
                 TargetState.ABSENT: ImportPreviewState.NEW,
                 TargetState.SAME_DIGEST: ImportPreviewState.SAME,
                 TargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
                 TargetState.PRESENT: ImportPreviewState.UNKNOWN,
-            }
+            }[inspected.state]
             return ImportArtifactPreviewResponse(
                 index=index,
                 artifact_type=artifact.type,
@@ -421,20 +394,10 @@ class ImportOrchestrator:
                 expected_digest=artifact.source_digest,
                 target_digest=inspected.digest,
                 payload_size=artifact.payload_size,
-                classification=mapping[inspected.state],
+                classification=classification,
             )
         except (SkopeoServiceError, ValueError) as exc:
-            return ImportArtifactPreviewResponse(
-                index=index,
-                artifact_type=artifact.type,
-                repository=artifact.repository,
-                reference=artifact.reference,
-                expected_digest=artifact.source_digest,
-                payload_size=artifact.payload_size,
-                classification=ImportPreviewState.ERROR,
-                error_code=getattr(exc, "code", "import_target_inspection_failed"),
-                message=str(exc),
-            )
+            return self._inspection_error(index, artifact, exc)
 
     async def _classify_chart(
         self,
@@ -442,20 +405,17 @@ class ImportOrchestrator:
         artifact: HelmChartArtifact,
         helm: HelmOciService,
     ) -> ImportArtifactPreviewResponse:
-        target = HelmChartReference(artifact.repository, artifact.name, artifact.version)
         try:
             inspected = await helm.inspect_target(
-                target,
+                HelmChartReference(artifact.repository, artifact.name, artifact.version),
                 expected_digest=artifact.source_digest,
             )
-            if inspected.state is HelmTargetState.ABSENT:
-                classification = ImportPreviewState.NEW
-            elif inspected.state is HelmTargetState.SAME_DIGEST:
-                classification = ImportPreviewState.SAME
-            elif inspected.state is HelmTargetState.CONFLICTING_DIGEST:
-                classification = ImportPreviewState.CONFLICT
-            else:
-                classification = ImportPreviewState.UNKNOWN
+            classification = {
+                HelmTargetState.ABSENT: ImportPreviewState.NEW,
+                HelmTargetState.SAME_DIGEST: ImportPreviewState.SAME,
+                HelmTargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
+                HelmTargetState.PRESENT: ImportPreviewState.UNKNOWN,
+            }[inspected.state]
             return ImportArtifactPreviewResponse(
                 index=index,
                 artifact_type=artifact.type,
@@ -468,22 +428,31 @@ class ImportOrchestrator:
                 classification=classification,
             )
         except (HelmServiceError, ValueError) as exc:
-            return ImportArtifactPreviewResponse(
-                index=index,
-                artifact_type=artifact.type,
-                repository=artifact.repository,
-                name=artifact.name,
-                version=artifact.version,
-                expected_digest=artifact.source_digest,
-                payload_size=artifact.payload_size,
-                classification=ImportPreviewState.ERROR,
-                error_code=getattr(exc, "code", "import_target_inspection_failed"),
-                message=str(exc),
-            )
+            return self._inspection_error(index, artifact, exc)
+
+    @staticmethod
+    def _inspection_error(
+        index: int,
+        artifact: ContainerImageArtifact | HelmChartArtifact,
+        exc: Exception,
+    ) -> ImportArtifactPreviewResponse:
+        return ImportArtifactPreviewResponse(
+            index=index,
+            artifact_type=artifact.type,
+            repository=artifact.repository,
+            name=getattr(artifact, "name", None),
+            reference=getattr(artifact, "reference", None),
+            version=getattr(artifact, "version", None),
+            expected_digest=artifact.source_digest,
+            payload_size=artifact.payload_size,
+            classification=ImportPreviewState.ERROR,
+            error_code=getattr(exc, "code", "import_target_inspection_failed"),
+            message=str(exc),
+        )
 
     async def _import_worker(self, context: OperationContext, operation_id: int) -> None:
         context.transition(OperationStatus.IMPORTING)
-        operation, preview, overwrite = self._load_execution_state(operation_id)
+        operation, preview, overwrite, requested_at = self._load_execution_state(operation_id)
         archive, sidecar = self._bundle_paths(operation_id)
         observed_sha = await asyncio.to_thread(self._sha256_file, archive)
         if observed_sha != operation.bundle_sha256 or observed_sha != preview.bundle_sha256:
@@ -493,38 +462,31 @@ class ImportOrchestrator:
             )
 
         extraction = self.extract_root / f"import-{operation_id}"
-        if extraction.is_symlink():
-            extraction.unlink(missing_ok=True)
-        elif extraction.exists():
-            shutil.rmtree(extraction)
-        package_service = self.package_factory()
+        self._remove_path(extraction)
         try:
             verified = await asyncio.to_thread(
-                package_service.verify_bundle,
+                self.package_factory().verify_bundle,
                 archive,
                 sidecar_path=sidecar,
                 extract_to=extraction,
             )
         except BundlePackageError as exc:
             raise OperationTaskFailure(exc.code, exc.message) from exc
-        if verified.archive_sha256 != preview.bundle_sha256:
+        if (
+            verified.archive_sha256 != preview.bundle_sha256
+            or verified.manifest.delivery_id != preview.source_delivery_id
+        ):
             raise OperationTaskFailure(
                 "import_bundle_changed",
                 "Bundle identity не совпадает с verified preview",
             )
-        if verified.manifest.delivery_id != preview.source_delivery_id:
-            raise OperationTaskFailure(
-                "import_delivery_changed",
-                "delivery_id не совпадает с verified preview",
-            )
-        extracted_root = verified.extracted_root
-        if extracted_root is None:
+        if verified.extracted_root is None:
             raise OperationTaskFailure(
                 "import_extract_failed",
                 "Verified bundle не был извлечён",
             )
 
-        artifacts = sorted(operation.artifacts, key=lambda item: item.id)
+        artifacts = operation.artifacts
         if len(artifacts) != len(verified.manifest.artifacts):
             raise OperationTaskFailure(
                 "import_preview_artifacts_changed",
@@ -536,76 +498,101 @@ class ImportOrchestrator:
         with self.session_factory() as session:
             skopeo = self.skopeo_factory(session)
             helm = self.helm_factory(session)
-            for index, (row, descriptor, preview_item) in enumerate(
-                zip(artifacts, verified.manifest.artifacts, preview.artifacts, strict=True)
-            ):
+            pairs = zip(artifacts, verified.manifest.artifacts, strict=True)
+            for index, (row, descriptor) in enumerate(pairs):
                 context.raise_if_cancelled()
-                if preview_item.classification is ImportPreviewState.SAME:
+                try:
+                    outcome = await self._preflight_target(descriptor, skopeo, helm)
+                except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
+                    context.set_artifact_status(
+                        row.id,
+                        ArtifactStatus.FAILED,
+                        error_code=getattr(exc, "code", "import_target_inspection_failed"),
+                        error_message=str(exc),
+                    )
+                    failures += 1
+                    context.set_progress(current=index + 1, total=len(artifacts))
+                    continue
+
+                if outcome[0] is ImportPreviewState.SAME:
                     context.set_artifact_status(
                         row.id,
                         ArtifactStatus.SKIPPED,
-                        target_digest=preview_item.target_digest,
+                        target_digest=outcome[1],
                     )
                     context.set_progress(current=index + 1, total=len(artifacts))
                     continue
-                if (
-                    preview_item.classification is ImportPreviewState.CONFLICT
-                    and not overwrite
-                ):
-                    context.set_artifact_status(row.id, ArtifactStatus.CONFLICT)
+                if outcome[0] is ImportPreviewState.CONFLICT and not overwrite:
+                    context.set_artifact_status(
+                        row.id,
+                        ArtifactStatus.CONFLICT,
+                        target_digest=outcome[1],
+                    )
+                    failures += 1
+                    context.set_progress(current=index + 1, total=len(artifacts))
+                    continue
+                if outcome[0] in {ImportPreviewState.UNKNOWN, ImportPreviewState.ERROR}:
+                    context.set_artifact_status(
+                        row.id,
+                        ArtifactStatus.FAILED,
+                        error_code="import_target_state_unresolved",
+                        error_message="TARGET state нельзя безопасно разрешить перед mutation",
+                    )
                     failures += 1
                     context.set_progress(current=index + 1, total=len(artifacts))
                     continue
 
                 context.set_artifact_status(row.id, ArtifactStatus.RUNNING)
-                payload_path = extracted_root.joinpath(*Path(descriptor.payload_path).parts)
+                payload = verified.extracted_root.joinpath(
+                    *PurePosixPath(descriptor.payload_path).parts
+                )
                 try:
                     if isinstance(descriptor, ContainerImageArtifact):
                         imported = await skopeo.import_image(
-                            payload_path,
+                            payload,
                             ImageReference(descriptor.repository, descriptor.reference),
                             expected_digest=descriptor.source_digest,
                         )
-                        context.set_artifact_status(
-                            row.id,
-                            ArtifactStatus.VERIFIED,
-                            target_digest=imported.target_digest,
-                        )
+                        target_digest = imported.target_digest
                     else:
                         pushed = await helm.push_chart(
-                            payload_path,
+                            payload,
                             HelmChartReference(
                                 descriptor.repository,
                                 descriptor.name,
                                 descriptor.version,
                             ),
                             source_digest=descriptor.source_digest,
+                            allow_existing=(
+                                overwrite and outcome[0] is ImportPreviewState.CONFLICT
+                            ),
                         )
+                        target_digest = pushed.target_digest
                         if (
                             descriptor.source_digest is not None
-                            and pushed.target_digest != descriptor.source_digest
+                            and target_digest != descriptor.source_digest
                         ):
                             raise HelmServiceError(
                                 "helm_target_digest_mismatch",
                                 "TARGET Helm digest не совпадает с manifest expectation",
                             )
-                        context.set_artifact_status(
-                            row.id,
-                            ArtifactStatus.VERIFIED,
-                            target_digest=pushed.target_digest,
-                        )
+                    context.set_artifact_status(
+                        row.id,
+                        ArtifactStatus.VERIFIED,
+                        target_digest=target_digest,
+                    )
                 except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
-                    failures += 1
                     context.set_artifact_status(
                         row.id,
                         ArtifactStatus.FAILED,
                         error_code=getattr(exc, "code", "import_artifact_failed"),
                         error_message=str(exc),
                     )
+                    failures += 1
                 context.set_progress(current=index + 1, total=len(artifacts))
 
         context.transition(OperationStatus.VERIFYING_TARGET)
-        self._write_receipt(operation_id, preview, overwrite, failures)
+        self._write_receipt(operation_id, preview, overwrite, requested_at, failures)
         if failures:
             raise OperationTaskFailure(
                 "import_partial_failure",
@@ -613,10 +600,40 @@ class ImportOrchestrator:
             )
         context.transition(OperationStatus.COMPLETED)
 
+    async def _preflight_target(
+        self,
+        descriptor: ContainerImageArtifact | HelmChartArtifact,
+        skopeo: SkopeoService,
+        helm: HelmOciService,
+    ) -> tuple[ImportPreviewState, str | None]:
+        if isinstance(descriptor, ContainerImageArtifact):
+            inspected = await skopeo.inspect_target(
+                ImageReference(descriptor.repository, descriptor.reference),
+                expected_digest=descriptor.source_digest,
+            )
+            classification = {
+                TargetState.ABSENT: ImportPreviewState.NEW,
+                TargetState.SAME_DIGEST: ImportPreviewState.SAME,
+                TargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
+                TargetState.PRESENT: ImportPreviewState.UNKNOWN,
+            }[inspected.state]
+            return classification, inspected.digest
+        inspected = await helm.inspect_target(
+            HelmChartReference(descriptor.repository, descriptor.name, descriptor.version),
+            expected_digest=descriptor.source_digest,
+        )
+        classification = {
+            HelmTargetState.ABSENT: ImportPreviewState.NEW,
+            HelmTargetState.SAME_DIGEST: ImportPreviewState.SAME,
+            HelmTargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
+            HelmTargetState.PRESENT: ImportPreviewState.UNKNOWN,
+        }[inspected.state]
+        return classification, inspected.digest
+
     def _load_execution_state(
         self,
         operation_id: int,
-    ) -> tuple[Operation, ImportPreviewResponse, bool]:
+    ) -> tuple[Operation, ImportPreviewResponse, bool, datetime]:
         with self.session_factory() as session:
             operation = session.get(Operation, operation_id)
             if (
@@ -633,11 +650,12 @@ class ImportOrchestrator:
             _ = operation.artifacts
             preview = ImportPreviewResponse.model_validate_json(operation.import_preview_json)
             policy = json.loads(operation.import_policy_json)
+            requested_at = datetime.fromisoformat(policy["requested_at"])
             overwrite = bool(policy.get("overwrite_conflicts", False))
             session.expunge(operation)
             for artifact in operation.artifacts:
                 session.expunge(artifact)
-            return operation, preview, overwrite
+            return operation, preview, overwrite, requested_at
 
     def _persist_preview(self, operation_id: int, preview: ImportPreviewResponse) -> None:
         with self.session_factory() as session:
@@ -647,16 +665,16 @@ class ImportOrchestrator:
                     "import_operation_not_found",
                     "Import operation не найдена при сохранении preview",
                 )
-            operation.source_delivery_id = preview.source_delivery_id
-            operation.bundle_sha256 = preview.bundle_sha256
-            operation.bundle_size_bytes = preview.bundle_size_bytes
-            operation.bundle_signing_key_fingerprint = preview.signing_key_fingerprint
-            operation.import_preview_json = preview.model_dump_json()
             if operation.artifacts:
                 raise OperationTaskFailure(
                     "import_preview_already_persisted",
                     "Artifact preview уже был сохранён",
                 )
+            operation.source_delivery_id = preview.source_delivery_id
+            operation.bundle_sha256 = preview.bundle_sha256
+            operation.bundle_size_bytes = preview.bundle_size_bytes
+            operation.bundle_signing_key_fingerprint = preview.signing_key_fingerprint
+            operation.import_preview_json = preview.model_dump_json()
             for item in preview.artifacts:
                 session.add(
                     ArtifactResult(
@@ -681,12 +699,13 @@ class ImportOrchestrator:
         operation_id: int,
         preview: ImportPreviewResponse,
         overwrite: bool,
+        requested_at: datetime,
         failures: int,
     ) -> None:
         now = datetime.now(UTC)
         with self.session_factory() as session:
             operation = session.get(Operation, operation_id)
-            if operation is None or operation.started_at is None:
+            if operation is None:
                 raise OperationTaskFailure(
                     "import_operation_not_found",
                     "Operation отсутствует при формировании receipt",
@@ -697,7 +716,7 @@ class ImportOrchestrator:
                 source_delivery_id=preview.source_delivery_id,
                 bundle_sha256=preview.bundle_sha256,
                 actor_username=operation.actor_username,
-                started_at=operation.started_at,
+                started_at=requested_at,
                 finished_at=now,
                 overwrite_conflicts=overwrite,
                 result="FAILED" if failures else "COMPLETED",
@@ -718,7 +737,7 @@ class ImportOrchestrator:
                     for index, item in enumerate(artifacts)
                 ],
             )
-            payload = receipt.model_dump_json(indent=2)
+            payload = receipt.model_dump_json(indent=2) + "\n"
             operation.import_receipt_json = receipt.model_dump_json()
             session.commit()
 
@@ -727,7 +746,6 @@ class ImportOrchestrator:
         try:
             with path.open("x", encoding="utf-8") as handle:
                 handle.write(payload)
-                handle.write("\n")
                 handle.flush()
                 os.fsync(handle.fileno())
             os.chmod(path, 0o440)
@@ -772,22 +790,15 @@ class ImportOrchestrator:
         return operation_id
 
     def _bundle_paths(self, operation_id: int) -> tuple[Path, Path | None]:
-        with self.session_factory() as session:
-            operation = session.get(Operation, operation_id)
-            if (
-                operation is None
-                or operation.type is not OperationType.IMPORT
-                or operation.import_storage_key is None
-                or operation.bundle_filename is None
-            ):
-                raise OperationTaskFailure(
-                    "import_bundle_missing",
-                    "Persisted bundle path metadata отсутствует",
-                )
-            storage_key = operation.import_storage_key
-            filename = operation.bundle_filename
-            mode = operation.import_intake_mode
-        if not storage_key or any(ch not in "0123456789abcdef" for ch in storage_key):
+        operation = self._get_import_operation(operation_id)
+        key = operation.import_storage_key
+        filename = operation.bundle_filename
+        if key is None or filename is None:
+            raise OperationTaskFailure(
+                "import_bundle_missing",
+                "Persisted bundle path metadata отсутствует",
+            )
+        if len(key) != 48 or any(ch not in "0123456789abcdef" for ch in key):
             raise OperationTaskFailure(
                 "import_bundle_path_invalid",
                 "Storage key import bundle некорректен",
@@ -797,7 +808,7 @@ class ImportOrchestrator:
                 "import_bundle_path_invalid",
                 "Имя import bundle некорректно",
             )
-        archive = (self.staging_root / storage_key / filename).resolve()
+        archive = (self.staging_root / key / filename).resolve()
         try:
             archive.relative_to(self.staging_root)
         except ValueError as exc:
@@ -810,31 +821,45 @@ class ImportOrchestrator:
                 "import_bundle_missing",
                 "Import bundle отсутствует в staging",
             )
-        sidecar = None
-        if mode == ImportIntakeMode.INCOMING.value:
-            candidate = archive.with_name(archive.name + ".sha256")
-            if candidate.is_symlink() or not candidate.is_file():
-                raise OperationTaskFailure(
-                    "import_sidecar_missing",
-                    "Incoming bundle не имеет readiness .sha256 sidecar",
-                )
-            sidecar = candidate
+        if operation.import_intake_mode != ImportIntakeMode.INCOMING.value:
+            return archive, None
+        sidecar = archive.with_name(archive.name + ".sha256")
+        if sidecar.is_symlink() or not sidecar.is_file():
+            raise OperationTaskFailure(
+                "import_sidecar_missing",
+                "Incoming bundle не имеет readiness .sha256 sidecar",
+            )
         return archive, sidecar
+
+    def _get_import_operation(self, operation_id: int) -> Operation:
+        with self.session_factory() as session:
+            operation = session.get(Operation, operation_id)
+            if operation is None or operation.type is not OperationType.IMPORT:
+                raise ImportOrchestrationError(
+                    "import_operation_not_found",
+                    "Import-операция не найдена",
+                )
+            _ = operation.artifacts
+            session.expunge(operation)
+            for artifact in operation.artifacts:
+                session.expunge(artifact)
+            return operation
 
     def _set_operation_error(self, operation_id: int, code: str, message: str) -> None:
         with self.session_factory() as session:
             operation = session.get(Operation, operation_id)
-            if operation is None:
-                return
-            operation.error_code = code
-            operation.error_message = message
-            session.commit()
+            if operation is not None:
+                operation.error_code = code
+                operation.error_message = message
+                session.commit()
 
     def _cleanup_storage(self, operation_id: int) -> None:
-        with self.session_factory() as session:
-            operation = session.get(Operation, operation_id)
-            key = operation.import_storage_key if operation is not None else None
-        if key and all(ch in "0123456789abcdef" for ch in key):
+        try:
+            operation = self._get_import_operation(operation_id)
+        except ImportOrchestrationError:
+            return
+        key = operation.import_storage_key
+        if key and len(key) == 48 and all(ch in "0123456789abcdef" for ch in key):
             shutil.rmtree(self.staging_root / key, ignore_errors=True)
 
     def _prepare_storage_dir(self, storage_key: str) -> Path:
@@ -860,6 +885,13 @@ class ImportOrchestrator:
                 "operation_insufficient_disk",
                 "Недостаточно свободного места для import intake",
             )
+
+    @staticmethod
+    def _remove_path(path: Path) -> None:
+        if path.is_symlink():
+            path.unlink(missing_ok=True)
+        elif path.exists():
+            shutil.rmtree(path)
 
     @staticmethod
     def _sha256_file(path: Path) -> str:
