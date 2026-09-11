@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from typing import Annotated, Callable
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -17,10 +18,14 @@ def get_db_session(request: Request) -> Generator[Session, None, None]:
         yield session
 
 
+SessionDep = Annotated[Session, Depends(get_db_session)]
+CredentialsDep = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]
+
+
 def get_current_user(
     request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    session: Session = Depends(get_db_session),
+    credentials: CredentialsDep,
+    session: SessionDep,
 ) -> User:
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authentication required")
@@ -38,8 +43,11 @@ def get_current_user(
     return user
 
 
-def require_roles(*roles: UserRole):
-    def dependency(user: User = Depends(get_current_user)) -> User:
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+def require_roles(*roles: UserRole) -> Callable[..., User]:
+    def dependency(user: CurrentUserDep) -> User:
         if user.role not in roles:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient permissions")
         return user
