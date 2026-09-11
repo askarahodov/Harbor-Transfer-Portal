@@ -24,7 +24,6 @@ from app.schemas.exports import (
     ExportPreviewResponse,
     ExportSelectionItem,
     ExportSelectionRequest,
-    HelmChartSelection,
 )
 from app.services.bundle_package_service import (
     BundleBuildResult,
@@ -102,6 +101,12 @@ class ResolvedExportArtifact:
             source_digest=self.source_digest,
             size_bytes=self.size_bytes,
         )
+
+
+@dataclass(slots=True)
+class _PublicationState:
+    archive_created: bool = False
+    sidecar_created: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -371,7 +376,7 @@ class ExportOrchestrationService:
         created_by: str,
         comment: str | None,
     ) -> None:
-        published = False
+        publication = _PublicationState()
         final_archive, final_sidecar = self._final_paths(delivery_id)
         try:
             operation = self.operation_manager.get_operation(context.operation_id)
@@ -472,22 +477,19 @@ class ExportOrchestrationService:
                 build,
                 final_archive,
                 final_sidecar,
+                publication,
             )
-            published = True
             context.raise_if_cancelled()
             context.cleanup_workspace()
             context.transition(OperationStatus.COMPLETED)
         except asyncio.CancelledError:
-            if published:
-                self._remove_published_delivery(final_archive, final_sidecar)
+            self._cleanup_publication(publication, final_archive, final_sidecar)
             raise
         except OperationTaskFailure:
-            if published:
-                self._remove_published_delivery(final_archive, final_sidecar)
+            self._cleanup_publication(publication, final_archive, final_sidecar)
             raise
         except Exception as exc:
-            if published:
-                self._remove_published_delivery(final_archive, final_sidecar)
+            self._cleanup_publication(publication, final_archive, final_sidecar)
             raise OperationTaskFailure(
                 "export_orchestration_failed",
                 "Export orchestration завершилась внутренней ошибкой",
@@ -667,6 +669,7 @@ class ExportOrchestrationService:
         build: BundleBuildResult,
         final_archive: Path,
         final_sidecar: Path,
+        publication: _PublicationState,
     ) -> None:
         outgoing = self.settings.bundle_outgoing_root.resolve()
         outgoing.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -676,21 +679,28 @@ class ExportOrchestrationService:
                 "Bundle с таким delivery id уже существует",
             )
         try:
-            self._move_or_copy_atomic(build.archive_path, final_archive)
-            self._move_or_copy_atomic(build.sidecar_path, final_sidecar)
+            self._move_or_copy_no_replace(build.archive_path, final_archive)
+            publication.archive_created = True
+            self._move_or_copy_no_replace(build.sidecar_path, final_sidecar)
+            publication.sidecar_created = True
         except Exception:
-            final_sidecar.unlink(missing_ok=True)
-            final_archive.unlink(missing_ok=True)
+            self._cleanup_publication(publication, final_archive, final_sidecar)
             raise
 
     @staticmethod
-    def _move_or_copy_atomic(source: Path, destination: Path) -> None:
+    def _move_or_copy_no_replace(source: Path, destination: Path) -> None:
         source = source.resolve()
         destination = destination.resolve()
         try:
-            os.replace(source, destination)
+            os.link(source, destination)
             os.chmod(destination, 0o600)
+            source.unlink()
             return
+        except FileExistsError:
+            raise OperationTaskFailure(
+                "export_delivery_exists",
+                "Bundle с таким delivery id уже существует",
+            ) from None
         except OSError as exc:
             if exc.errno != errno.EXDEV:
                 raise
@@ -704,15 +714,29 @@ class ExportOrchestrationService:
                 output_stream.flush()
                 os.fsync(output_stream.fileno())
             os.chmod(temporary, 0o600)
-            os.replace(temporary, destination)
+            try:
+                os.link(temporary, destination)
+            except FileExistsError:
+                raise OperationTaskFailure(
+                    "export_delivery_exists",
+                    "Bundle с таким delivery id уже существует",
+                ) from None
             source.unlink()
         finally:
             temporary.unlink(missing_ok=True)
 
     @staticmethod
-    def _remove_published_delivery(archive: Path, sidecar: Path) -> None:
-        sidecar.unlink(missing_ok=True)
-        archive.unlink(missing_ok=True)
+    def _cleanup_publication(
+        publication: _PublicationState,
+        archive: Path,
+        sidecar: Path,
+    ) -> None:
+        if publication.sidecar_created:
+            sidecar.unlink(missing_ok=True)
+            publication.sidecar_created = False
+        if publication.archive_created:
+            archive.unlink(missing_ok=True)
+            publication.archive_created = False
 
     def _final_paths(self, delivery_id: str) -> tuple[Path, Path]:
         outgoing = self.settings.bundle_outgoing_root.resolve()

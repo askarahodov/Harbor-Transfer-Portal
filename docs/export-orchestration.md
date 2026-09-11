@@ -161,8 +161,9 @@ workspace».
 
 После проверки staged result archive переносится в configured `bundle_outgoing_root`.
 Сначала публикуется archive, затем `.sha256` sidecar как финальный readiness marker. Для
-cross-filesystem move используется bounded streaming copy во временный hidden file + `fsync` +
-atomic `os.replace`; archive целиком в RAM не загружается.
+same-filesystem publication используется atomic hard-link с no-replace семантикой; для EXDEV
+используется bounded streaming copy во временный hidden file + `fsync` + atomic no-replace link.
+Archive целиком в RAM не загружается и существующий delivery не перезаписывается.
 
 Если publication или последующий completion не состоялись, файлы, созданные именно этим worker,
 удаляются. Уже существующий delivery с совпавшим generated id не удаляется.

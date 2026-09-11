@@ -6,7 +6,7 @@ import pytest
 
 from app.config import PortalContour, Settings
 from app.db.base import Base
-from app.db.models import Operation, User, UserRole
+from app.db.models import User, UserRole
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import ArtifactStatus, OperationStatus
 from app.schemas.exports import ExportSelectionRequest
@@ -501,3 +501,49 @@ def test_target_contour_rejects_before_harbor_access(tmp_path: Path) -> None:
         asyncio.run(service.preview(_request()))
     assert exc.value.code == "export_wrong_contour"
     assert calls == 0
+
+
+def test_cancellation_during_publication_removes_worker_owned_delivery(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        import threading
+
+        settings = _settings(tmp_path)
+        factory, manager, user_id, _admin_id, _other_id = _environment(tmp_path, settings)
+        service = ExportOrchestrationService(
+            factory,
+            settings,
+            manager,
+            harbor_client_factory=lambda: FakeHarborClient(_artifacts()),
+            skopeo_factory=lambda _session, _settings: FakeSkopeo(),
+            helm_factory=lambda _session, _settings: FakeHelm(),
+            bundle_factory=lambda service_settings: FakeBundle(service_settings),
+        )
+        published = threading.Event()
+        release = threading.Event()
+        original_publish = service._publish_staged_bundle
+
+        def blocking_publish(build, final_archive, final_sidecar, publication) -> None:
+            original_publish(build, final_archive, final_sidecar, publication)
+            published.set()
+            assert release.wait(timeout=5)
+
+        service._publish_staged_bundle = blocking_publish  # type: ignore[method-assign]
+        await manager.startup()
+        handle, _delivery_id = await service.start(_request(), _actor(factory, user_id))
+        assert await asyncio.to_thread(published.wait, 5)
+
+        cancel_task = asyncio.create_task(manager.cancel(handle.operation_id))
+        await asyncio.sleep(0)
+        release.set()
+        await cancel_task
+
+        operation = manager.get_operation(handle.operation_id)
+        assert operation is not None
+        assert operation.status is OperationStatus.CANCELLED
+        archive = settings.bundle_outgoing_root / f"{_DELIVERY_ID}.htp.tar.gz"
+        sidecar = settings.bundle_outgoing_root / f"{archive.name}.sha256"
+        assert not archive.exists()
+        assert not sidecar.exists()
+        await manager.shutdown()
+
+    asyncio.run(scenario())

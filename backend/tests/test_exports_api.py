@@ -1,10 +1,10 @@
 import hashlib
 from pathlib import Path
 
-from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 
+from alembic import command
 from app.auth.security import hash_password
 from app.config import PortalContour, Settings
 from app.db.models import Operation, UserRole
