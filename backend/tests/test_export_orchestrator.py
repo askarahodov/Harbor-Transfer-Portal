@@ -212,7 +212,7 @@ def test_mixed_export_creates_one_signed_verified_bundle(tmp_path: Path) -> None
         await manager.startup()
         started = await orchestrator.start_export(
             _selections(),
-            actor_user_id=7,
+            actor_user_id=None,  # type: ignore[arg-type]
             actor_username="operator",
             comment="release 1",
         )
@@ -250,7 +250,7 @@ def test_digest_change_between_start_preview_and_worker_fails_without_bundle(
         await manager.startup()
         started = await orchestrator.start_export(
             (_selections()[0],),
-            actor_user_id=7,
+            actor_user_id=None,  # type: ignore[arg-type]
             actor_username="operator",
             comment=None,
         )
@@ -283,7 +283,7 @@ def test_one_artifact_failure_aborts_delivery_and_marks_no_ready_bundle(tmp_path
         await manager.startup()
         started = await orchestrator.start_export(
             _selections(),
-            actor_user_id=7,
+            actor_user_id=None,  # type: ignore[arg-type]
             actor_username="operator",
             comment=None,
         )
@@ -316,7 +316,7 @@ def test_failure_after_publication_removes_archive_and_readiness_sidecar(tmp_pat
         await manager.startup()
         started = await orchestrator.start_export(
             (_selections()[0],),
-            actor_user_id=7,
+            actor_user_id=None,  # type: ignore[arg-type]
             actor_username="operator",
             comment=None,
         )
