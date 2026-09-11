@@ -5,6 +5,7 @@ from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from jwt import InvalidTokenError, decode, encode
 
 _password_hasher = PasswordHasher()
+_DUMMY_PASSWORD_HASH = _password_hasher.hash("dummy-login-password-never-used")
 
 
 def hash_password(password: str) -> str:
@@ -18,6 +19,10 @@ def verify_password(password: str, password_hash: str) -> bool:
         return _password_hasher.verify(password_hash, password)
     except (VerifyMismatchError, InvalidHashError):
         return False
+
+
+def verify_login_password(password: str, password_hash: str | None) -> bool:
+    return verify_password(password, password_hash or _DUMMY_PASSWORD_HASH)
 
 
 def create_access_token(*, user_id: int, secret: str, lifetime_minutes: int) -> str:
