@@ -11,6 +11,7 @@ Architectural decisions are recorded before implementation when they affect prot
 | ADR-005 | Harbor TLS/custom CA and secret storage policy | Planned |
 | ADR-006 | Import conflict/idempotency policy | Planned |
 | ADR-007 | Offline installation and dependency packaging model | Planned |
+| ADR-009 | OCI image-layout payload representation for bundle protocol v1 | Accepted |
 
 ## Decision record template
 
