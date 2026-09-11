@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import AuditEvent, ArtifactResult, Operation, SettingMetadata, User, UserRole
+from app.db.models import ArtifactResult, AuditEvent, Operation, SettingMetadata, User, UserRole
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.domain.operations import validate_transition
 
