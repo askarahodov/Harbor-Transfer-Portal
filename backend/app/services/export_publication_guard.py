@@ -5,24 +5,14 @@ import os
 import secrets
 import shutil
 import threading
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from sqlalchemy import select
 
 from app.db.models import Operation
 from app.domain.bundle import OperationStatus, OperationType
-from app.services.bundle_package_service import (
-    BundleBuildResult,
-    BundlePackageError,
-    BundlePackageService,
-)
+from app.services.bundle_package_service import BundlePackageError, BundlePackageService
 from app.services.export_orchestrator import ExportOrchestrator
-
-
-PublicationRecordedCallback = Callable[[str, str, str, int], None]
-PublicationRolledBackCallback = Callable[[str], None]
 
 
 class _OwnedBundlePackageService(BundlePackageService):
@@ -32,15 +22,15 @@ class _OwnedBundlePackageService(BundlePackageService):
         self,
         settings,
         *,
-        on_publication_recorded: PublicationRecordedCallback,
-        on_publication_rolled_back: PublicationRolledBackCallback,
+        on_publication_recorded,
+        on_publication_rolled_back,
     ) -> None:
         super().__init__(settings)
         self._on_publication_recorded = on_publication_recorded
         self._on_publication_rolled_back = on_publication_rolled_back
         self._published_delivery_id: str | None = None
 
-    def build_bundle(self, *args: Any, **kwargs: Any) -> BundleBuildResult:
+    def build_bundle(self, *args: object, **kwargs: object):
         self._published_delivery_id = None
         try:
             return super().build_bundle(*args, **kwargs)
@@ -139,7 +129,7 @@ class _OwnedBundlePackageService(BundlePackageService):
 class PublicationSafeExportOrchestrator(ExportOrchestrator):
     """Export orchestrator with explicit ownership of outgoing publication files."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self._publication_lock = threading.Lock()
         self._owned_deliveries: set[str] = set()

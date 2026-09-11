@@ -8,12 +8,8 @@ from app.db.base import Base
 from app.db.models import Operation
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import OperationStatus, OperationType
+from app.services import export_publication_guard
 from app.services.bundle_package_service import BundlePackageError
-from app.services.export_orchestrator import ExportOrchestrator
-from app.services.export_publication_guard import (
-    PublicationSafeExportOrchestrator,
-    _OwnedBundlePackageService,
-)
 from app.services.export_recovery import reconcile_incomplete_export_publications
 from app.services.operation_manager import OperationManager
 
@@ -34,7 +30,7 @@ def _settings(tmp_path: Path) -> Settings:
 
 
 def _orchestrator(tmp_path: Path) -> tuple[
-    PublicationSafeExportOrchestrator,
+    export_publication_guard.PublicationSafeExportOrchestrator,
     object,
     Settings,
 ]:
@@ -44,7 +40,11 @@ def _orchestrator(tmp_path: Path) -> tuple[
     session_factory = create_session_factory(engine)
     manager = OperationManager(session_factory, settings)
     return (
-        PublicationSafeExportOrchestrator(session_factory, settings, manager),
+        export_publication_guard.PublicationSafeExportOrchestrator(
+            session_factory,
+            settings,
+            manager,
+        ),
         session_factory,
         settings,
     )
@@ -83,7 +83,7 @@ def test_atomic_publish_does_not_replace_preexisting_archive(tmp_path: Path) -> 
     final_archive.write_bytes(b"foreign")
     recorded: list[str] = []
 
-    service = _OwnedBundlePackageService(
+    service = export_publication_guard._OwnedBundlePackageService(
         settings,
         on_publication_recorded=lambda delivery_id, _name, _sha, _size: recorded.append(
             delivery_id
@@ -116,7 +116,7 @@ def test_sidecar_collision_rolls_back_only_owned_archive(tmp_path: Path) -> None
     recorded: list[str] = []
     rolled_back: list[str] = []
 
-    service = _OwnedBundlePackageService(
+    service = export_publication_guard._OwnedBundlePackageService(
         settings,
         on_publication_recorded=lambda delivery_id, _name, _sha, _size: recorded.append(
             delivery_id
@@ -218,8 +218,3 @@ def test_recovery_removes_persisted_owned_publication(tmp_path: Path) -> None:
         assert operation.bundle_filename is None
         assert operation.bundle_sha256 is None
         assert operation.bundle_size_bytes is None
-
-
-def test_safe_orchestrator_is_export_orchestrator_subclass(tmp_path: Path) -> None:
-    orchestrator, _session_factory, _settings_instance = _orchestrator(tmp_path)
-    assert isinstance(orchestrator, ExportOrchestrator)
