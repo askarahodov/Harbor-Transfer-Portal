@@ -91,7 +91,8 @@ class Operation(TimestampMixin, Base):
     bundle_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     artifacts: Mapped[list["ArtifactResult"]] = relationship(
-        back_populates="operation", cascade="all, delete-orphan"
+        back_populates="operation",
+        cascade="save-update, merge, refresh-expire, delete, delete-orphan",
     )
 
 
