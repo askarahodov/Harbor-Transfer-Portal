@@ -1,5 +1,6 @@
 import eslint from '@eslint/js'
 import pluginVue from 'eslint-plugin-vue'
+import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
@@ -8,6 +9,12 @@ export default tseslint.config(
   ...pluginVue.configs['flat/recommended'],
   {
     files: ['**/*.{ts,vue}'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
+    },
     rules: {
       'vue/multi-word-component-names': 'off',
     },
