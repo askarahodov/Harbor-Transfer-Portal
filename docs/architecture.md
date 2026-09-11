@@ -1,56 +1,65 @@
 # Архитектура Harbor Transfer Portal
 
-**Статус:** актуальное архитектурное описание текущей ветки разработки v1.
+**Статус:** актуальное архитектурное описание текущей разработки v1.
 
-Этот документ описывает действующие архитектурные границы Harbor Transfer Portal и явно отделяет уже реализованные компоненты от запланированных пользовательских потоков. Нормативные контракты не переопределяются здесь: формат переносимого пакета определяется [Offline Bundle Protocol v1](offline-bundle-v1.md), значимые решения — [ADR](decisions.md).
+Этот документ описывает действующие архитектурные границы Harbor Transfer Portal и отделяет уже реализованные компоненты от ещё незавершённых пользовательских потоков. Нормативные контракты здесь не переопределяются: формат переносимого пакета задаёт [Offline Bundle Protocol v1](offline-bundle-v1.md), значимые решения фиксируются в [ADR](decisions.md), а правила фонового выполнения — в [operation-manager.md](operation-manager.md).
 
-## 1. Назначение и ограничения
+## 1. Назначение и главное ограничение
 
 Harbor Transfer Portal предназначен для офлайн-передачи контейнерных образов и Helm OCI-чартов между двумя физически и сетево изолированными контурами.
 
-Основное ограничение системы:
+Главный архитектурный инвариант:
 
-> между SOURCE и TARGET отсутствует прямой сетевой путь, и архитектура не должна создавать такой путь неявно.
+> между SOURCE и TARGET отсутствует прямой сетевой путь, и приложение не должно создавать такой путь неявно.
 
-Поэтому продукт разворачивается как **две независимые установки**:
+Поэтому используются две независимые установки:
 
-- `SOURCE` работает только со своим локальным Harbor и создаёт переносимый пакет;
-- `TARGET` работает только со своим локальным Harbor и проверяет/импортирует полученный пакет;
+- `SOURCE` взаимодействует только со своим локальным Harbor и создаёт переносимый пакет;
+- `TARGET` взаимодействует только со своим локальным Harbor и проверяет/импортирует полученный пакет;
 - SOURCE не хранит credentials TARGET;
 - TARGET не хранит credentials SOURCE;
 - прямая Harbor-to-Harbor replication через границу изоляции не используется.
 
-Физический перенос файла между контурами находится вне сетевой архитектуры приложения и выполняется по правилам организации.
+Физический перенос файла находится вне сетевой архитектуры приложения и выполняется по организационной процедуре.
 
 ## 2. Контекст системы
 
 ```text
-┌──────────────────────── SOURCE ────────────────────────┐
-│                                                        │
-│  Browser → Nginx/Vue → FastAPI → Harbor REST API       │
-│                         │        → Skopeo              │
-│                         │        → Helm OCI            │
-│                         │                              │
-│                         └→ BundlePackageService        │
-│                                  │                     │
-│                                  ▼                     │
-│                     signed .htp.tar.gz + .sha256      │
-└──────────────────────────────────┬─────────────────────┘
-                                   │
-                         физический перенос
-                                   │
-┌──────────────────────── TARGET ──▼─────────────────────┐
-│                                                        │
-│  Browser → Nginx/Vue → FastAPI → Bundle verifier       │
-│                         │        → Harbor REST API      │
-│                         │        → Skopeo              │
-│                         │        → Helm OCI            │
-│                         ▼                              │
-│                    local Harbor                        │
-└────────────────────────────────────────────────────────┘
+┌────────────────────────── SOURCE ──────────────────────────┐
+│                                                           │
+│ Browser → Nginx/Vue → FastAPI                             │
+│                         │                                  │
+│                         ├→ Harbor REST API                 │
+│                         ├→ OperationManager                │
+│                         │    ├→ Skopeo                     │
+│                         │    ├→ Helm OCI                   │
+│                         │    └→ BundlePackageService       │
+│                         │                                  │
+│                         └→ SQLite / persistent state       │
+│                                      │                    │
+│                                      ▼                    │
+│                          signed .htp.tar.gz + .sha256      │
+└──────────────────────────────────────┬────────────────────┘
+                                       │
+                             физический перенос
+                                       │
+┌────────────────────────── TARGET ────▼────────────────────┐
+│                                                           │
+│ Browser → Nginx/Vue → FastAPI                             │
+│                         │                                  │
+│                         ├→ Bundle verifier                 │
+│                         ├→ OperationManager                │
+│                         │    ├→ Skopeo                     │
+│                         │    └→ Helm OCI                   │
+│                         ├→ Harbor REST API                 │
+│                         └→ SQLite / persistent state       │
+│                                      │                    │
+│                                      ▼                    │
+│                                  local Harbor             │
+└───────────────────────────────────────────────────────────┘
 ```
 
-На текущем этапе v1 реализованы инфраструктурные и protocol-critical primitives, но полный SOURCE export orchestration и TARGET import orchestration ещё развиваются. Наличие сервиса или UI-маршрута не означает автоматически, что весь пользовательский end-to-end сценарий завершён.
+На текущем этапе реализованы protocol-critical transfer primitives и общий persistent background operation foundation. Полный SOURCE export orchestration и TARGET import orchestration ещё развиваются. Наличие сервиса, API маршрута или UI route не означает автоматически готовность всего пользовательского end-to-end сценария.
 
 ## 3. Runtime deployment
 
@@ -59,114 +68,165 @@ Harbor Transfer Portal предназначен для офлайн-переда
 | Компонент | Ответственность |
 |---|---|
 | `frontend` | Nginx, собранный Vue SPA, same-origin reverse proxy `/api/` на backend |
-| `backend` | FastAPI, доменная логика, SQLite access, Harbor client, Skopeo, Helm и Bundle service |
+| `backend` | FastAPI, SQLite, Harbor client/settings, OperationManager, Skopeo, Helm и Bundle services |
 
 Backend не публикуется напрямую на host в штатной Compose-топологии. Frontend публикует HTTP-порт и проксирует API во внутреннюю Compose network.
 
-Обе роли `SOURCE` и `TARGET` используют те же application images. Поведение конкретной установки определяется `PORTAL_CONTOUR=SOURCE|TARGET` и только локальной конфигурацией Harbor.
+Обе роли `SOURCE` и `TARGET` используют те же application images. Роль конкретной установки задаётся `PORTAL_CONTOUR=SOURCE|TARGET`, а Harbor configuration относится только к локальному контуру.
 
-Подробности развертывания находятся в [deploy/README.md](../deploy/README.md).
+Baseline v1 использует один backend instance и in-process `asyncio` OperationManager без Redis/Celery. Это осознанная текущая граница, а не гарантия горизонтального multi-instance execution.
 
-## 4. Основные слои backend
+Подробности развертывания: [deploy/README.md](../deploy/README.md).
 
-Текущий backend разделён по ответственности:
+## 4. Слои backend
 
 ```text
 backend/app/
 ├── api/       HTTP endpoints и transport-level validation
 ├── auth/      authentication/authorization helpers
 ├── db/        SQLAlchemy models, repositories, session
-├── domain/    Bundle/Protocol/Operations/Receipt domain contracts
+├── domain/    Bundle/Protocol/Operations/Receipt contracts
 ├── schemas/   API request/response schemas
-├── services/  integrations и application services
-├── utils/     общие технические helpers
+├── services/  application/integration services
+├── utils/     технические helpers
 ├── config.py  runtime settings
-└── main.py    FastAPI application assembly
+└── main.py    FastAPI application assembly/lifecycle
 ```
 
 ### 4.1. API layer
 
-В текущем `main` существуют API-модули для:
+В текущем `main` существуют API для:
 
 - authentication;
 - health/readiness;
 - users;
 - Harbor browse/integration;
-- Harbor/settings administration.
+- Harbor/settings administration;
+- чтения persisted operation state: `GET /api/operations/{id}`;
+- отмены операции по RBAC: `POST /api/operations/{id}/cancel`.
 
-Export/import orchestration endpoints добавляются отдельными задачами и не должны считаться существующими только потому, что в frontend уже зарезервированы соответствующие маршруты.
+Публичные request contracts запуска конкретного export/import принадлежат соответствующим orchestration задачам. Наличие generic operation polling/cancel API не означает готовность export/import endpoints.
 
 ### 4.2. Domain layer
 
-`backend/app/domain/` содержит protocol/domain types, которые не должны зависеть от UI или конкретного subprocess transport.
+`backend/app/domain/` содержит типы и state machine, независимые от UI и subprocess transport.
 
 Основные области:
 
 - Bundle manifest и artifact descriptors;
 - protocol validation helpers;
-- export/import operation state transitions;
+- export/import operation states и legal transitions;
+- per-artifact result states;
 - receipt model.
 
-Нормативная JSON Schema хранится в `docs/schema/` и синхронизируется с typed backend model.
+Нормативные Bundle schemas находятся в `docs/schema/` и должны оставаться согласованными с typed backend model.
 
 ### 4.3. Service layer
 
-Текущие сервисы имеют отдельные границы:
-
 | Сервис | Ответственность |
 |---|---|
-| `harbor_client.py` | работа с Harbor REST API локального контура |
-| `harbor_settings.py` | разрешение effective Harbor configuration и managed settings |
+| `harbor_client.py` | Harbor REST API локального контура |
+| `harbor_settings.py` | effective Harbor configuration и managed credential/CA |
 | `skopeo_service.py` | container image transport через структурированный subprocess argv |
-| `helm_oci_service.py` | Helm OCI pull/push и безопасная работа subprocess/workspace |
+| `helm_oci_service.py` | Helm OCI pull/push и безопасный workspace/subprocess |
 | `bundle_package_service.py` | build/verify/publish/extract Offline Bundle v1 |
+| `operation_manager.py` | persistent background execution, progress, cancellation, worker ownership, restart reconciliation |
 
-Такое разделение принципиально: Harbor REST API отвечает за registry metadata/control plane, а перенос payload делегируется специализированным OCI/Helm инструментам. Backend не переimplementирует container registry copy protocol самостоятельно.
+Harbor REST API отвечает за registry control plane/metadata, а payload transport делегируется Skopeo и Helm. Backend не переimplementирует registry copy protocol самостоятельно.
 
-## 5. Ответственность Harbor REST API, Skopeo, Helm и Bundle service
+## 5. OperationManager как execution boundary
+
+`OperationManager` выполняет длительную работу вне HTTP request lifetime и сохраняет наблюдаемое состояние в SQLite.
+
+Основные гарантии текущего v1 foundation:
+
+- `Operation` создаётся и коммитится до запуска background task;
+- worker атомарно захватывает operation через persistent `worker_token`;
+- progress/state/artifact updates используют отдельные короткие DB sessions;
+- одновременно выполняемых операций не больше `OPERATION_MAX_CONCURRENT`;
+- каждая операция получает server-generated private workspace `operation-<id>`;
+- перед крупной работой может применяться disk reserve preflight;
+- progress структурированный и не выдумывает ETA/процент, если таких данных нет;
+- expected worker failures сохраняют стабильный safe error code/message;
+- raw exception/subprocess output и secrets не становятся operation API payload;
+- cancellation сохраняется как `cancel_requested_at` и передаётся в локальную task/subprocess cancellation chain.
+
+Подробный контракт: [Менеджер фоновых операций](operation-manager.md).
+
+### Restart/recovery v1
+
+Resume середины Skopeo/Helm-команды не поддерживается.
+
+После неожиданного рестарта active execution states:
+
+```text
+VALIDATING
+RUNNING
+PACKAGING
+VERIFYING
+IMPORTING
+VERIFYING_TARGET
+```
+
+переводятся в `FAILED` с безопасным кодом `operation_interrupted_restart`; активные artifact rows также завершаются ошибкой, временный workspace очищается.
+
+Wait states:
+
+```text
+CREATED
+UPLOADED
+DISCOVERED
+READY
+```
+
+не считаются уже выполняемой registry mutation. Stale worker claim освобождается. Workspace состояния `READY` может быть сохранён для будущего import orchestration.
+
+Это означает **reconciliation, а не transparent resume**.
+
+## 6. Ответственность transfer services
 
 ### Harbor REST API
 
-Используется для работы с локальным Harbor: проверки соединения, browse metadata и операций, которым нужен registry control-plane контекст.
-
-Harbor client не должен использоваться как скрытый канал между SOURCE и TARGET.
+Используется только с локальным Harbor: connection/system info, browse metadata и control-plane операции. Harbor client не является каналом между SOURCE и TARGET.
 
 ### Skopeo
 
-Используется для переноса container image payload между локальным Harbor и filesystem representation. В Bundle Protocol v1 container payload представлен как OCI image-layout согласно [ADR-009](adr/ADR-009-oci-layout-payload.md).
+Используется для container image payload. Bundle v1 хранит контейнерное содержимое как OCI image-layout согласно [ADR-009](adr/ADR-009-oci-layout-payload.md).
 
-Недоверенные значения передаются subprocess только как структурированные аргументы, без shell-конкатенации.
+Недоверенные значения передаются subprocess структурированными argv без shell-конкатенации. Успешный exit code без digest verification не считается полным доказательством успеха.
+
+Подробности: [skopeo-service.md](skopeo-service.md).
 
 ### Helm OCI
 
-Используется для pull/push Helm charts, опубликованных как OCI artifacts в локальном Harbor. Переносимый chart payload внутри bundle — `.tgz`.
+Используется для pull/push OCI Helm charts в локальном Harbor. Bundle содержит chart payload как `.tgz` с отдельной checksum/metadata validation.
 
-Helm runtime workspace/config/cache изолируются от пользовательских путей и общего host environment согласно реализации сервиса.
+Подробности: [helm-oci-service.md](helm-oci-service.md).
 
 ### BundlePackageService
 
-Это protocol-critical boundary между подготовленными payload и переносимым файлом доставки.
+Protocol-critical boundary между подготовленными payload и переносимым delivery file.
 
 На SOURCE service:
 
-1. snapshot-копирует разрешённые payload;
+1. получает/копирует подготовленные payload в контролируемый workspace;
 2. вычисляет checksums;
 3. создаёт canonical `manifest.json`;
 4. подписывает manifest Ed25519 private key;
 5. создаёт deterministic `.htp.tar.gz`;
-6. проверяет созданный archive тем же verifier path;
+6. self-verifies созданный archive;
 7. атомарно публикует archive;
-8. после archive публикует `.sha256` readiness sidecar.
+8. только после archive публикует `.sha256` readiness sidecar.
 
-На TARGET verifier до controlled extraction проверяет archive limits/path safety, schema, canonical manifest, signature, checksum set и payload metadata.
+TARGET verifier до import проверяет archive safety/limits, schema/canonical manifest, signature, checksum set и signed payload metadata.
 
-Точные правила определяет [Offline Bundle Protocol v1](offline-bundle-v1.md), а реализационные детали описаны в [package-service.md](package-service.md).
+Нормативные правила: [Offline Bundle Protocol v1](offline-bundle-v1.md). Реализационная граница: [package-service.md](package-service.md).
 
-## 6. Offline Bundle как граница совместимости
+## 7. Offline Bundle как граница совместимости
 
-SOURCE и TARGET не разделяют runtime state. Их совместимость определяется переносимым protocol contract.
+SOURCE и TARGET не разделяют runtime state. Их совместимость определяется версионированным переносимым contract.
 
-Обязательные security-critical элементы Bundle v1:
+Security-critical top-level элементы Bundle v1:
 
 ```text
 manifest.json
@@ -176,18 +236,20 @@ images/...
 charts/...
 ```
 
-`manifest.sig` подтверждает authenticity canonical manifest, а SHA-256 checksums — transport integrity payload. Checksum не заменяет подпись.
+`manifest.sig` подтверждает authenticity canonical manifest, а SHA-256 checksums контролируют integrity payload. Checksum не заменяет подпись.
 
-Изменение несовместимой семантики требует отдельного protocol/ADR решения; архитектурный документ не может незаметно изменить Bundle contract.
+Несовместимое изменение contract требует protocol/schema/ADR решения; prose в architecture не может незаметно менять Bundle semantics.
 
-## 7. Data flow: SOURCE export
+## 8. SOURCE export flow
 
-Целевой end-to-end SOURCE flow:
+Целевой flow:
 
 ```text
 Operator
   → Frontend
   → Export API/orchestrator
+  → create persisted Operation
+  → OperationManager
   → Harbor metadata resolution
   → Skopeo / Helm payload export
   → BundlePackageService build + self-verify
@@ -197,37 +259,46 @@ Operator
 
 ### Текущий статус
 
-На текущем `main` уже реализованы Harbor integration, Skopeo service, Helm OCI service и BundlePackageService. Полная orchestration API/background operation chain и законченный export wizard являются последующими задачами v1.
+Уже реализованы Harbor integration, Skopeo, Helm OCI, BundlePackageService и generic persistent OperationManager foundation.
 
-Поэтому прямой вызов отдельных primitives разработчиком не следует документировать как штатный пользовательский процесс.
+Ещё не следует считать завершёнными:
 
-## 8. Data flow: TARGET import
+- feature-specific export orchestration service/API;
+- связку конкретных artifact selections с worker flow;
+- законченный export wizard;
+- полный end-to-end SOURCE acceptance.
 
-Целевой TARGET flow:
+Поэтому отдельные primitives или generic operation API не документируются как штатный готовый пользовательский экспорт.
+
+## 9. TARGET import flow
+
+Целевой flow:
 
 ```text
 Physical bundle
   → controlled intake
+  → create/discover persisted Operation
   → Bundle verifier
   → signature/checksum/schema validation
-  → conflict preview against local Harbor
-  → import orchestration
+  → READY / preview
+  → conflict policy
+  → OperationManager import worker
   → Skopeo / Helm
-  → target digest/result verification
-  → persisted receipt/history
+  → target verification
+  → receipt/history
 ```
 
-Registry mutation допускается только после protocol/security verification.
+Registry mutation допускается только после package verification.
 
 ### Текущий статус
 
-Bundle verifier/extraction primitives существуют. Полная intake/preview/conflict/import orchestration и законченный import UI ещё не являются завершённым v1 end-to-end потоком.
+Bundle verifier и generic OperationManager foundation реализованы. Полная intake/preview/conflict/import orchestration, feature-specific import API и законченный import wizard ещё в разработке.
 
-## 9. Operation state model
+## 10. Operation state model
 
-Состояния являются доменными данными, а не результатом парсинга логов.
+Состояние операции — persisted domain data, а не результат парсинга логов.
 
-### Export
+### Export baseline
 
 ```text
 CREATED
@@ -238,9 +309,9 @@ CREATED
   → COMPLETED
 ```
 
-Из активных состояний возможны предусмотренные переходы в `FAILED` или `CANCELLED`.
+Из initial/active states допускаются определённые state machine переходы в `FAILED`/`CANCELLED`, в том числе preflight/worker failure.
 
-### Import
+### Import baseline
 
 ```text
 UPLOADED | DISCOVERED
@@ -251,17 +322,29 @@ UPLOADED | DISCOVERED
   → COMPLETED
 ```
 
-Для import также используются терминальные `FAILED`, `REJECTED`, `CANCELLED` согласно legal transitions в domain model.
+Для import также используются `FAILED`, `REJECTED`, `CANCELLED` согласно legal transitions.
 
-Терминальное состояние не может переходить дальше. Illegal transition является доменной ошибкой.
+Terminal state дальше не переходит. Illegal transition является доменной ошибкой.
 
-Пер-артефактные статусы и точная семантика определены в [Offline Bundle Protocol v1](offline-bundle-v1.md).
+## 11. Persisted operation progress и cancellation
 
-## 10. Persistence
+`GET /api/operations/{id}` возвращает persisted structured state, включая текущий status/phase, artifact counters, running artifact ids и безопасные error fields.
+
+API не возвращает `worker_token`, raw subprocess logs или выдуманный ETA.
+
+`POST /api/operations/{id}/cancel` разрешён:
+
+- `admin` — для любой операции;
+- `operator` — для собственной;
+- `viewer` — запрещено.
+
+Frontend route guard не заменяет backend RBAC.
+
+## 12. Persistence
 
 Базовая v1 persistence — SQLite + SQLAlchemy + Alembic.
 
-Compose монтирует named volume `portal-data` в `/app/data`. Текущая эксплуатационная структура включает:
+Compose монтирует `portal-data` в `/app/data`. Основные классы данных:
 
 ```text
 /app/data/
@@ -269,74 +352,82 @@ Compose монтирует named volume `portal-data` в `/app/data`. Текущ
 ├── packages/
 ├── incoming/
 ├── outgoing/
-├── logs/
 ├── receipts/
+├── logs/
 ├── secrets/
 ├── keys/
 └── tmp/
+    └── operations/
 ```
 
-Не все каталоги одинаково критичны для backup. SQLite, managed secrets/CA, signing/trust key material и необходимые history/receipt metadata должны рассматриваться как разные классы данных с разными требованиями доступа.
+SQLite содержит operation state, worker ownership/cancellation metadata и другую application metadata. `tmp/operations` используется для private operation workspaces и не является заменой persisted DB state.
 
-Точные backup/restore и release procedures будут закреплены в admin/release документации; их нельзя выводить только из этой схемы каталогов.
+SQLite, managed secrets/CA, signing/trust key material, receipts/history и retained packages имеют разные backup/retention требования.
 
-## 11. Configuration and secrets boundary
+## 13. Configuration and secrets boundary
 
-Каждая установка имеет только один effective local Harbor configuration.
+Каждая установка имеет один effective local Harbor configuration.
 
-В соответствии с [ADR-005](adr/ADR-005-harbor-secrets-tls.md):
+Согласно [ADR-005](adr/ADR-005-harbor-secrets-tls.md):
 
 - non-secret Harbor overrides могут храниться в SQLite;
-- managed credential хранится file-backed и не возвращается через API;
-- deployment `HARBOR_PASSWORD_FILE`/environment остаются bootstrap fallback;
+- managed Harbor credential хранится file-backed и не возвращается API;
+- `HARBOR_PASSWORD_FILE`/environment остаются bootstrap fallback;
 - managed custom CA сохраняется server-side после validation;
 - TLS verification включена по умолчанию;
 - SOURCE private signing key существует только на SOURCE;
 - TARGET хранит только trusted SOURCE public keys;
-- secret/key values не должны попадать в bundle, frontend state, audit metadata или обычные API responses.
+- secret/key values не должны попадать в bundle, frontend state, operation errors, audit metadata или обычные API responses.
 
-## 12. Trust boundaries
+OperationManager-specific runtime settings включают:
+
+- `OPERATION_WORKSPACE_ROOT`;
+- `OPERATION_MAX_CONCURRENT`;
+- `OPERATION_DISK_RESERVE_BYTES`;
+- `OPERATION_SHUTDOWN_TIMEOUT_SECONDS`.
+
+## 14. Trust boundaries
 
 Ключевые границы доверия:
 
-1. **Browser ↔ portal API** — authentication/RBAC boundary.
-2. **Portal ↔ local Harbor** — credential/TLS boundary; только Harbor текущего контура.
-3. **Backend ↔ Skopeo/Helm subprocess** — untrusted input/argv/environment/workspace boundary.
-4. **SOURCE ↔ physical bundle** — signing/integrity/publication boundary.
-5. **Physical bundle ↔ TARGET** — полностью недоверенный вход до завершения verifier checks.
-6. **Backend persistent volume** — host/deployment boundary для DB, secrets и keys.
+1. **Browser ↔ Portal API** — authentication/RBAC.
+2. **Portal ↔ local Harbor** — credential/TLS; только Harbor текущего контура.
+3. **Backend ↔ Skopeo/Helm subprocess** — argv/environment/workspace и недоверенный input.
+4. **HTTP request ↔ background task** — request-scoped DB session не передаётся worker; состояние сохраняется явно.
+5. **OperationManager ↔ persistent state** — worker ownership/cancellation/restart reconciliation.
+6. **SOURCE ↔ physical bundle** — signing/integrity/atomic publication.
+7. **Physical bundle ↔ TARGET** — полностью недоверенный input до verifier checks.
+8. **Backend persistent volume ↔ host** — DB/secrets/keys filesystem boundary.
 
-Более полная threat model поддерживается в [security.md](security.md); до завершения задачи #56 этот документ следует читать вместе с Bundle Protocol и ADR-005.
+Полная threat model: [security.md](security.md).
 
-## 13. Frontend architecture
+## 15. Frontend architecture
 
 Frontend использует Vue 3 + Vite + TypeScript, Vue Router, Pinia, Axios, Element Plus и Lucide.
 
-Основной источник runtime contour identity — local backend `GET /api/health`; frontend не должен hardcode SOURCE/TARGET в конкретных страницах.
+Runtime contour identity берётся из local backend `GET /api/health`; отдельные views не должны hardcode SOURCE/TARGET.
 
-Маршруты `/export`, `/import`, `/history` уже зарезервированы в frontend architecture, но часть соответствующих views на текущем этапе является scaffold/placeholder. Фактическую готовность функции необходимо определять по реализации и issue state, а не по наличию route.
+Маршруты `/export`, `/import`, `/history` могут существовать до завершения соответствующего end-to-end flow. Фактическую готовность функции определяют implementation/current-state docs и tests, а не наличие route.
 
-Подробности frontend находятся в [frontend.md](frontend.md).
+Операционные UI должны использовать structured operation API/state, а не разбирать текст subprocess logs.
 
-## 14. Observability and audit
+Подробности: [frontend.md](frontend.md).
 
-Health/readiness endpoints существуют и не должны раскрывать secret configuration.
+## 16. Observability, audit и reports
 
-Полноценная operation history, audit model, structured logging/correlation и report lifecycle развиваются отдельными задачами v1. Архитектура требует, чтобы UI получал структурированное operation state и persisted results, а не определял успех по тексту subprocess/container logs.
+Health/readiness endpoints не должны раскрывать secret configuration.
 
-## 15. Offline runtime и release boundary
+Generic persisted operation progress/cancellation API уже реализован. Полный history/audit/report UX и release-grade correlation продолжают развиваться отдельными v1 задачами.
 
-Текущий Docker build может использовать внешние package/image repositories на build stage. Это не означает допустимость internet dependency в закрытом runtime.
+Источником истины о статусе операции является persisted domain state. Логи остаются диагностическим каналом, а не механизмом определения `COMPLETED`.
 
-Архитектурное правило:
+## 17. Offline runtime и release boundary
 
-- online build environment может получать зависимости согласно release pipeline;
-- offline installation должна загружать заранее собранные проверенные images/artifacts;
-- штатный runtime после загрузки images не должен обращаться к internet/CDN для запуска приложения.
+Controlled build/release environment может использовать внешние package/image repositories на build stage. Закрытый runtime после доставки готовых images не должен зависеть от internet/CDN.
 
-Финальный offline installation kit и acceptance E2E относятся к задаче #28 и не считаются готовыми только на основании рабочего development Compose.
+Финальный offline installation kit и acceptance E2E относятся к #28 и не считаются готовыми на основании working development Compose.
 
-## 16. Текущее состояние реализации
+## 18. Текущее состояние реализации
 
 | Область | Статус в текущем `main` |
 |---|---|
@@ -348,52 +439,51 @@ Health/readiness endpoints существуют и не должны раскр�
 | Helm OCI service | реализовано как service primitive |
 | Offline Bundle v1 typed protocol/schema | реализовано |
 | Bundle build/sign/verify/safe extraction | реализовано |
-| Vue application shell/login/settings foundation | реализовано |
-| Export orchestration API/background flow | в разработке |
+| Persistent generic OperationManager | реализовано |
+| Operation polling / cancellation API | реализовано |
+| Worker claim / concurrency / disk preflight | реализовано |
+| Restart reconciliation | реализовано; mid-command resume не поддерживается |
+| Vue shell/login/settings foundation | реализовано |
+| Export feature-specific orchestration | в разработке |
 | Export wizard | scaffold / в разработке |
-| TARGET import orchestration | в разработке |
+| TARGET intake/import feature-specific orchestration | в разработке |
 | Import wizard | scaffold / в разработке |
-| Full operation history/audit/report UX | в разработке |
+| Full history/audit/report UX | в разработке |
 | Final offline release kit / acceptance E2E | запланировано в #28 |
 
-Эта таблица описывает состояние на момент обновления документа и должна изменяться вместе с соответствующей реализацией.
+Generic OperationManager foundation не следует смешивать с завершённым export/import flow: он предоставляет execution/lifecycle primitives, которые используют последующие orchestration services.
 
-## 17. Источники истины
-
-Используйте документы по назначению:
+## 19. Источники истины
 
 | Область | Authoritative source |
 |---|---|
-| Текущая архитектура | этот `docs/architecture.md` |
+| Текущая архитектура/current state | этот `docs/architecture.md` |
 | Bundle Protocol v1 | [offline-bundle-v1.md](offline-bundle-v1.md) + JSON Schema |
-| Package build/verify implementation boundary | [package-service.md](package-service.md) |
+| Bundle package implementation boundary | [package-service.md](package-service.md) |
+| Background execution/restart/cancel | [operation-manager.md](operation-manager.md) |
+| Skopeo | [skopeo-service.md](skopeo-service.md) |
+| Helm OCI | [helm-oci-service.md](helm-oci-service.md) |
 | Архитектурные решения | [decisions.md](decisions.md) и `docs/adr/` |
 | Deployment/runtime | [deploy/README.md](../deploy/README.md) |
 | Testing/CI | [testing.md](testing.md) |
 | Frontend structure | [frontend.md](frontend.md) |
-| Общий security overview | [security.md](security.md), Bundle Protocol и security ADR |
+| Security/trust model | [security.md](security.md) |
 
-## 18. Исторический design document
+## 20. Исторический design document
 
-`docs/harbor-transfer-portal.md` был исходным объединённым документом постановки задачи, UI-концепции, ранних примеров и плана разработки. Он полезен как **исторический product/design reference**, но не является нормативным описанием текущего protocol/runtime поведения.
+`docs/harbor-transfer-portal.md` — исходный объединённый документ постановки задачи, UI-концепции, ранних примеров и плана разработки. Он полезен как historical product/design reference, но не является нормативным описанием текущего protocol/runtime поведения.
 
-Если исторический документ противоречит:
+Если исторический документ противоречит текущему code/tests, принятому ADR, Bundle Protocol или этому architecture document, используется более актуальный специализированный источник, а расхождение считается documentation defect.
 
-1. текущему коду;
-2. принятому ADR;
-3. `docs/offline-bundle-v1.md` / JSON Schema;
-4. этому архитектурному документу;
+## 21. Правило обновления
 
-следует использовать более актуальный специализированный источник, а расхождение оформить как documentation issue.
+При изменении архитектурной границы в той же итерации определяется documentation impact:
 
-## 19. Правило обновления
-
-При изменении архитектурной границы в той же итерации необходимо определить documentation impact:
-
-- новый/изменённый protocol contract → protocol doc/schema/ADR;
-- новый service boundary → architecture + specialized service doc;
-- новое secret/trust решение → security + ADR + deployment;
-- новый persisted state → domain/architecture/history docs;
-- завершённый пользовательский flow → обновить статус здесь и соответствующий user guide.
+- protocol/schema → protocol doc + schema + tests + ADR при несовместимом решении;
+- service/execution boundary → architecture + specialized component doc;
+- secret/trust решение → security + ADR + deployment/admin docs;
+- operation lifecycle/restart/cancellation → operation-manager + architecture + testing/user/admin docs по мере появления UX;
+- завершённый пользовательский flow → current-state table + user guide;
+- release/install → deployment/admin/release docs.
 
 Документация не должна описывать планируемую функцию как уже доступную пользователю.
