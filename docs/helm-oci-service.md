@@ -9,7 +9,7 @@
 Поддержаны операции:
 
 - `pull_chart()` — фиксирует Harbor artifact digest, выполняет `helm pull` в контролируемый workspace и валидирует полученный `.tgz`;
-- `validate_package()` — проверяет безопасные пути tar archive, затем использует `helm show chart` и сравнивает `name/version` с ожидаемыми;
+- `validate_package()` — проверяет безопасные пути и типы members tar archive, затем использует `helm show chart` и сравнивает `name/version` с ожидаемыми;
 - `inspect_target()` — возвращает `absent`, `same_digest`, `conflicting_digest` или `present`;
 - `push_chart()` — выполняет безопасный preflight, валидирует package, отправляет его только в локальный Harbor и повторно проверяет наличие artifact через Harbor API.
 
@@ -21,29 +21,35 @@ Credential не передаётся аргументом командной с�
 
 Для каждой операции создаётся отдельный временный каталог mode `0700`. В него направляются:
 
+- `HOME`;
 - `HELM_CONFIG_HOME`;
 - `HELM_CACHE_HOME`;
 - `HELM_DATA_HOME`;
 - `HELM_REGISTRY_CONFIG`.
 
-После операции каталог удаляется. Это исключает совместное mutable Helm-состояние между задачами.
+Helm subprocess **не наследует весь environment backend-процесса**. Передаются только контролируемые Helm paths, `PATH` и безопасные locale-переменные. Поэтому `JWT_SECRET`, `HARBOR_PASSWORD` и другие portal secrets не попадают в дочерний процесс только из-за присутствия в environment backend.
+
+После операции временный каталог удаляется. Это исключает совместное mutable Helm-состояние между задачами.
 
 stdout/stderr читаются потоково и сохраняются только до `HELM_OUTPUT_LIMIT_BYTES`. Timeout и asyncio cancellation завершают child process.
 
-## TLS и custom CA
+## TLS, custom CA и HTTP
 
-Сервис использует Harbor TLS policy из настроек портала.
+Сервис использует Harbor transport policy из настроек портала.
 
-- verification включена по умолчанию;
+- verification включена по умолчанию для `https://`;
 - custom CA копируется только во временный controlled path и передаётся через `--ca-file`;
-- `--insecure` / `--insecure-skip-tls-verify` появляются только если администратор явно отключил TLS verification;
-- silent fallback на insecure отсутствует.
+- `--insecure` / `--insecure-skip-tls-verify` появляются только если администратор явно отключил TLS verification для HTTPS;
+- если администратор явно настроил `http://` Harbor, Helm получает `--plain-http`; это не является автоматическим fallback после TLS-ошибки;
+- silent fallback с HTTPS на insecure/plain HTTP отсутствует.
+
+Production-развёртывание должно предпочитать HTTPS с валидным корпоративным CA. `http://` предназначен только для явно выбранного локального режима, например disposable integration registry.
 
 ## Workspace и package validation
 
 `HELM_WORKSPACE_ROOT` задаёт единственный допустимый корень для входных и выходных `.tgz`.
 
-До вызова Helm archive просматривается без распаковки. Отклоняются absolute paths, `..`, backslash/NUL и symlink/hardlink members. После этого `helm show chart` обязан успешно прочитать package, а `name/version` должны точно совпасть с ожидаемой ссылкой.
+До вызова Helm archive просматривается без распаковки. Разрешены только обычные файлы и каталоги. Отклоняются absolute paths, `..`, backslash/NUL, symlink/hardlink, FIFO/device и другие special members. После этого `helm show chart` обязан успешно прочитать package, а `name/version` должны точно совпасть с ожидаемой ссылкой.
 
 Имя файла `.tgz` не считается источником metadata: после `helm pull` сервис принимает ровно один package в пустом destination и извлекает metadata через Helm.
 
