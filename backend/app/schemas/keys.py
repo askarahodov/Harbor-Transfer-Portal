@@ -31,6 +31,12 @@ class TrustedKeyStateRequest(BaseModel):
     enabled: bool
 
 
+class TrustedKeyReplaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pem: str = Field(min_length=1, max_length=1_048_576)
+
+
 class KeyMutationResponse(BaseModel):
     action: str
     fingerprint: str
