@@ -12,7 +12,36 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
-_AREA_NAMES = ("backend", "frontend", "protocol", "compose", "docs")
+_AREA_NAMES = ("backend", "frontend", "protocol", "security", "compose", "docs")
+
+_SECURITY_SERVICE_FILES = {
+    "bundle_package_service.py",
+    "export_orchestrator.py",
+    "export_publication_guard.py",
+    "import_helm_service.py",
+    "import_orchestrator.py",
+    "key_management.py",
+    "skopeo_service.py",
+    "helm_oci_service.py",
+}
+_SECURITY_API_FILES = {
+    "auth.py",
+    "imports.py",
+    "key_settings.py",
+    "users.py",
+}
+_SECURITY_TEST_PREFIXES = (
+    "test_auth",
+    "test_bundle_package_",
+    "test_export_",
+    "test_import_",
+    "test_key_management_",
+    "test_helm_oci_",
+    "test_login_rate_limit",
+    "test_skopeo_service",
+    "test_structured_logging",
+    "test_user_admin_api",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +49,7 @@ class Scope:
     backend: bool = False
     frontend: bool = False
     protocol: bool = False
+    security: bool = False
     compose: bool = False
     docs: bool = False
 
@@ -28,6 +58,7 @@ class Scope:
             "backend": self.backend,
             "frontend": self.frontend,
             "protocol": self.protocol,
+            "security": self.security,
             "compose": self.compose,
             "docs": self.docs,
         }
@@ -53,6 +84,24 @@ def _is_protocol_adr(path: PurePosixPath) -> bool:
     )
 
 
+def _is_security_sensitive_backend(path: PurePosixPath) -> bool:
+    if _starts_with(path, "backend", "app", "auth"):
+        return True
+    if path.parts[:3] == ("backend", "app", "services") and path.name in _SECURITY_SERVICE_FILES:
+        return True
+    if path.parts[:3] == ("backend", "app", "api") and path.name in _SECURITY_API_FILES:
+        return True
+    if path.parts[:2] == ("backend", "tests"):
+        return any(path.name.startswith(prefix) for prefix in _SECURITY_TEST_PREFIXES)
+    return False
+
+
+def _is_package_protocol_path(path_text: str) -> bool:
+    return path_text == "backend/app/services/bundle_package_service.py" or path_text.startswith(
+        "backend/tests/test_bundle_package_"
+    )
+
+
 def _classify_path(path_text: str) -> tuple[set[str], bool]:
     path = PurePosixPath(path_text)
     areas: set[str] = set()
@@ -66,6 +115,7 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
 
     if (
         _starts_with(path, "backend", "app", "domain")
+        or _is_package_protocol_path(path_text)
         or path_text in {
             "backend/tests/test_bundle_protocol.py",
             "backend/tests/test_bundle_schema.py",
@@ -75,6 +125,9 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
         or _is_protocol_adr(path)
     ):
         areas.add("protocol")
+
+    if _is_security_sensitive_backend(path):
+        areas.add("security")
 
     if (
         path_text
@@ -120,7 +173,7 @@ def classify_paths(paths: Iterable[str], *, root: Path = Path(".")) -> Scope:
         workflow_changed = workflow_changed or changed_workflow
 
     if workflow_changed:
-        areas.update({"backend", "protocol", "docs"})
+        areas.update({"backend", "protocol", "security", "docs"})
         if (root / "frontend/package.json").is_file():
             areas.add("frontend")
         if (root / "compose.yaml").is_file():
@@ -133,6 +186,8 @@ def classify_paths(paths: Iterable[str], *, root: Path = Path(".")) -> Scope:
         areas.discard("frontend")
     if not (root / "backend/tests/test_bundle_protocol.py").is_file():
         areas.discard("protocol")
+    if not (root / "backend/tests/test_bundle_package_service.py").is_file():
+        areas.discard("security")
     if not (
         (root / "compose.yaml").is_file()
         and (root / "deploy/smoke-compose.sh").is_file()
@@ -159,6 +214,7 @@ def write_summary(scope: Scope, summary_path: Path) -> None:
         "backend": "Backend",
         "frontend": "Frontend",
         "protocol": "Bundle protocol",
+        "security": "Security regression",
         "compose": "Compose",
         "docs": "Documentation",
     }
