@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install -r backend/requirements-dev.lock
-          python -m pip install --no-deps --no-build-isolation -e ./backend
+          python -m pip install --no-deps --no-build-isolation ./backend
 
       - name: Ruff
         run: make lint-backend
@@ -145,7 +145,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install -r backend/requirements-dev.lock
-          python -m pip install --no-deps --no-build-isolation -e ./backend
+          python -m pip install --no-deps --no-build-isolation ./backend
 
       - name: Проверить Bundle Protocol v1
         working-directory: backend
@@ -170,7 +170,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install -r backend/requirements-dev.lock
-          python -m pip install --no-deps --no-build-isolation -e ./backend
+          python -m pip install --no-deps --no-build-isolation ./backend
 
       - name: Проверить security-sensitive behavior
         working-directory: backend
