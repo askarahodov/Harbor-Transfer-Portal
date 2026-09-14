@@ -213,7 +213,10 @@ def test_source_private_key_is_atomic_private_and_never_disclosed(tmp_path: Path
     ]
     assert json.loads(events[0].metadata_json)["fingerprint"] == old_fingerprint
     assert json.loads(events[1].metadata_json)["fingerprint"] == new_fingerprint
-    assert all(old_pem not in event.metadata_json and new_pem not in event.metadata_json for event in events)
+    assert all(
+        old_pem not in event.metadata_json and new_pem not in event.metadata_json
+        for event in events
+    )
 
 
 def test_wrong_key_types_and_size_bounds_are_rejected_without_replacement(tmp_path: Path) -> None:
@@ -308,13 +311,14 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
 
         listed = target.get("/api/settings/keys", headers=headers)
         assert listed.status_code == 200
-        assert listed.json()["trusted_keys"] == [
-            {"fingerprint": old_fingerprint, "enabled": True},
-            {"fingerprint": new_fingerprint, "enabled": True},
-        ] if old_fingerprint < new_fingerprint else [
-            {"fingerprint": new_fingerprint, "enabled": True},
-            {"fingerprint": old_fingerprint, "enabled": True},
-        ]
+        expected_trusted = sorted(
+            [
+                {"fingerprint": old_fingerprint, "enabled": True},
+                {"fingerprint": new_fingerprint, "enabled": True},
+            ],
+            key=lambda item: item["fingerprint"],
+        )
+        assert listed.json()["trusted_keys"] == expected_trusted
 
         verifier = BundlePackageService(target_app.state.settings)
         assert verifier.verify_bundle(
