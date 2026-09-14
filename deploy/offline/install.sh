@@ -50,7 +50,8 @@ esac
 required_kb=$(( (required_bytes + 1023) / 1024 ))
 [ "$available_kb" -ge "$required_kb" ] || fail "not enough disk space: need at least ${required_kb} KiB free"
 
-if [ -f .env ]; then
+if [ -e .env ] || [ -L .env ]; then
+  [ -f .env ] && [ ! -L .env ] || fail 'existing .env must be a regular non-symlink file'
   configured_version=$(sed -n 's/^PORTAL_VERSION=//p' .env | head -n 1)
   [ -n "$configured_version" ] || fail 'existing .env has no PORTAL_VERSION'
   [ "$configured_version" = "$version" ] || fail "existing .env is configured for version $configured_version, kit version is $version"
@@ -84,13 +85,23 @@ printf 'Loading prebuilt images...\n'
 docker load -i images/backend.tar
 docker load -i images/frontend.tar
 
+backend_image="harbor-transfer-portal-backend:$version"
+frontend_image="harbor-transfer-portal-frontend:$version"
+for image in "$backend_image" "$frontend_image"; do
+  docker image inspect "$image" >/dev/null 2>&1 || fail "expected local image missing after docker load: $image"
+  image_arch=$(docker image inspect --format '{{.Architecture}}' "$image")
+  [ "$image_arch" = "$release_arch" ] || fail "local image architecture mismatch for $image: $image_arch"
+done
+
+# The release compose file has no build sections and uses pull_policy: never.
+# Keep command-line no-build/no-pull semantics explicit as a second fail-closed boundary.
 timeout=${PORTAL_INSTALL_TIMEOUT_SECONDS:-180}
 case "$timeout" in
   ''|*[!0-9]*) fail 'PORTAL_INSTALL_TIMEOUT_SECONDS must be an integer' ;;
 esac
 
 printf 'Starting Harbor Transfer Portal %s...\n' "$version"
-docker compose --env-file .env -f compose.yaml up -d --wait --wait-timeout "$timeout"
+docker compose --env-file .env -f compose.yaml up -d --no-build --pull never --wait --wait-timeout "$timeout"
 
 http_port=$(sed -n 's/^PORTAL_HTTP_PORT=//p' .env | head -n 1)
 [ -n "$http_port" ] || http_port=8080

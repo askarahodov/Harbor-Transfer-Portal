@@ -1,6 +1,9 @@
+name: harbor-transfer-portal
+
 services:
   backend:
     image: harbor-transfer-portal-backend:${PORTAL_VERSION}
+    pull_policy: never
     env_file:
       - .env
     environment:
@@ -28,6 +31,7 @@ services:
 
   frontend:
     image: harbor-transfer-portal-frontend:${PORTAL_VERSION}
+    pull_policy: never
     environment:
       PORTAL_CONTOUR: ${PORTAL_CONTOUR:-SOURCE}
     ports:
