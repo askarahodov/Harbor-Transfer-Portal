@@ -10,6 +10,7 @@ from app.db.models import AuditEvent, Operation
 from app.domain.bundle import OperationStatus, OperationType
 
 _INSTALLED = False
+_PENDING_NEW_OPERATIONS = "htp_audit_new_operations"
 
 _TERMINAL_EVENT_TYPES: dict[tuple[OperationType, OperationStatus], tuple[str, str]] = {
     (OperationType.EXPORT, OperationStatus.COMPLETED): ("export.completed", "success"),
@@ -26,7 +27,8 @@ def install_operation_audit_hooks() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
-    event.listen(Session, "before_flush", _audit_operation_transitions)
+    event.listen(Session, "before_flush", _audit_operation_changes)
+    event.listen(Session, "after_flush_postexec", _audit_new_operations)
     _INSTALLED = True
 
 
@@ -64,7 +66,12 @@ def _append_event(
     )
 
 
-def _audit_operation_transitions(session: Session, _flush_context: object, _instances: object) -> None:
+def _audit_operation_changes(session: Session, _flush_context: object, _instances: object) -> None:
+    new_operations = [candidate for candidate in session.new if isinstance(candidate, Operation)]
+    if new_operations:
+        pending = session.info.setdefault(_PENDING_NEW_OPERATIONS, [])
+        pending.extend(new_operations)
+
     for candidate in tuple(session.dirty):
         if not isinstance(candidate, Operation):
             continue
@@ -106,4 +113,24 @@ def _audit_operation_transitions(session: Session, _flush_context: object, _inst
             event_type=event_type,
             result=result,
             metadata=_metadata(candidate),
+        )
+
+
+def _audit_new_operations(session: Session, _flush_context: object) -> None:
+    pending = session.info.pop(_PENDING_NEW_OPERATIONS, [])
+    for operation in pending:
+        if operation.id is None:
+            continue
+        event_type = (
+            "export.created"
+            if operation.type is OperationType.EXPORT
+            else "import.intake.created"
+        )
+        _append_event(
+            session,
+            actor_user_id=operation.actor_user_id,
+            actor_username=operation.actor_username,
+            event_type=event_type,
+            result="started",
+            metadata=_metadata(operation),
         )
