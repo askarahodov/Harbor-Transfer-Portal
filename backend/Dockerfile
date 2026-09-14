@@ -14,6 +14,7 @@ LABEL org.opencontainers.image.title="Harbor Transfer Portal backend" \
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    APP_VERSION=${RELEASE_VERSION} \
     HOME=/home/htp
 
 RUN set -eux; \
