@@ -1,13 +1,20 @@
 FROM python:3.12.14-slim-bookworm
 
 ARG TARGETARCH=amd64
+ARG RELEASE_VERSION=dev
+ARG VCS_REF=unknown
 ARG SKOPEO_DEBIAN_VERSION=1.9.3+ds1-1+b10
 ARG HELM_VERSION=v3.22.0
 ARG HELM_SHA256_AMD64=1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb
 ARG HELM_SHA256_ARM64=0236e2ebea9577799375a236c5e0e98d0eded4b9a3260678e51bfbc9dcca97a1
 
+LABEL org.opencontainers.image.title="Harbor Transfer Portal backend" \
+      org.opencontainers.image.version="${RELEASE_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    APP_VERSION=${RELEASE_VERSION} \
     HOME=/home/htp
 
 RUN set -eux; \

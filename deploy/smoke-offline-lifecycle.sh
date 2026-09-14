@@ -32,9 +32,18 @@ log_command() {
 case "${1:-}" in
   image)
     [ "${2:-}" = inspect ] || exit 2
-    case " $* " in
-      *' --format '*) printf '%s\n' amd64 ;;
-    esac
+    last_arg=
+    for arg in "$@"; do
+      last_arg=$arg
+    done
+    if [ "${3:-}" = --format ]; then
+      case "${4:-}" in
+        *Architecture*) printf '%s\n' amd64 ;;
+        *org.opencontainers.image.version*) printf '%s\n' "${last_arg##*:}" ;;
+        *org.opencontainers.image.revision*) printf '%s\n' "${FAKE_DOCKER_LABEL_REVISION:-unknown}" ;;
+        *) exit 2 ;;
+      esac
+    fi
     ;;
   volume)
     case "${2:-}" in
@@ -101,9 +110,11 @@ chmod 0755 "$FAKE_BIN/docker"
 
 export PATH="$FAKE_BIN:$PATH"
 export FAKE_DOCKER_LOG="$FAKE_LOG"
+SOURCE_REVISION=$(git -C "$ROOT" rev-parse --verify HEAD 2>/dev/null || printf 'unknown')
+export FAKE_DOCKER_LABEL_REVISION="$SOURCE_REVISION"
 
-NEW_VERSION=0.0.2-lifecycle
-OLD_VERSION=0.0.1-old
+NEW_VERSION=1.0.0
+OLD_VERSION=0.9.0-old
 DIST="$TMP/dist"
 sh "$ROOT/deploy/build-offline-kit.sh" "$NEW_VERSION" "$DIST"
 ARCHIVE="$DIST/harbor-transfer-portal-v${NEW_VERSION}-offline-install.tar.gz"
