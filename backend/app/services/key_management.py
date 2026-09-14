@@ -346,8 +346,6 @@ class KeyManagementService:
                 os.fsync(handle.fileno())
             os.chmod(temporary, mode)
             os.replace(temporary, path)
-            os.chmod(path, mode)
-            self._fsync_directory(parent)
         except OSError as exc:
             raise KeyManagementError(
                 "key_store_write_failed",
@@ -355,6 +353,14 @@ class KeyManagementService:
             ) from exc
         finally:
             temporary.unlink(missing_ok=True)
+
+        # Rename is the commit boundary: the replacement is already authoritative here.
+        # Directory fsync improves crash durability, but it must not turn a committed key
+        # replacement into a false API failure that claims the old key is still active.
+        try:
+            self._fsync_directory(parent)
+        except OSError:
+            pass
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
