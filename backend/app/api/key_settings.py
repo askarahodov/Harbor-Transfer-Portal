@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.auth.dependencies import SessionDep, require_roles
 from app.config import PortalContour
@@ -11,6 +11,7 @@ from app.schemas.keys import (
     KeyMutationResponse,
     KeySettingsResponse,
     SigningKeyStatusResponse,
+    TrustedKeyMaterialRequest,
     TrustedKeyStateRequest,
     TrustedKeyStatusResponse,
 )
@@ -29,6 +30,7 @@ def _api_error(exc: KeyManagementError) -> HTTPException:
         "key_management_wrong_contour": status.HTTP_409_CONFLICT,
         "trusted_key_not_found": status.HTTP_404_NOT_FOUND,
         "trusted_key_limit_exceeded": status.HTTP_409_CONFLICT,
+        "trusted_key_confirmation_required": status.HTTP_409_CONFLICT,
         "key_store_write_failed": status.HTTP_500_INTERNAL_SERVER_ERROR,
     }
     return HTTPException(
@@ -37,19 +39,34 @@ def _api_error(exc: KeyManagementError) -> HTTPException:
     )
 
 
+def _require_confirmation(confirm: bool) -> None:
+    if not confirm:
+        raise _api_error(
+            KeyManagementError(
+                "trusted_key_confirmation_required",
+                "Изменение TARGET trust set требует явного подтверждения",
+            )
+        )
+
+
 def _audit(
     session: SessionDep,
     admin: User,
     event_type: str,
     mutation: KeyMutation,
+    *,
+    extra: dict[str, object] | None = None,
 ) -> None:
+    metadata: dict[str, object] = {
+        "action": mutation.action,
+        "fingerprint": mutation.fingerprint,
+    }
+    if extra:
+        metadata.update(extra)
     AuditEventRepository(session).create(
         actor=admin,
         event_type=event_type,
-        metadata={
-            "action": mutation.action,
-            "fingerprint": mutation.fingerprint,
-        },
+        metadata=metadata,
     )
     session.commit()
 
@@ -108,17 +125,42 @@ def install_signing_key(
     status_code=status.HTTP_201_CREATED,
 )
 def add_trusted_key(
-    payload: KeyMaterialRequest,
+    payload: TrustedKeyMaterialRequest,
     request: Request,
     admin: AdminDep,
     session: SessionDep,
 ) -> KeyMutationResponse:
+    _require_confirmation(payload.confirm)
     service = _service(request)
     try:
         mutation = service.add_trusted_public_key(payload.pem)
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
     _audit(session, admin, f"trust.key.{mutation.action}", mutation)
+    return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+
+
+@router.put("/trusted/{fingerprint}", response_model=KeyMutationResponse)
+def replace_trusted_key(
+    fingerprint: str,
+    payload: TrustedKeyMaterialRequest,
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> KeyMutationResponse:
+    _require_confirmation(payload.confirm)
+    service = _service(request)
+    try:
+        mutation = service.replace_trusted_public_key(fingerprint, payload.pem)
+    except KeyManagementError as exc:
+        raise _api_error(exc) from exc
+    _audit(
+        session,
+        admin,
+        "trust.key.replaced",
+        mutation,
+        extra={"previous_fingerprint": fingerprint.strip().lower()},
+    )
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
 
 
@@ -130,6 +172,7 @@ def set_trusted_key_state(
     admin: AdminDep,
     session: SessionDep,
 ) -> KeyMutationResponse:
+    _require_confirmation(payload.confirm)
     service = _service(request)
     try:
         mutation = service.set_trusted_key_enabled(fingerprint, payload.enabled)
@@ -145,7 +188,9 @@ def remove_trusted_key(
     request: Request,
     admin: AdminDep,
     session: SessionDep,
+    confirm: bool = Query(default=False),
 ) -> KeyMutationResponse:
+    _require_confirmation(confirm)
     service = _service(request)
     try:
         mutation = service.remove_trusted_key(fingerprint)
