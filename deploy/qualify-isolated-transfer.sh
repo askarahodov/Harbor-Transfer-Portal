@@ -19,6 +19,51 @@ fail() {
   exit 1
 }
 
+dump_target_failure() {
+  container_id=$(
+    HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" HTP_TRANSFER_DIR="$PHYSICAL" \
+      docker compose -p "$TARGET_PROJECT" -f "$COMPOSE" --profile target ps -q target-runner 2>/dev/null \
+      || true
+  )
+  [ -n "$container_id" ] || return 0
+
+  database="$TMP/target-failure.db"
+  docker cp "$container_id:/tmp/htp-isolated-target/portal.db" "$database" >/dev/null 2>&1 || return 0
+
+  python3 - "$database" <<'PY' || true
+import sqlite3
+import sys
+
+connection = sqlite3.connect(sys.argv[1])
+connection.row_factory = sqlite3.Row
+try:
+    print("TARGET persisted operation diagnostics:")
+    for row in connection.execute(
+        """
+        SELECT id, status, error_code, error_message, source_delivery_id,
+               total_artifacts, successful_artifacts, failed_artifacts,
+               skipped_artifacts, conflict_artifacts
+        FROM operations
+        ORDER BY id
+        """
+    ):
+        print("  operation", dict(row))
+
+    print("TARGET persisted artifact diagnostics:")
+    for row in connection.execute(
+        """
+        SELECT operation_id, artifact_type, repository, name, reference, version,
+               source_digest, target_digest, status, error_code, error_message
+        FROM artifact_results
+        ORDER BY operation_id, id
+        """
+    ):
+        print("  artifact", dict(row))
+finally:
+    connection.close()
+PY
+}
+
 cleanup() {
   original_status=$?
   trap - EXIT HUP INT TERM
@@ -107,9 +152,17 @@ physical_count=$(find "$PHYSICAL" -maxdepth 1 -type f | wc -l | tr -d ' ')
   || fail 'physical transfer contains files outside bundle/sidecar/public trust material'
 
 printf 'TARGET phase: SOURCE is gone; importing only physically copied material...\n'
+set +e
 HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" HTP_TRANSFER_DIR="$PHYSICAL" \
   docker compose -p "$TARGET_PROJECT" -f "$COMPOSE" --profile target \
   up --abort-on-container-exit --exit-code-from target-runner target-runner
+target_run_status=$?
+set -e
+if [ "$target_run_status" -ne 0 ]; then
+  dump_target_failure
+  exit "$target_run_status"
+fi
+
 HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" HTP_TRANSFER_DIR="$PHYSICAL" \
   docker compose -p "$TARGET_PROJECT" -f "$COMPOSE" --profile target \
   down --remove-orphans --volumes
