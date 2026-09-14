@@ -37,13 +37,13 @@ def _serialize(event: AuditEvent) -> AuditEventResponse:
 def list_audit_events(
     _admin: AdminDep,
     session: SessionDep,
-    limit: int = Query(default=50, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-    event_type: str | None = Query(default=None, min_length=1, max_length=128),
-    result: str | None = Query(default=None, min_length=1, max_length=32),
-    actor: str | None = Query(default=None, min_length=1, max_length=128),
-    created_from: datetime | None = Query(default=None),
-    created_to: datetime | None = Query(default=None),
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    event_type: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    result: Annotated[str | None, Query(min_length=1, max_length=32)] = None,
+    actor: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    created_from: Annotated[datetime | None, Query()] = None,
+    created_to: Annotated[datetime | None, Query()] = None,
 ) -> AuditEventListResponse:
     if created_from is not None and created_to is not None and created_from > created_to:
         raise HTTPException(
