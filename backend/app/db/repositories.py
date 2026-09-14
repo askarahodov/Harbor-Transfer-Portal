@@ -109,7 +109,11 @@ class OperationRepository:
 
         base = select(Operation).where(*filters)
         total = self.session.scalar(select(func.count()).select_from(base.subquery())) or 0
-        stmt = base.order_by(Operation.created_at.desc(), Operation.id.desc()).limit(limit).offset(offset)
+        stmt = (
+            base.order_by(Operation.created_at.desc(), Operation.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
         return list(self.session.scalars(stmt)), total
 
     def transition(self, operation: Operation, new_status: OperationStatus) -> None:
@@ -212,5 +216,9 @@ class AuditEventRepository:
 
         base = select(AuditEvent).where(*filters)
         total = self.session.scalar(select(func.count()).select_from(base.subquery())) or 0
-        stmt = base.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(limit).offset(offset)
+        stmt = (
+            base.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
         return list(self.session.scalars(stmt)), total
