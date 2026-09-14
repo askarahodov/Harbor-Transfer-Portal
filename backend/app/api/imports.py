@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.auth.dependencies import SessionDep, require_roles
 from app.db.models import User, UserRole
@@ -18,6 +18,7 @@ from app.schemas.imports import (
 from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_orchestrator import ImportOrchestrationError, ImportOrchestrator
 from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
+from app.services.report_service import receipt_filename
 
 router = APIRouter(prefix="/imports", tags=["imports"])
 ImportActorDep = Annotated[
@@ -263,3 +264,26 @@ def import_receipt(
         return orchestrator.receipt(operation_id)
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc
+
+
+@router.get("/{operation_id}/receipt/download")
+def download_import_receipt(
+    operation_id: int,
+    actor: ImportActorDep,
+    orchestrator: ImportOrchestratorDep,
+) -> Response:
+    _authorize_operation(orchestrator, operation_id, actor)
+    try:
+        receipt = orchestrator.receipt(operation_id)
+    except ImportOrchestrationError as exc:
+        raise _import_error(exc) from exc
+    payload = receipt.model_dump_json(indent=2) + "\n"
+    filename = receipt_filename(operation_id)
+    return Response(
+        content=payload,
+        media_type="application/json; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
