@@ -55,6 +55,7 @@ _SECURITY_TEST_PREFIXES = (
 _INTEGRATION_SERVICE_FILES = {
     "bundle_package_service.py",
     "export_orchestrator.py",
+    "import_helm_service.py",
     "import_orchestrator.py",
     "operation_manager.py",
     "report_service.py",
