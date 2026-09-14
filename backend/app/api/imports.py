@@ -2,9 +2,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.auth.dependencies import require_roles
+from app.auth.dependencies import SessionDep, require_roles
 from app.db.models import User, UserRole
 from app.domain.bundle import OperationStatus, OperationType
+from app.domain.imports import ImportPreviewState
 from app.schemas.imports import (
     ImportDiscoveryResponse,
     ImportExecuteRequest,
@@ -13,6 +14,7 @@ from app.schemas.imports import (
     ImportReceiptResponse,
     ImportStartResponse,
 )
+from app.services.audit_service import audit_actor_operation
 from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_orchestrator import ImportOrchestrationError, ImportOrchestrator
 from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
@@ -182,9 +184,11 @@ async def execute_import(
     payload: ImportExecuteRequest,
     actor: ImportActorDep,
     orchestrator: ImportOrchestratorDep,
+    session: SessionDep,
 ) -> ImportStartResponse:
     _authorize_operation(orchestrator, operation_id, actor)
     try:
+        preview = orchestrator.preview(operation_id)
         await orchestrator.start_import(
             operation_id,
             actor_username=actor.username,
@@ -192,6 +196,32 @@ async def execute_import(
         )
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc
+
+    operation = orchestrator.operation_manager.get_operation(operation_id)
+    if operation is not None:
+        conflict_count = sum(
+            item.classification is ImportPreviewState.CONFLICT for item in preview.artifacts
+        )
+        audit_actor_operation(
+            session,
+            actor=actor,
+            event_type="import.started",
+            operation=operation,
+            extra={
+                "overwrite_conflicts": payload.overwrite_conflicts,
+                "conflict_count": conflict_count,
+            },
+        )
+        if payload.overwrite_conflicts and conflict_count:
+            audit_actor_operation(
+                session,
+                actor=actor,
+                event_type="import.conflict_overwrite.approved",
+                operation=operation,
+                extra={"conflict_count": conflict_count},
+            )
+        session.commit()
+
     return ImportStartResponse(
         operation_id=operation_id,
         status=OperationStatus.IMPORTING,
