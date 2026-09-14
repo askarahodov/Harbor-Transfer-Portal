@@ -60,6 +60,7 @@ CHART_NAME = "fixture-chart"
 CHART_VERSION = "1.2.3"
 OCI_MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
 DOCKER_MANIFEST_MEDIA_TYPE = "application/vnd.docker.distribution.manifest.v2+json"
+HELM_CONTENT_MEDIA_TYPE = "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
 
 
 class MetadataHarborClient:
@@ -83,7 +84,12 @@ def assert_local_registry_url() -> None:
         fail("acceptance registry must be an explicit local HTTP fixture")
     if parsed.path not in {"", "/"} or parsed.query or parsed.fragment or parsed.username:
         fail("acceptance registry URL must not contain path/query/userinfo")
-    if parsed.hostname not in {"source-registry", "target-registry", "localhost", "127.0.0.1"}:
+    if parsed.hostname not in {
+        "source-registry",
+        "target-registry",
+        "localhost",
+        "127.0.0.1",
+    }:
         fail("acceptance registry hostname is not an allowed disposable fixture")
 
 
@@ -177,15 +183,25 @@ def write_oci_image_fixture(layout: Path, marker: bytes) -> str:
             }
         )
     )
-    (layout / "oci-layout").write_text('{"imageLayoutVersion":"1.0.0"}\n', encoding="utf-8")
+    (layout / "oci-layout").write_text(
+        '{"imageLayoutVersion":"1.0.0"}\n',
+        encoding="utf-8",
+    )
     return manifest_digest
 
 
 def registry_manifest_digest(repository: str, reference: str) -> str | None:
+    accept = ", ".join(
+        (
+            OCI_MANIFEST_MEDIA_TYPE,
+            DOCKER_MANIFEST_MEDIA_TYPE,
+            HELM_CONTENT_MEDIA_TYPE,
+        )
+    )
     request = Request(
         f"{REGISTRY_URL}/v2/{repository}/manifests/{quote(reference, safe='')}",
         method="HEAD",
-        headers={"Accept": f"{OCI_MANIFEST_MEDIA_TYPE}, {DOCKER_MANIFEST_MEDIA_TYPE}, application/vnd.cncf.helm.chart.content.v1.tar+gzip"},
+        headers={"Accept": accept},
     )
     try:
         with urlopen(request, timeout=5) as response:
@@ -250,7 +266,9 @@ def settings_for(
         bundle_temp_root=data / "tmp" / "bundles",
         bundle_outgoing_root=data / "outgoing",
         bundle_extract_root=data / "verified",
-        bundle_signing_private_key_file=private_key or data / "keys" / "unused-private.pem",
+        bundle_signing_private_key_file=(
+            private_key or data / "keys" / "unused-private.pem"
+        ),
         bundle_trusted_public_keys_dir=trusted_dir or data / "keys" / "trusted",
         import_discovery_root=data / "incoming",
         import_staging_root=data / "staged",
@@ -304,7 +322,13 @@ def package_chart(settings: Settings) -> Path:
     destination = settings.helm_workspace_root / "seed-packages"
     destination.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        (settings.helm_binary, "package", str(chart_root), "--destination", str(destination)),
+        (
+            settings.helm_binary,
+            "package",
+            str(chart_root),
+            "--destination",
+            str(destination),
+        ),
         check=True,
         capture_output=True,
         text=True,
@@ -348,7 +372,10 @@ async def discover_one(manager: OperationManager, orchestrator: ImportOrchestrat
 
 
 def tamper_signature(source: Path, destination: Path) -> None:
-    with tarfile.open(source, "r:gz") as archive_in, tarfile.open(destination, "w:gz") as archive_out:
+    with (
+        tarfile.open(source, "r:gz") as archive_in,
+        tarfile.open(destination, "w:gz") as archive_out,
+    ):
         changed = False
         for member in archive_in.getmembers():
             info = copy.copy(member)
@@ -458,16 +485,27 @@ async def source_phase() -> None:
         if operation is None or operation.status is not OperationStatus.COMPLETED:
             fail(f"SOURCE export did not complete: {operation}")
         metadata_result = orchestrator.bundle_metadata(started.operation_id)
-        sidecar = metadata_result.archive_path.with_name(metadata_result.archive_path.name + ".sha256")
+        sidecar = metadata_result.archive_path.with_name(
+            metadata_result.archive_path.name + ".sha256"
+        )
         verified = BundlePackageService(settings).verify_bundle(
             metadata_result.archive_path,
             sidecar_path=sidecar,
         )
         if len(verified.manifest.artifacts) != 2:
             fail("SOURCE bundle does not contain both acceptance artifacts")
-        shutil.copy2(metadata_result.archive_path, TRANSFER_DIR / metadata_result.archive_path.name)
-        shutil.copy2(sidecar, TRANSFER_DIR / sidecar.name)
-        shutil.copy2(public_key, TRANSFER_DIR / "source-public.pem")
+
+        transfer_archive = TRANSFER_DIR / metadata_result.archive_path.name
+        transfer_sidecar = TRANSFER_DIR / sidecar.name
+        transfer_public_key = TRANSFER_DIR / "source-public.pem"
+        shutil.copy2(metadata_result.archive_path, transfer_archive)
+        shutil.copy2(sidecar, transfer_sidecar)
+        shutil.copy2(public_key, transfer_public_key)
+        # These are physical-media staging copies, not the protected portal originals.
+        # Bundle/signature integrity is cryptographic; none of these three files is secret.
+        for path in (transfer_archive, transfer_sidecar, transfer_public_key):
+            os.chmod(path, 0o644)
+
         print(
             f"SOURCE acceptance export OK: {started.delivery_id}; "
             f"image={image_digest}; chart={chart_digest}"
@@ -491,10 +529,14 @@ async def target_phase() -> None:
         package_service = BundlePackageService(settings)
         verified_transfer = package_service.verify_bundle(archive, sidecar_path=sidecar)
         image_descriptor = next(
-            item for item in verified_transfer.manifest.artifacts if item.type == "container_image"
+            item
+            for item in verified_transfer.manifest.artifacts
+            if item.type == "container_image"
         )
         chart_descriptor = next(
-            item for item in verified_transfer.manifest.artifacts if item.type == "helm_chart"
+            item
+            for item in verified_transfer.manifest.artifacts
+            if item.type == "helm_chart"
         )
 
         orchestrator = ImportOrchestrator(
@@ -526,7 +568,10 @@ async def target_phase() -> None:
             fail("TARGET import artifacts are not all VERIFIED")
 
         receipt = orchestrator.receipt(operation_id)
-        if receipt.result != "COMPLETED" or receipt.source_delivery_id != verified_transfer.manifest.delivery_id:
+        if (
+            receipt.result != "COMPLETED"
+            or receipt.source_delivery_id != verified_transfer.manifest.delivery_id
+        ):
             fail("TARGET immutable receipt identity/result mismatch")
         receipt_path = settings.import_receipt_root / f"import-{operation_id}.json"
         if not receipt_path.is_file() or (receipt_path.stat().st_mode & 0o777) != 0o440:
@@ -561,7 +606,10 @@ async def target_phase() -> None:
         stage_incoming(settings, archive, sidecar)
         replay_id = await discover_one(manager, orchestrator)
         replay_preview = orchestrator.preview(replay_id)
-        if any(item.classification is not ImportPreviewState.SAME for item in replay_preview.artifacts):
+        if any(
+            item.classification is not ImportPreviewState.SAME
+            for item in replay_preview.artifacts
+        ):
             fail("replay preview is not idempotent SAME")
         await orchestrator.start_import(
             replay_id,
@@ -625,7 +673,10 @@ async def target_phase() -> None:
             stage_incoming(settings, tampered, tampered_sidecar)
             tampered_id = await discover_one(manager, orchestrator)
             tampered_operation = manager.get_operation(tampered_id)
-            if tampered_operation is None or tampered_operation.status is not OperationStatus.REJECTED:
+            if (
+                tampered_operation is None
+                or tampered_operation.status is not OperationStatus.REJECTED
+            ):
                 fail(f"tampered signed bundle was not REJECTED: {tampered_operation}")
 
         with factory() as session:
