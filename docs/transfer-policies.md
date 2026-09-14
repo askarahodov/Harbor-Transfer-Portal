@@ -22,8 +22,8 @@ PATCH /api/settings/transfer
 | Поле API | Назначение | Применение |
 |---|---|---|
 | `import_allow_overwrite` | разрешает отдельное подтверждённое overwrite-действие для TARGET conflicts | runtime |
-| `import_max_upload_bytes` | максимальный browser/incoming intake size | runtime |
-| `bundle_max_archive_bytes` | максимальный размер Bundle archive для verifier | runtime |
+| `import_max_upload_bytes` | максимальный размер browser upload | runtime |
+| `bundle_max_archive_bytes` | максимальный размер Bundle archive, включая physical incoming/discovery и verifier | runtime |
 | `bundle_max_extracted_bytes` | максимальный допустимый extracted payload | runtime |
 | `bundle_max_member_count` | максимальное число archive members | runtime |
 | `operation_disk_reserve_bytes` | обязательный свободный disk reserve перед operation | runtime |
@@ -60,7 +60,9 @@ Backend валидирует комбинацию целиком:
 import_max_upload_bytes <= bundle_max_archive_bytes <= bundle_max_extracted_bytes
 ```
 
-Это предотвращает конфигурацию, в которой Portal принимает upload, который затем заведомо не может пройти archive limit, либо разрешает archive больше допустимого extracted budget.
+`import_max_upload_bytes` ограничивает только browser upload. Штатный air-gap fallback через физически скопированный archive + `.sha256` в incoming directory может быть больше browser limit, но не может превышать `bundle_max_archive_bytes`. После discovery тот же archive всё равно проходит обычную schema/signature/checksum и archive/extracted/member verification.
+
+Это позволяет держать browser upload консервативным и переносить крупные bundle через USB/HDD без искусственного повышения browser limit.
 
 Дополнительные bounds:
 
@@ -77,7 +79,7 @@ import_max_upload_bytes <= bundle_max_archive_bytes <= bundle_max_extracted_byte
 Следующие поля применяются к общему `Settings` object сразу после успешного PATCH и поэтому используются последующими import/verifier/operation paths без restart:
 
 - overwrite policy;
-- upload limit;
+- browser upload limit;
 - archive/extracted/member limits;
 - disk reserve.
 
