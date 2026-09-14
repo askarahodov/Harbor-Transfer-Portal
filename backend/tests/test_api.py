@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app import __version__
 from app.config import PortalContour, Settings
 from app.main import create_app
 
@@ -23,9 +24,10 @@ def test_health_response_is_stable_and_contains_no_secrets() -> None:
     assert response.json() == {
         "status": "ok",
         "service": "Harbor Transfer Portal",
-        "version": "0.1.0",
+        "version": __version__,
         "contour": "SOURCE",
     }
+    assert __version__ == "1.0.0"
     assert secret not in response.text
     assert "robot$portal" not in response.text
     assert "harbor.local" not in response.text
