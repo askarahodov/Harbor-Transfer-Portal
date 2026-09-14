@@ -38,10 +38,10 @@
 | [user-guide.md](user-guide.md) | пошаговый browser flow SOURCE → physical transfer → TARGET для operator/viewer | актуальный |
 | [export-orchestration.md](export-orchestration.md) | SOURCE export backend/API/publication/download contract | актуальный component doc |
 | [import-orchestration.md](import-orchestration.md) | TARGET intake/verify/preview/conflict/import/receipt contract | актуальный component doc |
-| [admin-guide.md](admin-guide.md) | bootstrap, Harbor, keys, backup/restore, limits, эксплуатация | актуальный для current Compose; не final offline installer |
+| [admin-guide.md](admin-guide.md) | bootstrap, Harbor, users/policies/keys, backup/restore, limits | актуальный для current Compose; не final offline installer |
 | [transfer-policies.md](transfer-policies.md) | admin-managed runtime transfer policies, limits и restart semantics | актуальный component/admin doc |
 | [key-management.md](key-management.md) | SOURCE signing identity и TARGET trusted-key lifecycle/rotation | актуальный component/admin doc |
-| [troubleshooting.md](troubleshooting.md) | symptom → cause → diagnostic → safe resolution | актуальный; UI-specific cases дополняются вместе с flows |
+| [troubleshooting.md](troubleshooting.md) | symptom → cause → diagnostic → safe resolution для current transfer flow | актуальный |
 | [offline-bundle-v1.md](offline-bundle-v1.md) | Bundle v1 signing/checksum/archive contract | **нормативный** |
 | `schema/` | machine-readable Bundle schemas | **нормативный** |
 | [package-service.md](package-service.md) | Bundle build/verify implementation boundary | актуальный component doc |
@@ -50,7 +50,7 @@
 | [helm-oci-service.md](helm-oci-service.md) | Helm OCI transfer service | актуальный component doc |
 | [harbor-browse-api.md](harbor-browse-api.md) | Harbor browse projection/policies | актуальный component doc |
 | [security.md](security.md) | security/trust model и known v1 limitations | актуальный |
-| [testing.md](testing.md) | test selection и CI policy | актуальный |
+| [testing.md](testing.md) | test selection и CI policy | актуальный; оставшаяся P7.3 quality work отслеживается #26 |
 | [decisions.md](decisions.md) | ADR registry | актуальный registry |
 | [../deploy/README.md](../deploy/README.md) | development/runtime Compose deployment | актуальный; не final offline installer |
 | [harbor-transfer-portal.md](harbor-transfer-portal.md) | исходная постановка/UI concepts/ранний plan | **исторический** |
@@ -88,7 +88,7 @@ TARGET UI не выполняет самостоятельную cryptographic v
 
 Родительская задача: #27.
 
-Текущая декомпозиция:
+Декомпозиция P7.4 выполнена:
 
 - #55 — architecture/separation historical master-document — выполнено;
 - #56 — security/trust model — выполнено;
@@ -96,16 +96,17 @@ TARGET UI не выполняет самостоятельную cryptographic v
 - #58 — ADR/docs hygiene и карта документации — выполнено;
 - #59 — `user-guide.md` для operator/viewer — выполнено;
 - #60 — `admin-guide.md` — выполнено;
-- #61 — `troubleshooting.md` — current operational guide создан;
+- #61 — `troubleshooting.md` — выполнено и синхронизировано с current SOURCE/TARGET flow;
 - #67 — automated documentation link gate — выполнено;
 - #71 — OperationManager architecture synchronization — выполнено;
 - #68 — root README current-state — выполнено;
 - #17 — SOURCE backend export — выполнено;
 - #18 — SOURCE export wizard — выполнено;
 - #19 — TARGET backend import orchestration — выполнено;
-- #20 — TARGET import wizard — выполнено.
+- #20 — TARGET import wizard — выполнено;
+- #23 — admin users/policies/signing/trust-key console — выполнено.
 
-Наличие двух готовых application wizard и user guide не означает автоматически пройденный full SOURCE→physical→TARGET acceptance: финальный cross-contour E2E и offline release qualification остаются отдельной задачей #28.
+P7.4 считается завершённым documentation checkpoint для **текущего application/runtime Compose**. Это не означает release qualification: финальный offline installer, clean-VM procedure и isolated SOURCE → physical transfer → TARGET acceptance E2E остаются отдельной задачей #28. Quality/reproducibility work P7.3 остаётся в #26.
 
 ## Автоматическая проверка документации
 
