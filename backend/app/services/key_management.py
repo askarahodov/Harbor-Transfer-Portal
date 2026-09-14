@@ -49,12 +49,12 @@ class KeyMutation:
 class KeyManagementService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.signing_path = settings.bundle_signing_private_key_file.resolve()
-        self.trusted_dir = settings.bundle_trusted_public_keys_dir.resolve()
+        self.signing_path = settings.bundle_signing_private_key_file.absolute()
+        self.trusted_dir = settings.bundle_trusted_public_keys_dir.absolute()
 
     def signing_status(self) -> SigningKeyStatus:
         self._require_source()
-        if not self.signing_path.exists():
+        if not self.signing_path.exists() and not self.signing_path.is_symlink():
             return SigningKeyStatus(configured=False, fingerprint=None)
         key = self._read_private_key_file(self.signing_path)
         return SigningKeyStatus(
@@ -66,6 +66,11 @@ class KeyManagementService:
         self._require_source()
         key = self._parse_private_key(self._bounded_bytes(pem))
         fingerprint = ed25519_public_key_fingerprint(key.public_key())
+        if self.signing_path.is_symlink():
+            raise KeyManagementError(
+                "signing_key_invalid",
+                "SOURCE signing key path не может быть symlink",
+            )
         action = "rotated" if self.signing_path.exists() else "installed"
         normalized = key.private_bytes(
             encoding=serialization.Encoding.PEM,
@@ -79,11 +84,7 @@ class KeyManagementService:
         self._require_target()
         if not self.trusted_dir.exists():
             return ()
-        if not self.trusted_dir.is_dir() or self.trusted_dir.is_symlink():
-            raise KeyManagementError(
-                "trusted_key_store_invalid",
-                "Каталог trusted SOURCE keys некорректен",
-            )
+        self._require_trusted_directory()
 
         states: dict[str, bool] = {}
         for path, enabled in self._trusted_key_files():
@@ -115,6 +116,7 @@ class KeyManagementService:
         self._atomic_write(target, normalized, 0o600)
         self._remove_other_matches(existing, keep=target)
         self._disabled_path(fingerprint).unlink(missing_ok=True)
+        self._fsync_directory(self.trusted_dir)
         return KeyMutation(
             action="replaced" if existing else "added",
             fingerprint=fingerprint,
@@ -144,6 +146,7 @@ class KeyManagementService:
         self._remove_other_matches(matches, keep=target)
         opposite = self._disabled_path(normalized) if enabled else self._enabled_path(normalized)
         opposite.unlink(missing_ok=True)
+        self._fsync_directory(self.trusted_dir)
         return KeyMutation(
             action="enabled" if enabled else "disabled",
             fingerprint=normalized,
@@ -276,9 +279,17 @@ class KeyManagementService:
             ) from exc
         return self._parse_public_key(data)
 
+    def _require_trusted_directory(self) -> None:
+        if not self.trusted_dir.is_dir() or self.trusted_dir.is_symlink():
+            raise KeyManagementError(
+                "trusted_key_store_invalid",
+                "Каталог trusted SOURCE keys некорректен",
+            )
+
     def _trusted_key_files(self) -> tuple[tuple[Path, bool], ...]:
         if not self.trusted_dir.exists():
             return ()
+        self._require_trusted_directory()
         active = [(path, True) for path in sorted(self.trusted_dir.glob("*.pem"))]
         disabled = [(path, False) for path in sorted(self.trusted_dir.glob("*.disabled"))]
         return tuple(active + disabled)
