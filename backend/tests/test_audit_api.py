@@ -91,10 +91,11 @@ def test_user_mutations_create_secret_free_audit_events(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total"] == 2
+    assert payload["total"] == 3
     assert [item["event_type"] for item in payload["items"]] == [
         "user.updated",
         "user.created",
+        "auth.login.succeeded",
     ]
     assert payload["items"][0]["metadata"] == {
         "target_user_id": target_user_id,
