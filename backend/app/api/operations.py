@@ -7,6 +7,7 @@ from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.db.models import Operation, UserRole
 from app.db.repositories import OperationRepository
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
+from app.domain.operations import TERMINAL_STATES
 from app.schemas.operations import (
     OperationArtifactResponse,
     OperationBundleResponse,
@@ -15,6 +16,7 @@ from app.schemas.operations import (
     OperationResponse,
     OperationSummaryResponse,
 )
+from app.services.audit_service import audit_actor_operation
 from app.services.operation_manager import OperationManager, OperationManagerError
 
 router = APIRouter(prefix="/operations", tags=["operations"])
@@ -192,6 +194,17 @@ async def cancel_operation(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="only operation creator or admin may cancel operation",
         )
+
+    if operation.status not in TERMINAL_STATES:
+        prefix = "export" if operation.type is OperationType.EXPORT else "import"
+        audit_actor_operation(
+            session,
+            actor=user,
+            event_type=f"{prefix}.cancel.requested",
+            operation=operation,
+            extra={"status_at_request": operation.status.value},
+        )
+        session.commit()
 
     try:
         await _manager(request).cancel(operation_id)
