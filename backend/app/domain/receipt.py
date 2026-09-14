@@ -29,8 +29,9 @@ class ImportReceipt(BaseModel):
     @field_validator("completed_at")
     @classmethod
     def require_utc(cls, value: datetime) -> datetime:
-        if value.tzinfo is None or value.utcoffset() is None:
+        offset = value.utcoffset() if value.tzinfo is not None else None
+        if offset is None:
             raise ValueError("completed_at must be timezone-aware UTC")
-        if value.utcoffset().total_seconds() != 0:
+        if offset.total_seconds() != 0:
             raise ValueError("completed_at must be UTC")
         return value

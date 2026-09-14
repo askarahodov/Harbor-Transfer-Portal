@@ -107,7 +107,7 @@ def _jwt_secret(request: Request) -> str:
             "authentication_not_configured",
             "Authentication не настроена",
         )
-    return secret.get_secret_value()
+    return str(secret.get_secret_value())
 
 
 def _active_user(session: SessionDep, user_id: int) -> User:

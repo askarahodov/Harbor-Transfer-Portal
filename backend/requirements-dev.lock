@@ -28,6 +28,9 @@ idna==3.19
 iniconfig==2.3.0
 jsonschema-specifications==2025.9.1
 jsonschema==4.26.0
+librt==0.15.0
+mypy==1.20.2
+mypy_extensions==1.1.0
 packaging==26.3
 pathspec==1.1.1
 pillow==12.3.0
@@ -47,6 +50,9 @@ ruff==0.16.7
 starlette==1.6.0
 tomlkit==0.15.1
 trove-classifiers==2026.6.1.19
+types-jsonschema==4.26.0.20260518
+types-pyyaml==6.0.12.20260906
+types-reportlab==4.5.1.20260827
 typing-inspection==0.4.4
 typing_extensions==4.16.0
 uvicorn==0.53.0

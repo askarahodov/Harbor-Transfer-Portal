@@ -5,14 +5,30 @@ import os
 import secrets
 import shutil
 import threading
+from collections.abc import Callable, Sequence
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.config import Settings
 from app.db.models import Operation
-from app.domain.bundle import OperationStatus, OperationType
-from app.services.bundle_package_service import BundlePackageError, BundlePackageService
-from app.services.export_orchestrator import ExportOrchestrator
+from app.domain.bundle import BundleSource, OperationStatus, OperationType
+from app.services.bundle_package_service import (
+    BundleBuildResult,
+    BundlePackageError,
+    BundlePackageService,
+    PackageArtifactInput,
+)
+from app.services.export_orchestrator import (
+    ExportOrchestrator,
+    HarborClientFactory,
+    HelmFactory,
+    PackageFactory,
+    SkopeoFactory,
+)
+from app.services.operation_manager import OperationManager
 
 
 class _OwnedBundlePackageService(BundlePackageService):
@@ -20,20 +36,36 @@ class _OwnedBundlePackageService(BundlePackageService):
 
     def __init__(
         self,
-        settings,
+        settings: Settings,
         *,
-        on_publication_recorded,
-        on_publication_rolled_back,
+        on_publication_recorded: Callable[[str, str, str, int], None],
+        on_publication_rolled_back: Callable[[str], None],
     ) -> None:
         super().__init__(settings)
         self._on_publication_recorded = on_publication_recorded
         self._on_publication_rolled_back = on_publication_rolled_back
         self._published_delivery_id: str | None = None
 
-    def build_bundle(self, *args: object, **kwargs: object):
+    def build_bundle(
+        self,
+        *,
+        source: BundleSource,
+        created_by: str,
+        artifacts: Sequence[PackageArtifactInput],
+        delivery_id: str | None = None,
+        created_at: datetime | None = None,
+        comment: str | None = None,
+    ) -> BundleBuildResult:
         self._published_delivery_id = None
         try:
-            return super().build_bundle(*args, **kwargs)
+            return super().build_bundle(
+                source=source,
+                created_by=created_by,
+                artifacts=artifacts,
+                delivery_id=delivery_id,
+                created_at=created_at,
+                comment=comment,
+            )
         except BaseException:
             if self._published_delivery_id is not None:
                 self._rollback_completed_publication(self._published_delivery_id)
@@ -129,8 +161,26 @@ class _OwnedBundlePackageService(BundlePackageService):
 class PublicationSafeExportOrchestrator(ExportOrchestrator):
     """Export orchestrator with explicit ownership of outgoing publication files."""
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        settings: Settings,
+        operation_manager: OperationManager,
+        *,
+        harbor_client_factory: HarborClientFactory | None = None,
+        skopeo_factory: SkopeoFactory | None = None,
+        helm_factory: HelmFactory | None = None,
+        package_factory: PackageFactory | None = None,
+    ) -> None:
+        super().__init__(
+            session_factory,
+            settings,
+            operation_manager,
+            harbor_client_factory=harbor_client_factory,
+            skopeo_factory=skopeo_factory,
+            helm_factory=helm_factory,
+            package_factory=package_factory,
+        )
         self._publication_lock = threading.Lock()
         self._owned_deliveries: set[str] = set()
 

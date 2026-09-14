@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: help up down logs fmt lint lint-backend test test-backend test-frontend test-ci-scope dependency-locks-check docs-check migrate build compose-config smoke-compose check-foundation
+.PHONY: help up down logs fmt lint lint-backend typecheck-backend test test-backend test-frontend test-ci-scope dependency-locks-check docs-check migrate build compose-config smoke-compose check-foundation
 
 help:
 	@printf '%s\n' \
@@ -10,6 +10,7 @@ help:
 	  'make fmt            Форматировать backend и frontend' \
 	  'make lint           Запустить все реализованные линтеры' \
 	  'make lint-backend   Запустить только backend Ruff checks' \
+	  'make typecheck-backend Запустить backend Mypy static type check' \
 	  'make test           Запустить backend и frontend tests' \
 	  'make test-backend   Запустить только backend tests' \
 	  'make test-frontend  Запустить только frontend tests' \
@@ -45,6 +46,10 @@ lint: lint-backend
 lint-backend:
 	@test -f backend/pyproject.toml || { echo 'backend/pyproject.toml отсутствует'; exit 2; }
 	cd backend && python -m ruff check .
+
+typecheck-backend:
+	@test -f backend/pyproject.toml || { echo 'backend/pyproject.toml отсутствует'; exit 2; }
+	cd backend && python -m mypy app
 
 test: test-backend test-frontend
 
