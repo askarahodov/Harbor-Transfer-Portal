@@ -9,9 +9,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.router import api_router
 from app.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
+from app.services.correlated_operation_manager import CorrelatedOperationManager
 from app.services.export_recovery import reconcile_incomplete_export_publications
 from app.services.operation_audit import install_operation_audit_hooks
-from app.services.operation_manager import OperationManager
 from app.utils.errors import http_exception_handler, validation_exception_handler
 from app.utils.logging import RequestCorrelationMiddleware, configure_application_logging
 
@@ -25,7 +25,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_operation_audit_hooks()
     db_engine = create_db_engine(resolved_settings.database_url)
     session_factory = create_session_factory(db_engine)
-    operation_manager = OperationManager(session_factory, resolved_settings)
+    operation_manager = CorrelatedOperationManager(session_factory, resolved_settings)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
