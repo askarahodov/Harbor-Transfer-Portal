@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import ArtifactResult, AuditEvent, Operation, SettingMetadata, User, UserRole
@@ -69,6 +69,48 @@ class OperationRepository:
             .options(selectinload(Operation.artifacts))
         )
         return self.session.scalar(stmt)
+
+    def list_filtered(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        operation_type: OperationType | None = None,
+        operation_status: OperationStatus | None = None,
+        actor_username: str | None = None,
+        delivery_id: str | None = None,
+        search: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+    ) -> tuple[list[Operation], int]:
+        filters = []
+        if operation_type is not None:
+            filters.append(Operation.type == operation_type)
+        if operation_status is not None:
+            filters.append(Operation.status == operation_status)
+        if actor_username:
+            filters.append(Operation.actor_username == actor_username.strip().lower())
+        if delivery_id:
+            filters.append(Operation.delivery_id == delivery_id.strip())
+        if created_from is not None:
+            filters.append(Operation.created_at >= created_from)
+        if created_to is not None:
+            filters.append(Operation.created_at <= created_to)
+        if search and search.strip():
+            pattern = f"%{search.strip()}%"
+            filters.append(
+                or_(
+                    Operation.delivery_id.ilike(pattern),
+                    Operation.actor_username.ilike(pattern),
+                    Operation.comment.ilike(pattern),
+                    Operation.error_code.ilike(pattern),
+                )
+            )
+
+        base = select(Operation).where(*filters)
+        total = self.session.scalar(select(func.count()).select_from(base.subquery())) or 0
+        stmt = base.order_by(Operation.created_at.desc(), Operation.id.desc()).limit(limit).offset(offset)
+        return list(self.session.scalars(stmt)), total
 
     def transition(self, operation: Operation, new_status: OperationStatus) -> None:
         validate_transition(operation.type, operation.status, new_status)
@@ -144,3 +186,31 @@ class AuditEventRepository:
         self.session.add(event)
         self.session.flush()
         return event
+
+    def list_filtered(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        event_type: str | None = None,
+        result: str | None = None,
+        actor_username: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+    ) -> tuple[list[AuditEvent], int]:
+        filters = []
+        if event_type:
+            filters.append(AuditEvent.event_type == event_type.strip())
+        if result:
+            filters.append(AuditEvent.result == result.strip())
+        if actor_username:
+            filters.append(AuditEvent.actor_username == actor_username.strip().lower())
+        if created_from is not None:
+            filters.append(AuditEvent.created_at >= created_from)
+        if created_to is not None:
+            filters.append(AuditEvent.created_at <= created_to)
+
+        base = select(AuditEvent).where(*filters)
+        total = self.session.scalar(select(func.count()).select_from(base.subquery())) or 0
+        stmt = base.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(limit).offset(offset)
+        return list(self.session.scalars(stmt)), total
