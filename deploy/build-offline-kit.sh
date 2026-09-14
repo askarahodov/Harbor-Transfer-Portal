@@ -57,7 +57,7 @@ printf 'Saving %s...\n' "$FRONTEND_IMAGE"
 docker save -o "$STAGE/images/frontend.tar" "$FRONTEND_IMAGE"
 
 cp "$ROOT/deploy/offline/compose.yaml" "$STAGE/compose.yaml"
-for script in install.sh backup.sh upgrade.sh uninstall.sh; do
+for script in install.sh backup.sh restore.sh upgrade.sh uninstall.sh; do
   cp "$ROOT/deploy/offline/$script" "$STAGE/$script"
   chmod 0755 "$STAGE/$script"
 done
