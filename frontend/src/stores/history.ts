@@ -4,6 +4,8 @@ import { defineStore } from 'pinia'
 import {
   apiErrorInfo,
   createExportDownloadTicket,
+  downloadImportReceiptFile,
+  downloadOperationReport,
   getImportReceipt,
   getOperation,
   listOperationHistory,
@@ -11,11 +13,13 @@ import {
   type HistoryFilters,
   type ImportReceipt,
   type Operation,
+  type OperationReportFormat,
   type OperationSummary,
 } from '@/api/history'
 import { useAuthStore } from '@/stores/auth'
 
 const PAGE_SIZE = 25
+const REPORT_READY_STATUSES = ['COMPLETED', 'FAILED', 'REJECTED', 'CANCELLED'] as const
 
 function emptyFilters(): HistoryFilters {
   return {
@@ -56,6 +60,17 @@ export const useHistoryStore = defineStore('history', () => {
     if (auth.user?.role === 'admin') return true
     return auth.user?.role === 'operator' && auth.user.username === detail.value.actor_username
   })
+
+  const canDownloadSelectedReport = computed(() => {
+    if (!detail.value) return false
+    return REPORT_READY_STATUSES.includes(
+      detail.value.status as (typeof REPORT_READY_STATUSES)[number],
+    )
+  })
+
+  const canDownloadSelectedReceipt = computed(
+    () => canReadSelectedReceipt.value && receiptState.value === 'ready',
+  )
 
   const canDownloadSelectedExport = computed(() => {
     if (!detail.value || detail.value.type !== 'EXPORT') return false
@@ -159,6 +174,32 @@ export const useHistoryStore = defineStore('history', () => {
     downloadError.value = null
   }
 
+  async function downloadSelectedReport(format: OperationReportFormat): Promise<void> {
+    if (!detail.value || !canDownloadSelectedReport.value) return
+    downloadError.value = null
+    try {
+      await downloadOperationReport(detail.value.id, format)
+    } catch (requestError) {
+      downloadError.value = apiErrorInfo(
+        requestError,
+        `Не удалось скачать ${format.toUpperCase()}-отчёт операции.`,
+      ).message
+    }
+  }
+
+  async function downloadSelectedReceipt(): Promise<void> {
+    if (!detail.value || !canDownloadSelectedReceipt.value) return
+    downloadError.value = null
+    try {
+      await downloadImportReceiptFile(detail.value.id)
+    } catch (requestError) {
+      downloadError.value = apiErrorInfo(
+        requestError,
+        'Не удалось скачать canonical import receipt.',
+      ).message
+    }
+  }
+
   async function downloadSelectedExport(): Promise<void> {
     if (!detail.value || !canDownloadSelectedExport.value) return
     downloadError.value = null
@@ -192,6 +233,8 @@ export const useHistoryStore = defineStore('history', () => {
     hasPrevious,
     hasNext,
     canReadSelectedReceipt,
+    canDownloadSelectedReport,
+    canDownloadSelectedReceipt,
     canDownloadSelectedExport,
     load,
     applyFilters,
@@ -200,6 +243,8 @@ export const useHistoryStore = defineStore('history', () => {
     nextPage,
     openDetail,
     closeDetail,
+    downloadSelectedReport,
+    downloadSelectedReceipt,
     downloadSelectedExport,
   }
 })
