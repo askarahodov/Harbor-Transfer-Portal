@@ -95,3 +95,8 @@ class ExportBundleResponse(BaseModel):
     archive_size: int
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     download_url: str
+
+
+class ExportDownloadTicketResponse(BaseModel):
+    download_url: str
+    expires_in_seconds: int = Field(ge=1, le=600)

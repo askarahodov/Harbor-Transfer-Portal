@@ -12,7 +12,9 @@ import ContourBadge from './ContourBadge.vue'
 const router = useRouter()
 const auth = useAuthStore()
 const runtime = useRuntimeStore()
-const navigation = computed(() => navigationForRole(auth.user?.role))
+const navigation = computed(() =>
+  navigationForRole(auth.user?.role, runtime.contour ?? undefined),
+)
 
 async function logout(): Promise<void> {
   auth.logout()

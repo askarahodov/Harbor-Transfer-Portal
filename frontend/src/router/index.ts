@@ -8,9 +8,12 @@ import {
 } from 'vue-router'
 
 import { useAuthStore, type UserRole } from '@/stores/auth'
+import { useRuntimeStore, type PortalContour } from '@/stores/runtime'
 
 const transferRoles: UserRole[] = ['admin', 'operator']
 const adminRoles: UserRole[] = ['admin']
+const sourceContours: PortalContour[] = ['SOURCE']
+const targetContours: PortalContour[] = ['TARGET']
 
 const routes: RouteRecordRaw[] = [
   {
@@ -24,13 +27,13 @@ const routes: RouteRecordRaw[] = [
     path: '/export',
     name: 'export',
     component: () => import('@/views/ExportView.vue'),
-    meta: { roles: transferRoles },
+    meta: { roles: transferRoles, contours: sourceContours },
   },
   {
     path: '/import',
     name: 'import',
     component: () => import('@/views/ImportView.vue'),
-    meta: { roles: transferRoles },
+    meta: { roles: transferRoles, contours: targetContours },
   },
   { path: '/history', name: 'history', component: () => import('@/views/HistoryView.vue') },
   {
@@ -66,6 +69,19 @@ export function installAuthGuards(appRouter: Router, pinia: Pinia): void {
     const roles = Array.isArray(to.meta.roles) ? (to.meta.roles as UserRole[]) : null
     if (roles && !roles.includes(auth.user!.role)) {
       return { name: 'dashboard' }
+    }
+
+    const contours = Array.isArray(to.meta.contours)
+      ? (to.meta.contours as PortalContour[])
+      : null
+    if (contours) {
+      const runtime = useRuntimeStore(pinia)
+      if (!runtime.contour) {
+        await runtime.loadRuntime()
+      }
+      if (!runtime.contour || !contours.includes(runtime.contour)) {
+        return { name: 'dashboard' }
+      }
     }
 
     return true

@@ -6,7 +6,7 @@
 
 Harbor Transfer Portal — локальный веб-портал для безопасной офлайн-передачи container images и Helm OCI charts между двумя физически и сетево изолированными Harbor-контурами.
 
-> **Статус:** активная разработка **v1**. SOURCE backend export orchestration уже реализован, но законченный export wizard, TARGET intake/import flow и финальный offline installation kit ещё развиваются. Текущий `main` не следует автоматически считать готовым production-релизом.
+> **Статус:** активная разработка **v1**. SOURCE backend orchestration и 4-step export wizard реализованы; TARGET backend intake/import orchestration также реализован, но законченный TARGET import wizard, history/report UX и финальный offline installation kit ещё развиваются. Текущий `main` не следует автоматически считать готовым production-релизом.
 
 ## За 30 секунд
 
@@ -45,10 +45,11 @@ Harbor TARGET
 | Bundle build/sign/verify/safe extraction | реализовано |
 | Persistent `OperationManager`, progress/cancel/restart reconciliation | реализовано |
 | SOURCE export feature-specific backend orchestration/API | реализовано |
-| SOURCE bundle metadata и disk-backed download | реализовано |
+| SOURCE export wizard/UI | реализовано |
+| SOURCE bundle metadata и disk-backed browser download | реализовано |
+| TARGET intake/preview/import backend orchestration/API | реализовано |
+| TARGET import wizard/UI | в разработке |
 | Vue shell/login/settings foundation | реализовано |
-| SOURCE export wizard/UI | в разработке |
-| TARGET intake/import feature-specific orchestration/UI | в разработке |
 | Full history/audit/report UX | в разработке |
 | Final offline installer + acceptance E2E | запланировано |
 
@@ -67,6 +68,7 @@ Harbor TARGET
 - Conflict не должен приводить к неявной перезаписи target artifact.
 - Operation status — persisted domain state, а не вывод из текста логов.
 - SOURCE delivery считается готовым только после verified publication и terminal `COMPLETED`; incomplete/cancelled/restarted export не должен оставлять ready-looking `.sha256`.
+- Большой SOURCE archive отдаётся браузеру через disk-backed `FileResponse`, а не буферизуется целиком в frontend memory.
 
 Полная модель угроз и доверия: [docs/security.md](docs/security.md).
 
@@ -81,11 +83,11 @@ Harbor TARGET
 | настраиваете development/runtime Compose | [Deployment](deploy/README.md) |
 | проектируете/разрабатываете backend или интеграции | [Архитектура](docs/architecture.md) |
 | работаете с SOURCE export API/orchestration | [SOURCE export orchestration](docs/export-orchestration.md) |
+| работаете с frontend/export wizard | [Frontend](docs/frontend.md) |
 | реализуете совместимость SOURCE/TARGET | [Offline Bundle Protocol v1](docs/offline-bundle-v1.md) |
 | разбираете security/trust boundaries | [Security](docs/security.md) |
 | меняете background execution | [OperationManager](docs/operation-manager.md) |
 | работаете с Skopeo/Helm | [Skopeo](docs/skopeo-service.md) / [Helm OCI](docs/helm-oci-service.md) |
-| меняете frontend | [Frontend](docs/frontend.md) |
 | меняете CI/tests | [Testing/CI](docs/testing.md) |
 | принимаете архитектурное решение | [ADR registry](docs/decisions.md) |
 | собираетесь внести изменение | [CONTRIBUTING.md](CONTRIBUTING.md) |
@@ -222,12 +224,11 @@ Documentation gate проверяет repository-relative Markdown links без 
 
 Ближайшие продуктовые milestones:
 
-1. подключить SOURCE export wizard к готовому backend orchestration API (#18);
-2. закончить TARGET intake/preview/import orchestration (#19);
-3. подключить законченный TARGET import UI flow;
-4. завершить history/audit/report user experience;
-5. завершить user guide по фактическим SOURCE/TARGET UI flows;
-6. собрать финальный offline installation kit и выполнить SOURCE→TARGET acceptance E2E.
+1. подключить законченный TARGET import wizard/UI к готовому backend orchestration;
+2. завершить history/audit/report user experience;
+3. завершить user guide по фактическим SOURCE/TARGET UI flows;
+4. выполнить cross-contour UX/E2E acceptance для export → physical transfer → import;
+5. собрать финальный offline installation kit и выполнить release acceptance E2E.
 
 Актуальная детализация работ ведётся в GitHub Issues; README намеренно не дублирует issue backlog.
 

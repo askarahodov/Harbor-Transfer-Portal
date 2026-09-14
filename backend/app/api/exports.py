@@ -1,13 +1,20 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 
-from app.auth.dependencies import require_roles
+from app.auth.dependencies import CredentialsDep, SessionDep, require_roles
+from app.auth.security import (
+    create_export_download_token,
+    decode_access_token,
+    decode_export_download_token,
+)
 from app.db.models import User, UserRole
+from app.db.repositories import UserRepository
 from app.domain.bundle import OperationStatus, OperationType
 from app.schemas.exports import (
     ExportBundleResponse,
+    ExportDownloadTicketResponse,
     ExportPreviewResponse,
     ExportResolvedArtifactResponse,
     ExportSelectionRequest,
@@ -21,6 +28,9 @@ ExportActorDep = Annotated[
     User,
     Depends(require_roles(UserRole.OPERATOR, UserRole.ADMIN)),
 ]
+
+_EXPORT_DOWNLOAD_COOKIE = "htp_export_download"
+_EXPORT_DOWNLOAD_TTL_SECONDS = 120
 
 
 def get_export_orchestrator(request: Request) -> ExportOrchestrator:
@@ -87,6 +97,79 @@ def _authorize_operation(
             "export_forbidden",
             "Operator может получать только собственный export bundle",
         )
+
+
+def _jwt_secret(request: Request) -> str:
+    secret = request.app.state.settings.jwt_secret
+    if secret is None:
+        raise _api_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "authentication_not_configured",
+            "Authentication не настроена",
+        )
+    return secret.get_secret_value()
+
+
+def _active_user(session: SessionDep, user_id: int) -> User:
+    user = UserRepository(session).get(user_id)
+    if user is None or not user.is_active:
+        raise _api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            "download_auth_invalid",
+            "Download authorization недействительна или истекла",
+        )
+    if user.role not in {UserRole.ADMIN, UserRole.OPERATOR}:
+        raise _api_error(
+            status.HTTP_403_FORBIDDEN,
+            "export_forbidden",
+            "Недостаточно прав для скачивания export bundle",
+        )
+    return user
+
+
+def _authorize_download_request(
+    *,
+    request: Request,
+    operation_id: int,
+    credentials: CredentialsDep,
+    session: SessionDep,
+    orchestrator: ExportOrchestrator,
+) -> None:
+    secret = _jwt_secret(request)
+    if credentials is not None:
+        try:
+            user_id = decode_access_token(credentials.credentials, secret)
+        except ValueError as exc:
+            raise _api_error(
+                status.HTTP_401_UNAUTHORIZED,
+                "download_auth_invalid",
+                "Download authorization недействительна или истекла",
+            ) from exc
+        actor = _active_user(session, user_id)
+        _authorize_operation(orchestrator, operation_id, actor)
+        return
+
+    ticket = request.cookies.get(_EXPORT_DOWNLOAD_COOKIE)
+    if not ticket:
+        raise _api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            "download_auth_required",
+            "Для скачивания требуется короткоживущий download ticket",
+        )
+    try:
+        user_id = decode_export_download_token(
+            ticket,
+            secret,
+            expected_operation_id=operation_id,
+        )
+    except ValueError as exc:
+        raise _api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            "download_auth_invalid",
+            "Download ticket недействителен или истёк",
+        ) from exc
+    actor = _active_user(session, user_id)
+    _authorize_operation(orchestrator, operation_id, actor)
 
 
 @router.post("/preview", response_model=ExportPreviewResponse)
@@ -158,13 +241,60 @@ def export_bundle_metadata(
     )
 
 
+@router.post(
+    "/{operation_id}/download-ticket",
+    response_model=ExportDownloadTicketResponse,
+)
+def create_download_ticket(
+    operation_id: int,
+    request: Request,
+    response: Response,
+    actor: ExportActorDep,
+    orchestrator: ExportOrchestratorDep,
+) -> ExportDownloadTicketResponse:
+    _authorize_operation(orchestrator, operation_id, actor)
+    try:
+        orchestrator.bundle_metadata(operation_id)
+    except ExportOrchestrationError as exc:
+        raise _export_error(exc) from exc
+
+    token = create_export_download_token(
+        user_id=actor.id,
+        operation_id=operation_id,
+        secret=_jwt_secret(request),
+        lifetime_seconds=_EXPORT_DOWNLOAD_TTL_SECONDS,
+    )
+    download_path = f"/api/exports/{operation_id}/download"
+    response.set_cookie(
+        key=_EXPORT_DOWNLOAD_COOKIE,
+        value=token,
+        max_age=_EXPORT_DOWNLOAD_TTL_SECONDS,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        path=download_path,
+    )
+    return ExportDownloadTicketResponse(
+        download_url=download_path,
+        expires_in_seconds=_EXPORT_DOWNLOAD_TTL_SECONDS,
+    )
+
+
 @router.get("/{operation_id}/download", response_class=FileResponse)
 def download_export_bundle(
     operation_id: int,
-    actor: ExportActorDep,
+    request: Request,
+    credentials: CredentialsDep,
+    session: SessionDep,
     orchestrator: ExportOrchestratorDep,
 ) -> FileResponse:
-    _authorize_operation(orchestrator, operation_id, actor)
+    _authorize_download_request(
+        request=request,
+        operation_id=operation_id,
+        credentials=credentials,
+        session=session,
+        orchestrator=orchestrator,
+    )
     try:
         metadata = orchestrator.bundle_metadata(operation_id)
     except ExportOrchestrationError as exc:
@@ -173,5 +303,8 @@ def download_export_bundle(
         path=metadata.archive_path,
         filename=metadata.archive_path.name,
         media_type="application/gzip",
-        headers={"X-Checksum-SHA256": metadata.sha256},
+        headers={
+            "X-Checksum-SHA256": metadata.sha256,
+            "Cache-Control": "no-store",
+        },
     )
