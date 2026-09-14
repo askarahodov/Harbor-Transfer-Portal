@@ -6,6 +6,7 @@ from app.api.exports import router as exports_router
 from app.api.harbor import router as harbor_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
+from app.api.keys import router as keys_router
 from app.api.operations import router as operations_router
 from app.api.settings import router as settings_router
 from app.api.transfer_settings import router as transfer_settings_router
@@ -18,6 +19,7 @@ api_router.include_router(users_router)
 api_router.include_router(harbor_router)
 api_router.include_router(settings_router)
 api_router.include_router(transfer_settings_router)
+api_router.include_router(keys_router)
 api_router.include_router(operations_router)
 api_router.include_router(audit_router)
 api_router.include_router(exports_router)
