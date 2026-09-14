@@ -1,0 +1,52 @@
+services:
+  source-registry:
+    profiles: [source]
+    image: ${HTP_REGISTRY_IMAGE:-registry:2.8.3}
+    pull_policy: never
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    networks: [source-only]
+
+  source-runner:
+    profiles: [source]
+    image: ${HTP_ACCEPTANCE_IMAGE:?HTP_ACCEPTANCE_IMAGE is required}
+    pull_policy: never
+    entrypoint: ["python", "/opt/htp-acceptance/driver.py", "source"]
+    environment:
+      HTP_ACCEPTANCE_REGISTRY_URL: http://source-registry:5000
+      HTP_ACCEPTANCE_TRANSFER_DIR: /transfer
+      HTP_ACCEPTANCE_WORK_ROOT: /tmp/htp-isolated-source
+    volumes:
+      - ../backend/integration/isolated_transfer_acceptance.py:/opt/htp-acceptance/driver.py:ro
+      - ${HTP_TRANSFER_DIR:?HTP_TRANSFER_DIR is required}:/transfer
+    depends_on: [source-registry]
+    networks: [source-only]
+
+  target-registry:
+    profiles: [target]
+    image: ${HTP_REGISTRY_IMAGE:-registry:2.8.3}
+    pull_policy: never
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    networks: [target-only]
+
+  target-runner:
+    profiles: [target]
+    image: ${HTP_ACCEPTANCE_IMAGE:?HTP_ACCEPTANCE_IMAGE is required}
+    pull_policy: never
+    entrypoint: ["python", "/opt/htp-acceptance/driver.py", "target"]
+    environment:
+      HTP_ACCEPTANCE_REGISTRY_URL: http://target-registry:5000
+      HTP_ACCEPTANCE_TRANSFER_DIR: /transfer
+      HTP_ACCEPTANCE_WORK_ROOT: /tmp/htp-isolated-target
+    volumes:
+      - ../backend/integration/isolated_transfer_acceptance.py:/opt/htp-acceptance/driver.py:ro
+      - ${HTP_TRANSFER_DIR:?HTP_TRANSFER_DIR is required}:/transfer:ro
+    depends_on: [target-registry]
+    networks: [target-only]
+
+networks:
+  source-only:
+    internal: true
+  target-only:
+    internal: true
