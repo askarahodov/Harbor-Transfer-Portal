@@ -3,7 +3,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)
 COMPOSE="$ROOT/deploy/compose-isolated-transfer-acceptance.yml"
-REGISTRY_IMAGE=${HTP_REGISTRY_IMAGE:-registry:2.8.3@sha256:5895965c81f2a5bb3d5a0d28d3a1324c9e1d6f9e07e7bd6e60e56f4a0c1d37e6}
+REGISTRY_IMAGE=${HTP_REGISTRY_IMAGE:-registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373}
 TAG=${GITHUB_RUN_ID:-local}-$$
 ACCEPTANCE_IMAGE="harbor-transfer-portal-acceptance:$TAG"
 SOURCE_PROJECT="htp-source-$TAG"
