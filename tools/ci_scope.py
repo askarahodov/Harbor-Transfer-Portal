@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
+_AREA_NAMES = ("backend", "frontend", "protocol", "compose", "docs")
+
 
 @dataclass(frozen=True, slots=True)
 class Scope:
@@ -40,7 +42,7 @@ def _is_deploy_markdown(path: PurePosixPath) -> bool:
 
 
 def _classify_path(path_text: str) -> tuple[set[str], bool]:
-    path = PurePosixPath(path_text.strip())
+    path = PurePosixPath(path_text)
     areas: set[str] = set()
     workflow_changed = path == PurePosixPath(".github/workflows/ci.yml")
 
@@ -127,7 +129,7 @@ def classify_paths(paths: Iterable[str], *, root: Path = Path(".")) -> Scope:
     if not (root / "tools/check_doc_links.py").is_file():
         areas.discard("docs")
 
-    return Scope(**{name: name in areas for name in Scope().__dict__})
+    return Scope(**{name: name in areas for name in _AREA_NAMES})
 
 
 def _bool_text(value: bool) -> str:
