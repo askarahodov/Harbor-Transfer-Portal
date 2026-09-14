@@ -35,10 +35,15 @@ Installer:
 - сначала проверяет `CHECKSUMS.sha256` всего внутреннего payload;
 - проверяет Docker Engine, Docker Compose v2, architecture и свободное место;
 - загружает `images/backend.tar` и `images/frontend.tar` через `docker load`;
+- проверяет, что после `docker load` существуют **точные** локальные image references этой версии и что их architecture совпадает с release;
 - не выполняет `docker build`, package-manager install или network download;
+- запускает Compose с `--no-build --pull never`, а release Compose дополнительно задаёт `pull_policy: never` для обоих сервисов;
 - создаёт `.env` только если его ещё нет и генерирует случайный JWT secret;
+- существующий `.env` должен быть обычным файлом, а не symlink;
 - при повторном запуске сохраняет существующий `.env`; kit другой версии не заменяет его молча;
 - запускает image-only `compose.yaml` и ждёт health/readiness.
+
+Release Compose использует стабильное имя проекта `harbor-transfer-portal`. Поэтому named volume `portal-data` имеет одну и ту же Compose identity независимо от versioned каталога, в который распакован kit. Это важно для последующей безопасной upgrade/backup процедуры.
 
 После первого запуска настройте через admin UI **только локальный Harbor этого контура**, CA/credentials, а также SOURCE signing key или TARGET trusted SOURCE public keys.
 

@@ -22,6 +22,13 @@ set -eu
 case "${1:-}" in
   image)
     [ "${2:-}" = inspect ] || exit 2
+    last_arg=
+    for arg in "$@"; do
+      last_arg=$arg
+    done
+    if [ -n "${FAKE_DOCKER_MISSING_IMAGE:-}" ] && [ "$last_arg" = "$FAKE_DOCKER_MISSING_IMAGE" ]; then
+      exit 1
+    fi
     if [ "${3:-}" = --format ]; then
       printf '%s\n' amd64
     fi
@@ -93,6 +100,10 @@ done
 if grep -Eq '^[[:space:]]+build:' "$KIT/compose.yaml"; then
   fail 'offline compose must not contain build sections'
 fi
+grep -Fx 'name: harbor-transfer-portal' "$KIT/compose.yaml" >/dev/null || \
+  fail 'offline compose must use a stable project name'
+[ "$(grep -c '^[[:space:]]*pull_policy: never$' "$KIT/compose.yaml")" -eq 2 ] || \
+  fail 'offline compose must disable pulling for both services'
 (
   cd "$KIT"
   sha256sum -c CHECKSUMS.sha256
@@ -111,7 +122,8 @@ grep -Fx 'PORTAL_VERSION=0.0.0-smoke' "$KIT/.env" >/dev/null
 grep -Fx 'PORTAL_CONTOUR=TARGET' "$KIT/.env" >/dev/null
 grep -Eq '^JWT_SECRET=[0-9a-f]{64,}$' "$KIT/.env" || fail 'installer did not generate a strong JWT secret'
 [ "$(grep -c '^load ' "$FAKE_LOG")" -eq 2 ] || fail 'installer must load exactly two images'
-grep -F 'compose --env-file .env -f compose.yaml up -d --wait --wait-timeout 180' "$FAKE_LOG" >/dev/null
+grep -F 'compose --env-file .env -f compose.yaml up -d --no-build --pull never --wait --wait-timeout 180' "$FAKE_LOG" >/dev/null || \
+  fail 'installer must start Compose with explicit no-build/no-pull semantics'
 
 env_before=$(sha256sum "$KIT/.env" | awk '{print $1}')
 (
@@ -120,6 +132,34 @@ env_before=$(sha256sum "$KIT/.env" | awk '{print $1}')
 )
 env_after=$(sha256sum "$KIT/.env" | awk '{print $1}')
 [ "$env_before" = "$env_after" ] || fail 'rerun overwrote existing .env'
+
+# Existing config must not be trusted through a symlink.
+mv "$KIT/.env" "$KIT/.env.real"
+ln -s .env.real "$KIT/.env"
+: > "$FAKE_LOG"
+if (
+  cd "$KIT"
+  sh ./install.sh >/dev/null 2>&1
+); then
+  fail 'symlinked .env was accepted'
+fi
+[ ! -s "$FAKE_LOG" ] || fail 'symlinked .env reached Docker image load/Compose'
+rm "$KIT/.env"
+mv "$KIT/.env.real" "$KIT/.env"
+
+# docker load must create the exact local image refs expected by Compose. Missing/mistagged
+# payload must fail before Compose gets a chance to use its normal registry behavior.
+: > "$FAKE_LOG"
+if (
+  cd "$KIT"
+  FAKE_DOCKER_MISSING_IMAGE="harbor-transfer-portal-backend:${VERSION}" sh ./install.sh >/dev/null 2>&1
+); then
+  fail 'missing expected local image was accepted'
+fi
+[ "$(grep -c '^load ' "$FAKE_LOG")" -eq 2 ] || fail 'missing-image case did not reach both docker loads'
+if grep -q '^compose' "$FAKE_LOG"; then
+  fail 'missing expected local image reached Compose instead of failing closed'
+fi
 
 printf 'tampered\n' >> "$KIT/images/backend.tar"
 : > "$FAKE_LOG"
