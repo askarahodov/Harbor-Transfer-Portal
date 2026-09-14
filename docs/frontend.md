@@ -7,7 +7,7 @@
 - Vue 3 + Vite + TypeScript;
 - Vue Router;
 - Pinia для application state;
-- Axios для JSON/API requests;
+- Axios для JSON/API requests и streaming browser upload;
 - Element Plus как UI dependency;
 - Lucide для иконок;
 - CSS design tokens из `frontend/src/styles/tokens.css`.
@@ -58,32 +58,15 @@ Preview не заменяет worker validation: backend повторно про
 
 После `POST /api/exports` wizard сохраняет `operation_id` в `sessionStorage` под ключом `htp.export.operation-id` и использует `GET /api/operations/{id}`.
 
-Показываются:
-
-- текущая persisted phase;
-- completed/total artifacts;
-- coarse progress только из backend counters;
-- per-artifact state/error;
-- elapsed time;
-- cancel action только для active export state.
-
-ETA не выдумывается. При reload/reconnect сохранённый operation id открывается снова; terminal `COMPLETED` приводит к загрузке bundle metadata, `FAILED/CANCELLED` остаётся failure screen и не предлагает archive.
+Показываются persisted phase, completed/total artifacts, coarse progress только из backend counters, per-artifact state/error и elapsed time. ETA не выдумывается. При reload/reconnect сохранённый operation id открывается снова.
 
 ### Шаг 4 — ready/download
 
 Ready screen появляется только после terminal `COMPLETED` и успешного `GET /api/exports/{id}/bundle`. Он показывает delivery id, filename, size, SHA-256 и artifact summary.
 
-Большой archive **не скачивается через Axios blob**, поскольку это потребовало бы буферизации потенциально большого bundle в памяти браузера. Вместо этого:
+Большой archive **не скачивается через Axios blob**. Authenticated frontend получает scoped short-lived HttpOnly/SameSite=Strict download ticket и затем запускает обычный browser download на disk-backed `FileResponse`. Ticket ограничен конкретным operation download path.
 
-1. authenticated frontend вызывает `POST /api/exports/{id}/download-ticket`;
-2. backend повторно проверяет owner/admin authorization и готовность bundle;
-3. response устанавливает короткоживущий HttpOnly/SameSite=Strict cookie, ограниченный path конкретного download endpoint;
-4. браузер выполняет обычную navigation download на `GET /api/exports/{id}/download`;
-5. backend ещё раз проверяет ticket, активного пользователя, operation ownership и bundle metadata, затем отдаёт disk-backed `FileResponse`.
-
-Ticket не является общей web-session cookie и не даёт доступ к другому operation id.
-
-`.sha256` sidecar на ready screen формируется из уже verified backend metadata в стандартном виде:
+`.sha256` sidecar на ready screen формируется из verified backend metadata:
 
 ```text
 <sha256>  <archive-name>
@@ -91,26 +74,107 @@ Ticket не является общей web-session cookie и не даёт до
 
 Оператору явно предлагается перенести и `.htp.tar.gz`, и `.sha256`. SHA-256 используется для integrity/readiness и не подменяет Ed25519 signature внутри Bundle Protocol v1.
 
+## TARGET import wizard
+
+`ImportView.vue` реализует пользовательский flow задачи #20 поверх backend orchestration #19. State machine находится в `stores/importWizard.ts`, typed API client — в `api/imports.ts`.
+
+Главное правило UI: frontend **не выполняет криптографическую проверку самостоятельно и не выводит её успех из HTTP status**. Он показывает только verifier-derived projection, сохранённую backend после единственного `BundlePackageService.verify_bundle()` path.
+
+### Шаг 1 — intake и verification
+
+Поддерживаются два backend intake path.
+
+**Browser upload**:
+
+- оператор выбирает `.htp.tar.gz` через обычный file input или drag&drop;
+- стандартный file input остаётся keyboard-accessible альтернативой drag&drop;
+- файл передаётся в `POST /api/imports/upload` как raw body, без multipart и без чтения всего bundle в JavaScript memory;
+- frontend показывает локальный filename, size и browser upload progress;
+- arbitrarily large browser upload не обещается.
+
+Если backend возвращает `import_upload_too_large` или `operation_insufficient_disk`, UI предлагает безопасный large-bundle path: скопировать archive **вместе с `.sha256`** в configured incoming directory/transfer media и запустить discovery.
+
+**Incoming discovery**:
+
+- `POST /api/imports/discover` просит backend claim-ить только готовые archive + sidecar pairs;
+- для нескольких найденных operations оператор выбирает нужную;
+- имя/размер берутся из persisted operation metadata, а не из client-side filesystem assumptions.
+
+После intake wizard сохраняет `operation_id` в `sessionStorage` под ключом `htp.import.operation-id`. Состояния `UPLOADED/DISCOVERED/VERIFYING` отображаются как package verification, а не как import Harbor.
+
+Проверки показываются раздельно:
+
+- SHA-256 integrity;
+- Bundle v1 schema/canonical manifest;
+- Ed25519 signature trust.
+
+Успех каждого индикатора показывается только когда verified preview содержит соответствующий backend flag. При `REJECTED` UI показывает stable backend error и не предлагает execute.
+
+### Шаг 2 — verified preview и policy
+
+`GET /api/imports/{id}/preview` содержит signed/verified metadata:
+
+- source delivery id;
+- bundle filename/size/SHA-256 и intake mode;
+- SOURCE Harbor identity и SOURCE portal version;
+- manifest creation time, author и comment;
+- signing key fingerprint и TARGET verification time;
+- server-side `overwrite_allowed` policy;
+- per-artifact TARGET classification.
+
+Классификации отображаются без агрессивного объединения:
+
+| Класс | UI policy |
+|---|---|
+| `NEW` | будет импортирован |
+| `SAME` | уже соответствует expected digest; будет `SKIPPED` |
+| `CONFLICT` | другой target digest; по умолчанию заблокирован |
+| `UNKNOWN` | нельзя доказать безопасное состояние; execute заблокирован |
+| `ERROR` | target inspection не удался; execute заблокирован |
+
+Default button не может overwrite конфликт. Если conflicts присутствуют, overwrite action появляется только когда backend preview сообщает `overwrite_allowed=true` и текущая authenticated role имеет transfer permission. Даже тогда оператор обязан отметить отдельное confirmation рядом с **точным списком conflicting artifacts и digests**.
+
+Frontend не ослабляет backend policy: execute endpoint заново проверяет READY state, unresolved classes, conflicts и server configuration.
+
+### Шаг 3 — import/result
+
+После `POST /api/imports/{id}/execute` UI использует generic `GET /api/operations/{id}` и показывает:
+
+- `IMPORTING` / `VERIFYING_TARGET` phase;
+- backend progress counters;
+- каждый artifact отдельно;
+- `VERIFIED`, `SKIPPED`, `CONFLICT`, `FAILED` и другие persisted states;
+- source/target digest, если backend их знает;
+- terminal operation status и safe error.
+
+Browser reload/reconnect восстанавливает активную import operation из `sessionStorage`. Для `COMPLETED` и partial `FAILED` frontend пытается получить `GET /api/imports/{id}/receipt`.
+
+Receipt показывается как immutable backend result и может быть сохранён оператором как небольшой JSON. Это не заменяет persisted receipt file backend. UI также предлагает переход к `/history`, но реализация полной history table остаётся отдельной задачей.
+
+При partial failure UI **не сообщает о rollback**: явно сказано, что уже успешно импортированные независимые artifacts автоматически не откатываются.
+
 ## Error UX
 
 Frontend нормализует transport errors в безопасное user-facing сообщение и, когда backend предоставляет stable `{code, message}`, показывает этот код оператору. Raw upstream body/stderr не отображаются.
 
 Поддерживаются отдельные состояния:
 
-- loading;
-- empty Harbor browse results;
-- Harbor/backend unavailable;
-- validation failure;
-- wrong contour;
-- insufficient role;
+- loading/intake;
+- empty incoming discovery;
+- browser upload limit/disk failure с large-bundle guidance;
+- cryptographic/schema rejection;
+- wrong contour/insufficient role;
+- unresolved TARGET state;
+- conflict blocked by default;
+- server-side overwrite disabled;
 - operation failure/cancellation;
-- completed bundle metadata/download error.
+- receipt not ready.
 
-Failure state не предлагает partial archive как готовый к переносу.
+Failure state никогда не превращается в успешный transfer только из-за наличия файла или route.
 
 ## Доступность и responsive layout
 
-Основные controls используют native `button`, `input`, `textarea`, `progress`, table semantics и явные labels. Focus-visible state предусмотрен для интерактивных элементов. Wizard перестраивает browse/summary grids на узком экране и не зависит от hover для основного действия.
+Основные controls используют native `button`, `input`, `textarea`, `progress`, table semantics и явные labels. Drag&drop не является единственным способом выбрать bundle. Focus-visible state предусмотрен для интерактивных элементов. Оба wizard перестраивают grids на узком экране и не зависят от hover для основного действия.
 
 ## Структура
 
@@ -118,13 +182,15 @@ Failure state не предлагает partial archive как готовый к
 frontend/src/
 ├── api/
 │   ├── client.ts
-│   └── exports.ts
+│   ├── exports.ts
+│   └── imports.ts
 ├── components/
 ├── router/index.ts
 ├── stores/
 │   ├── auth.ts
 │   ├── runtime.ts
-│   └── exportWizard.ts
+│   ├── exportWizard.ts
+│   └── importWizard.ts
 ├── styles/
 └── views/
     ├── ExportView.vue
@@ -134,10 +200,11 @@ frontend/src/
 
 ## Текущая готовность transfer UI
 
-- SOURCE export wizard — реализован и использует реальные backend APIs;
-- TARGET import backend orchestration — реализован отдельно;
-- TARGET import wizard/UI — ещё не завершён и не должен документироваться как готовый пользовательский flow;
-- history/audit/report UX — развивается отдельно.
+- SOURCE export backend + wizard — реализованы и используют реальные APIs;
+- TARGET intake/preview/import backend + wizard — реализованы и используют реальные APIs;
+- обе стороны восстанавливают persistent operation после reload;
+- history/audit/report UX развивается отдельно;
+- полный cross-contour SOURCE → physical transfer → TARGET acceptance остаётся задачей финального E2E/release этапа.
 
 ## Локальная разработка и проверки
 
