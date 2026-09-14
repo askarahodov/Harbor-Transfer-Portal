@@ -67,9 +67,13 @@ class _OwnedBundlePackageService(BundlePackageService):
                 comment=comment,
             )
         except BaseException:
-            if self._published_delivery_id is not None:
-                self._rollback_completed_publication(self._published_delivery_id)
+            published_delivery_id = self._published_delivery()
+            if published_delivery_id is not None:
+                self._rollback_completed_publication(published_delivery_id)
             raise
+
+    def _published_delivery(self) -> str | None:
+        return self._published_delivery_id
 
     def _atomic_publish(
         self,
