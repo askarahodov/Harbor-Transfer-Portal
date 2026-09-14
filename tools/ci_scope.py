@@ -55,12 +55,17 @@ _SECURITY_TEST_PREFIXES = (
 _INTEGRATION_SERVICE_FILES = {
     "bundle_package_service.py",
     "export_orchestrator.py",
+    "export_publication_guard.py",
     "import_helm_service.py",
     "import_orchestrator.py",
     "operation_manager.py",
     "report_service.py",
     "skopeo_service.py",
     "helm_oci_service.py",
+}
+_INTEGRATION_API_FILES = {
+    "exports.py",
+    "imports.py",
 }
 _INTEGRATION_DEPLOY_FILES = {
     "compose.yaml",
@@ -134,11 +139,19 @@ def _is_security_sensitive_backend(path: PurePosixPath) -> bool:
 
 
 def _is_local_registry_integration_path(path: PurePosixPath, path_text: str) -> bool:
-    if path_text == "backend/Dockerfile":
+    if path_text in {
+        "backend/Dockerfile",
+        "backend/app/domain/bundle.py",
+    }:
         return True
     if (
         path.parts[:3] == ("backend", "app", "services")
         and path.name in _INTEGRATION_SERVICE_FILES
+    ):
+        return True
+    if (
+        path.parts[:3] == ("backend", "app", "api")
+        and path.name in _INTEGRATION_API_FILES
     ):
         return True
     if _starts_with(path, "backend", "integration"):
