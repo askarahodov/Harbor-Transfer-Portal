@@ -1,0 +1,59 @@
+name: Offline release contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/offline-release.yml'
+      - '.env.example'
+      - 'compose.yaml'
+      - 'backend/Dockerfile'
+      - 'frontend/Dockerfile'
+      - 'deploy/build-offline-kit.sh'
+      - 'deploy/compose-offline.yml'
+      - 'deploy/install.sh'
+      - 'deploy/offline_release.py'
+      - 'deploy/test_offline_release.py'
+      - 'deploy/OFFLINE-README.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/offline-release.yml'
+      - '.env.example'
+      - 'compose.yaml'
+      - 'backend/Dockerfile'
+      - 'frontend/Dockerfile'
+      - 'deploy/build-offline-kit.sh'
+      - 'deploy/compose-offline.yml'
+      - 'deploy/install.sh'
+      - 'deploy/offline_release.py'
+      - 'deploy/test_offline_release.py'
+      - 'deploy/OFFLINE-README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offline-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Offline release — packaging/install contract
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Python 3.12
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Release contract regression
+        run: python3 -m unittest deploy.test_offline_release
+
+      - name: Shell syntax
+        run: |
+          sh -n deploy/install.sh
+          bash -n deploy/build-offline-kit.sh
