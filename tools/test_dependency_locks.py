@@ -15,12 +15,11 @@ class DependencyLockCheckTests(unittest.TestCase):
         (root / "backend").mkdir()
         (root / "frontend").mkdir()
         (root / "backend" / "pyproject.toml").write_text(
-            """[project]\n"
+            "[project]\n"
             "name = \"sample-backend\"\n"
             "dependencies = [\"fastapi>=0.1,<1\", \"uvicorn[standard]>=0.1,<1\"]\n"
             "[project.optional-dependencies]\n"
-            "dev = [\"pytest>=8,<9\"]\n"
-            """,
+            "dev = [\"pytest>=8,<9\"]\n",
             encoding="utf-8",
         )
         package = {
