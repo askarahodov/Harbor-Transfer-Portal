@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as historyApi from '@/api/history'
-import type { Operation, OperationSummary } from '@/api/history'
+import type { ImportReceipt, Operation, OperationSummary } from '@/api/history'
 import { useAuthStore } from '@/stores/auth'
 import HistoryView from '@/views/HistoryView.vue'
 
@@ -73,17 +73,60 @@ const detail: Operation = {
   ],
 }
 
+const importSummary: OperationSummary = {
+  ...summary,
+  id: 9,
+  delivery_id: null,
+  type: 'IMPORT',
+  actor_username: 'operator',
+  bundle: null,
+}
+
+const importDetail: Operation = {
+  ...detail,
+  id: 9,
+  delivery_id: null,
+  type: 'IMPORT',
+  actor_username: 'operator',
+  bundle: null,
+  artifacts: [
+    {
+      ...detail.artifacts[0],
+      id: 2,
+      status: 'IMPORTED',
+      target_digest: detail.artifacts[0].source_digest,
+    },
+  ],
+}
+
+const importReceipt: ImportReceipt = {
+  operation_id: 9,
+  source_delivery_id: 'SOURCE-DELIVERY-9',
+  bundle_sha256: 'c'.repeat(64),
+  actor_username: 'operator',
+  started_at: '2026-09-14T05:01:00Z',
+  finished_at: '2026-09-14T05:02:00Z',
+  overwrite_conflicts: false,
+  result: 'COMPLETED',
+  artifacts: [],
+}
+
+function buttonByText(wrapper: ReturnType<typeof mount>, text: string) {
+  return wrapper.findAll('button').find((button) => button.text().includes(text))
+}
+
 beforeEach(() => {
   vi.restoreAllMocks()
   setActivePinia(createPinia())
 })
 
 describe('HistoryView', () => {
-  it('renders server history, filters and operation detail without mutation controls', async () => {
+  it('renders read-only history and lets viewer download terminal CSV/PDF reports', async () => {
     vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
       items: [summary], total: 1, limit: 25, offset: 0,
     })
     vi.spyOn(historyApi, 'getOperation').mockResolvedValue(detail)
+    const reportDownload = vi.spyOn(historyApi, 'downloadOperationReport').mockResolvedValue()
     const auth = useAuthStore()
     auth.initialized = true
     auth.user = { id: 3, username: 'viewer', role: 'viewer', is_active: true }
@@ -100,8 +143,62 @@ describe('HistoryView', () => {
 
     expect(wrapper.text()).toContain('Bundle metadata')
     expect(wrapper.text()).toContain('project/app:1.0.0')
+    expect(wrapper.text()).toContain('Отчёты операции')
     expect(wrapper.text()).not.toContain('Отменить операцию')
     expect(wrapper.text()).not.toContain('Скачать через авторизованный ticket')
+
+    await buttonByText(wrapper, 'Скачать CSV')!.trigger('click')
+    await buttonByText(wrapper, 'Скачать PDF')!.trigger('click')
+    await flushPromises()
+
+    expect(reportDownload).toHaveBeenCalledWith(7, 'csv')
+    expect(reportDownload).toHaveBeenCalledWith(7, 'pdf')
+  })
+
+  it('lets the import owner download canonical receipt JSON', async () => {
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [importSummary], total: 1, limit: 25, offset: 0,
+    })
+    vi.spyOn(historyApi, 'getOperation').mockResolvedValue(importDetail)
+    vi.spyOn(historyApi, 'getImportReceipt').mockResolvedValue(importReceipt)
+    const receiptDownload = vi.spyOn(historyApi, 'downloadImportReceiptFile').mockResolvedValue()
+    const auth = useAuthStore()
+    auth.initialized = true
+    auth.user = { id: 2, username: 'operator', role: 'operator', is_active: true }
+
+    const wrapper = mount(HistoryView)
+    await flushPromises()
+    await wrapper.get('.link-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Import receipt')
+    expect(wrapper.text()).toContain('SOURCE-DELIVERY-9')
+    const receiptButton = buttonByText(wrapper, 'Скачать receipt JSON')
+    expect(receiptButton?.exists()).toBe(true)
+
+    await receiptButton!.trigger('click')
+    await flushPromises()
+    expect(receiptDownload).toHaveBeenCalledWith(9)
+  })
+
+  it('does not expose canonical receipt download to viewer', async () => {
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [importSummary], total: 1, limit: 25, offset: 0,
+    })
+    vi.spyOn(historyApi, 'getOperation').mockResolvedValue(importDetail)
+    const auth = useAuthStore()
+    auth.initialized = true
+    auth.user = { id: 3, username: 'viewer', role: 'viewer', is_active: true }
+
+    const wrapper = mount(HistoryView)
+    await flushPromises()
+    await wrapper.get('.link-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Import receipt')
+    expect(wrapper.text()).not.toContain('Скачать receipt JSON')
+    expect(wrapper.text()).toContain('Скачать CSV')
+    expect(wrapper.text()).toContain('Скачать PDF')
   })
 
   it('shows a useful empty state', async () => {
