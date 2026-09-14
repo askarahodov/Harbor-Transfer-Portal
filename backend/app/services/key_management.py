@@ -44,6 +44,7 @@ class TrustedKeyStatus:
 class KeyMutation:
     action: str
     fingerprint: str
+    previous_fingerprint: str | None = None
 
 
 class KeyManagementService:
@@ -120,6 +121,84 @@ class KeyManagementService:
         return KeyMutation(
             action="replaced" if existing else "added",
             fingerprint=fingerprint,
+        )
+
+    def replace_trusted_public_key(self, fingerprint: str, pem: str) -> KeyMutation:
+        self._require_target()
+        previous = self._validate_fingerprint(fingerprint)
+        matches = self._find_trusted_key_files(previous)
+        if not matches:
+            raise KeyManagementError("trusted_key_not_found", "Trusted public key не найден")
+
+        previous_key = self._read_public_key_file(matches[0])
+        if ed25519_public_key_fingerprint(previous_key) != previous:
+            raise KeyManagementError(
+                "trusted_key_store_invalid",
+                "Trusted key store содержит inconsistent fingerprint",
+            )
+        was_enabled = any(path.suffix == ".pem" for path in matches)
+
+        key = self._parse_public_key(self._bounded_bytes(pem))
+        replacement = ed25519_public_key_fingerprint(key)
+        if replacement == previous:
+            raise KeyManagementError(
+                "trusted_key_replace_same",
+                "Replacement key должен иметь другой fingerprint",
+            )
+        if self._find_trusted_key_files(replacement):
+            raise KeyManagementError(
+                "trusted_key_already_exists",
+                "Replacement public key уже присутствует в trust set",
+            )
+
+        unique = self.list_trusted_keys()
+        if len(unique) > self.settings.bundle_max_trusted_keys:
+            raise KeyManagementError(
+                "trusted_key_limit_exceeded",
+                "Количество trusted SOURCE public keys уже превышает configured limit",
+            )
+
+        payload = key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        target = self._enabled_path(replacement) if was_enabled else self._disabled_path(replacement)
+
+        # Publication is the first commit boundary. If it fails, no old-key path has
+        # been touched, so the previous key remains authoritative and trusted.
+        self._atomic_write(target, payload, 0o600)
+
+        previous_payload = previous_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        previous_target = self._enabled_path(previous) if was_enabled else self._disabled_path(previous)
+        try:
+            for path in matches:
+                path.unlink(missing_ok=True)
+            self._enabled_path(previous).unlink(missing_ok=True)
+            self._disabled_path(previous).unlink(missing_ok=True)
+            self._fsync_directory(self.trusted_dir)
+        except OSError as exc:
+            # Safety-first rollback: restore the old canonical key and remove the
+            # just-published replacement before returning a failed mutation.
+            try:
+                self._atomic_write(previous_target, previous_payload, 0o600)
+            except KeyManagementError:
+                pass
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise KeyManagementError(
+                "key_store_write_failed",
+                "Не удалось завершить замену trusted public key",
+            ) from exc
+
+        return KeyMutation(
+            action="replaced",
+            fingerprint=replacement,
+            previous_fingerprint=previous,
         )
 
     def set_trusted_key_enabled(self, fingerprint: str, enabled: bool) -> KeyMutation:
