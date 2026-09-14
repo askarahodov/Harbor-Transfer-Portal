@@ -48,16 +48,23 @@ cd "$INSTALL_DIR"
 [ -f compose.yaml ] || fail 'compose.yaml is missing from install directory'
 [ -f release-version.txt ] || fail 'release-version.txt is missing from install directory'
 [ -f release-arch.txt ] || fail 'release-arch.txt is missing from install directory'
+[ -f CHECKSUMS.sha256 ] || fail 'CHECKSUMS.sha256 is missing from install directory'
 [ -f images/backend.tar ] || fail 'backend image archive is missing from install directory'
 [ -f images/frontend.tar ] || fail 'frontend image archive is missing from install directory'
 
 require_command sha256sum
 require_command tar
-require_command gzip
 require_command docker
+
+# Verify the matching release kit itself before using bundled images/scripts for recovery.
+sha256sum -c CHECKSUMS.sha256
 
 backup_dir=$(CDPATH= cd -- "$(dirname "$BACKUP_INPUT")" && pwd -P)
 backup_base=$(basename "$BACKUP_INPUT")
+sidecar="$BACKUP_INPUT.sha256"
+[ "$(wc -l < "$sidecar" | tr -d ' ')" = 1 ] || fail 'backup .sha256 sidecar must contain exactly one entry'
+sidecar_name=$(awk 'NR == 1 { print $2 }' "$sidecar")
+[ "$sidecar_name" = "$backup_base" ] || fail 'backup .sha256 sidecar references an unexpected file'
 (
   cd "$backup_dir"
   sha256sum -c "$backup_base.sha256"
@@ -72,7 +79,10 @@ cleanup() {
 }
 trap cleanup 0 HUP INT TERM
 
-members=$(tar -tzf "$BACKUP_INPUT" | LC_ALL=C sort)
+if ! tar -tzf "$BACKUP_INPUT" > "$tmp/outer-members.txt"; then
+  fail 'backup archive is not a valid gzip tar archive'
+fi
+members=$(LC_ALL=C sort "$tmp/outer-members.txt")
 expected=$(printf '%s\n' \
   './' \
   './.env' \
@@ -80,16 +90,26 @@ expected=$(printf '%s\n' \
   './backup-metadata.txt' \
   './portal-data.tar.gz' | LC_ALL=C sort)
 [ "$members" = "$expected" ] || fail 'backup archive layout is not the expected strict allowlist'
-tar -tvzf "$BACKUP_INPUT" | awk '{
+if ! tar -tvzf "$BACKUP_INPUT" > "$tmp/outer-listing.txt"; then
+  fail 'cannot inspect backup archive member types'
+fi
+awk '{
   t=substr($1,1,1)
   if (t != "-" && t != "d") exit 1
-}' || fail 'backup outer archive contains unsupported member type'
+}' "$tmp/outer-listing.txt" || fail 'backup outer archive contains unsupported member type'
 
 tar -xzf "$BACKUP_INPUT" -C "$tmp"
 for member in .env CHECKSUMS.sha256 backup-metadata.txt portal-data.tar.gz; do
   [ -f "$tmp/$member" ] && [ ! -L "$tmp/$member" ] || \
     fail "invalid backup member: $member"
 done
+
+[ "$(wc -l < "$tmp/CHECKSUMS.sha256" | tr -d ' ')" = 3 ] || \
+  fail 'backup checksum manifest must contain exactly three entries'
+checksum_names=$(awk '{ print $2 }' "$tmp/CHECKSUMS.sha256" | LC_ALL=C sort)
+expected_checksum_names=$(printf '%s\n' .env backup-metadata.txt portal-data.tar.gz | LC_ALL=C sort)
+[ "$checksum_names" = "$expected_checksum_names" ] || \
+  fail 'backup checksum manifest references unexpected files'
 (
   cd "$tmp"
   sha256sum -c CHECKSUMS.sha256
@@ -121,15 +141,21 @@ if [ -e .env ] || [ -L .env ]; then
     fail "restore refuses contour change: current=$current_contour backup=$backup_contour"
 fi
 
-tar -tzf "$tmp/portal-data.tar.gz" | while IFS= read -r member; do
+if ! tar -tzf "$tmp/portal-data.tar.gz" > "$tmp/data-members.txt"; then
+  fail 'persistent-data archive is not a valid gzip tar archive'
+fi
+while IFS= read -r member; do
   case "$member" in
-    /*|..|../*|*/../*|*/..) exit 2 ;;
+    /*|..|../*|*/../*|*/..) fail 'persistent-data archive contains unsafe path' ;;
   esac
-done || fail 'persistent-data archive contains unsafe path'
-tar -tvzf "$tmp/portal-data.tar.gz" | awk '{
+done < "$tmp/data-members.txt"
+if ! tar -tvzf "$tmp/portal-data.tar.gz" > "$tmp/data-listing.txt"; then
+  fail 'cannot inspect persistent-data archive member types'
+fi
+awk '{
   t=substr($1,1,1)
   if (t != "-" && t != "d") exit 1
-}' || fail 'persistent-data archive contains unsupported member type'
+}' "$tmp/data-listing.txt" || fail 'persistent-data archive contains unsupported member type'
 
 release_arch=$(cat release-arch.txt)
 host_arch=$(normalize_arch "$(uname -m)") || fail "unsupported host architecture: $(uname -m)"
@@ -172,12 +198,12 @@ docker run --rm --pull never --network none \
   "$backend_image" \
   -c 'find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +'
 
-gzip -dc "$tmp/portal-data.tar.gz" | \
-  docker run --rm -i --pull never --network none \
-    -v "$volume_name:/app/data" \
-    --entrypoint tar \
-    "$backend_image" \
-    -C /app/data -xzf -
+docker run --rm --pull never --network none \
+  -v "$volume_name:/app/data" \
+  -v "$tmp/portal-data.tar.gz:/backup/portal-data.tar.gz:ro" \
+  --entrypoint tar \
+  "$backend_image" \
+  -C /app/data -xzf /backup/portal-data.tar.gz
 
 docker run --rm --pull never --network none \
   -v "$volume_name:/app/data" \
