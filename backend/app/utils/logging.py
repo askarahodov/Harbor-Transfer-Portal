@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -24,11 +23,16 @@ _PRIVATE_KEY_PATTERN = re.compile(
 _BEARER_PATTERN = re.compile(
     r"(?i)(\bbearer\s+)([A-Za-z0-9._~+/=-]+)",
 )
-_SECRET_ASSIGNMENT_PATTERN = re.compile(
-    r"(?i)(\b(?:password|passwd|token|secret|jwt|authorization)\b[\"']?\s*[:=]\s*)"
-    r"([\"']?)([^\"'\s,;}]+)([\"']?)",
+_JWT_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])(eyJ[A-Za-z0-9_-]{3,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)"
+    r"(?![A-Za-z0-9_-])"
 )
-_OPERATION_TASK_PREFIX = "operation-"
+_SECRET_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)((?:^|[\s,{;])[\"']?[A-Za-z0-9_.-]*"
+    r"(?:password|passwd|token|secret|jwt|authorization|private[_-]?key)"
+    r"[A-Za-z0-9_.-]*[\"']?\s*[:=]\s*)"
+    r"(?:\"[^\"]*\"|'[^']*'|[^\s,;}]+)"
+)
 _MAX_LOGGED_PATH_LENGTH = 512
 _APPLICATION_HANDLER_MARKER = "_htp_application_handler"
 
@@ -49,25 +53,7 @@ def current_request_id() -> str | None:
 
 
 def current_operation_id() -> int | None:
-    operation_id = _operation_id.get()
-    if operation_id is not None:
-        return operation_id
-
-    try:
-        task = asyncio.current_task()
-    except RuntimeError:
-        return None
-    if task is None:
-        return None
-    task_name = task.get_name()
-    if not task_name.startswith(_OPERATION_TASK_PREFIX):
-        return None
-    suffix = task_name.removeprefix(_OPERATION_TASK_PREFIX)
-    if not suffix.isdecimal():
-        return None
-    operation_id = int(suffix)
-    _operation_id.set(operation_id)
-    return operation_id
+    return _operation_id.get()
 
 
 @contextmanager
@@ -79,18 +65,11 @@ def operation_log_context(operation_id: int) -> Iterator[None]:
         _operation_id.reset(token)
 
 
-def _redact_assignment(match: re.Match[str]) -> str:
-    opening_quote = match.group(2)
-    closing_quote = match.group(4)
-    if opening_quote and closing_quote == opening_quote:
-        return f"{match.group(1)}{opening_quote}[REDACTED]{closing_quote}"
-    return f"{match.group(1)}[REDACTED]"
-
-
 def redact_log_text(value: str) -> str:
     redacted = _PRIVATE_KEY_PATTERN.sub("[REDACTED_PRIVATE_KEY]", value)
     redacted = _BEARER_PATTERN.sub(r"\1[REDACTED]", redacted)
-    return _SECRET_ASSIGNMENT_PATTERN.sub(_redact_assignment, redacted)
+    redacted = _JWT_PATTERN.sub("[REDACTED_JWT]", redacted)
+    return _SECRET_ASSIGNMENT_PATTERN.sub(r"\1[REDACTED]", redacted)
 
 
 def _bounded_path(scope: Scope) -> str:
@@ -194,7 +173,7 @@ class RequestCorrelationMiddleware:
         except Exception:
             if response_started:
                 raise
-            self.logger.error(
+            self.logger.exception(
                 "unhandled request exception method=%s path=%s",
                 scope.get("method", "-"),
                 path,
