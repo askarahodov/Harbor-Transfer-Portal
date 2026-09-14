@@ -1,0 +1,171 @@
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import * as importsApi from '@/api/imports'
+import type { ImportPreview, Operation } from '@/api/imports'
+import { useAuthStore } from '@/stores/auth'
+import { useRuntimeStore } from '@/stores/runtime'
+
+import ImportView from './ImportView.vue'
+
+let pinia = createPinia()
+
+function operation(status: Operation['status']): Operation {
+  return {
+    id: 51,
+    delivery_id: null,
+    type: 'IMPORT',
+    status,
+    actor_username: 'operator',
+    comment: null,
+    started_at: '2026-09-14T05:00:00Z',
+    finished_at: null,
+    error_code: null,
+    error_message: null,
+    cancel_requested: false,
+    bundle: {
+      filename: 'delivery.htp.tar.gz',
+      size_bytes: 8192,
+      sha256: 'c'.repeat(64),
+    },
+    progress: {
+      total_artifacts: 1,
+      completed_artifacts: 0,
+      running_artifacts: 0,
+      successful_artifacts: 0,
+      failed_artifacts: 0,
+      skipped_artifacts: 0,
+      conflict_artifacts: 1,
+      progress_current: 0,
+      progress_total: 1,
+      current_phase: status,
+      running_artifact_ids: [],
+    },
+    artifacts: [],
+  }
+}
+
+function conflictPreview(): ImportPreview {
+  return {
+    operation_id: 51,
+    status: 'READY',
+    source_delivery_id: 'DELIVERY-20260914-IMPORT01',
+    bundle_sha256: 'c'.repeat(64),
+    bundle_size_bytes: 8192,
+    signing_key_fingerprint: 'd'.repeat(64),
+    verified_at: '2026-09-14T05:02:00Z',
+    bundle_filename: 'delivery.htp.tar.gz',
+    intake_mode: 'incoming',
+    source_harbor: 'harbor.source.local',
+    source_portal_version: '0.1.0',
+    source_created_at: '2026-09-14T04:00:00Z',
+    source_created_by: 'source-operator',
+    source_comment: 'critical offline delivery',
+    checksum_verified: true,
+    signature_verified: true,
+    schema_verified: true,
+    overwrite_allowed: true,
+    artifacts: [
+      {
+        index: 0,
+        artifact_type: 'container-image',
+        repository: 'project/app',
+        name: null,
+        reference: '1.0.0',
+        version: null,
+        expected_digest: `sha256:${'a'.repeat(64)}`,
+        target_digest: `sha256:${'b'.repeat(64)}`,
+        payload_size: 4096,
+        classification: 'CONFLICT',
+        error_code: null,
+        message: null,
+      },
+    ],
+  }
+}
+
+beforeEach(() => {
+  sessionStorage.clear()
+  pinia = createPinia()
+  setActivePinia(pinia)
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  sessionStorage.clear()
+})
+
+describe('TARGET import wizard view', () => {
+  it('shows verified manifest metadata and requires explicit confirmation for exact conflicts', async () => {
+    sessionStorage.setItem('htp.import.operation-id', '51')
+    vi.spyOn(importsApi, 'getOperation').mockResolvedValue(operation('READY'))
+    vi.spyOn(importsApi, 'getImportPreview').mockResolvedValue(conflictPreview())
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('TARGET')
+    const auth = useAuthStore(pinia)
+    auth.initialized = true
+    auth.user = { id: 1, username: 'operator', role: 'operator', is_active: true }
+
+    const wrapper = mount(ImportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('h1').text()).toContain('Приём и импорт Offline Bundle')
+    expect(wrapper.text()).toContain('harbor.source.local')
+    expect(wrapper.text()).toContain('critical offline delivery')
+    expect(wrapper.text()).toContain('CONFLICT — другой digest, заблокирован')
+    expect(wrapper.text()).toContain('package verified')
+    expect(wrapper.text()).toContain('не означает')
+
+    const checkbox = wrapper.get('.overwrite-confirmation input[type="checkbox"]')
+    const overwriteButton = wrapper.findAll('button').find((item) =>
+      item.text().includes('подтверждённым overwrite'),
+    )
+    expect(overwriteButton).toBeDefined()
+    expect(overwriteButton?.attributes('disabled')).toBeDefined()
+
+    await checkbox.setValue(true)
+    expect(overwriteButton?.attributes('disabled')).toBeUndefined()
+  })
+
+  it('keeps a standard keyboard-accessible file input alongside drag and drop', async () => {
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('TARGET')
+    const wrapper = mount(ImportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('input[type="file"]').attributes('accept')).toContain('.htp.tar.gz')
+    expect(wrapper.get('.drop-zone').attributes('tabindex')).toBe('0')
+    expect(wrapper.get('.drop-zone').attributes('role')).toBe('button')
+    expect(wrapper.text()).toContain('Обнаружить готовые пакеты')
+  })
+
+  it('renders SOURCE fallback and does not restore TARGET operations', async () => {
+    sessionStorage.setItem('htp.import.operation-id', '51')
+    const getOperation = vi.spyOn(importsApi, 'getOperation')
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('SOURCE')
+
+    const wrapper = mount(ImportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Import workflow доступен только в контуре TARGET')
+    expect(getOperation).not.toHaveBeenCalled()
+    expect(wrapper.find('input[type="file"]').exists()).toBe(false)
+  })
+})
