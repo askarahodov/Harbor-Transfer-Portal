@@ -1,10 +1,23 @@
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from app.config import Settings
-from app.services.helm_oci_service import HelmServiceError
+from app.db.base import Base
+from app.db.models import ArtifactResult, Operation
+from app.db.session import create_db_engine, create_session_factory
+from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
+from app.services.helm_oci_service import (
+    HelmChartReference,
+    HelmServiceError,
+    HelmTargetState,
+)
 from app.services.import_helm_service import ImportHelmOciService
+
+SOURCE_DIGEST = "sha256:" + "a" * 64
+TARGET_DIGEST = "sha256:" + "b" * 64
+REPLACED_DIGEST = "sha256:" + "c" * 64
 
 
 class DummySession:
@@ -29,6 +42,44 @@ def _package(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"synthetic-chart")
     return path
+
+
+def _history_service(tmp_path: Path, observed_digest: str) -> ImportHelmOciService:
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite:///{tmp_path / 'history.db'}",
+        helm_workspace_root=tmp_path / "packages",
+        bundle_extract_root=tmp_path / "incoming" / "verified",
+    )
+    engine = create_db_engine(settings.database_url)
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    session = factory()
+    operation = Operation(
+        type=OperationType.IMPORT,
+        status=OperationStatus.COMPLETED,
+        actor_username="target-operator",
+    )
+    session.add(operation)
+    session.flush()
+    session.add(
+        ArtifactResult(
+            operation_id=operation.id,
+            artifact_type="helm-chart",
+            repository="project/charts",
+            name="sample",
+            version="1.2.3",
+            source_digest=SOURCE_DIGEST,
+            target_digest=TARGET_DIGEST,
+            status=ArtifactStatus.VERIFIED,
+        )
+    )
+    session.commit()
+    return ImportHelmOciService(
+        session,
+        settings,
+        digest_resolver=lambda _chart: observed_digest,
+    )
 
 
 def test_import_adapter_accepts_verified_bundle_package(tmp_path: Path) -> None:
@@ -68,3 +119,31 @@ def test_import_adapter_rejects_symlink_inside_verified_root(tmp_path: Path) -> 
         service._validate_package_path(link)
 
     assert exc.value.code == "helm_package_invalid"
+
+
+def test_verified_cross_registry_digest_pair_is_same_on_replay(tmp_path: Path) -> None:
+    service = _history_service(tmp_path, TARGET_DIGEST)
+
+    result = asyncio.run(
+        service.inspect_target(
+            HelmChartReference("project/charts", "sample", "1.2.3"),
+            expected_digest=SOURCE_DIGEST,
+        )
+    )
+
+    assert result.state is HelmTargetState.SAME_DIGEST
+    assert result.digest == TARGET_DIGEST
+
+
+def test_external_target_digest_replacement_remains_conflict(tmp_path: Path) -> None:
+    service = _history_service(tmp_path, REPLACED_DIGEST)
+
+    result = asyncio.run(
+        service.inspect_target(
+            HelmChartReference("project/charts", "sample", "1.2.3"),
+            expected_digest=SOURCE_DIGEST,
+        )
+    )
+
+    assert result.state is HelmTargetState.CONFLICTING_DIGEST
+    assert result.digest == REPLACED_DIGEST
