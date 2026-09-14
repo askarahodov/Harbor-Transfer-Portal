@@ -59,6 +59,27 @@ Backup включает `.env` и persistent `/app/data`, поэтому он **
 
 По умолчанию backup пишется в `./backups`; внешний защищённый каталог можно задать через `PORTAL_BACKUP_DIR`.
 
+## Restore / recovery
+
+Restore выполняйте **kit той же версии, из которой был создан backup**. Например, backup `1.0.0` сначала восстанавливается через kit `1.0.0`; только после проверки health выполняется обычный upgrade на следующую версию.
+
+```bash
+./restore.sh /secure/backups/harbor-transfer-portal-backup-v1.0.0-YYYYMMDDTHHMMSSZ.tar.gz --confirm-restore
+```
+
+`restore.sh` fail closed до изменения установки:
+
+- проверяет внешний `.sha256` backup archive;
+- принимает только ожидаемый allowlist файлов backup и проверяет внутренний `CHECKSUMS.sha256`;
+- проверяет product, version, stable volume identity и contour;
+- отклоняет symlinked backup/`.env`, unsafe archive paths и unsupported member types;
+- требует явный `--confirm-restore`;
+- загружает только bundled images matching-версии и не выполняет pull/build;
+- очищает и восстанавливает persistent volume через локальный backend image с `--pull never --network none`;
+- возвращает ownership `/app/data` к UID/GID `10001` и запускает Compose с `--no-build --pull never --wait`.
+
+Restore не является механизмом автоматического downgrade Alembic migrations. Для recovery версии X используйте matching kit X, подтвердите health и только затем запускайте штатный `upgrade.sh`.
+
 ## Upgrade
 
 Распакуйте новый versioned kit рядом со старым и из нового каталога выполните:
@@ -95,4 +116,4 @@ PORTAL_CONFIRM_PURGE=DELETE_PORTAL_DATA ./uninstall.sh --purge-data
 
 Release payload не содержит `.env`, Harbor credentials, JWT secret, SOURCE private key, TARGET trust material, SQLite DB, receipts/history, backup archives или другие пользовательские данные.
 
-Packaging/install/lifecycle contract проверяется deterministic smoke. Полный clean-VM test, release-grade restore qualification и SOURCE → physical bundle → TARGET acceptance E2E выполняются отдельными следующими slices P8.1 (#28).
+Packaging/install/lifecycle/recovery contract проверяется deterministic smoke. Полный clean-VM test и SOURCE → physical bundle → TARGET acceptance E2E выполняются отдельными следующими slices P8.1 (#28).
