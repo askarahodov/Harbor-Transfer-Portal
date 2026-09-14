@@ -13,11 +13,19 @@ from app.schemas.settings import (
     HarborMutationResponse,
     HarborSettingsPatch,
     HarborSettingsResponse,
+    TransferSettingsPatch,
+    TransferSettingsResponse,
 )
 from app.services.harbor_client import HarborClientError
 from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
+from app.services.transfer_settings import (
+    RESTART_REQUIRED_FIELDS,
+    TransferSettingsError,
+    TransferSettingsService,
+)
 
 router = APIRouter(prefix="/settings/harbor", tags=["settings"])
+transfer_router = APIRouter(prefix="/settings/transfer", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
 
 
@@ -29,6 +37,10 @@ def _service(request: Request, session: SessionDep) -> HarborSettingsService:
     return HarborSettingsService(session, request.app.state.settings)
 
 
+def _transfer_service(request: Request, session: SessionDep) -> TransferSettingsService:
+    return TransferSettingsService(session, request.app.state.settings)
+
+
 def _response(service: HarborSettingsService) -> HarborSettingsResponse:
     resolved = service.resolve()
     return HarborSettingsResponse(
@@ -38,6 +50,20 @@ def _response(service: HarborSettingsService) -> HarborSettingsResponse:
         verify_tls=resolved.verify_tls,
         credential_configured=service.credential_configured(),
         custom_ca_configured=service.custom_ca_configured(),
+    )
+
+
+def _transfer_response(service: TransferSettingsService) -> TransferSettingsResponse:
+    resolved = service.resolve()
+    return TransferSettingsResponse(
+        import_allow_overwrite=resolved.import_allow_overwrite,
+        import_max_upload_bytes=resolved.import_max_upload_bytes,
+        bundle_max_archive_bytes=resolved.bundle_max_archive_bytes,
+        bundle_max_extracted_bytes=resolved.bundle_max_extracted_bytes,
+        bundle_max_member_count=resolved.bundle_max_member_count,
+        operation_max_concurrent=resolved.operation_max_concurrent,
+        operation_max_concurrent_active=resolved.operation_max_concurrent_active,
+        restart_required_fields=list(resolved.restart_required_fields),
     )
 
 
@@ -129,12 +155,12 @@ def install_harbor_ca(
 @router.delete("/ca", response_model=HarborMutationResponse)
 def remove_harbor_ca(
     request: Request,
-    admin: AdminDep,
+    _admin: AdminDep,
     session: SessionDep,
 ) -> HarborMutationResponse:
     service = _service(request, session)
     service.remove_managed_ca()
-    _audit(session, admin, "harbor.ca.removed", ["custom_ca"])
+    _audit(session, _admin, "harbor.ca.removed", ["custom_ca"])
     session.commit()
     return HarborMutationResponse(changed_fields=["custom_ca"])
 
@@ -165,3 +191,68 @@ def test_harbor_connection(
         message="Подключение к локальному Harbor успешно",
         version=info.harbor_version,
     )
+
+
+@transfer_router.get("", response_model=TransferSettingsResponse)
+def get_transfer_settings(
+    request: Request,
+    _admin: AdminDep,
+    session: SessionDep,
+) -> TransferSettingsResponse:
+    try:
+        return _transfer_response(_transfer_service(request, session))
+    except TransferSettingsError as exc:
+        raise _api_error(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            exc.code,
+            exc.message,
+        ) from exc
+
+
+@transfer_router.patch("", response_model=TransferSettingsResponse)
+def update_transfer_settings(
+    payload: TransferSettingsPatch,
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> TransferSettingsResponse:
+    service = _transfer_service(request, session)
+    try:
+        current = service.resolve()
+        requested = payload.model_dump(exclude_unset=True)
+        changed = {
+            field: value
+            for field, value in requested.items()
+            if value != getattr(current, field)
+        }
+        if changed:
+            service.set_values(changed)
+            metadata = {
+                "changed_fields": sorted(changed),
+                "changes": {
+                    field: {
+                        "old": getattr(current, field),
+                        "new": value,
+                        "apply_mode": (
+                            "restart_required"
+                            if field in RESTART_REQUIRED_FIELDS
+                            else "hot"
+                        ),
+                    }
+                    for field, value in sorted(changed.items())
+                },
+            }
+            AuditEventRepository(session).create(
+                actor=admin,
+                event_type="transfer.settings.updated",
+                metadata=metadata,
+            )
+        session.commit()
+        return _transfer_response(service)
+    except TransferSettingsError as exc:
+        session.rollback()
+        raise _api_error(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            exc.code,
+            exc.message,
+        ) from exc
