@@ -1,40 +1,16 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
-from pathlib import Path
 from types import SimpleNamespace
 
 from app.domain.bundle import BundleManifest, BundleSource, ContainerImageArtifact, OperationStatus
 from app.schemas.imports import ImportPreviewResponse
 from app.services.bundle_package_service import BundleVerificationResult
+from app.services.import_orchestrator import ImportOrchestrator
 from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
 
 
-class _Context:
-    def __init__(self) -> None:
-        self.transitions: list[OperationStatus] = []
-
-    def transition(self, status: OperationStatus) -> None:
-        self.transitions.append(status)
-
-
-class _PackageService:
-    def __init__(self, verified: BundleVerificationResult) -> None:
-        self.verified = verified
-        self.calls: list[tuple[Path, Path | None]] = []
-
-    def verify_bundle(
-        self,
-        archive: Path,
-        *,
-        sidecar_path: Path | None = None,
-    ) -> BundleVerificationResult:
-        self.calls.append((archive, sidecar_path))
-        return self.verified
-
-
-def test_verified_preview_projects_signed_manifest_and_policy(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def _verified_result() -> BundleVerificationResult:
     created_at = datetime(2026, 9, 14, 5, 30, tzinfo=UTC)
     manifest = BundleManifest(
         schema_version="1.0",
@@ -58,61 +34,68 @@ def test_verified_preview_projects_signed_manifest_and_policy(monkeypatch) -> No
             )
         ],
     )
-    verified = BundleVerificationResult(
+    return BundleVerificationResult(
         manifest=manifest,
         archive_sha256="c" * 64,
         archive_size=456,
         signing_key_fingerprint="d" * 64,
     )
-    package = _PackageService(verified)
+
+
+def test_projection_uses_authoritative_base_preview_worker() -> None:
+    assert "_preview_worker" not in ImportPreviewProjectionOrchestrator.__dict__
+    assert (
+        ImportPreviewProjectionOrchestrator._preview_worker
+        is ImportOrchestrator._preview_worker
+    )
+
+
+def test_persist_preview_enriches_verified_manifest_and_policy(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    verified = _verified_result()
     orchestrator = object.__new__(ImportPreviewProjectionOrchestrator)
     orchestrator.settings = SimpleNamespace(import_allow_overwrite=True)
-    orchestrator.package_factory = lambda: package
+    orchestrator._verified_preview = verified
 
     operation = SimpleNamespace(
-        bundle_sha256=verified.archive_sha256,
         bundle_filename="bundle.htp.tar.gz",
         import_intake_mode="incoming",
     )
-    persisted: list[ImportPreviewResponse] = []
-    monkeypatch.setattr(
-        orchestrator,
-        "_bundle_paths",
-        lambda _operation_id: (Path("bundle.htp.tar.gz"), Path("bundle.htp.tar.gz.sha256")),
-    )
     monkeypatch.setattr(orchestrator, "_get_import_operation", lambda _operation_id: operation)
 
-    async def classify(_artifacts):  # type: ignore[no-untyped-def]
-        return []
+    persisted: list[ImportPreviewResponse] = []
 
-    monkeypatch.setattr(orchestrator, "_classify_manifest", classify)
-    monkeypatch.setattr(
-        orchestrator,
-        "_persist_preview",
-        lambda _operation_id, preview: persisted.append(preview),
+    def persist(_self, _operation_id, preview):  # type: ignore[no-untyped-def]
+        persisted.append(preview)
+
+    monkeypatch.setattr(ImportOrchestrator, "_persist_preview", persist)
+
+    preview = ImportPreviewResponse(
+        operation_id=41,
+        status=OperationStatus.READY,
+        source_delivery_id=verified.manifest.delivery_id,
+        bundle_sha256=verified.archive_sha256,
+        bundle_size_bytes=verified.archive_size,
+        signing_key_fingerprint=verified.signing_key_fingerprint,
+        verified_at=datetime.now(UTC),
+        artifacts=[],
     )
 
-    context = _Context()
-    asyncio.run(orchestrator._preview_worker(context, 41))
+    orchestrator._persist_preview(41, preview)
 
-    assert context.transitions == [OperationStatus.VERIFYING, OperationStatus.READY]
-    assert package.calls == [(Path("bundle.htp.tar.gz"), Path("bundle.htp.tar.gz.sha256"))]
     assert len(persisted) == 1
-    preview = persisted[0]
-    assert preview.source_delivery_id == manifest.delivery_id
-    assert preview.source_harbor == "harbor.source.local"
-    assert preview.source_portal_version == "0.1.0"
-    assert preview.source_created_at == created_at
-    assert preview.source_created_by == "source-operator"
-    assert preview.source_comment == "offline delivery"
-    assert preview.bundle_filename == "bundle.htp.tar.gz"
-    assert preview.intake_mode == "incoming"
-    assert preview.bundle_sha256 == verified.archive_sha256
-    assert preview.signing_key_fingerprint == verified.signing_key_fingerprint
-    assert preview.checksum_verified is True
-    assert preview.signature_verified is True
-    assert preview.schema_verified is True
-    assert preview.overwrite_allowed is True
+    enriched = persisted[0]
+    assert enriched.source_harbor == "harbor.source.local"
+    assert enriched.source_portal_version == "0.1.0"
+    assert enriched.source_created_at == verified.manifest.created_at
+    assert enriched.source_created_by == "source-operator"
+    assert enriched.source_comment == "offline delivery"
+    assert enriched.bundle_filename == "bundle.htp.tar.gz"
+    assert enriched.intake_mode == "incoming"
+    assert enriched.checksum_verified is True
+    assert enriched.signature_verified is True
+    assert enriched.schema_verified is True
+    assert enriched.overwrite_allowed is True
+    assert orchestrator._verified_preview is None
 
 
 def test_old_persisted_preview_shape_remains_readable() -> None:
