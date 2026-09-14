@@ -7,6 +7,7 @@ import {
   listUsers,
   updateUser,
   type ManagedUser,
+  type UpdateUserPayload,
 } from '@/api/users'
 import type { UserRole } from '@/stores/auth'
 
@@ -101,13 +102,17 @@ async function submitNewUser(): Promise<void> {
 async function saveAccess(user: ManagedUser): Promise<void> {
   const role = roleDrafts[user.id]
   const isActive = activeDrafts[user.id]
-  if (role === user.role && isActive === user.is_active) {
+  const payload: UpdateUserPayload = {}
+  if (role !== user.role) payload.role = role
+  if (isActive !== user.is_active) payload.is_active = isActive
+
+  if (Object.keys(payload).length === 0) {
     message.value = `Для ${user.username} нет изменений.`
     error.value = ''
     return
   }
 
-  const action = isActive ? 'изменить роль/статус' : 'отключить пользователя'
+  const action = payload.is_active === false ? 'отключить пользователя' : 'изменить роль/статус'
   if (!window.confirm(`Подтвердите: ${action} ${user.username}.`)) {
     syncDraft(user)
     return
@@ -117,7 +122,7 @@ async function saveAccess(user: ManagedUser): Promise<void> {
   error.value = ''
   message.value = ''
   try {
-    const updated = await updateUser(user.id, { role, is_active: isActive })
+    const updated = await updateUser(user.id, payload)
     replaceUser(updated)
     message.value = `Доступ пользователя ${updated.username} обновлён.`
   } catch (reason) {
