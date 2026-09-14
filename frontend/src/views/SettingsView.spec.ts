@@ -6,6 +6,8 @@ import { apiClient } from '@/api/client'
 
 import SettingsView from './SettingsView.vue'
 
+const GIB = 1024 ** 3
+
 const safeSettings = {
   contour: 'SOURCE' as const,
   url: 'https://harbor.local',
@@ -13,6 +15,17 @@ const safeSettings = {
   verify_tls: true,
   credential_configured: true,
   custom_ca_configured: false,
+}
+
+const safeTransferSettings = {
+  import_allow_overwrite: false,
+  import_max_upload_bytes: 50 * GIB,
+  bundle_max_archive_bytes: 50 * GIB,
+  bundle_max_extracted_bytes: 100 * GIB,
+  bundle_max_member_count: 100_000,
+  operation_max_concurrent: 2,
+  operation_max_concurrent_active: 2,
+  restart_required_fields: [] as string[],
 }
 
 function response<T>(data: T): AxiosResponse<T> {
@@ -26,7 +39,11 @@ function response<T>(data: T): AxiosResponse<T> {
 }
 
 async function mountSettings() {
-  vi.spyOn(apiClient, 'get').mockResolvedValue(response(safeSettings))
+  vi.spyOn(apiClient, 'get').mockImplementation(async (url) => {
+    if (url === '/settings/harbor') return response(safeSettings)
+    if (url === '/settings/transfer') return response(safeTransferSettings)
+    throw new Error(`Unexpected GET ${url}`)
+  })
   const wrapper = mount(SettingsView)
   await flushPromises()
   return wrapper
@@ -54,7 +71,7 @@ describe('Harbor settings view', () => {
     )
 
     await wrapper.get('#harbor-url').setValue('https://new.harbor.local')
-    await wrapper.find('form').trigger('submit')
+    await wrapper.findAll('form')[0].trigger('submit')
     await flushPromises()
 
     expect(patch).toHaveBeenCalledWith('/settings/harbor', {
@@ -87,5 +104,41 @@ describe('Harbor settings view', () => {
 
     await wrapper.get('#harbor-verify-tls').setValue(false)
     expect(wrapper.get('.warning').text()).toContain('Проверка TLS отключена явно')
+  })
+
+  it('sends only changed transfer fields and reports restart-required concurrency', async () => {
+    const wrapper = await mountSettings()
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(
+      response({
+        ...safeTransferSettings,
+        import_allow_overwrite: true,
+        operation_max_concurrent: 4,
+        operation_max_concurrent_active: 2,
+        restart_required_fields: ['operation_max_concurrent'],
+      }),
+    )
+
+    await wrapper.get('#transfer-overwrite').setValue(true)
+    await wrapper.get('#transfer-concurrency').setValue(4)
+    await wrapper.findAll('form')[1].trigger('submit')
+    await flushPromises()
+
+    expect(patch).toHaveBeenCalledWith('/settings/transfer', {
+      import_allow_overwrite: true,
+      operation_max_concurrent: 4,
+    })
+    expect(wrapper.text()).toContain('вступит в силу после рестарта backend')
+    expect(wrapper.text()).toContain('Concurrency active: 2')
+  })
+
+  it('does not send transfer PATCH when drafts are unchanged', async () => {
+    const wrapper = await mountSettings()
+    const patch = vi.spyOn(apiClient, 'patch')
+
+    await wrapper.findAll('form')[1].trigger('submit')
+    await flushPromises()
+
+    expect(patch).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Transfer policies не изменились.')
   })
 })
