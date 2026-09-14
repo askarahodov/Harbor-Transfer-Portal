@@ -121,9 +121,15 @@ Admin выбирает public PEM и явно подтверждает доба�
 
 ### Replace
 
-Replace принимает fingerprint существующего trusted key и новый Ed25519 public PEM. Backend сначала полностью валидирует новый key, затем атомарно публикует новый active key и только после этого удаляет старый. Поэтому failure до publish оставляет старый key доверенным, а crash между publish и cleanup оставляет безопасный overlap, а не окно без доверенного ключа.
+Replace принимает fingerprint существующего trusted key и новый Ed25519 public PEM. Новый key полностью валидируется до mutation.
 
-Replace не увеличивает итоговое число trusted identities, поэтому замена одного key разрешена даже когда trust set уже достиг `BUNDLE_MAX_TRUSTED_KEYS`. Обычный `POST add` при том же заполненном лимите продолжает возвращать `409 trusted_key_limit_exceeded`.
+Для нового fingerprint backend выполняет немедленный atomic cutover **внутри существующего trust slot**: содержимое файла old key атомарно заменяется новым key, сохраняя active/disabled state slot. Поэтому в любой момент количество unique identities и active `*.pem` не увеличивается до `max+1` и не падает до нуля.
+
+После commit Portal пытается привести filename к canonical `<new-fingerprint>.pem` или `<new-fingerprint>.disabled`. Эта rename-операция является post-commit hygiene: если она не удалась, key уже authoritative по содержимому, остаётся discoverable через fingerprint и операция не возвращает ложный failure.
+
+Failure до atomic commit оставляет old key authoritative. Replace одного key разрешён даже когда trust set уже достиг `BUNDLE_MAX_TRUSTED_KEYS`; обычный `POST add` при том же заполненном лимите продолжает возвращать `409 trusted_key_limit_exceeded`.
+
+Важно: **Replace — это немедленный cutover**, поэтому bundle, подписанные old key, после успешной замены больше не должны проходить verifier. Если old/new deliveries должны сосуществовать во время миграции, используйте плановый overlap workflow из раздела 7, а не Replace.
 
 ### Disable
 
@@ -161,7 +167,7 @@ disable old key
 remove old key после окончания rollback/delivery window
 ```
 
-Для административной одношаговой замены через **Replace** Portal использует publish-new-before-remove-old. Это не заменяет overlap procedure для обычной плановой ротации SOURCE, когда старые deliveries ещё должны оставаться валидными.
+Плановая overlap rotation и **Replace** решают разные задачи: overlap сохраняет доверие к старым deliveries на период миграции, а Replace атомарно переключает один trust slot на новую identity без временного роста trust-set count.
 
 Это не требует изменения Bundle v1 archive или manifest.
 
@@ -175,7 +181,7 @@ remove old key после окончания rollback/delivery window
 
 Это deployment/security bound и не переносится в generic runtime transfer-policy UI.
 
-Количество trusted keys дополнительно ограничивает `BUNDLE_MAX_TRUSTED_KEYS`.
+Количество trusted keys дополнительно ограничивает `BUNDLE_MAX_TRUSTED_KEYS`. Atomic trust-slot replace не занимает дополнительный slot; обычный add занимает.
 
 ## 9. Audit
 
@@ -221,6 +227,7 @@ TARGET trust directory не содержит private secrets, но опреде�
 - принимать public key из того же недоверенного канала только потому, что по нему пришёл bundle;
 - давать пользователю возможность задавать key filename/path;
 - обходить server-side `confirm=true` собственным неинтерактивным клиентом без отдельного операторского решения;
+- использовать Replace вместо overlap rotation, если старые deliveries ещё должны оставаться валидными;
 - менять расширение disabled key вручную как штатную admin procedure;
 - удалять old trust key до завершения overlap window.
 
