@@ -20,7 +20,7 @@ function guardedRouter(role?: UserRole, contour: PortalContour = 'SOURCE') {
 }
 
 describe('router', () => {
-  it.each(['/login', '/', '/export', '/import', '/history', '/users', '/settings'])(
+  it.each(['/login', '/', '/export', '/import', '/history', '/users', '/keys', '/settings'])(
     'resolves %s',
     async (path) => {
       const router = createAppRouter(createMemoryHistory())
@@ -47,6 +47,9 @@ describe('router', () => {
 
     await router.push('/users')
     expect(router.currentRoute.value.name).toBe('dashboard')
+
+    await router.push('/keys')
+    expect(router.currentRoute.value.name).toBe('dashboard')
   })
 
   it('allows SOURCE operator export and blocks TARGET-only import', async () => {
@@ -69,11 +72,14 @@ describe('router', () => {
     expect(router.currentRoute.value.name).toBe('dashboard')
   })
 
-  it('allows admin user/settings routes and redirects authenticated login route', async () => {
+  it('allows admin management routes and redirects authenticated login route', async () => {
     const router = guardedRouter('admin')
     await router.push('/users')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('users')
+
+    await router.push('/keys')
+    expect(router.currentRoute.value.name).toBe('keys')
 
     await router.push('/settings')
     expect(router.currentRoute.value.name).toBe('settings')
