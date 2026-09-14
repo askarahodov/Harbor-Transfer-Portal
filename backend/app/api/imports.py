@@ -15,6 +15,7 @@ from app.schemas.imports import (
 )
 from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_orchestrator import ImportOrchestrationError, ImportOrchestrator
+from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
 
 router = APIRouter(prefix="/imports", tags=["imports"])
 ImportActorDep = Annotated[
@@ -25,7 +26,7 @@ ImportActorDep = Annotated[
 
 def get_import_orchestrator(request: Request) -> ImportOrchestrator:
     settings = request.app.state.settings
-    return ImportOrchestrator(
+    return ImportPreviewProjectionOrchestrator(
         request.app.state.session_factory,
         settings,
         request.app.state.operation_manager,
