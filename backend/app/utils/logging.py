@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from typing import Any, Iterator
+from typing import Any
 from uuid import uuid4
 
 from starlette.datastructures import Headers, MutableHeaders
@@ -25,6 +27,7 @@ _SECRET_ASSIGNMENT_PATTERN = re.compile(
     r"(?i)(\b(?:password|passwd|token|secret|jwt|authorization)\b\s*[:=]\s*)"
     r"([^\s,;]+)",
 )
+_OPERATION_TASK_PREFIX = "operation-"
 
 _request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
 _operation_id: ContextVar[int | None] = ContextVar("operation_id", default=None)
@@ -43,7 +46,25 @@ def current_request_id() -> str | None:
 
 
 def current_operation_id() -> int | None:
-    return _operation_id.get()
+    operation_id = _operation_id.get()
+    if operation_id is not None:
+        return operation_id
+
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:
+        return None
+    if task is None:
+        return None
+    task_name = task.get_name()
+    if not task_name.startswith(_OPERATION_TASK_PREFIX):
+        return None
+    suffix = task_name.removeprefix(_OPERATION_TASK_PREFIX)
+    if not suffix.isdecimal():
+        return None
+    operation_id = int(suffix)
+    _operation_id.set(operation_id)
+    return operation_id
 
 
 @contextmanager
