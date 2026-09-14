@@ -12,19 +12,21 @@ from app.db.session import create_db_engine, create_session_factory
 from app.services.correlated_operation_manager import CorrelatedOperationManager
 from app.services.export_recovery import reconcile_incomplete_export_publications
 from app.services.operation_audit import install_operation_audit_hooks
+from app.services.transfer_settings import load_startup_transfer_settings
 from app.utils.errors import http_exception_handler, validation_exception_handler
 from app.utils.logging import RequestCorrelationMiddleware, configure_application_logging
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    resolved_settings = settings or get_settings()
+    deployment_settings = settings or get_settings()
     configure_application_logging(
-        level=resolved_settings.log_level,
-        json_output=resolved_settings.log_json,
+        level=deployment_settings.log_level,
+        json_output=deployment_settings.log_json,
     )
     install_operation_audit_hooks()
-    db_engine = create_db_engine(resolved_settings.database_url)
+    db_engine = create_db_engine(deployment_settings.database_url)
     session_factory = create_session_factory(db_engine)
+    resolved_settings = load_startup_transfer_settings(session_factory, deployment_settings)
     operation_manager = CorrelatedOperationManager(session_factory, resolved_settings)
 
     @asynccontextmanager
