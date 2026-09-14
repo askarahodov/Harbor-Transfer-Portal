@@ -12,7 +12,15 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
-_AREA_NAMES = ("backend", "frontend", "protocol", "security", "compose", "docs")
+_AREA_NAMES = (
+    "backend",
+    "frontend",
+    "protocol",
+    "security",
+    "integration",
+    "compose",
+    "docs",
+)
 
 _SECURITY_SERVICE_FILES = {
     "bundle_package_service.py",
@@ -44,6 +52,14 @@ _SECURITY_TEST_PREFIXES = (
     "test_structured_logging",
     "test_user_admin_api",
 )
+_INTEGRATION_SERVICE_FILES = {
+    "skopeo_service.py",
+    "helm_oci_service.py",
+}
+_INTEGRATION_DEPLOY_FILES = {
+    "deploy/compose-registry-integration.yml",
+    "deploy/smoke-registry-integration.sh",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +68,7 @@ class Scope:
     frontend: bool = False
     protocol: bool = False
     security: bool = False
+    integration: bool = False
     compose: bool = False
     docs: bool = False
 
@@ -61,6 +78,7 @@ class Scope:
             "frontend": self.frontend,
             "protocol": self.protocol,
             "security": self.security,
+            "integration": self.integration,
             "compose": self.compose,
             "docs": self.docs,
         }
@@ -104,6 +122,19 @@ def _is_security_sensitive_backend(path: PurePosixPath) -> bool:
     return False
 
 
+def _is_local_registry_integration_path(path: PurePosixPath, path_text: str) -> bool:
+    if path_text == "backend/Dockerfile":
+        return True
+    if (
+        path.parts[:3] == ("backend", "app", "services")
+        and path.name in _INTEGRATION_SERVICE_FILES
+    ):
+        return True
+    if _starts_with(path, "backend", "integration"):
+        return True
+    return path_text in _INTEGRATION_DEPLOY_FILES
+
+
 def _is_package_protocol_path(path_text: str) -> bool:
     return path_text == "backend/app/services/bundle_package_service.py" or path_text.startswith(
         "backend/tests/test_bundle_package_"
@@ -137,6 +168,9 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
     if _is_security_sensitive_backend(path):
         areas.add("security")
 
+    if _is_local_registry_integration_path(path, path_text):
+        areas.add("integration")
+
     if (
         path_text
         in {
@@ -168,6 +202,17 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
     return areas, workflow_changed
 
 
+def _integration_markers_exist(root: Path) -> bool:
+    return all(
+        path.is_file()
+        for path in (
+            root / "backend/integration/registry_smoke.py",
+            root / "deploy/compose-registry-integration.yml",
+            root / "deploy/smoke-registry-integration.sh",
+        )
+    )
+
+
 def classify_paths(paths: Iterable[str], *, root: Path = Path(".")) -> Scope:
     areas: set[str] = set()
     workflow_changed = False
@@ -184,6 +229,8 @@ def classify_paths(paths: Iterable[str], *, root: Path = Path(".")) -> Scope:
         areas.update({"backend", "protocol", "security", "docs"})
         if (root / "frontend/package.json").is_file():
             areas.add("frontend")
+        if _integration_markers_exist(root):
+            areas.add("integration")
         if (root / "compose.yaml").is_file():
             areas.add("compose")
 
@@ -196,6 +243,8 @@ def classify_paths(paths: Iterable[str], *, root: Path = Path(".")) -> Scope:
         areas.discard("protocol")
     if not (root / "backend/tests/test_bundle_package_service.py").is_file():
         areas.discard("security")
+    if not _integration_markers_exist(root):
+        areas.discard("integration")
     if not (
         (root / "compose.yaml").is_file()
         and (root / "deploy/smoke-compose.sh").is_file()
@@ -223,6 +272,7 @@ def write_summary(scope: Scope, summary_path: Path) -> None:
         "frontend": "Frontend",
         "protocol": "Bundle protocol",
         "security": "Security regression",
+        "integration": "Skopeo/Helm local registry integration",
         "compose": "Compose",
         "docs": "Documentation",
     }

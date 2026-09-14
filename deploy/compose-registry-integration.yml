@@ -1,0 +1,40 @@
+name: harbor-transfer-portal-registry-integration
+
+services:
+  registry:
+    image: registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+    restart: "no"
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    tmpfs:
+      - /var/lib/registry
+    networks:
+      - isolated
+
+  integration:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: "no"
+    depends_on:
+      - registry
+    entrypoint:
+      - python
+      - /opt/htp-integration/registry_smoke.py
+    environment:
+      HTP_INTEGRATION_REGISTRY_URL: http://registry:5000
+    volumes:
+      - ../backend/integration/registry_smoke.py:/opt/htp-integration/registry_smoke.py:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - isolated
+
+networks:
+  isolated:
+    internal: true

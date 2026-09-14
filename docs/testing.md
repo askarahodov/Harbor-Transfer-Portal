@@ -16,6 +16,7 @@
 6. Planned test job не создаётся как пустой зелёный placeholder: gate появляется вместе с поведением, которое он реально проверяет.
 7. Логика выбора CI scope сама является тестируемым кодом: изменение classifier не должно незаметно расширять или сужать обязательные gates.
 8. Documentation gate не выполняет network crawling: локальная целостность репозитория проверяется детерминированно без зависимости от внешних сайтов.
+9. Integration gate должен проверять реальный production runtime boundary, а не дублировать unit mocks под другим именем.
 
 ## 2. Текущие локальные gates
 
@@ -102,6 +103,31 @@ Package builder/verifier относится одновременно к protocol
 
 Security gate не заменяет backend suite: он является отдельным обязательным сигналом для security-sensitive diff и входит в финальный `quality-gate`.
 
+### Skopeo/Helm local-registry integration
+
+```bash
+make test-registry-integration
+```
+
+Gate собирает **production backend image**, поднимает disposable OCI Distribution registry и запускает реальные production binaries `skopeo` и `helm` внутри отдельной Docker topology.
+
+Registry fixture pinned:
+
+```text
+registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+```
+
+Перед запуском test containers runner может получить pinned registry image и собрать backend image. После старта test topology оба контейнера находятся только в Docker network с `internal: true`: application flow не имеет маршрута к public registry или интернету.
+
+Fixture artifacts не скачиваются извне:
+
+- container image детерминированно создаётся локально как OCI image-layout;
+- Helm chart создаётся локально и package-ится реальным `helm package`.
+
+Skopeo integration проверяет OCI layout → local registry → OCI layout → другой repository и сохранение manifest digest на каждом этапе. Helm integration проверяет реальный `helm push`/`helm pull`, manifest digest через стандартный OCI Distribution API, chart name/version и SHA-256 package bytes после round trip.
+
+Local-registry gate не заменяет Harbor API tests и не является full SOURCE→TARGET E2E. Его задача — поймать несовместимость production Skopeo/Helm runtime, OCI transport и packaging semantics до release qualification.
+
 ### Compose/runtime
 
 ```bash
@@ -137,12 +163,16 @@ Backend Mypy gate проверяет typed contracts между FastAPI/Pydantic
 - frontend-only → frontend;
 - protocol domain path → backend + protocol;
 - package service → backend + protocol + security;
-- import/export/key-management/Skopeo/Helm/auth security-sensitive path → backend + security;
+- import/export/key-management/auth security-sensitive path → backend + security;
+- Skopeo/Helm service → backend + security + integration;
+- backend Dockerfile → backend + integration + Compose;
+- integration harness → backend + integration;
+- integration Compose/runner → integration + Compose;
 - `deploy/README.md` → Compose + documentation;
 - `Makefile` → backend + frontend + documentation;
 - изменение `.github/workflows/ci.yml` → все существующие areas;
 - mixed diff → объединение flags;
-- отсутствие component/security marker в ревизии → отсутствие фиктивного job.
+- отсутствие component/security/integration marker в ревизии → отсутствие фиктивного job.
 
 Scope job всегда запускает эти regression tests **до** вычисления outputs. Если classifier сломан, `scope` падает и финальный `quality-gate` не может стать зелёным.
 
@@ -199,6 +229,8 @@ Anchor semantics внутри Markdown и доступность внешних 
 
 Integration fixture должен быть локальным/disposable и не требовать public Harbor/internet во время выполнения application flow.
 
+Реализованный `Integration — Skopeo/Helm local registry` дополнительно проверяет production CLI/OCI boundary через disposable registry с internal-only network и не использует внешний artifact fixture во время application flow.
+
 ### Compose smoke
 
 Текущий `deploy/smoke-compose.sh` проверяет runtime topology:
@@ -246,8 +278,11 @@ SOURCE export orchestration и TARGET import orchestration уже реализо
 | Только frontend view/component | ESLint + typecheck + unit/component + build |
 | Bundle protocol/schema/domain | docs-check + backend lint/type + protocol regression + affected backend tests |
 | Harbor client/settings | backend lint/type/tests + mocked/integration Harbor scenarios |
-| Skopeo | backend lint/type + targeted security + local integration при orchestration impact |
-| Helm OCI | backend lint/type + targeted security + local integration при orchestration impact |
+| Skopeo service | backend lint/type + targeted security + local-registry integration |
+| Helm OCI service | backend lint/type + targeted security + local-registry integration |
+| Backend Dockerfile | backend + local-registry integration + Compose smoke |
+| Local-registry harness | backend + local-registry integration |
+| Local-registry Compose/runner | local-registry integration + Compose smoke |
 | Package verifier/build | backend lint/type + protocol + targeted security |
 | Export/import orchestration | backend lint/type + targeted security + relevant integration |
 | Key management | backend lint/type + targeted security |
@@ -273,6 +308,7 @@ Workflow `.github/workflows/ci.yml` отвечает только за полу�
 - `frontend`;
 - `protocol`;
 - `security`;
+- `integration`;
 - `compose`;
 - `docs`.
 
@@ -308,6 +344,21 @@ Workflow `.github/workflows/ci.yml` отвечает только за полу�
 
 Обычный backend service вроде `harbor_client.py` не включает security job автоматически, если security boundary не затронут.
 
+### Integration scope
+
+Включается только для реальной Skopeo/Helm runtime boundary:
+
+- `backend/app/services/skopeo_service.py`;
+- `backend/app/services/helm_oci_service.py`;
+- `backend/Dockerfile` — он определяет production версии Skopeo/Helm;
+- `backend/integration/*`;
+- `deploy/compose-registry-integration.yml`;
+- `deploy/smoke-registry-integration.sh`.
+
+Обычный backend service, docs-only изменение или unrelated unit test не включает тяжёлый integration job.
+
+Classifier включает integration при изменении workflow только если в проверяемой ревизии существуют все marker-файлы: harness, integration Compose topology и runner.
+
 ### Compose scope
 
 Включается для:
@@ -332,7 +383,7 @@ Workflow `.github/workflows/ci.yml` отвечает только за полу�
 
 Изменение `.github/workflows/ci.yml` включает все реально существующие applicable areas. Перед classification scope job всегда выполняются regression `tools.test_ci_scope` и dependency-lock invariant, эквивалентный `make dependency-locks-check`; поэтому изменение workflow/classifier не может обойти test-selection или lock policy молча.
 
-После classification helper повторно проверяет наличие component markers (`backend/pyproject.toml`, `frontend/package.json`, protocol test, security regression marker, Compose smoke script, docs checker) и не создаёт job для компонента, которого нет в проверяемой ревизии.
+После classification helper повторно проверяет наличие component markers (`backend/pyproject.toml`, `frontend/package.json`, protocol test, security regression marker, integration harness/topology/runner, Compose smoke script, docs checker) и не создаёт job для компонента, которого нет в проверяемой ревизии.
 
 ## 6. Documentation job
 
@@ -347,7 +398,7 @@ Missing local target или path escape возвращает non-zero и дел�
 
 ## 7. `quality-gate`
 
-Финальный `quality-gate` выполняется всегда и зависит от scope/backend/frontend/protocol/security/compose/docs.
+Финальный `quality-gate` выполняется всегда и зависит от scope/backend/frontend/protocol/security/integration/compose/docs.
 
 Он принимает только:
 
@@ -447,9 +498,9 @@ make dependency-locks-check
 | Frontend lint/type/unit/build | реализовано; `npm ci` only |
 | Bundle Protocol contract regression | реализовано |
 | Targeted security regression | реализовано |
+| Skopeo/Helm disposable-registry integration | реализовано; real production binaries + internal-only registry topology |
 | Compose build/smoke | реализовано; Docker builds используют committed locks |
-| Final `quality-gate` | реализовано |
-| Skopeo/Helm disposable-registry integration | ещё требуется |
+| Final `quality-gate` | реализовано; учитывает integration result |
 | Full SOURCE→TARGET dual-contour E2E | требуется в #28 |
 | Release/offline-install gate | требуется в #28 |
 
@@ -457,7 +508,7 @@ make dependency-locks-check
 
 ### Изменён только `frontend/src/views/LoginView.vue`
 
-Запустить frontend lint/type/unit/build. Backend package/protocol/Compose не нужны, если contract/runtime не менялся.
+Запустить frontend lint/type/unit/build. Backend package/protocol/Compose/integration не нужны, если contract/runtime не менялся.
 
 ### Изменён `backend/app/services/bundle_package_service.py`
 
@@ -467,9 +518,17 @@ make dependency-locks-check
 
 Нужны backend Ruff + Mypy + tests + targeted security regression. Protocol gate не добавляется автоматически, если normative Bundle v1 contract/package boundary не менялись.
 
+### Изменён `backend/app/services/skopeo_service.py` или `helm_oci_service.py`
+
+Нужны backend Ruff + Mypy + tests + targeted security regression + real local-registry integration.
+
+### Изменён `backend/Dockerfile`
+
+Нужны backend + Compose smoke + local-registry integration, потому что Dockerfile определяет фактические версии и наличие Skopeo/Helm в production image.
+
 ### Изменён только `docs/architecture.md`
 
-Запускается documentation gate + quality-gate. Backend/frontend/Compose не нужны.
+Запускается documentation gate + quality-gate. Backend/frontend/Compose/integration не нужны.
 
 ### Изменён `deploy/README.md`
 
@@ -481,7 +540,7 @@ PR scope определяется от merge base, поэтому уже merged 
 
 ### Изменён `.github/workflows/ci.yml`
 
-Сначала запускаются regression suite classifier и dependency-lock invariant, затем включаются все уже реализованные areas, включая security, чтобы проверить сам механизм test selection.
+Сначала запускаются regression suite classifier и dependency-lock invariant, затем включаются все уже реализованные areas, включая security и integration, чтобы проверить сам механизм test selection.
 
 ## 12. Правило root cause
 
@@ -503,6 +562,7 @@ PR scope определяется от merge base, поэтому уже merged 
 - использовать `continue-on-error` для обязательной проверки;
 - добавлять исключение для сломанной локальной ссылки вместо исправления ссылки/структуры без документированной причины;
 - превращать интеграционный defect в mock-only green test без объяснения;
+- включать runtime network egress вместо исправления fixture/setup boundary;
 - выключать Mypy для целого приложения/модуля вместо исправления contract или точечного typing boundary.
 
 ## 13. Documentation impact
@@ -518,6 +578,9 @@ PR scope определяется от merge base, поэтому уже merged 
 - [Security](security.md)
 - [CONTRIBUTING](../CONTRIBUTING.md)
 - `.github/workflows/ci.yml`
+- `backend/integration/registry_smoke.py`
+- `deploy/compose-registry-integration.yml`
+- `deploy/smoke-registry-integration.sh`
 - `tools/ci_scope.py`
 - `tools/test_ci_scope.py`
 - `tools/check_dependency_locks.py`
@@ -529,7 +592,6 @@ PR scope определяется от merge base, поэтому уже merged 
 Следующие расширения не считаются реализованными только потому, что упомянуты здесь:
 
 - optional Markdown anchor validation, если будет оправдано;
-- Skopeo/Helm local-registry integration;
 - additional export/import integration where mocks are insufficient;
 - final SOURCE→TARGET E2E;
 - offline release/install acceptance.
