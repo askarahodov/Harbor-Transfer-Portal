@@ -18,6 +18,7 @@ from app.db.models import AuditEvent, UserRole
 from app.db.repositories import UserRepository
 from app.domain.bundle import BundleSource
 from app.main import create_app
+from app.services import key_management as key_management_module
 from app.services.bundle_package_service import (
     BundlePackageError,
     BundlePackageService,
@@ -294,3 +295,65 @@ def test_replace_publish_failure_keeps_previous_key_trusted(
         TrustedKeyStatus(fingerprint=old_fingerprint, enabled=True),
     )
     assert not service._enabled_path(new_fingerprint).exists()
+
+
+def test_replace_preserves_disabled_state(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        portal_contour=PortalContour.TARGET,
+        bundle_trusted_public_keys_dir=tmp_path / "trusted",
+        bundle_max_trusted_keys=1,
+    )
+    service = KeyManagementService(settings)
+    old_key = Ed25519PrivateKey.generate()
+    new_key = Ed25519PrivateKey.generate()
+    old_fingerprint = ed25519_public_key_fingerprint(old_key.public_key())
+    new_fingerprint = ed25519_public_key_fingerprint(new_key.public_key())
+    service.add_trusted_public_key(_public_pem(old_key))
+    service.set_trusted_key_enabled(old_fingerprint, False)
+
+    mutation = service.replace_trusted_public_key(old_fingerprint, _public_pem(new_key))
+
+    assert mutation.fingerprint == new_fingerprint
+    assert service.list_trusted_keys() == (
+        TrustedKeyStatus(fingerprint=new_fingerprint, enabled=False),
+    )
+    assert not list(settings.bundle_trusted_public_keys_dir.glob("*.pem"))
+
+
+def test_post_commit_canonicalization_failure_keeps_new_key_authoritative(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        portal_contour=PortalContour.TARGET,
+        bundle_trusted_public_keys_dir=tmp_path / "trusted",
+        bundle_max_trusted_keys=1,
+    )
+    service = KeyManagementService(settings)
+    old_key = Ed25519PrivateKey.generate()
+    new_key = Ed25519PrivateKey.generate()
+    old_fingerprint = ed25519_public_key_fingerprint(old_key.public_key())
+    new_fingerprint = ed25519_public_key_fingerprint(new_key.public_key())
+    service.add_trusted_public_key(_public_pem(old_key))
+
+    real_replace = key_management_module.os.replace
+    replace_calls = 0
+
+    def fail_second_replace(source: Path | str, target: Path | str) -> None:
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls == 2:
+            raise OSError("synthetic canonicalization failure")
+        real_replace(source, target)
+
+    monkeypatch.setattr(key_management_module.os, "replace", fail_second_replace)
+    mutation = service.replace_trusted_public_key(old_fingerprint, _public_pem(new_key))
+
+    assert mutation.fingerprint == new_fingerprint
+    assert replace_calls == 2
+    assert service.list_trusted_keys() == (
+        TrustedKeyStatus(fingerprint=new_fingerprint, enabled=True),
+    )
+    assert len(list(settings.bundle_trusted_public_keys_dir.glob("*.pem"))) == 1
