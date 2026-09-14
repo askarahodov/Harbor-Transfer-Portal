@@ -249,7 +249,13 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
 
   function requestPayload() {
     return {
-      artifacts: selectedArtifacts.value.map(({ size_bytes: _sizeBytes, ...selection }) => selection),
+      artifacts: selectedArtifacts.value.map((artifact) => ({
+        kind: artifact.kind,
+        project: artifact.project,
+        repository: artifact.repository,
+        reference: artifact.reference,
+        digest: artifact.digest,
+      })),
       comment: comment.value.trim() || null,
     }
   }
