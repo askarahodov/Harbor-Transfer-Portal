@@ -12,6 +12,7 @@ from app.db.session import create_db_engine, create_session_factory
 from app.services.correlated_operation_manager import CorrelatedOperationManager
 from app.services.export_recovery import reconcile_incomplete_export_publications
 from app.services.operation_audit import install_operation_audit_hooks
+from app.services.transfer_policy import TransferPolicyService
 from app.utils.errors import http_exception_handler, validation_exception_handler
 from app.utils.logging import RequestCorrelationMiddleware, configure_application_logging
 
@@ -29,6 +30,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        with session_factory() as session:
+            TransferPolicyService(session, resolved_settings).apply_persisted_at_startup()
         reconcile_incomplete_export_publications(session_factory, resolved_settings)
         await operation_manager.startup()
         try:
