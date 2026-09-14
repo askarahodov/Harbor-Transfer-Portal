@@ -109,6 +109,34 @@ class CiScopeTest(TestCase):
             Scope(backend=True, security=True, integration=True),
         )
 
+    def test_transfer_boundary_paths_keep_integration_gate(self):
+        root = self._root()
+        cases = {
+            "backend/app/api/exports.py": Scope(
+                backend=True,
+                security=True,
+                integration=True,
+            ),
+            "backend/app/api/imports.py": Scope(
+                backend=True,
+                security=True,
+                integration=True,
+            ),
+            "backend/app/services/export_publication_guard.py": Scope(
+                backend=True,
+                security=True,
+                integration=True,
+            ),
+            "backend/app/domain/bundle.py": Scope(
+                backend=True,
+                protocol=True,
+                integration=True,
+            ),
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(classify_paths([path], root=root), expected)
+
     def test_key_management_runs_security_regression(self):
         root = self._root()
         self.assertEqual(
@@ -181,7 +209,7 @@ class CiScopeTest(TestCase):
             Scope(integration=True, compose=True),
         )
 
-    def test_export_api_and_regression_test_run_security_regression(self):
+    def test_export_api_and_regression_test_run_security_and_integration(self):
         root = self._root()
         self.assertEqual(
             classify_paths(
@@ -191,7 +219,7 @@ class CiScopeTest(TestCase):
                 ],
                 root=root,
             ),
-            Scope(backend=True, security=True),
+            Scope(backend=True, security=True, integration=True),
         )
 
     def test_security_regression_test_changes_keep_security_scope(self):
