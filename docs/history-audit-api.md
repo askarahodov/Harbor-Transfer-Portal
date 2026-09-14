@@ -1,6 +1,6 @@
 # History и audit API
 
-Этот документ описывает backend foundation задачи #87 / P6.1.1. Он не объявляет завершёнными frontend History screen, structured JSON logging или полный audit coverage из родительской задачи #21.
+Этот документ описывает persisted history/audit contract P6.1. History API, structured logging/correlation и read-only History UI реализованы отдельными срезами; здесь зафиксирован server-side audit coverage и retention behavior.
 
 ## История операций
 
@@ -17,7 +17,7 @@
 - `search` — подстрока для delivery id, actor, comment или safe error code;
 - `created_from`, `created_to` — границы по времени создания операции.
 
-Сортировка детерминирована: сначала новые `created_at`, затем больший `id`. Ответ содержит `items`, `total`, `limit`, `offset`. Summary специально не подгружает `artifact_results`; это исключает N+1-подобный путь для таблицы истории. Artifact details запрашиваются только при открытии конкретной операции.
+Сортировка детерминирована: сначала новые `created_at`, затем больший `id`. Ответ содержит `items`, `total`, `limit`, `offset`. Summary специально не подгружает `artifact_results`; artifact details запрашиваются только при открытии конкретной операции.
 
 ## Audit events
 
@@ -25,28 +25,50 @@
 
 Поддерживаются `limit`, `offset`, `event_type`, `result`, `actor`, `created_from`, `created_to`. Максимальный `limit` — 100, сортировка newest-first.
 
-Текущий foundation использует уже существующую таблицу `audit_events`. В ответ попадают:
+Каждая запись содержит actor user id/username либо actor `system`, stable event type, result, UTC timestamp и bounded JSON metadata. Repository ограничивает metadata размером 8192 bytes и дополнительно редактирует значения ключей вроде `password`, `token`, `secret`, `credential`, `authorization`, `private_key`.
 
-- actor user id/username;
-- event type;
-- result;
-- безопасная JSON metadata;
-- timestamp.
+### Auth
 
-User-management mutations теперь пишут `user.created` и `user.updated`. В metadata сохраняются только `target_user_id`, `target_username` и список имён изменённых полей. Значения password, password hash, JWT и другие secret values в audit event не записываются.
+- `auth.login.succeeded` — успешный локальный login, actor — реальный пользователь;
+- `auth.login.failed` — неуспешный login, actor — `system`, metadata содержит только безопасную причину (`invalid_credentials`/`throttled`) и при необходимости throttle scope.
 
-Harbor settings/credential/CA mutations продолжают использовать существующий audit path и также записывают только имена изменённых полей.
+Raw attempted username, password, bearer/JWT и client address в failed-login audit не сохраняются.
 
-## Retention в текущем состоянии
+### User и Harbor administration
 
-Audit/history metadata не удаляется автоматически. Удаление package files не должно подразумевать удаление persisted operation/audit records. Настраиваемая retention policy относится к последующим задачам и не реализуется этим backend foundation.
+User-management mutations пишут `user.created` и `user.updated`. Metadata содержит только target identity и имена изменённых полей; password/hash не сохраняются.
 
-## Что остаётся в #21
+Harbor settings/credential/CA mutations используют события `harbor.settings.updated`, `harbor.credential.rotated`, `harbor.ca.updated`, `harbor.ca.removed` и сохраняют только changed field names/status, никогда credential/CA values.
 
-После P6.1.1 в родительской задаче остаются:
+### SOURCE export
 
-- request correlation id и structured JSON logging;
-- audit coverage login/export/import/cancel/failure/overwrite approval;
-- frontend History screen с filters/details;
-- документированная log rotation/storage policy;
-- окончательная retention policy и интеграция report/receipt links.
+- `export.created` — actor-attributed создание export operation;
+- `export.cancel.requested` — запрос отмены пользователем;
+- `export.completed`, `export.failed`, `export.cancelled` — system lifecycle outcome.
+
+Lifecycle metadata содержит operation/delivery identifiers, status, safe error code и summary counters. Error message/raw subprocess output в audit не копируется.
+
+### TARGET import
+
+- `import.verified` — bundle успешно прошёл verification и operation перешла в `READY`;
+- `import.rejected` — verification отклонила bundle;
+- `import.started` — actor-attributed запуск mutation TARGET Harbor;
+- `import.conflict_overwrite.approved` — отдельная actor-attributed запись только когда пользователь явно разрешил overwrite существующих конфликтов;
+- `import.cancel.requested` — запрос отмены пользователем;
+- `import.completed`, `import.failed`, `import.cancelled` — system lifecycle outcome.
+
+Overwrite audit содержит operation/source delivery id и conflict count, но не manifest dump и не credentials.
+
+## System lifecycle actor
+
+Background worker outcome нельзя приписывать пользователю как будто именно пользователь сформировал результат. Поэтому terminal/verification events создаются actor=`system`, а user intent (`created`, `started`, `cancel.requested`, overwrite approval) записывается отдельно с реальным actor id/username.
+
+Operation status hook расположен на ORM persistence boundary, поэтому одинаково покрывает обычное worker completion, failure/cancel и restart reconciliation paths.
+
+## Retention
+
+Audit/history metadata в v1 не удаляется автоматически. Удаление transport package files не удаляет persisted operation/audit records. Настраиваемая retention policy может появиться как отдельная admin policy, но до её явного включения audit trail считается сохраняемым состоянием SQLite и должен входить в backup.
+
+## Logging и product history
+
+Structured application logs содержат request/operation correlation и formatter-level redaction, но не являются источником product history. UI/API читают persisted `operations`, `artifact_results`, `audit_events` и immutable import receipt. Парсинг stdout для определения статуса операции не поддерживается.
