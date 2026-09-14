@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import tempfile
+import threading
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from reportlab.platypus import LongTable, Paragraph, SimpleDocTemplate, Spacer, 
 
 from app.config import PortalContour
 from app.db.models import ArtifactResult, Operation
+from app.domain.bundle import OperationType
 from app.utils.logging import redact_log_text
 
 CSV_COLUMNS = (
@@ -49,6 +51,7 @@ CSV_COLUMNS = (
 _REPORT_SPOOL_LIMIT = 2 * 1024 * 1024
 _FONT_REGULAR = "HTPDejaVuSans"
 _FONT_BOLD = "HTPDejaVuSans-Bold"
+_FONT_LOCK = threading.Lock()
 _REGULAR_FONT_CANDIDATES = (
     Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
     Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
@@ -73,7 +76,6 @@ def receipt_filename(operation_id: int) -> str:
 def iter_operation_csv(operation: Operation) -> Iterator[bytes]:
     buffer = io.StringIO(newline="")
     writer = csv.DictWriter(buffer, fieldnames=CSV_COLUMNS, lineterminator="\r\n")
-
     writer.writeheader()
     yield _drain_csv_buffer(buffer)
 
@@ -141,7 +143,7 @@ def build_operation_pdf(operation: Operation, contour: PortalContour) -> BinaryI
         author="Harbor Transfer Portal",
     )
 
-    story: list[object] = [
+    story = [
         Paragraph("Harbor Transfer Portal — отчёт операции", title_style),
         _metadata_table(operation, contour, body_style, bold_font),
         Spacer(1, 3 * mm),
@@ -212,7 +214,7 @@ def _csv_row(operation: Operation, artifact: ArtifactResult | None) -> dict[str,
 
 
 def _drain_csv_buffer(buffer: io.StringIO) -> bytes:
-    value = buffer.getvalue().encode("utf-8")
+    value = buffer.getvalue().encode()
     buffer.seek(0)
     buffer.truncate(0)
     return value
@@ -263,13 +265,7 @@ def _metadata_table(
 
 def _summary_table(operation: Operation, style: ParagraphStyle, bold_font: str) -> Table:
     data = [
-        [
-            "Всего",
-            "Успешно",
-            "Пропущено",
-            "Конфликты",
-            "Ошибки",
-        ],
+        ["Всего", "Успешно", "Пропущено", "Конфликты", "Ошибки"],
         [
             str(operation.total_artifacts),
             str(operation.successful_artifacts),
@@ -322,7 +318,15 @@ def _artifact_table(
     header_style: ParagraphStyle,
     cell_style: ParagraphStyle,
 ) -> LongTable:
-    headers = ["Тип", "Artifact", "Reference", "Source digest", "Target digest", "Result", "Error"]
+    headers = [
+        "Тип",
+        "Artifact",
+        "Reference",
+        "Source digest",
+        "Target digest",
+        "Result",
+        "Error",
+    ]
     data: list[list[Paragraph]] = [[_paragraph(item, header_style) for item in headers]]
     for artifact in sorted(operation.artifacts, key=lambda item: item.id):
         artifact_name = artifact.repository
@@ -374,7 +378,7 @@ def _artifact_table(
 
 
 def _source_metadata_rows(operation: Operation) -> list[tuple[str, object]]:
-    if operation.type.value != "IMPORT":
+    if operation.type is not OperationType.IMPORT:
         return []
     preview: dict[str, object] = {}
     if operation.import_preview_json:
@@ -385,9 +389,15 @@ def _source_metadata_rows(operation: Operation) -> list[tuple[str, object]]:
         except (TypeError, ValueError):
             preview = {}
 
+    source_delivery = operation.source_delivery_id or preview.get("source_delivery_id") or "—"
+    fingerprint = (
+        operation.bundle_signing_key_fingerprint
+        or preview.get("signing_key_fingerprint")
+        or "—"
+    )
     rows: list[tuple[str, object]] = [
-        ("SOURCE delivery", operation.source_delivery_id or preview.get("source_delivery_id") or "—"),
-        ("Signing key fingerprint", operation.bundle_signing_key_fingerprint or preview.get("signing_key_fingerprint") or "—"),
+        ("SOURCE delivery", source_delivery),
+        ("Signing key fingerprint", fingerprint),
     ]
     for label, key in (
         ("SOURCE Harbor", "source_harbor"),
@@ -414,11 +424,13 @@ def _pdf_fonts() -> tuple[str, str]:
     if regular_path is None:
         return "Helvetica", "Helvetica-Bold"
 
-    registered = set(pdfmetrics.getRegisteredFontNames())
-    if _FONT_REGULAR not in registered:
-        pdfmetrics.registerFont(TTFont(_FONT_REGULAR, str(regular_path)))
-    if bold_path is not None:
-        if _FONT_BOLD not in registered:
+    with _FONT_LOCK:
+        registered = set(pdfmetrics.getRegisteredFontNames())
+        if _FONT_REGULAR not in registered:
+            pdfmetrics.registerFont(TTFont(_FONT_REGULAR, str(regular_path)))
+        if bold_path is not None and _FONT_BOLD not in registered:
             pdfmetrics.registerFont(TTFont(_FONT_BOLD, str(bold_path)))
+
+    if bold_path is not None:
         return _FONT_REGULAR, _FONT_BOLD
     return _FONT_REGULAR, _FONT_REGULAR
