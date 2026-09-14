@@ -13,6 +13,15 @@
   --color-sand: #FEF3C7;
   --color-rose: #FEE2E2;
 
+  /* Semantic aliases keep component styling independent from palette names. */
+  --color-background: var(--color-fog-gray);
+  --color-surface: var(--color-cloud-white);
+  --color-surface-subtle: var(--color-fog-gray);
+  --color-border: var(--color-mist);
+  --color-text: var(--color-deep-harbor);
+  --color-text-muted: var(--color-steel);
+  --color-danger: var(--color-stop-red);
+
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
