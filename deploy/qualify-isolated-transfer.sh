@@ -22,7 +22,7 @@ fail() {
 dump_target_failure() {
   container_id=$(
     HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" HTP_TRANSFER_DIR="$PHYSICAL" \
-      docker compose -p "$TARGET_PROJECT" -f "$COMPOSE" --profile target ps -q target-runner 2>/dev/null \
+      docker compose -p "$TARGET_PROJECT" -f "$COMPOSE" --profile target ps -a -q target-runner 2>/dev/null \
       || true
   )
   [ -n "$container_id" ] || return 0
