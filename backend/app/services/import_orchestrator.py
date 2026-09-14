@@ -567,15 +567,12 @@ class ImportOrchestrator:
                                 overwrite and outcome[0] is ImportPreviewState.CONFLICT
                             ),
                         )
-                        target_digest = pushed.target_digest
-                        if (
-                            descriptor.source_digest is not None
-                            and target_digest != descriptor.source_digest
-                        ):
+                        if pushed.package.sha256 != descriptor.payload_sha256:
                             raise HelmServiceError(
-                                "helm_target_digest_mismatch",
-                                "TARGET Helm digest не совпадает с manifest expectation",
+                                "helm_payload_digest_mismatch",
+                                "Helm package SHA-256 не совпадает с signed bundle payload",
                             )
+                        target_digest = pushed.target_digest
                     context.set_artifact_status(
                         row.id,
                         ArtifactStatus.VERIFIED,
