@@ -323,7 +323,7 @@ Workflow `.github/workflows/ci.yml` отвечает только за полу�
 
 ### Workflow self-test
 
-Изменение `.github/workflows/ci.yml` включает все реально существующие applicable areas. Перед classification scope job всегда выполняет `python3 -m unittest tools.test_ci_scope` и `make dependency-locks-check`, поэтому изменение workflow/classifier не может обойти regression или dependency-lock policy молча.
+Изменение `.github/workflows/ci.yml` включает все реально существующие applicable areas. Перед classification scope job всегда выполняются regression `tools.test_ci_scope` и dependency-lock invariant, эквивалентный `make dependency-locks-check`; поэтому изменение workflow/classifier не может обойти test-selection или lock policy молча.
 
 После classification helper повторно проверяет наличие component markers (`backend/pyproject.toml`, `frontend/package.json`, protocol test, security regression marker, Compose smoke script, docs checker) и не создаёт job для компонента, которого нет в проверяемой ревизии.
 
@@ -389,13 +389,13 @@ make dependency-locks-check
 - `backend/requirements-runtime.lock` — runtime graph для backend image;
 - `backend/requirements-dev.lock` — runtime + dev/test graph для CI.
 
-Оба содержат exact `name==version` pins, включая `hatchling`, потому что локальный package устанавливается с `--no-build-isolation`.
+Оба содержат exact `name==version` pins, включая `hatchling`, потому что локальный package собирается с `--no-build-isolation`.
 
 CI устанавливает dev graph так:
 
 ```bash
 python -m pip install -r backend/requirements-dev.lock
-python -m pip install --no-deps --no-build-isolation -e ./backend
+python -m pip install --no-deps --no-build-isolation ./backend
 ```
 
 Backend Docker image аналогично устанавливает `requirements-runtime.lock`, затем локальный package с `--no-deps --no-build-isolation`.
