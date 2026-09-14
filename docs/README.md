@@ -49,7 +49,7 @@
 | [skopeo-service.md](skopeo-service.md) | container transfer service | актуальный component doc |
 | [helm-oci-service.md](helm-oci-service.md) | Helm OCI transfer service | актуальный component doc |
 | [harbor-browse-api.md](harbor-browse-api.md) | Harbor browse projection/policies | актуальный component doc |
-| [security.md](security.md) | security/trust model и known v1 limitations | актуальный |
+| [security.md](security.md) | security/trust model и known v1 limitations | актуальный; синхронизирован после audit/admin/report workstreams |
 | [testing.md](testing.md) | test selection и CI policy | актуальный; оставшаяся P7.3 quality work отслеживается #26 |
 | [decisions.md](decisions.md) | ADR registry | актуальный registry |
 | [../deploy/README.md](../deploy/README.md) | development/runtime Compose deployment | актуальный; не final offline installer |
@@ -104,7 +104,8 @@ TARGET UI не выполняет самостоятельную cryptographic v
 - #18 — SOURCE export wizard — выполнено;
 - #19 — TARGET backend import orchestration — выполнено;
 - #20 — TARGET import wizard — выполнено;
-- #23 — admin users/policies/signing/trust-key console — выполнено.
+- #23 — admin users/policies/signing/trust-key console — выполнено;
+- #21/#25 — audit/history и reports/receipts — отражены в current security/admin/user docs.
 
 P7.4 считается завершённым documentation checkpoint для **текущего application/runtime Compose**. Это не означает release qualification: финальный offline installer, clean-VM procedure и isolated SOURCE → physical transfer → TARGET acceptance E2E остаются отдельной задачей #28. Quality/reproducibility work P7.3 остаётся в #26.
 
