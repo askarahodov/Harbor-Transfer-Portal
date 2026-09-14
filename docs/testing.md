@@ -65,16 +65,33 @@ Checker использует только Python stdlib и проверяет re
 
 External HTTP(S)/mailto/tel/data links не проверяются по сети. Это осознанно: docs-only CI не должен становиться flaky из-за третьего сайта или отсутствия internet access.
 
-### Bundle Protocol / security regression
+### Bundle Protocol regression
 
 Для protocol/schema/domain изменений минимум:
 
 ```bash
 cd backend
-python -m pytest tests/test_bundle_protocol.py tests/test_bundle_schema.py
+python -m pytest \
+  tests/test_bundle_protocol.py \
+  tests/test_bundle_schema.py \
+  tests/test_bundle_package_service.py \
+  tests/test_bundle_package_key_bounds.py
 ```
 
-Этот gate защищает normative Bundle Protocol v1 и security-critical archive/schema behavior.
+Package builder/verifier относится одновременно к protocol и security boundary, поэтому его изменения включают и protocol, и security gates.
+
+### Security regression
+
+Отдельный job `Security — targeted regression` запускается для security-sensitive backend paths. Он покрывает существующими fail-able tests:
+
+- auth/RBAC/login throttling;
+- Bundle package build/verify и key read bounds;
+- export/import orchestration и publication guards;
+- key-management lifecycle/hardening;
+- Skopeo/Helm argv, redaction, metadata/digest behavior;
+- structured logging redaction.
+
+Security gate не заменяет backend suite: он является отдельным обязательным сигналом для security-sensitive diff и входит в финальный `quality-gate`.
 
 ### Compose/runtime
 
@@ -101,14 +118,16 @@ Compose smoke является обязательным для затронут�
 `tools/test_ci_scope.py` фиксирует selection policy как behavior, а не как комментарий в YAML. Минимальная матрица включает:
 
 - docs-only → только documentation;
-- backend-only → backend;
+- обычный backend-only → backend;
 - frontend-only → frontend;
 - protocol domain path → backend + protocol;
+- package service → backend + protocol + security;
+- import/export/key-management/Skopeo/Helm/auth security-sensitive path → backend + security;
 - `deploy/README.md` → Compose + documentation;
 - `Makefile` → backend + frontend + documentation;
 - изменение `.github/workflows/ci.yml` → все существующие areas;
 - mixed diff → объединение flags;
-- отсутствие компонента в ревизии → отсутствие фиктивного job.
+- отсутствие component/security marker в ревизии → отсутствие фиктивного job.
 
 Scope job всегда запускает эти regression tests **до** вычисления outputs. Если classifier сломан, `scope` падает и финальный `quality-gate` не может стать зелёным.
 
@@ -120,11 +139,11 @@ Unit tests документационного checker покрывают вал�
 
 Anchor semantics внутри Markdown и доступность внешних URL пока не входят в gate. Их можно расширить отдельной задачей, если это можно сделать без ухудшения надёжности CI.
 
-### Protocol / security regression
+### Protocol regression
 
-Обязателен для Bundle Protocol, package verifier/build, archive handling и других security-sensitive изменений.
+Обязателен для Bundle Protocol/schema/domain и package builder/verifier, потому что package implementation формирует и проверяет normative v1 archive.
 
-Типовые regression cases уже включают или должны включаться одновременно с соответствующей реализацией:
+Типовые cases:
 
 - archive traversal / absolute paths;
 - non-canonical path aliases;
@@ -133,10 +152,21 @@ Anchor semantics внутри Markdown и доступность внешних 
 - unsupported schema major;
 - canonical manifest/signature tamper;
 - payload checksum tamper;
-- resource/member/path limits;
+- resource/member/path limits.
+
+### Security regression
+
+Обязателен для package/import/export/key-management/auth и subprocess boundaries.
+
+Типовые cases уже включают или должны включаться одновременно с соответствующей реализацией:
+
+- unsafe archive/signature/checksum behavior;
+- key material bounds и symlink semantics;
+- conflict/overwrite default deny;
 - secret/token redaction;
 - subprocess argv без `shell=True`;
-- auth/RBAC matrix.
+- Skopeo/Helm digest/metadata validation;
+- auth/RBAC matrix и login throttling.
 
 Нельзя менять expected result только для того, чтобы security regression снова стал зелёным, если test обнаружил реальный defect.
 
@@ -195,16 +225,17 @@ SOURCE export orchestration и TARGET import orchestration уже реализо
 
 | Изменение | Минимальные проверки |
 |---|---|
-| Только backend service/API | Ruff + соответствующие backend tests |
-| Auth/RBAC | backend auth tests + frontend role/session tests при затронутом UI |
+| Только обычный backend service/API | Ruff + соответствующие backend tests |
+| Auth/RBAC | backend + targeted security; frontend role/session tests при затронутом UI |
 | DB model/migration | backend tests + migration/persistence integration |
 | Только frontend view/component | ESLint + typecheck + unit/component + build |
-| Bundle protocol/schema/domain | docs-check + protocol/security regression + affected backend tests |
+| Bundle protocol/schema/domain | docs-check + protocol regression + affected backend tests |
 | Harbor client/settings | backend tests + mocked/integration Harbor scenarios |
-| Skopeo | argv/redaction/timeout/path/digest tests + local integration при orchestration impact |
-| Helm OCI | argv/redaction/timeout/archive/metadata tests + local integration при orchestration impact |
-| Package verifier/build | backend + protocol/security regression |
-| Export/import orchestration | unit + protocol/security + relevant integration |
+| Skopeo | backend + targeted security + local integration при orchestration impact |
+| Helm OCI | backend + targeted security + local integration при orchestration impact |
+| Package verifier/build | backend + protocol + targeted security |
+| Export/import orchestration | backend + targeted security + relevant integration |
+| Key management | backend + targeted security |
 | Compose/Docker/Nginx/deploy runtime | Compose config/build/smoke |
 | Обычная docs-only правка | docs-check + quality-gate; тяжёлые code/E2E jobs skipped |
 | `deploy/*.md` | docs-check + Compose smoke согласно current path policy |
@@ -225,6 +256,7 @@ Workflow `.github/workflows/ci.yml` отвечает только за полу�
 - `backend`;
 - `frontend`;
 - `protocol`;
+- `security`;
 - `compose`;
 - `docs`.
 
@@ -244,7 +276,21 @@ Workflow `.github/workflows/ci.yml` отвечает только за полу�
 
 ### Protocol scope
 
-Включается для protocol/domain/schema paths, в том числе `backend/app/domain/*`, protocol/schema regression files, `docs/offline-bundle-v1.md`, `docs/schema/*` и связанного ADR-009.
+Включается для protocol/domain/schema paths, в том числе `backend/app/domain/*`, protocol/schema regression files, `docs/offline-bundle-v1.md`, `docs/schema/*`, связанного ADR-009, а также package builder/verifier и его regression tests.
+
+### Security scope
+
+Включается только для backend paths с явным security blast radius, а не для любого backend-файла. В текущую policy входят:
+
+- `backend/app/auth/*`;
+- auth/import/key-settings/user admin API boundaries;
+- `bundle_package_service.py`;
+- export/import orchestrators и publication guard;
+- key management;
+- Skopeo/Helm subprocess services;
+- соответствующие security/hardening tests.
+
+Обычный backend service вроде `harbor_client.py` не включает security job автоматически, если security boundary не затронут.
 
 ### Compose scope
 
@@ -270,7 +316,7 @@ Workflow `.github/workflows/ci.yml` отвечает только за полу�
 
 Изменение `.github/workflows/ci.yml` включает все реально существующие applicable areas. Перед classification scope job всегда выполняет `python3 -m unittest tools.test_ci_scope`, поэтому изменение workflow или classifier не может обойти regression policy молча.
 
-После classification helper повторно проверяет наличие component markers (`backend/pyproject.toml`, `frontend/package.json`, protocol test, Compose smoke script, docs checker) и не создаёт job для компонента, которого нет в проверяемой ревизии.
+После classification helper повторно проверяет наличие component markers (`backend/pyproject.toml`, `frontend/package.json`, protocol test, security regression marker, Compose smoke script, docs checker) и не создаёт job для компонента, которого нет в проверяемой ревизии.
 
 ## 6. Documentation job
 
@@ -285,7 +331,7 @@ Missing local target или path escape возвращает non-zero и дел�
 
 ## 7. `quality-gate`
 
-Финальный `quality-gate` выполняется всегда и зависит от scope/backend/frontend/protocol/compose/docs.
+Финальный `quality-gate` выполняется всегда и зависит от scope/backend/frontend/protocol/security/compose/docs.
 
 Он принимает только:
 
@@ -333,7 +379,8 @@ Python dependencies в `backend/pyproject.toml` используют compatible 
 | Documentation local-link gate | реализовано |
 | Backend Ruff + unit/API | реализовано |
 | Frontend lint/type/unit/build | реализовано |
-| Bundle Protocol contract/security regression | реализовано |
+| Bundle Protocol contract regression | реализовано |
+| Targeted security regression | реализовано |
 | Compose build/smoke | реализовано |
 | Final `quality-gate` | реализовано |
 | Skopeo/Helm disposable-registry integration | ещё требуется |
@@ -348,7 +395,11 @@ Python dependencies в `backend/pyproject.toml` используют compatible 
 
 ### Изменён `backend/app/services/bundle_package_service.py`
 
-Нужны affected backend tests + Bundle protocol/security regression. При изменении deployment/runtime boundary дополнительно Compose smoke.
+Нужны backend tests + Bundle protocol regression + targeted security regression. При изменении deployment/runtime boundary дополнительно Compose smoke.
+
+### Изменён `backend/app/services/import_orchestrator.py`
+
+Нужны backend tests + targeted security regression. Protocol gate не добавляется автоматически, если normative Bundle v1 contract/package boundary не менялись.
 
 ### Изменён только `docs/architecture.md`
 
@@ -364,7 +415,7 @@ PR scope определяется от merge base, поэтому уже merged 
 
 ### Изменён `.github/workflows/ci.yml`
 
-Сначала запускается regression suite classifier, затем включаются все уже реализованные areas, чтобы проверить сам механизм test selection.
+Сначала запускается regression suite classifier, затем включаются все уже реализованные areas, включая security, чтобы проверить сам механизм test selection.
 
 ## 12. Правило root cause
 
