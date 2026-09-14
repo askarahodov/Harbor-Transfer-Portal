@@ -16,6 +16,11 @@ services:
     expose:
       - "8000"
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "${PORTAL_LOG_MAX_SIZE:-10m}"
+        max-file: "${PORTAL_LOG_MAX_FILES:-5}"
     healthcheck:
       test:
         - CMD
@@ -40,6 +45,11 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "${PORTAL_LOG_MAX_SIZE:-10m}"
+        max-file: "${PORTAL_LOG_MAX_FILES:-5}"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
       interval: 10s

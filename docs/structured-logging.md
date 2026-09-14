@@ -1,6 +1,6 @@
 # Structured logging и correlation
 
-Этот документ фиксирует backend foundation из #90 / P6.1.2 и последующий hardening correlation/redaction.
+Этот документ фиксирует backend foundation из #90 / P6.1.2, последующий hardening correlation/redaction и Compose storage policy текущего v1.
 
 ## Формат логов
 
@@ -53,10 +53,71 @@ Formatter выполняет финальную redaction непосредств
 
 Redaction является дополнительным защитным слоем, а не разрешением логировать секреты. Production code по-прежнему не должен намеренно передавать пароли, Harbor credentials, JWT, private signing key или Authorization headers в logger.
 
-## Docker Compose и ротация
+## Docker Compose storage policy
 
-Приложение пишет в стандартный container stream. Ротация, размер и срок хранения container logs относятся к Docker daemon / инфраструктурной политике хоста и не реализуются application-кодом. Для production следует настроить ограниченный log driver/rotation на уровне Docker и интегрировать JSON output с локальной системой сбора логов при необходимости.
+Приложение пишет в стандартные stdout/stderr container streams. Базовый `compose.yaml` явно использует Docker logging driver `json-file` и одинаковую bounded rotation policy для `backend` и `frontend`.
+
+Настройки в `.env`:
+
+```text
+PORTAL_LOG_MAX_SIZE=10m
+PORTAL_LOG_MAX_FILES=5
+```
+
+Resolved Compose configuration:
+
+```yaml
+logging:
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+```
+
+`max-size` ограничивает один log segment, `max-file` — количество retained rotated segments на контейнер. Значения по умолчанию предотвращают неограниченный рост Docker `json-file` logs. При изменении этих параметров учитывайте доступный disk, требования локального SOC/SIEM и необходимое окно диагностики.
+
+После изменения `.env` контейнеры должны быть пересозданы, чтобы logging configuration гарантированно применилась:
+
+```bash
+docker compose up -d --force-recreate
+```
+
+Проверить итоговую конфигурацию:
+
+```bash
+docker compose config
+```
+
+Просмотр текущих logs:
+
+```bash
+docker compose logs backend
+docker compose logs frontend
+docker compose logs --since 30m backend
+```
+
+Container logs управляются Docker host и не являются файлами application data в SQLite или authoritative содержимым `portal-data` volume.
+
+## Внешний сбор логов
+
+Если организации нужен более долгий retention или централизованный анализ, stdout/stderr следует забирать локальным logging pipeline/SIEM. Такой pipeline должен сохранять air-gap boundary и не требовать runtime internet connectivity.
+
+Application не отправляет logs во внешние сервисы самостоятельно. Формат JSON предназначен для локального ingestion, но выбор collector/storage остаётся deployment responsibility.
+
+## Logs, history и audit — разные источники
+
+Container logs предназначены для диагностики и могут исчезнуть из-за rotation policy. Поэтому UI/API не должны парсить stdout как product state.
+
+Authoritative persisted records:
+
+- operations/history — состояния export/import и artifact outcomes;
+- `audit_events` — security/administrative actor intent и system outcome;
+- receipts/report metadata — когда соответствующий flow их создаёт.
+
+Удаление rotated log segment не удаляет и не изменяет эти records. Аналогично backup `/app/data` не заменяется backup-ом Docker logs.
 
 ## Ограничения v1
 
-Этот слой не является product history: UI и API читают operation/audit данные из SQLite, а не парсят stdout. Audit coverage и History UI развиваются отдельными частями #21.
+SOURCE private signing key и TARGET trusted public keys управляются deployment/filesystem procedure, а не runtime admin API. Портал не может достоверно создать in-product actor audit event для внешней замены этих файлов; такие изменения должны фиксироваться deployment/change-management процедурой.
+
+Если key management станет managed runtime feature, его mutations должны получить persisted audit events до снятия этой границы.
