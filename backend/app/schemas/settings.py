@@ -61,3 +61,34 @@ class HarborConnectionTestResponse(BaseModel):
     code: str
     message: str
     version: str | None = None
+
+
+class TransferSettingsResponse(BaseModel):
+    import_allow_overwrite: bool
+    import_max_upload_bytes: int
+    bundle_max_archive_bytes: int
+    bundle_max_extracted_bytes: int
+    bundle_max_member_count: int
+    operation_max_concurrent: int
+    operation_max_concurrent_active: int
+    restart_required_fields: list[str] = Field(default_factory=list)
+
+
+class TransferSettingsPatch(BaseModel):
+    import_allow_overwrite: bool | None = None
+    import_max_upload_bytes: int | None = Field(default=None, ge=1024**2, le=1024**4)
+    bundle_max_archive_bytes: int | None = Field(default=None, ge=1024**2, le=1024**4)
+    bundle_max_extracted_bytes: int | None = Field(
+        default=None,
+        ge=1024**2,
+        le=2 * 1024**4,
+    )
+    bundle_max_member_count: int | None = Field(default=None, ge=4, le=1_000_000)
+    operation_max_concurrent: int | None = Field(default=None, ge=1, le=32)
+
+    @model_validator(mode="after")
+    def reject_explicit_nulls(self) -> "TransferSettingsPatch":
+        for field in self.model_fields_set:
+            if getattr(self, field) is None:
+                raise ValueError(f"{field} must not be null")
+        return self
