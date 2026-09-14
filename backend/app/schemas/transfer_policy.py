@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 _MIB = 1024**2
 _TIB = 1024**4
@@ -17,6 +17,8 @@ class TransferPolicyResponse(BaseModel):
 
 
 class TransferPolicyPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     import_allow_overwrite: bool | None = None
     import_max_upload_bytes: int | None = Field(default=None, ge=_MIB, le=_TIB)
     bundle_max_archive_bytes: int | None = Field(default=None, ge=_MIB, le=_TIB)
