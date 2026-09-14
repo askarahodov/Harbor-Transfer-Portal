@@ -94,13 +94,14 @@ describe('KeyManagementPanel', () => {
     await flushPromises()
     expect(patch).toHaveBeenCalledWith(
       `/settings/keys/trusted/${encodeURIComponent(fingerprint)}`,
-      { enabled: false },
+      { enabled: false, confirm: true },
     )
 
     await wrapper.get('.key-row button.danger').trigger('click')
     await flushPromises()
     expect(remove).toHaveBeenCalledWith(
       `/settings/keys/trusted/${encodeURIComponent(fingerprint)}`,
+      { params: { confirm: true } },
     )
     expect(window.confirm).toHaveBeenCalledTimes(2)
   })
@@ -125,7 +126,38 @@ describe('KeyManagementPanel', () => {
     await input.trigger('change')
     await flushPromises()
 
-    expect(post).toHaveBeenCalledWith('/settings/keys/trusted', { pem })
+    expect(post).toHaveBeenCalledWith('/settings/keys/trusted', { pem, confirm: true })
     expect(wrapper.text()).not.toContain(pem)
+  })
+
+  it('replaces a TARGET public key only after confirmation', async () => {
+    const replacementPem = 'synthetic-replacement-public-key-fixture'
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(apiClient, 'get').mockResolvedValue(
+      response({
+        contour: 'TARGET',
+        signing_key: null,
+        trusted_keys: [{ fingerprint, enabled: true }],
+      }),
+    )
+    const put = vi.spyOn(apiClient, 'put').mockResolvedValue(
+      response({ action: 'replaced', fingerprint: `sha256:${'b'.repeat(64)}` }),
+    )
+
+    const wrapper = mount(KeyManagementPanel, { props: { contour: 'TARGET' } })
+    await flushPromises()
+    const input = wrapper.get('input[aria-label="Заменить trusted public key"]')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [{ text: () => Promise.resolve(replacementPem) }],
+    })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(put).toHaveBeenCalledWith(
+      `/settings/keys/trusted/${encodeURIComponent(fingerprint)}`,
+      { pem: replacementPem, confirm: true },
+    )
+    expect(wrapper.text()).not.toContain(replacementPem)
   })
 })

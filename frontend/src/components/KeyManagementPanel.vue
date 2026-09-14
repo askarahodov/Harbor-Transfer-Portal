@@ -98,11 +98,39 @@ async function addTrustedKey(event: Event): Promise<void> {
   error.value = ''
   try {
     const pem = await file.text()
-    await apiClient.post('/settings/keys/trusted', { pem })
+    await apiClient.post('/settings/keys/trusted', { pem, confirm: true })
     await loadKeys()
     message.value = 'Trusted SOURCE public key добавлен.'
   } catch (reason) {
     error.value = safeError('Не удалось добавить trusted public key.', reason)
+  } finally {
+    busy.value = false
+    input.value = ''
+  }
+}
+
+async function replaceTrustedKey(key: TrustedKeyStatus, event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (!window.confirm(`Заменить trusted key ${key.fingerprint} новым public key?`)) {
+    input.value = ''
+    return
+  }
+
+  busy.value = true
+  message.value = ''
+  error.value = ''
+  try {
+    const pem = await file.text()
+    await apiClient.put(`/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}`, {
+      pem,
+      confirm: true,
+    })
+    await loadKeys()
+    message.value = 'Trusted key атомарно заменён в существующем trust slot.'
+  } catch (reason) {
+    error.value = safeError('Не удалось заменить trusted public key.', reason)
   } finally {
     busy.value = false
     input.value = ''
@@ -119,6 +147,7 @@ async function setTrustedState(key: TrustedKeyStatus, enabled: boolean): Promise
   try {
     await apiClient.patch(`/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}`, {
       enabled,
+      confirm: true,
     })
     await loadKeys()
     message.value = enabled ? 'Trusted key включён.' : 'Trusted key отключён.'
@@ -136,7 +165,9 @@ async function removeTrustedKey(key: TrustedKeyStatus): Promise<void> {
   message.value = ''
   error.value = ''
   try {
-    await apiClient.delete(`/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}`)
+    await apiClient.delete(`/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}`, {
+      params: { confirm: true },
+    })
     await loadKeys()
     message.value = 'Trusted key удалён.'
   } catch (reason) {
@@ -200,6 +231,16 @@ onMounted(loadKeys)
             <span class="status">{{ key.enabled ? 'active' : 'disabled' }}</span>
           </div>
           <div class="actions">
+            <label class="replace-action">
+              Заменить
+              <input
+                type="file"
+                accept=".pem,text/plain"
+                :disabled="busy"
+                aria-label="Заменить trusted public key"
+                @change="replaceTrustedKey(key, $event)"
+              />
+            </label>
             <button
               v-if="key.enabled"
               type="button"
@@ -225,7 +266,8 @@ onMounted(loadKeys)
         </li>
       </ul>
       <p class="status">
-        Для rotation сначала добавьте новый public key, выдержите overlap, затем отключите старый.
+        Для плановой rotation сначала добавьте новый public key, выдержите overlap, затем отключите старый.
+        «Заменить» делает немедленный atomic cutover одного trust slot без увеличения числа active keys.
       </p>
     </template>
 
@@ -238,10 +280,12 @@ onMounted(loadKeys)
 .card { display: grid; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--color-mist); border-radius: var(--radius-lg); background: white; }
 .card--wide { grid-column: 1 / -1; }
 .card h2 { margin: 0; }
-.card button { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-bridge-blue); color: white; font: inherit; cursor: pointer; }
+.card button, .replace-action { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-bridge-blue); color: white; font: inherit; cursor: pointer; }
 .card button:disabled { opacity: .6; cursor: wait; }
 .card button.secondary { background: white; color: var(--color-deep-harbor); border: 1px solid var(--color-mist); }
 .card button.danger { background: white; color: #991b1b; border: 1px solid #b91c1c; }
+.replace-action { display: inline-flex; align-items: center; }
+.replace-action input { width: 1px; height: 1px; overflow: hidden; opacity: 0; position: absolute; }
 .status { margin: 0; color: var(--color-steel); }
 .fingerprint { margin: 0; overflow-wrap: anywhere; }
 .warning { margin: 0; padding: var(--space-3); border: 1px solid #b45309; border-radius: var(--radius-md); }

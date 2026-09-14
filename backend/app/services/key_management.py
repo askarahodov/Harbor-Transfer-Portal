@@ -122,6 +122,96 @@ class KeyManagementService:
             fingerprint=fingerprint,
         )
 
+    def replace_trusted_public_key(self, fingerprint: str, pem: str) -> KeyMutation:
+        self._require_target()
+        previous = self._validate_fingerprint(fingerprint)
+        previous_matches = self._find_trusted_key_files(previous)
+        if not previous_matches:
+            raise KeyManagementError("trusted_key_not_found", "Trusted public key не найден")
+
+        key = self._parse_public_key(self._bounded_bytes(pem))
+        replacement = ed25519_public_key_fingerprint(key)
+        normalized = key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        previous_enabled = any(path.name.endswith(".pem") for path in previous_matches)
+        replacement_matches = self._find_trusted_key_files(replacement)
+        replacement_enabled = any(
+            path.name.endswith(".pem") for path in replacement_matches
+        )
+        final_enabled = previous_enabled or replacement_enabled
+        target = (
+            self._enabled_path(replacement)
+            if final_enabled
+            else self._disabled_path(replacement)
+        )
+        if (
+            (target.exists() or target.is_symlink())
+            and target not in previous_matches
+            and target not in replacement_matches
+        ):
+            raise KeyManagementError(
+                "trusted_key_store_invalid",
+                "Canonical trusted key path содержит другой key",
+            )
+
+        if replacement == previous or replacement_matches:
+            # The replacement identity already occupies a trust slot. Normalize its
+            # effective state first, then remove the old identity. Unique-key count
+            # never grows beyond the configured limit.
+            self._atomic_write(target, normalized, 0o600)
+            self._remove_other_matches(replacement_matches, keep=target)
+            opposite = (
+                self._disabled_path(replacement)
+                if final_enabled
+                else self._enabled_path(replacement)
+            )
+            if opposite != target:
+                opposite.unlink(missing_ok=True)
+            if replacement != previous:
+                for path in previous_matches:
+                    if path != target:
+                        path.unlink(missing_ok=True)
+                self._enabled_path(previous).unlink(missing_ok=True)
+                self._disabled_path(previous).unlink(missing_ok=True)
+            self._fsync_directory(self.trusted_dir)
+            return KeyMutation(action="replaced", fingerprint=replacement)
+
+        # For a distinct new identity, atomically replace the contents of the existing
+        # trust slot. This keeps both unique-key count and active-file count constant,
+        # including when BUNDLE_MAX_TRUSTED_KEYS is already reached. There is no window
+        # where the verifier sees either zero trusted keys or max+1 active keys.
+        slot = next(
+            (path for path in previous_matches if path.name.endswith(".pem")),
+            previous_matches[0],
+        )
+        self._atomic_write(slot, normalized, 0o600)
+        self._remove_other_matches(previous_matches, keep=slot)
+
+        # Canonicalization is post-commit hygiene. If rename fails, the slot already
+        # contains the new key and remains discoverable by content fingerprint, so a
+        # filename-only failure must not report a false replacement failure.
+        if slot != target:
+            try:
+                os.replace(slot, target)
+            except OSError:
+                pass
+            else:
+                slot = target
+        opposite = (
+            self._disabled_path(replacement)
+            if final_enabled
+            else self._enabled_path(replacement)
+        )
+        if opposite != slot:
+            opposite.unlink(missing_ok=True)
+        try:
+            self._fsync_directory(self.trusted_dir)
+        except OSError:
+            pass
+        return KeyMutation(action="replaced", fingerprint=replacement)
+
     def set_trusted_key_enabled(self, fingerprint: str, enabled: bool) -> KeyMutation:
         self._require_target()
         normalized = self._validate_fingerprint(fingerprint)
