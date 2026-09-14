@@ -148,6 +148,7 @@ for required in \
   release-arch.txt \
   release-manifest.json \
   docs/release-notes-v1.0.0.md \
+  docs/user-guide.md \
   images/backend.tar \
   images/frontend.tar; do
   [ -f "$KIT/$required" ] || fail "missing release payload file: $required"
@@ -163,6 +164,8 @@ grep -Fx 'name: harbor-transfer-portal' "$KIT/compose.yaml" >/dev/null || \
   fail 'offline compose must use a stable project name'
 [ "$(grep -c '^[[:space:]]*pull_policy: never$' "$KIT/compose.yaml")" -eq 2 ] || \
   fail 'offline compose must disable pulling for both services'
+grep -Eq '^[0-9a-f]{64}  docs/user-guide\.md$' "$KIT/CHECKSUMS.sha256" || \
+  fail 'operator user guide must be covered by CHECKSUMS.sha256'
 (
   cd "$KIT"
   sha256sum -c CHECKSUMS.sha256
