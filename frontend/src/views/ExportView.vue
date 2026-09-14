@@ -21,6 +21,7 @@ import {
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
+import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
 import { useExportWizardStore } from '@/stores/exportWizard'
 import { useRuntimeStore } from '@/stores/runtime'
 
@@ -81,22 +82,8 @@ const progressPercent = computed(() => {
   return Math.round((progress.progress_current / progress.progress_total) * 100)
 })
 
-function formatBytes(bytes: number | null | undefined): string {
-  if (bytes === null || bytes === undefined) return 'размер неизвестен'
-  const units = ['Б', 'КиБ', 'МиБ', 'ГиБ', 'ТиБ']
-  let value = bytes
-  let index = 0
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024
-    index += 1
-  }
-  const digits = index === 0 ? 0 : value >= 10 ? 1 : 2
-  return `${value.toFixed(digits)} ${units[index]}`
-}
-
 function shortDigest(digest: string | null): string {
-  if (!digest) return '—'
-  return digest.length > 24 ? `${digest.slice(0, 18)}…${digest.slice(-8)}` : digest
+  return formatShortDigest(digest, { maxLength: 24, headLength: 18, tailLength: 8 })
 }
 
 function kindLabel(kind: string): string {
