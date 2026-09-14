@@ -259,10 +259,169 @@ def test_wrong_key_types_and_size_bounds_are_rejected_without_replacement(tmp_pa
             "/api/settings/keys/trusted",
             json={"pem": _private_pem(valid_key)},
             headers=_auth(admin),
+            params={"confirm": True},
         )
         assert private_as_public.status_code == 422
         assert private_as_public.json()["error"]["code"] == "trusted_key_invalid"
         assert not target_app.state.settings.bundle_trusted_public_keys_dir.exists()
+
+
+def test_target_mutations_require_server_side_confirmation_without_side_effects(
+    tmp_path: Path,
+) -> None:
+    app = _build_app(tmp_path, PortalContour.TARGET)
+    old_key = Ed25519PrivateKey.generate()
+    new_key = Ed25519PrivateKey.generate()
+    old_fingerprint = ed25519_public_key_fingerprint(old_key.public_key())
+    trust_dir = app.state.settings.bundle_trusted_public_keys_dir
+
+    with TestClient(app) as client:
+        admin = _login(client, "admin")
+        headers = _auth(admin)
+
+        denied_add = client.post(
+            "/api/settings/keys/trusted",
+            json={"pem": _public_pem(old_key)},
+            headers=headers,
+        )
+        assert denied_add.status_code == 409
+        assert denied_add.json()["error"]["code"] == "key_mutation_confirmation_required"
+        assert not trust_dir.exists()
+
+        added = client.post(
+            "/api/settings/keys/trusted",
+            json={"pem": _public_pem(old_key)},
+            headers=headers,
+            params={"confirm": True},
+        )
+        assert added.status_code == 201
+
+        denied_state = client.patch(
+            f"/api/settings/keys/trusted/{old_fingerprint}",
+            json={"enabled": False},
+            headers=headers,
+            params={"confirm": False},
+        )
+        assert denied_state.status_code == 409
+        assert denied_state.json()["error"]["code"] == "key_mutation_confirmation_required"
+
+        denied_replace = client.put(
+            f"/api/settings/keys/trusted/{old_fingerprint}/replace",
+            json={"pem": _public_pem(new_key)},
+            headers=headers,
+        )
+        assert denied_replace.status_code == 409
+        assert denied_replace.json()["error"]["code"] == "key_mutation_confirmation_required"
+
+        denied_remove = client.delete(
+            f"/api/settings/keys/trusted/{old_fingerprint}",
+            headers=headers,
+            params={"confirm": False},
+        )
+        assert denied_remove.status_code == 409
+        assert denied_remove.json()["error"]["code"] == "key_mutation_confirmation_required"
+
+        listed = client.get("/api/settings/keys", headers=headers)
+        assert listed.json()["trusted_keys"] == [
+            {"fingerprint": old_fingerprint, "enabled": True}
+        ]
+
+    with app.state.session_factory() as session:
+        events = list(
+            session.scalars(
+                select(AuditEvent)
+                .where(AuditEvent.event_type.like("trust.key.%"))
+                .order_by(AuditEvent.id)
+            )
+        )
+    assert [event.event_type for event in events] == ["trust.key.added"]
+
+
+def test_target_replace_works_at_full_limit_and_updates_real_verifier(tmp_path: Path) -> None:
+    source_app = _build_app(tmp_path, PortalContour.SOURCE)
+    target_app = _build_app(tmp_path, PortalContour.TARGET)
+    target_app.state.settings.bundle_max_trusted_keys = 1
+    old_key = Ed25519PrivateKey.generate()
+    new_key = Ed25519PrivateKey.generate()
+    old_pem = _public_pem(old_key)
+    new_pem = _public_pem(new_key)
+    old_fingerprint = ed25519_public_key_fingerprint(old_key.public_key())
+    new_fingerprint = ed25519_public_key_fingerprint(new_key.public_key())
+
+    with TestClient(source_app) as source:
+        headers = _auth(_login(source, "admin"))
+        assert source.put(
+            "/api/settings/keys/signing",
+            json={"pem": _private_pem(old_key)},
+            headers=headers,
+        ).status_code == 200
+        old_bundle = _build_chart_bundle(
+            source_app.state.settings,
+            "DELIVERY-20260914-REPLACEOLD1",
+        )
+        assert source.put(
+            "/api/settings/keys/signing",
+            json={"pem": _private_pem(new_key)},
+            headers=headers,
+        ).status_code == 200
+        new_bundle = _build_chart_bundle(
+            source_app.state.settings,
+            "DELIVERY-20260914-REPLACENEW1",
+        )
+
+    with TestClient(target_app) as target:
+        headers = _auth(_login(target, "admin"))
+        added = target.post(
+            "/api/settings/keys/trusted",
+            json={"pem": old_pem},
+            headers=headers,
+            params={"confirm": True},
+        )
+        assert added.status_code == 201
+
+        verifier = BundlePackageService(target_app.state.settings)
+        assert verifier.verify_bundle(
+            old_bundle.archive_path,
+            sidecar_path=old_bundle.sidecar_path,
+        ).signing_key_fingerprint == old_fingerprint
+
+        replaced = target.put(
+            f"/api/settings/keys/trusted/{old_fingerprint}/replace",
+            json={"pem": new_pem},
+            headers=headers,
+            params={"confirm": True},
+        )
+        assert replaced.status_code == 200
+        assert replaced.json() == {"action": "replaced", "fingerprint": new_fingerprint}
+
+        listed = target.get("/api/settings/keys", headers=headers)
+        assert listed.json()["trusted_keys"] == [
+            {"fingerprint": new_fingerprint, "enabled": True}
+        ]
+
+        with pytest.raises(BundlePackageError) as exc_info:
+            verifier.verify_bundle(
+                old_bundle.archive_path,
+                sidecar_path=old_bundle.sidecar_path,
+            )
+        assert exc_info.value.code == "bundle_signature_untrusted"
+        assert verifier.verify_bundle(
+            new_bundle.archive_path,
+            sidecar_path=new_bundle.sidecar_path,
+        ).signing_key_fingerprint == new_fingerprint
+
+    with target_app.state.session_factory() as session:
+        event = session.scalar(
+            select(AuditEvent)
+            .where(AuditEvent.event_type == "trust.key.replaced")
+            .order_by(AuditEvent.id.desc())
+        )
+    assert event is not None
+    metadata = json.loads(event.metadata_json)
+    assert metadata["old_fingerprint"] == old_fingerprint
+    assert metadata["new_fingerprint"] == new_fingerprint
+    assert old_pem not in event.metadata_json
+    assert new_pem not in event.metadata_json
 
 
 def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: Path) -> None:
@@ -306,6 +465,7 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
                 "/api/settings/keys/trusted",
                 json={"pem": _public_pem(key)},
                 headers=headers,
+                params={"confirm": True},
             )
             assert added.status_code == 201
 
@@ -334,6 +494,7 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
             f"/api/settings/keys/trusted/{old_fingerprint}",
             json={"enabled": False},
             headers=headers,
+            params={"confirm": True},
         )
         assert disabled.status_code == 200
         assert disabled.json()["action"] == "disabled"
@@ -353,6 +514,7 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
             f"/api/settings/keys/trusted/{old_fingerprint}",
             json={"enabled": True},
             headers=headers,
+            params={"confirm": True},
         )
         assert enabled.status_code == 200
         assert verifier.verify_bundle(
@@ -363,6 +525,7 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
         removed = target.delete(
             f"/api/settings/keys/trusted/{old_fingerprint}",
             headers=headers,
+            params={"confirm": True},
         )
         assert removed.status_code == 200
         assert removed.json()["action"] == "removed"
@@ -414,6 +577,7 @@ def test_target_managed_actions_canonicalize_legacy_filename(tmp_path: Path) -> 
             f"/api/settings/keys/trusted/{fingerprint}",
             json={"enabled": False},
             headers=headers,
+            params={"confirm": True},
         )
         assert disabled.status_code == 200
 
