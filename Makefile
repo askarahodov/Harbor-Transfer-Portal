@@ -12,7 +12,7 @@ help:
 	  'make lint-backend   Запустить только backend Ruff checks' \
 	  'make typecheck-backend Запустить backend Mypy static type check' \
 	  'make test           Запустить backend и frontend tests' \
-	  'make test-backend   Запустить только backend tests' \
+	  'make test-backend   Запустить backend tests с application coverage >=70%' \
 	  'make test-frontend  Запустить только frontend tests' \
 	  'make test-ci-scope  Проверить regression-матрицу scoped CI selection' \
 	  'make dependency-locks-check Проверить согласованность dependency lockfiles' \
@@ -56,7 +56,7 @@ test: test-backend test-frontend
 
 test-backend:
 	@test -f backend/pyproject.toml || { echo 'backend/pyproject.toml отсутствует'; exit 2; }
-	cd backend && python -m pytest
+	cd backend && python -m pytest --cov=app --cov-report=term-missing --cov-fail-under=70
 
 test-frontend:
 	@test -f frontend/package.json || { echo 'frontend/package.json отсутствует'; exit 2; }

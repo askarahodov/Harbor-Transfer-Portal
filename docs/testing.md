@@ -30,6 +30,8 @@ make test-backend
 
 CI backend gate выполняет Ruff → Mypy → полный backend unit/API pytest suite. Static type gate проверяет `backend/app` и не использует blanket `ignore_errors` или `ignore_missing_imports`; для библиотек без встроенной typing metadata dev tooling содержит поддерживаемые `types-*` stubs.
 
+Полный backend suite одновременно является application coverage gate: `make test-backend` запускает `python -m pytest --cov=app --cov-report=term-missing --cov-fail-under=70`. Coverage source ограничен `backend/app`; tests, migrations и generated fixtures не используются для искусственного повышения процента. Порог 70% — обязательный floor merge gate, а не цель для подгонки тестов. Targeted protocol/security suites сохраняют scoped-команды без глобального coverage threshold.
+
 ### Frontend
 
 ```bash
@@ -494,7 +496,7 @@ make dependency-locks-check
 | Scope detection | реализовано; classifier regression-tested |
 | Dependency lock invariant | реализовано; выполняется до scope classification |
 | Documentation local-link gate | реализовано |
-| Backend Ruff + Mypy + unit/API | реализовано; dependency graph locked |
+| Backend Ruff + Mypy + unit/API + coverage ≥70% | реализовано; dependency graph locked; `backend/app` coverage fail-under 70% |
 | Frontend lint/type/unit/build | реализовано; `npm ci` only |
 | Bundle Protocol contract regression | реализовано |
 | Targeted security regression | реализовано |
