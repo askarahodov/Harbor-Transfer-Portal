@@ -31,9 +31,12 @@ class CiScopeTest(TestCase):
         if integration:
             (root / "backend/integration").mkdir(parents=True, exist_ok=True)
             (root / "backend/integration/registry_smoke.py").touch()
+            (root / "backend/integration/isolated_transfer_acceptance.py").touch()
             (root / "deploy").mkdir(parents=True, exist_ok=True)
             (root / "deploy/compose-registry-integration.yml").touch()
             (root / "deploy/smoke-registry-integration.sh").touch()
+            (root / "deploy/compose-isolated-transfer-acceptance.yml").touch()
+            (root / "deploy/qualify-isolated-transfer.sh").touch()
         if frontend:
             (root / "frontend").mkdir(parents=True, exist_ok=True)
             (root / "frontend/package.json").touch()
@@ -75,21 +78,28 @@ class CiScopeTest(TestCase):
             Scope(backend=True, protocol=True),
         )
 
-    def test_package_service_runs_protocol_and_security_regression(self):
+    def test_package_service_runs_protocol_security_and_transfer_integration(self):
         root = self._root()
         self.assertEqual(
             classify_paths(
                 ["backend/app/services/bundle_package_service.py"],
                 root=root,
             ),
-            Scope(backend=True, protocol=True, security=True),
+            Scope(backend=True, protocol=True, security=True, integration=True),
         )
 
-    def test_import_orchestrator_runs_security_regression(self):
+    def test_import_orchestrator_runs_security_and_transfer_integration(self):
         root = self._root()
         self.assertEqual(
             classify_paths(["backend/app/services/import_orchestrator.py"], root=root),
-            Scope(backend=True, security=True),
+            Scope(backend=True, security=True, integration=True),
+        )
+
+    def test_export_orchestrator_runs_security_and_transfer_integration(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["backend/app/services/export_orchestrator.py"], root=root),
+            Scope(backend=True, security=True, integration=True),
         )
 
     def test_key_management_runs_security_regression(self):
@@ -138,6 +148,29 @@ class CiScopeTest(TestCase):
         )
         self.assertEqual(
             classify_paths(["deploy/compose-registry-integration.yml"], root=root),
+            Scope(integration=True, compose=True),
+        )
+        self.assertEqual(
+            classify_paths(["backend/integration/isolated_transfer_acceptance.py"], root=root),
+            Scope(backend=True, integration=True),
+        )
+        self.assertEqual(
+            classify_paths(["deploy/qualify-isolated-transfer.sh"], root=root),
+            Scope(integration=True, compose=True),
+        )
+
+    def test_release_runtime_scripts_keep_transfer_integration_scope(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["deploy/build-offline-kit.sh"], root=root),
+            Scope(integration=True, compose=True),
+        )
+        self.assertEqual(
+            classify_paths(["deploy/offline/install.sh"], root=root),
+            Scope(integration=True, compose=True),
+        )
+        self.assertEqual(
+            classify_paths(["compose.yaml"], root=root),
             Scope(integration=True, compose=True),
         )
 
@@ -230,7 +263,7 @@ class CiScopeTest(TestCase):
         root = self._root(security=False)
         self.assertEqual(
             classify_paths(["backend/app/services/import_orchestrator.py"], root=root),
-            Scope(backend=True),
+            Scope(backend=True, integration=True),
         )
 
     def test_integration_scope_does_not_exist_without_harness_markers(self):
