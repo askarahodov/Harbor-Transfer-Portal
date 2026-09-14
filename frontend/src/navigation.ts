@@ -1,4 +1,12 @@
-import { History, LogIn, PackageOpen, Settings, Upload, type LucideIcon } from 'lucide-vue-next'
+import {
+  History,
+  LogIn,
+  PackageOpen,
+  Settings,
+  Upload,
+  UsersRound,
+  type LucideIcon,
+} from 'lucide-vue-next'
 
 import type { UserRole } from '@/stores/auth'
 import type { PortalContour } from '@/stores/runtime'
@@ -28,6 +36,7 @@ export function navigationForRole(
   }
 
   if (role === 'admin') {
+    items.push({ to: '/users', label: 'Пользователи', icon: UsersRound })
     items.push({ to: '/settings', label: 'Настройки', icon: Settings })
   }
 

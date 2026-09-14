@@ -24,17 +24,19 @@ describe('role- and contour-aware navigation', () => {
     ])
   })
 
-  it('keeps admin settings together with contour-specific transfer workflow', () => {
+  it('keeps admin management together with contour-specific transfer workflow', () => {
     expect(navigationForRole('admin', 'SOURCE').map((item) => item.to)).toEqual([
       '/',
       '/export',
       '/history',
+      '/users',
       '/settings',
     ])
     expect(navigationForRole('admin', 'TARGET').map((item) => item.to)).toEqual([
       '/',
       '/import',
       '/history',
+      '/users',
       '/settings',
     ])
   })

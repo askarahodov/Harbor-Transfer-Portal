@@ -115,7 +115,7 @@ docker compose config
 docker compose up -d --build
 ```
 
-или:
+или через Make:
 
 ```bash
 make compose-config
@@ -184,21 +184,25 @@ PATCH /api/users/{user_id}
 
 `PATCH` позволяет изменить role, `is_active` и password.
 
-### Текущее UI-ограничение
+### Управление через web UI
 
-Отдельного frontend-экрана управления пользователями в текущем `main` нет. Не документируйте вымышленный пункт меню «Пользователи».
+После входа под `admin` откройте раздел **«Пользователи»** (`/users`). Экран показывает username, role, active status, дату создания и время последнего успешного входа.
 
-До появления такого UI используйте admin-only API через контролируемый API client. Login endpoint:
+Через UI можно:
 
-```text
-POST /api/auth/login
-```
+- создать локального пользователя с начальным password и role;
+- изменить role;
+- активировать или деактивировать учётную запись;
+- задать новый password;
+- обновить список пользователей.
 
-возвращает bearer `access_token`; административные запросы передают его как:
+Security-sensitive изменения role/status/password требуют явного подтверждения. Password и password hash не возвращаются API и не отображаются после сохранения.
 
-```text
-Authorization: Bearer <token>
-```
+Backend не позволяет деактивировать или понизить роль единственного активного `admin`: такая попытка завершается `409`. Сначала создайте или активируйте второго администратора, затем изменяйте первого.
+
+Hard-delete локальных пользователей не используется: persisted operation/audit records должны сохранять понятную identity history. Создание и изменение пользователей записываются в audit как `user.created`/`user.updated` с target identifiers и именами изменённых полей, но без password/password hash.
+
+Подробный current contract и операционная процедура: [Управление локальными пользователями](admin-user-management.md).
 
 Не помещайте реальные login passwords или bearer tokens в issue, PR, shell history, shared screenshots или постоянные script files.
 
@@ -225,7 +229,7 @@ Authorization: Bearer <token>
 HARBOR_MANAGED_SECRET_FILE=./data/secrets/harbor-password
 ```
 
-Managed secret создаётся server-side с restrictive permissions и не возвращается обратно в UI/API.
+Managed secret создаётся server-side с restrictive permissions и находится в persistent volume. Значение не возвращается обратно в UI/API после сохранения.
 
 Fallback order:
 

@@ -12,9 +12,7 @@ function guardedRouter(role?: UserRole, contour: PortalContour = 'SOURCE') {
   const auth = useAuthStore(pinia)
   const runtime = useRuntimeStore(pinia)
   auth.initialized = true
-  auth.user = role
-    ? { id: 1, username: role, role, is_active: true }
-    : null
+  auth.user = role ? { id: 1, username: role, role, is_active: true } : null
   runtime.setContour(contour)
   const router = createAppRouter(createMemoryHistory())
   installAuthGuards(router, pinia)
@@ -22,12 +20,15 @@ function guardedRouter(role?: UserRole, contour: PortalContour = 'SOURCE') {
 }
 
 describe('router', () => {
-  it.each(['/login', '/', '/export', '/import', '/history', '/settings'])('resolves %s', async (path) => {
-    const router = createAppRouter(createMemoryHistory())
-    await router.push(path)
-    await router.isReady()
-    expect(router.currentRoute.value.path).toBe(path)
-  })
+  it.each(['/login', '/', '/export', '/import', '/history', '/users', '/settings'])(
+    'resolves %s',
+    async (path) => {
+      const router = createAppRouter(createMemoryHistory())
+      await router.push(path)
+      await router.isReady()
+      expect(router.currentRoute.value.path).toBe(path)
+    },
+  )
 
   it('redirects an unauthenticated request to login once', async () => {
     const router = guardedRouter()
@@ -38,11 +39,13 @@ describe('router', () => {
     expect(router.currentRoute.value.query.redirect).toBe('/history')
   })
 
-  it('blocks viewer from transfer routes', async () => {
+  it('blocks viewer from transfer and admin routes', async () => {
     const router = guardedRouter('viewer')
     await router.push('/export')
     await router.isReady()
+    expect(router.currentRoute.value.name).toBe('dashboard')
 
+    await router.push('/users')
     expect(router.currentRoute.value.name).toBe('dashboard')
   })
 
@@ -66,10 +69,13 @@ describe('router', () => {
     expect(router.currentRoute.value.name).toBe('dashboard')
   })
 
-  it('allows admin settings and redirects authenticated login route', async () => {
+  it('allows admin user/settings routes and redirects authenticated login route', async () => {
     const router = guardedRouter('admin')
-    await router.push('/settings')
+    await router.push('/users')
     await router.isReady()
+    expect(router.currentRoute.value.name).toBe('users')
+
+    await router.push('/settings')
     expect(router.currentRoute.value.name).toBe('settings')
 
     await router.push('/login')

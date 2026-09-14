@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.db.models import UserRole
@@ -28,3 +30,6 @@ class UserResponse(BaseModel):
     username: str
     role: UserRole
     is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    last_login_at: datetime | None

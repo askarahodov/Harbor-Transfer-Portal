@@ -37,6 +37,12 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/history', name: 'history', component: () => import('@/views/HistoryView.vue') },
   {
+    path: '/users',
+    name: 'users',
+    component: () => import('@/views/UsersView.vue'),
+    meta: { roles: adminRoles },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
