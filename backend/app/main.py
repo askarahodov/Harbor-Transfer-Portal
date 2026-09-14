@@ -1,10 +1,13 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from typing import cast
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import Request
+from starlette.responses import Response
 
 from app.api.router import api_router
 from app.config import Settings, get_settings
@@ -15,6 +18,8 @@ from app.services.operation_audit import install_operation_audit_hooks
 from app.services.transfer_policy import TransferPolicyService
 from app.utils.errors import http_exception_handler, validation_exception_handler
 from app.utils.logging import RequestCorrelationMiddleware, configure_application_logging
+
+ExceptionHandler = Callable[[Request, Exception], Response | Awaitable[Response]]
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -50,8 +55,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = session_factory
     app.state.operation_manager = operation_manager
 
-    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(
+        StarletteHTTPException,
+        cast(ExceptionHandler, http_exception_handler),
+    )
+    app.add_exception_handler(
+        RequestValidationError,
+        cast(ExceptionHandler, validation_exception_handler),
+    )
 
     if resolved_settings.cors_origins:
         app.add_middleware(

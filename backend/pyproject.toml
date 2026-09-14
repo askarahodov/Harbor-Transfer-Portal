@@ -27,10 +27,14 @@ htp-bootstrap-admin = "app.auth.cli:main"
 
 [project.optional-dependencies]
 dev = [
+  "mypy>=1.17,<2.0",
   "pypdf>=6.0,<7.0",
   "pytest>=8.4,<9.0",
   "pytest-cov>=6.2,<7.0",
   "ruff>=0.12,<1.0",
+  "types-jsonschema>=4.25,<5.0",
+  "types-PyYAML>=6.0,<7.0",
+  "types-reportlab>=4.4,<5.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -46,3 +50,17 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["app"]
+check_untyped_defs = true
+no_implicit_optional = true
+local_partial_types = true
+allow_redefinition_new = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_configs = true
+show_error_codes = true
+pretty = true

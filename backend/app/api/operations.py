@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/operations", tags=["operations"])
 
 
 def _manager(request: Request) -> OperationManager:
-    return request.app.state.operation_manager
+    return cast(OperationManager, request.app.state.operation_manager)
 
 
 def _serialize_bundle(operation: Operation) -> OperationBundleResponse | None:

@@ -8,9 +8,12 @@ import shutil
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
+from typing import Any, cast
 
 from sqlalchemy import func, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
@@ -335,9 +338,7 @@ class OperationManager:
             ) from exc
 
         self._tasks[operation_id] = task
-        task.add_done_callback(
-            lambda completed, op_id=operation_id: self._forget_task(op_id, completed)
-        )
+        task.add_done_callback(partial(self._forget_task, operation_id))
         return OperationHandle(operation_id=operation_id)
 
     async def wait(self, operation_id: int) -> None:
@@ -522,7 +523,7 @@ class OperationManager:
                     heartbeat_at=now,
                 )
             )
-            result = session.execute(statement)
+            result = cast(CursorResult[Any], session.execute(statement))
             session.commit()
             if result.rowcount == 1:
                 return

@@ -66,7 +66,7 @@ jobs:
             --summary "${GITHUB_STEP_SUMMARY}"
 
   backend:
-    name: Backend — lint и unit/API tests
+    name: Backend — lint, types и unit/API tests
     needs: scope
     if: needs.scope.outputs.backend == 'true'
     runs-on: ubuntu-24.04
@@ -88,6 +88,9 @@ jobs:
 
       - name: Ruff
         run: make lint-backend
+
+      - name: Mypy
+        run: make typecheck-backend
 
       - name: Pytest
         run: make test-backend

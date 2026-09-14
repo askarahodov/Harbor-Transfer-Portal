@@ -23,10 +23,11 @@
 
 ```bash
 make lint-backend
+make typecheck-backend
 make test-backend
 ```
 
-CI backend gate выполняет Ruff и полный backend unit/API pytest suite.
+CI backend gate выполняет Ruff → Mypy → полный backend unit/API pytest suite. Static type gate проверяет `backend/app` и не использует blanket `ignore_errors` или `ignore_missing_imports`; для библиотек без встроенной typing metadata dev tooling содержит поддерживаемые `types-*` stubs.
 
 ### Frontend
 
@@ -116,6 +117,12 @@ Compose smoke является обязательным для затронут�
 Используются для локальной бизнес-логики, domain transitions, API contracts, parsers/validators и UI components без внешнего service lifecycle.
 
 Предпочтительный уровень, если дефект можно надёжно поймать быстро и локально.
+
+### Static type
+
+Backend Mypy gate проверяет typed contracts между FastAPI/Pydantic/SQLAlchemy services и orchestration code до runtime tests. Очевидный type mismatch должен делать backend CI красным.
+
+Цель — не «удовлетворить Mypy» через широкие suppressions, а использовать type checker как источник contract defects. Точечные `cast(...)` допустимы только на dynamic/third-party boundary, где runtime contract известен приложению, но не выражен библиотечным stub.
 
 ### Component
 
@@ -233,17 +240,17 @@ SOURCE export orchestration и TARGET import orchestration уже реализо
 
 | Изменение | Минимальные проверки |
 |---|---|
-| Только обычный backend service/API | Ruff + соответствующие backend tests |
-| Auth/RBAC | backend + targeted security; frontend role/session tests при затронутом UI |
-| DB model/migration | backend tests + migration/persistence integration |
+| Только обычный backend service/API | Ruff + Mypy + соответствующие backend tests |
+| Auth/RBAC | backend lint/type + targeted security; frontend role/session tests при затронутом UI |
+| DB model/migration | backend lint/type/tests + migration/persistence integration |
 | Только frontend view/component | ESLint + typecheck + unit/component + build |
-| Bundle protocol/schema/domain | docs-check + protocol regression + affected backend tests |
-| Harbor client/settings | backend tests + mocked/integration Harbor scenarios |
-| Skopeo | backend + targeted security + local integration при orchestration impact |
-| Helm OCI | backend + targeted security + local integration при orchestration impact |
-| Package verifier/build | backend + protocol + targeted security |
-| Export/import orchestration | backend + targeted security + relevant integration |
-| Key management | backend + targeted security |
+| Bundle protocol/schema/domain | docs-check + backend lint/type + protocol regression + affected backend tests |
+| Harbor client/settings | backend lint/type/tests + mocked/integration Harbor scenarios |
+| Skopeo | backend lint/type + targeted security + local integration при orchestration impact |
+| Helm OCI | backend lint/type + targeted security + local integration при orchestration impact |
+| Package verifier/build | backend lint/type + protocol + targeted security |
+| Export/import orchestration | backend lint/type + targeted security + relevant integration |
+| Key management | backend lint/type + targeted security |
 | Compose/Docker/Nginx/deploy runtime | Compose config/build/smoke |
 | Обычная docs-only правка | docs-check + quality-gate; тяжёлые code/E2E jobs skipped |
 | `deploy/*.md` | docs-check + Compose smoke согласно current path policy |
@@ -277,7 +284,7 @@ Workflow `.github/workflows/ci.yml` отвечает только за полу�
 
 ### Backend scope
 
-Включается для `backend/*` и `Makefile`.
+Включается для `backend/*` и `Makefile`. Для включённого backend scope обязательная последовательность CI — Ruff → Mypy → Pytest.
 
 ### Frontend scope
 
@@ -387,7 +394,7 @@ make dependency-locks-check
 `backend/pyproject.toml` остаётся source of intent с compatible ranges. Для воспроизводимого resolution committed два generated lock-файла:
 
 - `backend/requirements-runtime.lock` — runtime graph для backend image;
-- `backend/requirements-dev.lock` — runtime + dev/test graph для CI.
+- `backend/requirements-dev.lock` — runtime + dev/test/type graph для CI.
 
 Оба содержат exact `name==version` pins, включая `hatchling`, потому что локальный package собирается с `--no-build-isolation`.
 
@@ -436,7 +443,7 @@ make dependency-locks-check
 | Scope detection | реализовано; classifier regression-tested |
 | Dependency lock invariant | реализовано; выполняется до scope classification |
 | Documentation local-link gate | реализовано |
-| Backend Ruff + unit/API | реализовано; dependency graph locked |
+| Backend Ruff + Mypy + unit/API | реализовано; dependency graph locked |
 | Frontend lint/type/unit/build | реализовано; `npm ci` only |
 | Bundle Protocol contract regression | реализовано |
 | Targeted security regression | реализовано |
@@ -454,11 +461,11 @@ make dependency-locks-check
 
 ### Изменён `backend/app/services/bundle_package_service.py`
 
-Нужны backend tests + Bundle protocol regression + targeted security regression. При изменении deployment/runtime boundary дополнительно Compose smoke.
+Нужны backend Ruff + Mypy + tests + Bundle protocol regression + targeted security regression. При изменении deployment/runtime boundary дополнительно Compose smoke.
 
 ### Изменён `backend/app/services/import_orchestrator.py`
 
-Нужны backend tests + targeted security regression. Protocol gate не добавляется автоматически, если normative Bundle v1 contract/package boundary не менялись.
+Нужны backend Ruff + Mypy + tests + targeted security regression. Protocol gate не добавляется автоматически, если normative Bundle v1 contract/package boundary не менялись.
 
 ### Изменён только `docs/architecture.md`
 
@@ -495,7 +502,8 @@ PR scope определяется от merge base, поэтому уже merged 
 - отключать required job;
 - использовать `continue-on-error` для обязательной проверки;
 - добавлять исключение для сломанной локальной ссылки вместо исправления ссылки/структуры без документированной причины;
-- превращать интеграционный defect в mock-only green test без объяснения.
+- превращать интеграционный defect в mock-only green test без объяснения;
+- выключать Mypy для целого приложения/модуля вместо исправления contract или точечного typing boundary.
 
 ## 13. Documentation impact
 
@@ -520,7 +528,6 @@ PR scope определяется от merge base, поэтому уже merged 
 
 Следующие расширения не считаются реализованными только потому, что упомянуты здесь:
 
-- backend static type gate;
 - optional Markdown anchor validation, если будет оправдано;
 - Skopeo/Helm local-registry integration;
 - additional export/import integration where mocks are insufficient;

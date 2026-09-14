@@ -5,10 +5,9 @@ import io
 import json
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import BinaryIO
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
@@ -79,7 +78,9 @@ def iter_operation_csv(operation: Operation) -> Iterator[bytes]:
     writer.writeheader()
     yield _drain_csv_buffer(buffer)
 
-    artifacts: list[ArtifactResult | None] = sorted(operation.artifacts, key=lambda item: item.id)
+    artifacts: list[ArtifactResult | None] = [
+        *sorted(operation.artifacts, key=lambda item: item.id)
+    ]
     if not artifacts:
         artifacts = [None]
     for artifact in artifacts:
@@ -87,7 +88,10 @@ def iter_operation_csv(operation: Operation) -> Iterator[bytes]:
         yield _drain_csv_buffer(buffer)
 
 
-def build_operation_pdf(operation: Operation, contour: PortalContour) -> BinaryIO:
+def build_operation_pdf(
+    operation: Operation,
+    contour: PortalContour,
+) -> tempfile.SpooledTemporaryFile[bytes]:
     stream = tempfile.SpooledTemporaryFile(max_size=_REPORT_SPOOL_LIMIT, mode="w+b")
     regular_font, bold_font = _pdf_fonts()
     styles = getSampleStyleSheet()
@@ -291,7 +295,7 @@ def _summary_table(operation: Operation, style: ParagraphStyle, bold_font: str) 
 
 
 def _key_value_table(
-    rows: list[tuple[str, object]],
+    rows: Sequence[tuple[str, object]],
     style: ParagraphStyle,
     bold_font: str,
 ) -> Table:
