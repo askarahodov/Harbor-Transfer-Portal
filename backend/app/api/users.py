@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, select
 
 from app.auth.dependencies import SessionDep, require_roles
 from app.auth.security import hash_password
@@ -18,6 +19,9 @@ def _to_response(user: User) -> UserResponse:
         username=user.username,
         role=user.role,
         is_active=user.is_active,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+        last_login_at=user.last_login_at,
     )
 
 
@@ -38,6 +42,33 @@ def _audit_user_change(
             "changed_fields": sorted(changed_fields),
         },
     )
+
+
+def _would_remove_active_admin(user: User, payload: UserUpdateRequest) -> bool:
+    if user.role is not UserRole.ADMIN or not user.is_active:
+        return False
+    demotes_admin = payload.role is not None and payload.role is not UserRole.ADMIN
+    disables_admin = payload.is_active is False
+    return demotes_admin or disables_admin
+
+
+def _ensure_active_admin_remains(
+    session: SessionDep,
+    user: User,
+    payload: UserUpdateRequest,
+) -> None:
+    if not _would_remove_active_admin(user, payload):
+        return
+    active_admin_count = session.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(User.role == UserRole.ADMIN, User.is_active.is_(True))
+    ) or 0
+    if active_admin_count <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="at least one active admin is required",
+        )
 
 
 @router.get("", response_model=list[UserResponse])
@@ -80,9 +111,12 @@ def update_user(
     admin: AdminDep,
     session: SessionDep,
 ) -> UserResponse:
-    user = UserRepository(session).get(user_id)
+    repo = UserRepository(session)
+    user = repo.get(user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+
+    _ensure_active_admin_remains(session, user, payload)
 
     changed_fields: list[str] = []
     if payload.role is not None and payload.role != user.role:
