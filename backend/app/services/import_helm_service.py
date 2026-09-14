@@ -14,7 +14,28 @@ from app.services.helm_oci_service import (
 
 
 class ImportHelmOciService(HelmOciService):
-    """Helm OCI adapter that keeps overwrite policy outside the generic service."""
+    """Helm OCI adapter for verified TARGET import payloads and overwrite policy."""
+
+    def _validate_package_path(self, path: Path) -> Path:
+        if path.is_symlink():
+            raise HelmServiceError(
+                "helm_package_invalid",
+                "Ожидается обычный .tgz chart package без symlink",
+            )
+
+        resolved = path.resolve()
+        verified_bundle_root = self.settings.bundle_extract_root.resolve()
+        try:
+            resolved.relative_to(verified_bundle_root)
+        except ValueError:
+            return super()._validate_package_path(path)
+
+        if not resolved.is_file() or resolved.suffix != ".tgz":
+            raise HelmServiceError(
+                "helm_package_invalid",
+                "Ожидается существующий .tgz chart package внутри verified bundle root",
+            )
+        return resolved
 
     async def push_chart(
         self,
