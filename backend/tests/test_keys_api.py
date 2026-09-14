@@ -33,6 +33,7 @@ def _public_pem(key: Ed25519PrivateKey) -> str:
 
 
 def _build_app(tmp_path: Path, contour: PortalContour):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     database_url = f"sqlite:///{tmp_path / f'keys-{contour.value.lower()}.db'}"
     alembic_config = Config("alembic.ini")
     alembic_config.set_main_option("sqlalchemy.url", database_url)
