@@ -91,6 +91,46 @@ describe('UsersView', () => {
     expect(wrapper.text()).toContain('Доступ пользователя operator обновлён.')
   })
 
+  it('sends only the changed role field to avoid overwriting concurrent status changes', async () => {
+    const update = vi.spyOn(usersApi, 'updateUser').mockResolvedValue({
+      ...operatorUser,
+      role: 'viewer',
+    })
+    const wrapper = mount(UsersView)
+    await flushPromises()
+
+    const row = wrapper
+      .findAll('.user-row')
+      .find((item) => item.get('.identity strong').text() === 'operator')
+    expect(row).toBeTruthy()
+    await row!.get('select').setValue('viewer')
+    const saveButton = row!.findAll('button').find((button) => button.text() === 'Сохранить доступ')
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith(2, { role: 'viewer' })
+  })
+
+  it('sends only the changed status field to avoid overwriting concurrent role changes', async () => {
+    const update = vi.spyOn(usersApi, 'updateUser').mockResolvedValue({
+      ...operatorUser,
+      is_active: false,
+    })
+    const wrapper = mount(UsersView)
+    await flushPromises()
+
+    const row = wrapper
+      .findAll('.user-row')
+      .find((item) => item.get('.identity strong').text() === 'operator')
+    expect(row).toBeTruthy()
+    await row!.get('input[type="checkbox"]').setValue(false)
+    const saveButton = row!.findAll('button').find((button) => button.text() === 'Сохранить доступ')
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith(2, { is_active: false })
+  })
+
   it('resets password only after validation and confirmation', async () => {
     const update = vi.spyOn(usersApi, 'updateUser').mockResolvedValue(operatorUser)
     const wrapper = mount(UsersView)
