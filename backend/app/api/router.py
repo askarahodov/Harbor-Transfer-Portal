@@ -8,6 +8,7 @@ from app.api.health import router as health_router
 from app.api.imports import router as imports_router
 from app.api.operations import router as operations_router
 from app.api.settings import router as settings_router
+from app.api.transfer_settings import router as transfer_settings_router
 from app.api.users import router as users_router
 
 api_router = APIRouter()
@@ -16,6 +17,7 @@ api_router.include_router(auth_router)
 api_router.include_router(users_router)
 api_router.include_router(harbor_router)
 api_router.include_router(settings_router)
+api_router.include_router(transfer_settings_router)
 api_router.include_router(operations_router)
 api_router.include_router(audit_router)
 api_router.include_router(exports_router)
