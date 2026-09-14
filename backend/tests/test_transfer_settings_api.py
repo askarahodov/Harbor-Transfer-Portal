@@ -90,6 +90,23 @@ def test_transfer_policy_is_admin_only_and_defaults_to_no_overwrite(tmp_path: Pa
         assert denied.status_code == 403
 
 
+def test_transfer_policy_rejects_unknown_fields(tmp_path: Path) -> None:
+    app = _build_app(tmp_path)
+    client = TestClient(app)
+    admin = _login(client, "admin")
+
+    response = client.patch(
+        "/api/settings/transfer",
+        json={"import_allow_overwite": True},
+        headers=_auth(admin),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    current = client.get("/api/settings/transfer", headers=_auth(admin)).json()
+    assert current["import_allow_overwrite"] is False
+
+
 def test_hot_transfer_policy_changes_are_effective_and_audited(tmp_path: Path) -> None:
     app = _build_app(tmp_path)
     client = TestClient(app)
