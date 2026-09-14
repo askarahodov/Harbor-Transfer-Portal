@@ -2,7 +2,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)
-VERSION=${1:-0.0.0-clean-host}
+CANONICAL_VERSION=$(sed -n 's/^__version__ = "\([A-Za-z0-9._-][A-Za-z0-9._-]*\)"$/\1/p' "$ROOT/backend/app/__init__.py")
+VERSION=${1:-$CANONICAL_VERSION}
 TMP=$(mktemp -d)
 DIST="$TMP/dist"
 ARCHIVE="$DIST/harbor-transfer-portal-v${VERSION}-offline-install.tar.gz"
@@ -15,6 +16,10 @@ fail() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
 }
+
+[ -n "$CANONICAL_VERSION" ] || fail 'cannot determine canonical release version'
+[ "$VERSION" = "$CANONICAL_VERSION" ] \
+  || fail "qualification version $VERSION does not match canonical $CANONICAL_VERSION"
 
 cleanup() {
   status=$?
@@ -71,6 +76,15 @@ assert_release_images_absent() {
   fi
 }
 
+assert_release_image_identity() {
+  for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
+    image_version=$(docker image inspect \
+      --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$image")
+    [ "$image_version" = "$VERSION" ] \
+      || fail "loaded image version mismatch for $image: $image_version"
+  done
+}
+
 wait_runtime() {
   kit=$1
   attempts=0
@@ -97,14 +111,20 @@ verify_install() {
   grep -Fx "PORTAL_CONTOUR=$contour" "$kit/.env" >/dev/null || fail "installed contour is not $contour"
   grep -Fx "PORTAL_VERSION=$VERSION" "$kit/.env" >/dev/null || fail 'installed version does not match release kit'
   grep -Eq '^JWT_SECRET=[0-9a-f]{64,}$' "$kit/.env" || fail 'installer did not generate a strong JWT secret'
+  grep -Fx "$VERSION" "$kit/release-version.txt" >/dev/null || fail 'release-version.txt mismatch'
+  grep -F "\"version\": \"$VERSION\"" "$kit/release-manifest.json" >/dev/null \
+    || fail 'release manifest version mismatch'
 
   docker image inspect "$BACKEND_IMAGE" >/dev/null 2>&1 || fail 'bundled backend image was not loaded'
   docker image inspect "$FRONTEND_IMAGE" >/dev/null 2>&1 || fail 'bundled frontend image was not loaded'
+  assert_release_image_identity
 
   wait_runtime "$kit"
-  docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
-    exec -T frontend wget -q -O - http://127.0.0.1/api/health \
-    | grep -F '"status":"ok"' >/dev/null
+  health=$(docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
+    exec -T frontend wget -q -O - http://127.0.0.1/api/health)
+  printf '%s' "$health" | grep -F '"status":"ok"' >/dev/null
+  printf '%s' "$health" | grep -F "\"version\":\"$VERSION\"" >/dev/null \
+    || fail 'installed runtime version does not match release kit'
   docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
     exec -T frontend wget -q -O - http://127.0.0.1/runtime-config.js \
     | grep -F "contour: '$contour'" >/dev/null
@@ -166,8 +186,7 @@ cd "$ROOT"
 assert_clean_runtime
 
 printf 'Build phase: creating release images and immutable offline kit...\n'
-docker build -f backend/Dockerfile -t "$BACKEND_IMAGE" .
-docker build -f frontend/Dockerfile -t "$FRONTEND_IMAGE" .
+sh deploy/build-release-images.sh "$VERSION"
 mkdir -p "$DIST"
 sh deploy/build-offline-kit.sh "$VERSION" "$DIST"
 [ -f "$ARCHIVE" ] || fail 'offline release archive was not created'
