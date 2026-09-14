@@ -39,6 +39,8 @@
 | [export-orchestration.md](export-orchestration.md) | SOURCE export backend/API/publication/download contract | актуальный component doc |
 | [import-orchestration.md](import-orchestration.md) | TARGET intake/verify/preview/conflict/import/receipt contract | актуальный component doc |
 | [admin-guide.md](admin-guide.md) | bootstrap, Harbor, keys, backup/restore, limits, эксплуатация | актуальный для current Compose; не final offline installer |
+| [transfer-policies.md](transfer-policies.md) | admin-managed runtime transfer policies, limits и restart semantics | актуальный component/admin doc |
+| [key-management.md](key-management.md) | SOURCE signing identity и TARGET trusted-key lifecycle/rotation | актуальный component/admin doc |
 | [troubleshooting.md](troubleshooting.md) | symptom → cause → diagnostic → safe resolution | актуальный; UI-specific cases дополняются вместе с flows |
 | [offline-bundle-v1.md](offline-bundle-v1.md) | Bundle v1 signing/checksum/archive contract | **нормативный** |
 | `schema/` | machine-readable Bundle schemas | **нормативный** |
@@ -65,6 +67,7 @@ Backend orchestration #17 и UI wizard #18 реализованы.
 - [harbor-browse-api.md](harbor-browse-api.md) — выбор metadata из local Harbor;
 - [export-orchestration.md](export-orchestration.md) — authoritative validation, OperationManager, Skopeo/Helm, publication, download;
 - [frontend.md](frontend.md) — 4-step wizard, reload/poll/cancel, browser download ticket;
+- [key-management.md](key-management.md) — SOURCE signing identity и безопасная rotation;
 - [offline-bundle-v1.md](offline-bundle-v1.md) — переносимый normative contract.
 
 ### TARGET
@@ -75,6 +78,7 @@ Backend intake/import orchestration #19 и UI wizard #20 реализованы.
 
 - [user-guide.md](user-guide.md) — intake, verification, preview/conflict, import, receipt/history/report простым пользовательским языком;
 - [import-orchestration.md](import-orchestration.md) — upload/discovery, verify-before-mutation, signed metadata projection, preview/conflict policy, execute, receipt;
+- [key-management.md](key-management.md) — TARGET active/disabled trusted keys и overlap rotation;
 - [offline-bundle-v1.md](offline-bundle-v1.md) — normative bundle verification contract;
 - [frontend.md](frontend.md) — intake/verification, conflict decisions, persistent import/result flow.
 

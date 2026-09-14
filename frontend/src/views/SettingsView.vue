@@ -3,6 +3,7 @@ import axios from 'axios'
 import { onMounted, ref } from 'vue'
 
 import { apiClient } from '@/api/client'
+import KeyManagementPanel from '@/components/KeyManagementPanel.vue'
 
 type HarborSettings = {
   contour: 'SOURCE' | 'TARGET'
@@ -279,6 +280,8 @@ onMounted(loadSettings)
           Удалить managed CA
         </button>
       </section>
+
+      <KeyManagementPanel :contour="settings.contour" />
 
       <form class="card card--wide transfer-form" @submit.prevent="saveTransferSettings">
         <div>
