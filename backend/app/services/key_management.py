@@ -74,6 +74,11 @@ class KeyManagementService:
     def signing_status(self) -> SigningIdentityStatus:
         self._require_contour(PortalContour.SOURCE)
         path = self.settings.bundle_signing_private_key_file
+        if path.is_symlink():
+            raise KeyManagementError(
+                "signing_key_invalid",
+                "SOURCE signing private key не может быть symlink",
+            )
         if not path.exists():
             return SigningIdentityStatus(configured=False)
         key = self._load_private_key_file(path)
@@ -101,6 +106,11 @@ class KeyManagementService:
         )
 
         target = self.settings.bundle_signing_private_key_file
+        if target.is_symlink():
+            raise KeyManagementError(
+                "key_storage_invalid",
+                "SOURCE signing key path не может быть symlink",
+            )
         before = self.signing_status() if target.exists() else SigningIdentityStatus(False)
         if before.configured and not confirm_rotation:
             raise KeyManagementError(
@@ -114,10 +124,11 @@ class KeyManagementService:
     def list_trusted_keys(self) -> tuple[TrustedKeyStatus, ...]:
         self._require_contour(PortalContour.TARGET)
         entries = self._trusted_entries()
-        return tuple(
-            entry.status
-            for entry in sorted(entries, key=lambda item: (item.status.key_id, not item.status.enabled))
+        ordered = sorted(
+            entries,
+            key=lambda item: (item.status.key_id, not item.status.enabled),
         )
+        return tuple(entry.status for entry in ordered)
 
     def add_trusted_key(self, public_key_pem: str) -> TrustedKeyStatus:
         self._require_contour(PortalContour.TARGET)
@@ -160,18 +171,29 @@ class KeyManagementService:
         fingerprint = public_key_fingerprint(key)
         new_key_id = fingerprint_key_id(fingerprint)
         entries = self._trusted_entries()
-        if new_key_id != key_id and any(item.status.key_id == new_key_id for item in entries):
+        if new_key_id != key_id and any(
+            item.status.key_id == new_key_id for item in entries
+        ):
             raise KeyManagementError(
                 "trusted_key_exists",
                 "Новый trusted SOURCE public key уже зарегистрирован",
             )
         before = entry.status
-        self._atomic_write(
-            entry.path,
-            self._serialize_public_key(key),
-            mode=0o644,
-            replace=True,
-        )
+        canonical = self._serialize_public_key(key)
+        if new_key_id == key_id:
+            self._atomic_write(entry.path, canonical, mode=0o644, replace=True)
+        else:
+            directory = self._ensure_trust_directory()
+            new_path = directory / f"{new_key_id}.pem"
+            self._atomic_write(new_path, canonical, mode=0o644, replace=False)
+            try:
+                entry.path.unlink()
+            except OSError as exc:
+                new_path.unlink(missing_ok=True)
+                raise KeyManagementError(
+                    "trusted_key_replace_failed",
+                    "Не удалось завершить atomic trust-key replacement",
+                ) from exc
         after = TrustedKeyStatus(
             key_id=new_key_id,
             fingerprint=fingerprint,
@@ -205,8 +227,13 @@ class KeyManagementService:
                 "trusted_key_exists",
                 "Trusted SOURCE public key уже существует в целевом состоянии",
             )
-        os.replace(entry.path, destination)
-        os.chmod(destination, 0o644)
+        try:
+            os.replace(entry.path, destination)
+        except OSError as exc:
+            raise KeyManagementError(
+                "key_storage_error",
+                "Не удалось изменить состояние trusted SOURCE public key",
+            ) from exc
         return TrustedKeyStatus(
             key_id=entry.status.key_id,
             fingerprint=entry.status.fingerprint,
@@ -221,12 +248,18 @@ class KeyManagementService:
                 "Удаление trusted SOURCE public key требует явного подтверждения",
             )
         entry = self._find_trusted_entry(key_id)
-        entry.path.unlink()
+        try:
+            entry.path.unlink()
+        except OSError as exc:
+            raise KeyManagementError(
+                "key_storage_error",
+                "Не удалось удалить trusted SOURCE public key",
+            ) from exc
         return entry.status
 
     def _trusted_entries(self) -> tuple[_TrustedKeyEntry, ...]:
         configured = self.settings.bundle_trusted_public_keys_dir
-        if configured.exists() and configured.is_symlink():
+        if configured.is_symlink():
             raise KeyManagementError(
                 "trusted_key_directory_invalid",
                 "Каталог trusted SOURCE public keys не может быть symlink",
@@ -250,7 +283,9 @@ class KeyManagementService:
                     "trusted_key_directory_invalid",
                     "Каталог disabled trusted keys некорректен",
                 )
-            candidates.extend((path, False) for path in sorted(disabled_dir.glob("*.pem")))
+            candidates.extend(
+                (path, False) for path in sorted(disabled_dir.glob("*.pem"))
+            )
 
         entries: list[_TrustedKeyEntry] = []
         seen: set[str] = set()
@@ -274,7 +309,8 @@ class KeyManagementService:
                     path=path,
                 )
             )
-        if sum(entry.status.enabled for entry in entries) > self.settings.bundle_max_trusted_keys:
+        active_count = sum(entry.status.enabled for entry in entries)
+        if active_count > self.settings.bundle_max_trusted_keys:
             raise KeyManagementError(
                 "trusted_key_limit_exceeded",
                 "Количество active trusted SOURCE public keys превышает configured limit",
@@ -300,26 +336,38 @@ class KeyManagementService:
 
     def _ensure_trust_directory(self) -> Path:
         configured = self.settings.bundle_trusted_public_keys_dir
-        if configured.exists() and configured.is_symlink():
+        if configured.is_symlink():
             raise KeyManagementError(
                 "trusted_key_directory_invalid",
                 "Каталог trusted SOURCE public keys не может быть symlink",
             )
         directory = configured.resolve()
-        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(directory, 0o700)
+        try:
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(directory, 0o700)
+        except OSError as exc:
+            raise KeyManagementError(
+                "key_storage_error",
+                "Не удалось подготовить каталог trusted SOURCE public keys",
+            ) from exc
         return directory
 
     @staticmethod
     def _ensure_disabled_directory(directory: Path) -> Path:
         disabled = directory / _DISABLED_DIR
-        if disabled.exists() and disabled.is_symlink():
+        if disabled.is_symlink():
             raise KeyManagementError(
                 "trusted_key_directory_invalid",
                 "Каталог disabled trusted keys не может быть symlink",
             )
-        disabled.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(disabled, 0o700)
+        try:
+            disabled.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(disabled, 0o700)
+        except OSError as exc:
+            raise KeyManagementError(
+                "key_storage_error",
+                "Не удалось подготовить каталог disabled trusted keys",
+            ) from exc
         return disabled
 
     def _load_private_key_file(self, path: Path) -> Ed25519PrivateKey:
@@ -425,21 +473,22 @@ class KeyManagementService:
     @staticmethod
     def _atomic_write(path: Path, payload: bytes, *, mode: int, replace: bool) -> None:
         parent = path.parent
-        if parent.exists() and parent.is_symlink():
+        if parent.is_symlink():
             raise KeyManagementError(
                 "key_storage_invalid",
                 "Каталог key storage не может быть symlink",
             )
-        parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(parent, 0o700)
-        if path.exists() and path.is_symlink():
-            raise KeyManagementError(
-                "key_storage_invalid",
-                "Key file не может быть symlink",
-            )
-        fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}-", dir=parent)
-        temp_path = Path(temp_name)
+        temp_path: Path | None = None
         try:
+            parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(parent, 0o700)
+            if path.is_symlink():
+                raise KeyManagementError(
+                    "key_storage_invalid",
+                    "Key file не может быть symlink",
+                )
+            fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}-", dir=parent)
+            temp_path = Path(temp_name)
             with os.fdopen(fd, "wb") as handle:
                 handle.write(payload)
                 handle.flush()
@@ -456,5 +505,13 @@ class KeyManagementService:
                         "Trusted SOURCE public key уже зарегистрирован",
                     ) from exc
                 temp_path.unlink()
+        except KeyManagementError:
+            raise
+        except OSError as exc:
+            raise KeyManagementError(
+                "key_storage_error",
+                "Не удалось атомарно сохранить key material",
+            ) from exc
         finally:
-            temp_path.unlink(missing_ok=True)
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
