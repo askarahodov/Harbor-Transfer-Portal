@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import Settings
 from app.db.models import ArtifactResult
 from app.domain.bundle import ArtifactStatus
 from app.services.helm_oci_service import (
     HelmChartReference,
+    HelmCommandRunner,
     HelmOciService,
     HelmPhase,
+    HelmProgressEvent,
     HelmPushResult,
     HelmServiceError,
     HelmTargetInspection,
@@ -29,8 +33,22 @@ class ImportHelmOciService(HelmOciService):
     a conflict.
     """
 
-    def __init__(self, session: Session, *args: object, **kwargs: object) -> None:
-        super().__init__(session, *args, **kwargs)  # type: ignore[arg-type]
+    def __init__(
+        self,
+        session: Session,
+        settings: Settings,
+        *,
+        runner: HelmCommandRunner | None = None,
+        progress: Callable[[HelmProgressEvent], None] | None = None,
+        digest_resolver: Callable[[HelmChartReference], str | None] | None = None,
+    ) -> None:
+        super().__init__(
+            session,
+            settings,
+            runner=runner,
+            progress=progress,
+            digest_resolver=digest_resolver,
+        )
         self._import_session = session
 
     def _validate_package_path(self, path: Path) -> Path:
