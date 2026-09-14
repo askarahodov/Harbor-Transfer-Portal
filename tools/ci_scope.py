@@ -26,6 +26,7 @@ _SECURITY_SERVICE_FILES = {
 }
 _SECURITY_API_FILES = {
     "auth.py",
+    "exports.py",
     "imports.py",
     "key_settings.py",
     "users.py",
@@ -34,6 +35,7 @@ _SECURITY_TEST_PREFIXES = (
     "test_auth",
     "test_bundle_package_",
     "test_export_",
+    "test_exports_api",
     "test_import_",
     "test_key_management_",
     "test_helm_oci_",
@@ -87,9 +89,15 @@ def _is_protocol_adr(path: PurePosixPath) -> bool:
 def _is_security_sensitive_backend(path: PurePosixPath) -> bool:
     if _starts_with(path, "backend", "app", "auth"):
         return True
-    if path.parts[:3] == ("backend", "app", "services") and path.name in _SECURITY_SERVICE_FILES:
+    if (
+        path.parts[:3] == ("backend", "app", "services")
+        and path.name in _SECURITY_SERVICE_FILES
+    ):
         return True
-    if path.parts[:3] == ("backend", "app", "api") and path.name in _SECURITY_API_FILES:
+    if (
+        path.parts[:3] == ("backend", "app", "api")
+        and path.name in _SECURITY_API_FILES
+    ):
         return True
     if path.parts[:2] == ("backend", "tests"):
         return any(path.name.startswith(prefix) for prefix in _SECURITY_TEST_PREFIXES)
