@@ -1,0 +1,49 @@
+name: tmp-140-docs-sync
+
+on:
+  push:
+    branches:
+      - test/140-backend-coverage-gate
+
+permissions:
+  contents: write
+
+jobs:
+  sync-docs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: test/140-backend-coverage-gate
+      - name: Update coverage policy documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('docs/testing.md')
+          text = path.read_text(encoding='utf-8')
+
+          old = "CI backend gate выполняет Ruff → Mypy → полный backend unit/API pytest suite. Static type gate проверяет `backend/app` и не использует blanket `ignore_errors` или `ignore_missing_imports`; для библиотек без встроенной typing metadata dev tooling содержит поддерживаемые `types-*` stubs."
+          new = old + "\n\nПолный backend suite одновременно является application coverage gate: `make test-backend` запускает `python -m pytest --cov=app --cov-report=term-missing --cov-fail-under=70`. Coverage source ограничен `backend/app`; tests, migrations и generated fixtures не используются для искусственного повышения процента. Порог 70% — обязательный floor merge gate, а не цель для подгонки тестов. Targeted protocol/security suites сохраняют scoped-команды без глобального coverage threshold."
+          if old not in text:
+              raise SystemExit('backend policy marker not found')
+          text = text.replace(old, new, 1)
+
+          old_row = "| Backend Ruff + Mypy + unit/API | реализовано; dependency graph locked |"
+          new_row = "| Backend Ruff + Mypy + unit/API + coverage ≥70% | реализовано; dependency graph locked; `backend/app` coverage fail-under 70% |"
+          if old_row not in text:
+              raise SystemExit('backend status row not found')
+          text = text.replace(old_row, new_row, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+          if git diff --quiet -- docs/testing.md; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add docs/testing.md
+          git commit -m 'docs: зафиксировать backend coverage gate'
+          git push origin HEAD:test/140-backend-coverage-gate
