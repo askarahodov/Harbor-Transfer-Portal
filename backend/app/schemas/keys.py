@@ -22,7 +22,7 @@ class KeySettingsResponse(BaseModel):
 class KeyMaterialRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    pem: str = Field(min_length=1, max_length=65_536)
+    pem: str = Field(min_length=1, max_length=1_048_576)
 
 
 class TrustedKeyStateRequest(BaseModel):
