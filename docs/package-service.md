@@ -52,7 +52,7 @@ Container image descriptor должен указывать на каталог �
 
 ## Ed25519 keys
 
-SOURCE private key задаётся `BUNDLE_SIGNING_PRIVATE_KEY_FILE`. После разрешения configured path целевой объект должен быть regular PEM Ed25519 PKCS#8 и не иметь group/other permissions; штатный режим — `0600`. Каталог и механизм монтирования ключа являются deployment boundary и не должны быть доступны непривилегированным пользователям.
+SOURCE private key задаётся `BUNDLE_SIGNING_PRIVATE_KEY_FILE`. После разрешения configured path целевой объект должен быть regular PEM Ed25519 PKCS#8 и не иметь group/other permissions; штатный режим — `0600`. Перед чтением сервис проверяет объект через `lstat()`, запрещает symlink/non-regular file и требует `st_size <= BUNDLE_KEY_MATERIAL_MAX_BYTES`. Само чтение также bounded значением `limit + 1`, поэтому изменение файла между metadata check и read не превращается в unbounded allocation. Каталог и механизм монтирования ключа являются deployment boundary и не должны быть доступны непривилегированным пользователям.
 
 Пример генерации через OpenSSL на административной машине:
 
@@ -62,7 +62,7 @@ openssl genpkey -algorithm ED25519 -out source-signing-private.pem
 openssl pkey -in source-signing-private.pem -pubout -out source-signing-public.pem
 ```
 
-Private key устанавливается только на SOURCE. На TARGET копируется только `source-signing-public.pem` в `BUNDLE_TRUSTED_PUBLIC_KEYS_DIR`. Каталог доверия может содержать несколько `*.pem`: verifier пробует каждый Ed25519 public key и возвращает SHA-256 fingerprint фактически совпавшего ключа.
+Private key устанавливается только на SOURCE. На TARGET копируется только `source-signing-public.pem` в `BUNDLE_TRUSTED_PUBLIC_KEYS_DIR`. Каталог доверия может содержать несколько `*.pem`: каждый entry до чтения обязан быть regular non-symlink file и укладываться в тот же `BUNDLE_KEY_MATERIAL_MAX_BYTES`; verifier затем пробует каждый валидный Ed25519 public key и возвращает SHA-256 fingerprint фактически совпавшего ключа.
 
 Для v1 ротация выполняется с overlap:
 
@@ -81,6 +81,7 @@ Private key никогда не копируется в bundle и не выво�
 - `BUNDLE_EXTRACT_ROOT=./data/incoming/verified`;
 - `BUNDLE_SIGNING_PRIVATE_KEY_FILE=./data/keys/source-signing-private.pem`;
 - `BUNDLE_TRUSTED_PUBLIC_KEYS_DIR=./data/keys/trusted-source`;
+- `BUNDLE_KEY_MATERIAL_MAX_BYTES`;
 - `BUNDLE_MAX_ARCHIVE_BYTES`;
 - `BUNDLE_MAX_EXTRACTED_BYTES`;
 - `BUNDLE_MAX_MEMBER_COUNT`;
