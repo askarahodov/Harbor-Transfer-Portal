@@ -15,7 +15,6 @@ from app.config import PortalContour, Settings
 
 _MAX_KEY_BYTES = 64 * 1024
 _FINGERPRINT_RE = re.compile(r"^sha256:[a-f0-9]{64}$")
-_MANAGED_KEY_RE = re.compile(r"^ed25519-([a-f0-9]{64})\.pem(?:\.disabled)?$")
 
 
 @dataclass(slots=True)
@@ -102,22 +101,7 @@ class KeyManagementService:
 
     def add_trusted_key(self, pem: str) -> TrustedPublicKeyStatus:
         self._require_contour(PortalContour.TARGET)
-        key = self._parse_public_key(self._bounded_text(pem))
-        fingerprint = public_key_fingerprint(key)
-        existing = self._paths_for_fingerprint(fingerprint)
-        if any(path.name.endswith(".pem") for path in existing):
-            return TrustedPublicKeyStatus(fingerprint=fingerprint, enabled=True)
-        self._ensure_enabled_capacity()
-        canonical = key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        target = self._enabled_path(fingerprint)
-        self._atomic_write(target, canonical)
-        for path in existing:
-            if path != target:
-                path.unlink(missing_ok=True)
-        return TrustedPublicKeyStatus(fingerprint=fingerprint, enabled=True)
+        return self._install_trusted_key(pem, capacity_credit=0)
 
     def set_trusted_key_enabled(
         self,
@@ -172,12 +156,40 @@ class KeyManagementService:
     ) -> TrustedPublicKeyStatus:
         self._require_contour(PortalContour.TARGET)
         old = self._normalize_fingerprint(fingerprint)
-        if not self._paths_for_fingerprint(old):
+        old_paths = self._paths_for_fingerprint(old)
+        if not old_paths:
             raise KeyManagementError("key_trusted_not_found", "Trusted public key не найден")
-        new_key = self.add_trusted_key(pem)
+        old_enabled = any(path.name.endswith(".pem") for path in old_paths)
+        new_key = self._install_trusted_key(
+            pem,
+            capacity_credit=1 if old_enabled else 0,
+        )
         if new_key.fingerprint != old:
             self.remove_trusted_key(old)
         return new_key
+
+    def _install_trusted_key(
+        self,
+        pem: str,
+        *,
+        capacity_credit: int,
+    ) -> TrustedPublicKeyStatus:
+        key = self._parse_public_key(self._bounded_text(pem))
+        fingerprint = public_key_fingerprint(key)
+        existing = self._paths_for_fingerprint(fingerprint)
+        if any(path.name.endswith(".pem") for path in existing):
+            return TrustedPublicKeyStatus(fingerprint=fingerprint, enabled=True)
+        self._ensure_enabled_capacity(capacity_credit=capacity_credit)
+        canonical = key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        target = self._enabled_path(fingerprint)
+        self._atomic_write(target, canonical)
+        for path in existing:
+            if path != target:
+                path.unlink(missing_ok=True)
+        return TrustedPublicKeyStatus(fingerprint=fingerprint, enabled=True)
 
     def _paths_for_fingerprint(self, fingerprint: str) -> tuple[Path, ...]:
         if not self.trust_dir.exists():
@@ -191,9 +203,9 @@ class KeyManagementService:
                 paths.append(path)
         return tuple(paths)
 
-    def _ensure_enabled_capacity(self) -> None:
+    def _ensure_enabled_capacity(self, *, capacity_credit: int = 0) -> None:
         enabled = sum(1 for item in self.list_trusted_keys() if item.enabled)
-        if enabled >= self.settings.bundle_max_trusted_keys:
+        if enabled - capacity_credit >= self.settings.bundle_max_trusted_keys:
             raise KeyManagementError(
                 "key_trust_limit_exceeded",
                 "Достигнут configured limit trusted SOURCE public keys",
