@@ -1,0 +1,66 @@
+name: Temporary Helm replay patch
+
+on:
+  push:
+    branches: [test/154-isolated-transfer-acceptance]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: test/154-isolated-transfer-acceptance
+      - name: Patch Helm digest semantics and regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          orchestrator = Path('backend/app/services/import_orchestrator.py')
+          text = orchestrator.read_text()
+          old = '''                        target_digest = pushed.target_digest
+                        if (
+                            descriptor.source_digest is not None
+                            and target_digest != descriptor.source_digest
+                        ):
+                            raise HelmServiceError(
+                                "helm_target_digest_mismatch",
+                                "TARGET Helm digest не совпадает с manifest expectation",
+                            )
+'''
+          new = '''                        if pushed.package.sha256 != descriptor.payload_sha256:
+                            raise HelmServiceError(
+                                "helm_payload_digest_mismatch",
+                                "Helm package SHA-256 не совпадает с signed bundle payload",
+                            )
+                        target_digest = pushed.target_digest
+'''
+          if text.count(old) != 1:
+              raise SystemExit('expected strict Helm manifest digest block exactly once')
+          orchestrator.write_text(text.replace(old, new))
+
+          tests = Path('backend/tests/test_import_helm_service.py')
+          text = tests.read_text()
+          if 'test_verified_cross_registry_digest_pair_is_same_on_replay' in text:
+              raise SystemExit('regression tests already present')
+          text = text.replace(
+              'from pathlib import Path\n\nimport pytest\n\nfrom app.config import Settings\nfrom app.services.helm_oci_service import HelmServiceError\n',
+              'import asyncio\nfrom pathlib import Path\n\nimport pytest\n\nfrom app.config import Settings\nfrom app.db.base import Base\nfrom app.db.models import ArtifactResult, Operation\nfrom app.db.session import create_db_engine, create_session_factory\nfrom app.domain.bundle import ArtifactStatus, OperationStatus, OperationType\nfrom app.services.helm_oci_service import (\n    HelmChartReference,\n    HelmServiceError,\n    HelmTargetState,\n)\n',
+          )
+          text += '''\n\nSOURCE_DIGEST = "sha256:" + "a" * 64\nTARGET_DIGEST = "sha256:" + "b" * 64\nREPLACED_DIGEST = "sha256:" + "c" * 64\n\n\ndef _history_service(tmp_path: Path, observed_digest: str) -> ImportHelmOciService:\n    settings = Settings(\n        _env_file=None,\n        database_url=f"sqlite:///{tmp_path / 'history.db'}",\n        helm_workspace_root=tmp_path / "packages",\n        bundle_extract_root=tmp_path / "incoming" / "verified",\n    )\n    engine = create_db_engine(settings.database_url)\n    Base.metadata.create_all(engine)\n    factory = create_session_factory(engine)\n    session = factory()\n    operation = Operation(\n        type=OperationType.IMPORT,\n        status=OperationStatus.COMPLETED,\n        actor_username="target-operator",\n    )\n    session.add(operation)\n    session.flush()\n    session.add(\n        ArtifactResult(\n            operation_id=operation.id,\n            artifact_type="helm-chart",\n            repository="project/charts",\n            name="sample",\n            version="1.2.3",\n            source_digest=SOURCE_DIGEST,\n            target_digest=TARGET_DIGEST,\n            status=ArtifactStatus.VERIFIED,\n        )\n    )\n    session.commit()\n    service = ImportHelmOciService(\n        session,\n        settings,\n        digest_resolver=lambda _chart: observed_digest,\n    )\n    return service\n\n\ndef test_verified_cross_registry_digest_pair_is_same_on_replay(tmp_path: Path) -> None:\n    service = _history_service(tmp_path, TARGET_DIGEST)\n    result = asyncio.run(\n        service.inspect_target(\n            HelmChartReference("project/charts", "sample", "1.2.3"),\n            expected_digest=SOURCE_DIGEST,\n        )\n    )\n    assert result.state is HelmTargetState.SAME_DIGEST\n    assert result.digest == TARGET_DIGEST\n\n\ndef test_external_target_digest_replacement_remains_conflict(tmp_path: Path) -> None:\n    service = _history_service(tmp_path, REPLACED_DIGEST)\n    result = asyncio.run(\n        service.inspect_target(\n            HelmChartReference("project/charts", "sample", "1.2.3"),\n            expected_digest=SOURCE_DIGEST,\n        )\n    )\n    assert result.state is HelmTargetState.CONFLICTING_DIGEST\n    assert result.digest == REPLACED_DIGEST\n'''
+          tests.write_text(text)
+          PY
+
+          rm .github/workflows/tmp-helm-replay-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add backend/app/services/import_orchestrator.py backend/tests/test_import_helm_service.py .github/workflows/tmp-helm-replay-fix.yml
+          git diff --cached --check
+          git commit -m 'fix: разделить SOURCE и TARGET Helm manifest digest'
+          git push origin HEAD:test/154-isolated-transfer-acceptance
