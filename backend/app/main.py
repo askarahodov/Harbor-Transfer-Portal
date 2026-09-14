@@ -8,6 +8,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.router import api_router
 from app.config import Settings, get_settings
+from app.db.audit_hooks import register_operation_audit_hooks
 from app.db.session import create_db_engine, create_session_factory
 from app.services.export_recovery import reconcile_incomplete_export_publications
 from app.services.operation_manager import OperationManager
@@ -21,6 +22,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         level=resolved_settings.log_level,
         json_output=resolved_settings.log_json,
     )
+    register_operation_audit_hooks()
     db_engine = create_db_engine(resolved_settings.database_url)
     session_factory = create_session_factory(db_engine)
     operation_manager = OperationManager(session_factory, resolved_settings)
