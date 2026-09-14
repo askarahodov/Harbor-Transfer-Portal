@@ -40,6 +40,9 @@ case "${1:-}" in
             printf '%s\n' "${last_arg##*:}"
           fi
           ;;
+        *org.opencontainers.image.revision*)
+          printf '%s\n' "${FAKE_DOCKER_LABEL_REVISION:-unknown}"
+          ;;
         *) exit 2 ;;
       esac
     fi
@@ -77,6 +80,8 @@ chmod 0755 "$FAKE_BIN/docker"
 
 export PATH="$FAKE_BIN:$PATH"
 export FAKE_DOCKER_LOG="$FAKE_LOG"
+SOURCE_REVISION=$(git -C "$ROOT" rev-parse --verify HEAD 2>/dev/null || printf 'unknown')
+export FAKE_DOCKER_LABEL_REVISION="$SOURCE_REVISION"
 
 VERSION=1.0.0
 DIST="$TMP/dist"
@@ -97,6 +102,19 @@ if FAKE_DOCKER_LABEL_VERSION=0.9.0 \
 fi
 if grep -q '^save ' "$FAKE_LOG"; then
   fail 'image label mismatch reached docker save instead of failing closed'
+fi
+
+# When a Git revision is available, stale release images from another commit
+# must not be packaged under the current release manifest identity.
+if [ "$SOURCE_REVISION" != unknown ]; then
+  : > "$FAKE_LOG"
+  if FAKE_DOCKER_LABEL_REVISION=deadbeef \
+    sh "$ROOT/deploy/build-offline-kit.sh" "$VERSION" "$TMP/revision-mismatch" >/dev/null 2>&1; then
+    fail 'image with mismatched OCI revision label was accepted'
+  fi
+  if grep -q '^save ' "$FAKE_LOG"; then
+    fail 'image revision mismatch reached docker save instead of failing closed'
+  fi
 fi
 
 : > "$FAKE_LOG"
@@ -154,6 +172,10 @@ grep -Fx 'name: harbor-transfer-portal' "$KIT/compose.yaml" >/dev/null || \
 grep -F '"version": "1.0.0"' "$KIT/release-manifest.json" >/dev/null
 grep -F '"architecture": "amd64"' "$KIT/release-manifest.json" >/dev/null
 grep -F '"release_notes": "docs/release-notes-v1.0.0.md"' "$KIT/release-manifest.json" >/dev/null
+if [ "$SOURCE_REVISION" != unknown ]; then
+  grep -F "\"source_revision\": \"$SOURCE_REVISION\"" "$KIT/release-manifest.json" >/dev/null \
+    || fail 'release manifest revision mismatch'
+fi
 
 : > "$FAKE_LOG"
 (
