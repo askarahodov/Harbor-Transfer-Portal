@@ -1013,9 +1013,14 @@ class BundlePackageService:
     def _load_signing_private_key(self) -> Ed25519PrivateKey:
         path = self.settings.bundle_signing_private_key_file.resolve()
         self._validate_private_key_file(path)
+        material = self._read_key_material(
+            path,
+            error_code="bundle_signing_key_invalid",
+            error_message="SOURCE signing private key не читается как PEM Ed25519 key",
+        )
         try:
-            key = serialization.load_pem_private_key(path.read_bytes(), password=None)
-        except (OSError, ValueError, TypeError) as exc:
+            key = serialization.load_pem_private_key(material, password=None)
+        except (ValueError, TypeError) as exc:
             raise BundlePackageError(
                 "bundle_signing_key_invalid",
                 "SOURCE signing private key не читается как PEM Ed25519 key",
@@ -1034,9 +1039,7 @@ class BundlePackageService:
                 "bundle_trust_not_configured",
                 "Каталог trusted SOURCE public keys не настроен",
             )
-        key_files = sorted(
-            path for path in directory.glob("*.pem") if path.is_file()
-        )
+        key_files = sorted(directory.glob("*.pem"))
         if not key_files or len(key_files) > self.settings.bundle_max_trusted_keys:
             raise BundlePackageError(
                 "bundle_trust_not_configured",
@@ -1044,14 +1047,15 @@ class BundlePackageService:
             )
         keys: list[Ed25519PublicKey] = []
         for path in key_files:
-            if path.is_symlink():
-                raise BundlePackageError(
-                    "bundle_trusted_key_invalid",
-                    "Symlink key file запрещён",
-                )
+            self._validate_trusted_key_file(path)
+            material = self._read_key_material(
+                path,
+                error_code="bundle_trusted_key_invalid",
+                error_message=f"Trusted public key некорректен: {path.name}",
+            )
             try:
-                key = serialization.load_pem_public_key(path.read_bytes())
-            except (OSError, ValueError, TypeError) as exc:
+                key = serialization.load_pem_public_key(material)
+            except (ValueError, TypeError) as exc:
                 raise BundlePackageError(
                     "bundle_trusted_key_invalid",
                     f"Trusted public key некорректен: {path.name}",
@@ -1064,6 +1068,22 @@ class BundlePackageService:
             keys.append(key)
         return tuple(keys)
 
+    def _read_key_material(
+        self,
+        path: Path,
+        *,
+        error_code: str,
+        error_message: str,
+    ) -> bytes:
+        try:
+            with path.open("rb") as stream:
+                material = stream.read(self.settings.bundle_key_material_max_bytes + 1)
+        except OSError as exc:
+            raise BundlePackageError(error_code, error_message) from exc
+        if len(material) > self.settings.bundle_key_material_max_bytes:
+            raise BundlePackageError(error_code, error_message)
+        return material
+
     @staticmethod
     def _public_key_fingerprint(key: Ed25519PublicKey) -> str:
         raw = key.public_bytes(
@@ -1072,8 +1092,7 @@ class BundlePackageService:
         )
         return "sha256:" + hashlib.sha256(raw).hexdigest()
 
-    @staticmethod
-    def _validate_private_key_file(path: Path) -> None:
+    def _validate_private_key_file(self, path: Path) -> None:
         try:
             info = path.lstat()
         except OSError as exc:
@@ -1086,10 +1105,34 @@ class BundlePackageService:
                 "bundle_signing_key_invalid",
                 "Signing key должен быть обычным файлом",
             )
+        if info.st_size > self.settings.bundle_key_material_max_bytes:
+            raise BundlePackageError(
+                "bundle_signing_key_invalid",
+                "SOURCE signing private key превышает допустимый размер",
+            )
         if stat.S_IMODE(info.st_mode) & 0o077:
             raise BundlePackageError(
                 "bundle_signing_key_permissions",
                 "Signing private key должен быть недоступен group/other",
+            )
+
+    def _validate_trusted_key_file(self, path: Path) -> None:
+        try:
+            info = path.lstat()
+        except OSError as exc:
+            raise BundlePackageError(
+                "bundle_trusted_key_invalid",
+                f"Trusted public key недоступен: {path.name}",
+            ) from exc
+        if not stat.S_ISREG(info.st_mode) or path.is_symlink():
+            raise BundlePackageError(
+                "bundle_trusted_key_invalid",
+                f"Trusted public key должен быть обычным файлом: {path.name}",
+            )
+        if info.st_size > self.settings.bundle_key_material_max_bytes:
+            raise BundlePackageError(
+                "bundle_trusted_key_invalid",
+                f"Trusted public key превышает допустимый размер: {path.name}",
             )
 
     def _validate_payload_destination(
