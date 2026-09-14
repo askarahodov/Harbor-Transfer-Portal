@@ -5,8 +5,9 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.db.models import Operation, UserRole
-from app.db.repositories import OperationRepository
+from app.db.repositories import AuditEventRepository, OperationRepository
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
+from app.domain.operations import TERMINAL_STATES
 from app.schemas.operations import (
     OperationArtifactResponse,
     OperationBundleResponse,
@@ -193,6 +194,7 @@ async def cancel_operation(
             detail="only operation creator or admin may cancel operation",
         )
 
+    was_terminal = operation.status in TERMINAL_STATES
     try:
         await _manager(request).cancel(operation_id)
     except OperationManagerError as exc:
@@ -205,6 +207,27 @@ async def cancel_operation(
             status_code=status.HTTP_409_CONFLICT,
             detail=exc.message,
         ) from exc
+
+    if not was_terminal:
+        metadata: dict[str, object] = {
+            "operation_id": operation.id,
+            "operation_type": operation.type.value,
+        }
+        if operation.delivery_id:
+            metadata["delivery_id"] = operation.delivery_id
+        if operation.source_delivery_id:
+            metadata["source_delivery_id"] = operation.source_delivery_id
+        AuditEventRepository(session).create(
+            actor=user,
+            event_type=(
+                "export.cancel.requested"
+                if operation.type is OperationType.EXPORT
+                else "import.cancel.requested"
+            ),
+            result="requested",
+            metadata=metadata,
+        )
+        session.commit()
 
     session.expire_all()
     refreshed = OperationRepository(session).get(operation_id)

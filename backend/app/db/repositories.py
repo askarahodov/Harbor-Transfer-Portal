@@ -180,9 +180,27 @@ class AuditEventRepository:
         result: str = "success",
         metadata: dict[str, Any] | None = None,
     ) -> AuditEvent:
-        event = AuditEvent(
+        return self.create_identity(
             actor_user_id=actor.id,
             actor_username=actor.username,
+            event_type=event_type,
+            result=result,
+            metadata=metadata,
+        )
+
+    def create_identity(
+        self,
+        *,
+        actor_user_id: int | None,
+        actor_username: str,
+        event_type: str,
+        result: str = "success",
+        metadata: dict[str, Any] | None = None,
+    ) -> AuditEvent:
+        normalized_actor = actor_username.strip().lower()[:128] or "system"
+        event = AuditEvent(
+            actor_user_id=actor_user_id,
+            actor_username=normalized_actor,
             event_type=event_type,
             result=result,
             metadata_json=json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
@@ -190,6 +208,21 @@ class AuditEventRepository:
         self.session.add(event)
         self.session.flush()
         return event
+
+    def create_system(
+        self,
+        *,
+        event_type: str,
+        result: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> AuditEvent:
+        return self.create_identity(
+            actor_user_id=None,
+            actor_username="system",
+            event_type=event_type,
+            result=result,
+            metadata=metadata,
+        )
 
     def list_filtered(
         self,

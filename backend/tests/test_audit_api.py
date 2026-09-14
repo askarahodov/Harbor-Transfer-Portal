@@ -57,6 +57,38 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_login_success_and_failure_create_secret_free_audit_events(tmp_path: Path) -> None:
+    app = _app_with_users(tmp_path)
+    wrong_password = "definitely-not-the-real-password"
+
+    with TestClient(app) as client:
+        failed = client.post(
+            "/api/auth/login",
+            json={"username": "operator", "password": wrong_password},
+        )
+        assert failed.status_code == 401
+        admin = _login(client, "admin")
+        response = client.get(
+            "/api/audit/events",
+            headers=_auth(admin),
+            params={"limit": 20},
+        )
+
+    assert response.status_code == 200
+    events = response.json()["items"]
+    failed_event = next(item for item in events if item["event_type"] == "auth.login.failed")
+    success_event = next(item for item in events if item["event_type"] == "auth.login.succeeded")
+    assert failed_event["actor_username"] == "operator"
+    assert failed_event["result"] == "failure"
+    assert failed_event["metadata"] == {"reason": "invalid_credentials"}
+    assert success_event["actor_username"] == "admin"
+    assert success_event["metadata"] == {"role": "admin"}
+    serialized = response.text
+    assert wrong_password not in serialized
+    assert "access_token" not in serialized
+    assert JWT_SECRET not in serialized
+
+
 def test_user_mutations_create_secret_free_audit_events(tmp_path: Path) -> None:
     app = _app_with_users(tmp_path)
     initial_password = "Initial-Secret-Password-123"
@@ -91,12 +123,12 @@ def test_user_mutations_create_secret_free_audit_events(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total"] == 2
-    assert [item["event_type"] for item in payload["items"]] == [
+    user_events = [item for item in payload["items"] if item["event_type"].startswith("user.")]
+    assert [item["event_type"] for item in user_events] == [
         "user.updated",
         "user.created",
     ]
-    assert payload["items"][0]["metadata"] == {
+    assert user_events[0]["metadata"] == {
         "target_user_id": target_user_id,
         "target_username": "audited-user",
         "changed_fields": ["password", "role"],

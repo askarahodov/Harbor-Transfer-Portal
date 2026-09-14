@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.auth.rate_limit import LoginRateLimitDecision, LoginRateLimiter
 from app.auth.security import create_access_token, verify_login_password
-from app.db.repositories import UserRepository
+from app.db.repositories import AuditEventRepository, UserRepository
 from app.schemas.auth import CurrentUserResponse, LoginRequest, TokenResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -23,6 +23,22 @@ def _invalid_credentials(decision: LoginRateLimitDecision | None = None) -> HTTP
             decision.retry_after_seconds,
         )
     return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
+
+
+def _audit_login_failure(
+    session: SessionDep,
+    *,
+    username: str,
+    actor_user_id: int | None,
+    reason: str,
+) -> None:
+    AuditEventRepository(session).create_identity(
+        actor_user_id=actor_user_id,
+        actor_username=username,
+        event_type="auth.login.failed",
+        result="failure",
+        metadata={"reason": reason},
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -50,6 +66,13 @@ def login(
     )
     decision = limiter.check(username=payload.username, client_address=client_address)
     if decision.blocked:
+        _audit_login_failure(
+            session,
+            username=payload.username,
+            actor_user_id=None,
+            reason="rate_limited",
+        )
+        session.commit()
         raise _invalid_credentials(decision)
 
     repo = UserRepository(session)
@@ -61,11 +84,22 @@ def login(
             username=payload.username,
             client_address=client_address,
         )
+        _audit_login_failure(
+            session,
+            username=payload.username,
+            actor_user_id=user.id if user is not None else None,
+            reason="invalid_credentials",
+        )
         session.commit()
         raise _invalid_credentials(decision)
 
     limiter.register_success(username=payload.username)
     repo.mark_login(user)
+    AuditEventRepository(session).create(
+        actor=user,
+        event_type="auth.login.succeeded",
+        metadata={"role": user.role.value},
+    )
     session.commit()
     token = create_access_token(
         user_id=user.id,
