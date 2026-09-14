@@ -471,6 +471,8 @@ TARGET incoming discovery реализован. `POST /api/imports/discover` с�
 
 Archive без sidecar **игнорируется** и не создаёт import operation. Это защищает от обработки ещё копируемого или не полностью доставленного bundle.
 
+Даже при корректном имени и наличии sidecar discovery также пропускает archive нулевого размера или archive, превышающий текущий effective `bundle_max_archive_bytes` (`BUNDLE_MAX_ARCHIVE_BYTES` без runtime override). В этих случаях import operation также не создаётся.
+
 ### Диагностика
 
 Для transfer-media flow:
@@ -480,16 +482,24 @@ Archive без sidecar **игнорируется** и не создаёт impor
 3. нажмите **«Обнаружить готовые пакеты»**;
 4. проверьте, что появилась новая import operation.
 
-Если operation не появилась, убедитесь, что имена пары совпадают и оба объекта являются обычными файлами в корне discovery directory.
+Если operation не появилась, проверьте одновременно:
+
+- имена archive/sidecar совпадают и образуют ожидаемую пару;
+- оба объекта являются обычными файлами в корне discovery directory;
+- archive не пустой;
+- размер archive не превышает effective `bundle_max_archive_bytes` в admin transfer policies/Settings.
 
 ### Безопасное решение
 
-Если есть archive без sidecar:
+Если есть archive без sidecar или pair не проходит discovery:
 
 - не пытайтесь запускать его как «почти готовый» bundle;
-- дождитесь/повторите копирование пары файлов с SOURCE/носителя;
+- для отсутствующего sidecar дождитесь/повторите копирование пары файлов с SOURCE/носителя;
+- для пустого archive повторите физическое копирование готового SOURCE output;
+- при превышении archive limit сначала сверяйте ожидаемый размер bundle и capacity/security policy; не увеличивайте limit только ради обхода проверки;
+- если изменение лимита действительно утверждено, admin меняет `bundle_max_archive_bytes` через штатную policy/Settings и затем повторяет discovery;
 - не генерируйте TARGET-side sidecar как замену SOURCE readiness marker;
-- после появления корректной пары повторите **«Обнаружить готовые пакеты»**.
+- после устранения причины повторите **«Обнаружить готовые пакеты»**.
 
 ## 14. Artifact conflict на TARGET
 
