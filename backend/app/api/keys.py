@@ -38,6 +38,10 @@ def _trusted_response(fingerprint: str, enabled: bool) -> TrustedPublicKeyRespon
     return TrustedPublicKeyResponse(fingerprint=fingerprint, enabled=enabled)
 
 
+def _normalized_fingerprint(value: str) -> str:
+    return value.strip().lower()
+
+
 def _audit(
     session: SessionDep,
     admin: User,
@@ -176,7 +180,10 @@ def replace_trusted_public_key(
         session,
         admin,
         "keys.trusted.replaced",
-        {"old_fingerprint": fingerprint, "new_fingerprint": result.fingerprint},
+        {
+            "old_fingerprint": _normalized_fingerprint(fingerprint),
+            "new_fingerprint": result.fingerprint,
+        },
     )
     return _trusted_response(result.fingerprint, result.enabled)
 
@@ -194,4 +201,9 @@ def remove_trusted_public_key(
         service.remove_trusted_key(fingerprint)
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
-    _audit(session, admin, "keys.trusted.removed", {"fingerprint": fingerprint})
+    _audit(
+        session,
+        admin,
+        "keys.trusted.removed",
+        {"fingerprint": _normalized_fingerprint(fingerprint)},
+    )
