@@ -6,7 +6,16 @@ from tools.ci_scope import Scope, classify_paths
 
 
 class CiScopeTest(TestCase):
-    def _root(self, *, backend=True, frontend=True, protocol=True, compose=True, docs=True):
+    def _root(
+        self,
+        *,
+        backend=True,
+        frontend=True,
+        protocol=True,
+        security=True,
+        compose=True,
+        docs=True,
+    ):
         temporary = TemporaryDirectory()
         root = Path(temporary.name)
         if backend:
@@ -15,6 +24,9 @@ class CiScopeTest(TestCase):
         if protocol:
             (root / "backend/tests").mkdir(parents=True, exist_ok=True)
             (root / "backend/tests/test_bundle_protocol.py").touch()
+        if security:
+            (root / "backend/tests").mkdir(parents=True, exist_ok=True)
+            (root / "backend/tests/test_bundle_package_service.py").touch()
         if frontend:
             (root / "frontend").mkdir(parents=True, exist_ok=True)
             (root / "frontend/package.json").touch()
@@ -56,6 +68,76 @@ class CiScopeTest(TestCase):
             Scope(backend=True, protocol=True),
         )
 
+    def test_package_service_runs_protocol_and_security_regression(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(
+                ["backend/app/services/bundle_package_service.py"],
+                root=root,
+            ),
+            Scope(backend=True, protocol=True, security=True),
+        )
+
+    def test_import_orchestrator_runs_security_regression(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["backend/app/services/import_orchestrator.py"], root=root),
+            Scope(backend=True, security=True),
+        )
+
+    def test_key_management_runs_security_regression(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["backend/app/services/key_management.py"], root=root),
+            Scope(backend=True, security=True),
+        )
+
+    def test_auth_changes_run_security_regression(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["backend/app/auth/security.py"], root=root),
+            Scope(backend=True, security=True),
+        )
+
+    def test_skopeo_and_helm_changes_run_security_regression(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(
+                [
+                    "backend/app/services/skopeo_service.py",
+                    "backend/app/services/helm_oci_service.py",
+                ],
+                root=root,
+            ),
+            Scope(backend=True, security=True),
+        )
+
+    def test_export_api_and_regression_test_run_security_regression(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(
+                [
+                    "backend/app/api/exports.py",
+                    "backend/tests/test_exports_api.py",
+                ],
+                root=root,
+            ),
+            Scope(backend=True, security=True),
+        )
+
+    def test_security_regression_test_changes_keep_security_scope(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(
+                [
+                    "backend/tests/test_bundle_package_key_bounds.py",
+                    "backend/tests/test_import_orchestrator.py",
+                ],
+                root=root,
+            ),
+            Scope(backend=True, protocol=True, security=True),
+        )
+
     def test_nested_protocol_path_keeps_legacy_prefix_semantics(self):
         root = self._root()
         self.assertEqual(
@@ -92,12 +174,33 @@ class CiScopeTest(TestCase):
         root = self._root()
         self.assertEqual(
             classify_paths([".github/workflows/ci.yml"], root=root),
-            Scope(backend=True, frontend=True, protocol=True, compose=True, docs=True),
+            Scope(
+                backend=True,
+                frontend=True,
+                protocol=True,
+                security=True,
+                compose=True,
+                docs=True,
+            ),
         )
 
     def test_workflow_change_does_not_invent_missing_components(self):
-        root = self._root(backend=False, frontend=False, protocol=False, compose=False, docs=False)
+        root = self._root(
+            backend=False,
+            frontend=False,
+            protocol=False,
+            security=False,
+            compose=False,
+            docs=False,
+        )
         self.assertEqual(classify_paths([".github/workflows/ci.yml"], root=root), Scope())
+
+    def test_security_scope_does_not_exist_without_regression_marker(self):
+        root = self._root(security=False)
+        self.assertEqual(
+            classify_paths(["backend/app/services/import_orchestrator.py"], root=root),
+            Scope(backend=True),
+        )
 
     def test_mixed_diff_unions_scopes(self):
         root = self._root()
