@@ -531,12 +531,12 @@ async def target_phase() -> None:
         image_descriptor = next(
             item
             for item in verified_transfer.manifest.artifacts
-            if item.type == "container_image"
+            if item.type == "container-image"
         )
         chart_descriptor = next(
             item
             for item in verified_transfer.manifest.artifacts
-            if item.type == "helm_chart"
+            if item.type == "helm-chart"
         )
 
         orchestrator = ImportOrchestrator(
