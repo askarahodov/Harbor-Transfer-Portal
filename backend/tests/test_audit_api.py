@@ -59,12 +59,13 @@ def _auth(token: str) -> dict[str, str]:
 
 def test_login_success_and_failure_create_secret_free_audit_events(tmp_path: Path) -> None:
     app = _app_with_users(tmp_path)
+    attempted_username = "operator"
     wrong_password = "definitely-not-the-real-password"
 
     with TestClient(app) as client:
         failed = client.post(
             "/api/auth/login",
-            json={"username": "operator", "password": wrong_password},
+            json={"username": attempted_username, "password": wrong_password},
         )
         assert failed.status_code == 401
         admin = _login(client, "admin")
@@ -78,9 +79,11 @@ def test_login_success_and_failure_create_secret_free_audit_events(tmp_path: Pat
     events = response.json()["items"]
     failed_event = next(item for item in events if item["event_type"] == "auth.login.failed")
     success_event = next(item for item in events if item["event_type"] == "auth.login.succeeded")
-    assert failed_event["actor_username"] == "operator"
+    assert failed_event["actor_user_id"] is None
+    assert failed_event["actor_username"] == "system"
     assert failed_event["result"] == "failure"
     assert failed_event["metadata"] == {"reason": "invalid_credentials"}
+    assert attempted_username not in str(failed_event)
     assert success_event["actor_username"] == "admin"
     assert success_event["metadata"] == {"role": "admin"}
     serialized = response.text
