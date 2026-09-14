@@ -6,6 +6,7 @@ from app.auth.dependencies import SessionDep, require_roles
 from app.db.models import User, UserRole
 from app.db.repositories import AuditEventRepository
 from app.domain.bundle import OperationStatus, OperationType
+from app.domain.imports import ImportPreviewState
 from app.schemas.imports import (
     ImportDiscoveryResponse,
     ImportExecuteRequest,
@@ -113,11 +114,13 @@ def _audit_import_start(
     operation_id: int,
     *,
     overwrite_conflicts: bool,
+    conflict_count: int,
 ) -> None:
     operation = orchestrator.operation_manager.get_operation(operation_id)
     metadata: dict[str, object] = {
         "operation_id": operation_id,
         "overwrite_conflicts": overwrite_conflicts,
+        "conflict_count": conflict_count,
     }
     if operation is not None and operation.source_delivery_id:
         metadata["source_delivery_id"] = operation.source_delivery_id
@@ -129,7 +132,7 @@ def _audit_import_start(
         result="started",
         metadata=metadata,
     )
-    if overwrite_conflicts:
+    if overwrite_conflicts and conflict_count > 0:
         repository.create(
             actor=actor,
             event_type="import.overwrite.approved",
@@ -224,6 +227,10 @@ async def execute_import(
 ) -> ImportStartResponse:
     _authorize_operation(orchestrator, operation_id, actor)
     try:
+        preview = orchestrator.preview(operation_id)
+        conflict_count = sum(
+            item.classification is ImportPreviewState.CONFLICT for item in preview.artifacts
+        )
         await orchestrator.start_import(
             operation_id,
             actor_username=actor.username,
@@ -237,6 +244,7 @@ async def execute_import(
         orchestrator,
         operation_id,
         overwrite_conflicts=payload.overwrite_conflicts,
+        conflict_count=conflict_count,
     )
     return ImportStartResponse(
         operation_id=operation_id,
