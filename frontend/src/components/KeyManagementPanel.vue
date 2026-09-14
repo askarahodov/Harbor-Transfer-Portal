@@ -128,7 +128,7 @@ async function replaceTrustedKey(key: TrustedKeyStatus, event: Event): Promise<v
       confirm: true,
     })
     await loadKeys()
-    message.value = 'Trusted key заменён. Новый key опубликован до удаления старого.'
+    message.value = 'Trusted key атомарно заменён в существующем trust slot.'
   } catch (reason) {
     error.value = safeError('Не удалось заменить trusted public key.', reason)
   } finally {
@@ -266,8 +266,8 @@ onMounted(loadKeys)
         </li>
       </ul>
       <p class="status">
-        Для rotation сначала добавьте новый public key, выдержите overlap, затем отключите старый.
-        «Заменить» публикует новый key до удаления выбранного старого.
+        Для плановой rotation сначала добавьте новый public key, выдержите overlap, затем отключите старый.
+        «Заменить» делает немедленный atomic cutover одного trust slot без увеличения числа active keys.
       </p>
     </template>
 
