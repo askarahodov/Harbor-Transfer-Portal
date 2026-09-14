@@ -19,11 +19,14 @@ Admin API:
 GET    /api/settings/keys
 PUT    /api/settings/keys/signing
 POST   /api/settings/keys/trusted
+PUT    /api/settings/keys/trusted/{fingerprint}
 PATCH  /api/settings/keys/trusted/{fingerprint}
 DELETE /api/settings/keys/trusted/{fingerprint}
 ```
 
 Все endpoints доступны только роли `admin`. `operator` и `viewer` получают `403` server-side.
+
+TARGET mutations дополнительно требуют явного server-side confirmation: `confirm=true` в JSON для add/replace/enable/disable и `?confirm=true` для remove. UI спрашивает пользователя через confirmation dialog и только после согласия передаёт этот flag backend. Вызов API без подтверждения получает `409 trusted_key_confirmation_required` и не меняет trust store/audit.
 
 ## 2. Stable key id / fingerprint
 
@@ -62,9 +65,10 @@ Admin выбирает незашифрованный PEM Ed25519 private key. B
 4. отклоняет public/RSA/другой key type;
 5. нормализует key в PKCS#8 PEM;
 6. пишет temporary file в server-controlled directory;
-7. выполняет `fsync`, mode `0600` и atomic `os.replace`;
-8. возвращает только fingerprint/action;
-9. пишет audit event без key material.
+7. выполняет file `fsync` и mode `0600` до atomic `os.replace`;
+8. считает `os.replace` commit boundary; post-commit directory `fsync` не превращает уже committed replacement в ложный failure;
+9. возвращает только fingerprint/action;
+10. пишет audit event без key material.
 
 Невалидный input не заменяет существующий signing key.
 
@@ -113,11 +117,13 @@ Malformed/symlink/non-file entry считается ошибкой key store и 
 
 ### Add
 
-Admin выбирает public PEM и подтверждает добавление. Backend проверяет key и лимит `BUNDLE_MAX_TRUSTED_KEYS`, затем атомарно публикует active key.
+Admin выбирает public PEM и явно подтверждает добавление. Backend проверяет key и лимит `BUNDLE_MAX_TRUSTED_KEYS`, затем атомарно публикует active key.
 
 ### Replace
 
-Повторная загрузка того же key/fingerprint нормализует и заменяет managed file atomically. Key id при этом не меняется, потому что fingerprint определяется самим public key.
+Replace принимает fingerprint существующего trusted key и новый Ed25519 public PEM. Backend сначала полностью валидирует новый key, затем атомарно публикует новый active key и только после этого удаляет старый. Поэтому failure до publish оставляет старый key доверенным, а crash между publish и cleanup оставляет безопасный overlap, а не окно без доверенного ключа.
+
+Replace не увеличивает итоговое число trusted identities, поэтому замена одного key разрешена даже когда trust set уже достиг `BUNDLE_MAX_TRUSTED_KEYS`. Обычный `POST add` при том же заполненном лимите продолжает возвращать `409 trusted_key_limit_exceeded`.
 
 ### Disable
 
@@ -155,6 +161,8 @@ disable old key
 remove old key после окончания rollback/delivery window
 ```
 
+Для административной одношаговой замены через **Replace** Portal использует publish-new-before-remove-old. Это не заменяет overlap procedure для обычной плановой ротации SOURCE, когда старые deliveries ещё должны оставаться валидными.
+
 Это не требует изменения Bundle v1 archive или manifest.
 
 ## 8. Limits
@@ -188,12 +196,9 @@ trust.key.disabled
 trust.key.removed
 ```
 
-Audit metadata содержит только:
+Audit metadata содержит только безопасные identifiers/actions. Для replace сохраняются старый и новый public fingerprint; PEM contents не записываются.
 
-- action;
-- public fingerprint.
-
-Private/public PEM contents в audit не записываются.
+Отказ из-за отсутствующего server-side confirmation не создаёт mutation audit event, потому что trust set не изменился.
 
 ## 10. Backup и restore
 
@@ -215,6 +220,7 @@ TARGET trust directory не содержит private secrets, но опреде�
 - сохранять private key в Git, issue, PR, logs или screenshots;
 - принимать public key из того же недоверенного канала только потому, что по нему пришёл bundle;
 - давать пользователю возможность задавать key filename/path;
+- обходить server-side `confirm=true` собственным неинтерактивным клиентом без отдельного операторского решения;
 - менять расширение disabled key вручную как штатную admin procedure;
 - удалять old trust key до завершения overlap window.
 
