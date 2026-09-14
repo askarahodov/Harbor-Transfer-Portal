@@ -45,7 +45,12 @@ for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
 done
 
 if source_revision=$(git -C "$ROOT" rev-parse --verify HEAD 2>/dev/null); then
-  :
+  for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
+    image_revision=$(docker image inspect \
+      --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")
+    [ "$image_revision" = "$source_revision" ] \
+      || fail "image revision label mismatch for $image: expected $source_revision, got $image_revision"
+  done
 else
   source_revision=unknown
 fi
@@ -55,7 +60,8 @@ skopeo_package=$(awk -F= '/^ARG SKOPEO_DEBIAN_VERSION=/{print $2; exit}' "$ROOT/
 [ -n "$helm_version" ] || fail 'cannot determine HELM_VERSION from backend/Dockerfile'
 [ -n "$skopeo_package" ] || fail 'cannot determine SKOPEO_DEBIAN_VERSION from backend/Dockerfile'
 [ -f "$ROOT/CHANGELOG.md" ] || fail 'CHANGELOG.md is required for a release kit'
-[ -f "$ROOT/docs/release-notes-v1.0.0.md" ] || fail 'v1.0.0 release notes are required for a release kit'
+RELEASE_NOTES_REL="docs/release-notes-v${VERSION}.md"
+[ -f "$ROOT/$RELEASE_NOTES_REL" ] || fail "release notes are required: $RELEASE_NOTES_REL"
 
 PACKAGE_NAME="harbor-transfer-portal-v${VERSION}-offline-install"
 mkdir -p "$OUT_DIR"
@@ -77,7 +83,7 @@ done
 cp "$ROOT/deploy/offline/README.md" "$STAGE/README.md"
 cp "$ROOT/.env.example" "$STAGE/.env.example"
 cp "$ROOT/CHANGELOG.md" "$STAGE/CHANGELOG.md"
-cp "$ROOT/docs/release-notes-v1.0.0.md" "$STAGE/docs/release-notes-v1.0.0.md"
+cp "$ROOT/$RELEASE_NOTES_REL" "$STAGE/$RELEASE_NOTES_REL"
 
 for doc in admin-guide.md troubleshooting.md key-management.md offline-lifecycle.md; do
   if [ -f "$ROOT/docs/$doc" ]; then
@@ -102,7 +108,7 @@ cat > "$STAGE/release-manifest.json" <<EOF
     "helm": "$helm_version",
     "skopeo_debian_package": "$skopeo_package"
   },
-  "release_notes": "docs/release-notes-v1.0.0.md"
+  "release_notes": "$RELEASE_NOTES_REL"
 }
 EOF
 
