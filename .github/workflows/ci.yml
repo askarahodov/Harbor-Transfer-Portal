@@ -256,7 +256,38 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Проверить установку offline kit на чистом runtime boundary
+        env:
+          PORTAL_RELEASE_OUTPUT_DIR: ${{ runner.temp }}/qualified-offline-release
         run: sh deploy/qualify-clean-offline-install.sh
+
+      - name: Проверить сохранённый qualified release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^__version__ = "\([A-Za-z0-9._-][A-Za-z0-9._-]*\)"$/\1/p' backend/app/__init__.py)"
+          release_dir="${RUNNER_TEMP}/qualified-offline-release"
+          archive="${release_dir}/harbor-transfer-portal-v${version}-offline-install.tar.gz"
+          checksum="${archive}.sha256"
+
+          test -n "${version}"
+          test -f "${archive}"
+          test -f "${checksum}"
+          file_count="$(find "${release_dir}" -maxdepth 1 -type f | wc -l)"
+          test "${file_count}" -eq 2
+          (
+            cd "${release_dir}"
+            sha256sum -c "$(basename "${checksum}")"
+          )
+
+      - name: Сохранить qualified offline kit
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: harbor-transfer-portal-offline-install-${{ github.sha }}
+          path: ${{ runner.temp }}/qualified-offline-release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
 
   docs:
     name: Documentation — local links
