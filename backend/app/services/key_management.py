@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 from app.config import PortalContour, Settings
 
 _MAX_KEY_MATERIAL_BYTES = 16 * 1024
+_MAX_MANAGED_KEY_MULTIPLIER = 2
 _KEY_ID_RE = re.compile(r"^[a-f0-9]{64}$")
 _DISABLED_DIR = ".disabled"
 
@@ -96,9 +97,7 @@ class KeyManagementService:
         confirm_rotation: bool,
     ) -> tuple[SigningIdentityStatus, SigningIdentityStatus]:
         self._require_contour(PortalContour.SOURCE)
-        encoded = private_key_pem.encode("utf-8")
-        self._check_material_size(encoded)
-        key = self._load_private_key(encoded)
+        key = self._load_private_key(private_key_pem.encode("utf-8"))
         canonical = key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
@@ -118,14 +117,12 @@ class KeyManagementService:
                 "Ротация SOURCE signing key требует явного подтверждения",
             )
         self._atomic_write(target, canonical, mode=0o600, replace=True)
-        after = self.signing_status()
-        return before, after
+        return before, self.signing_status()
 
     def list_trusted_keys(self) -> tuple[TrustedKeyStatus, ...]:
         self._require_contour(PortalContour.TARGET)
-        entries = self._trusted_entries()
         ordered = sorted(
-            entries,
+            self._trusted_entries(),
             key=lambda item: (item.status.key_id, not item.status.enabled),
         )
         return tuple(entry.status for entry in ordered)
@@ -141,16 +138,24 @@ class KeyManagementService:
                 "trusted_key_exists",
                 "Trusted SOURCE public key уже зарегистрирован",
             )
-        active_count = sum(entry.status.enabled for entry in entries)
-        if active_count >= self.settings.bundle_max_trusted_keys:
+        if len(entries) >= self._max_managed_keys:
+            raise KeyManagementError(
+                "trusted_key_limit_exceeded",
+                "Достигнут лимит managed trusted SOURCE public keys",
+            )
+        if sum(entry.status.enabled for entry in entries) >= self.settings.bundle_max_trusted_keys:
             raise KeyManagementError(
                 "trusted_key_limit_exceeded",
                 "Достигнут лимит active trusted SOURCE public keys",
             )
         directory = self._ensure_trust_directory()
         target = directory / f"{key_id}.pem"
-        canonical = self._serialize_public_key(key)
-        self._atomic_write(target, canonical, mode=0o644, replace=False)
+        self._atomic_write(
+            target,
+            self._serialize_public_key(key),
+            mode=0o644,
+            replace=False,
+        )
         return TrustedKeyStatus(key_id=key_id, fingerprint=fingerprint, enabled=True)
 
     def replace_trusted_key(
@@ -161,11 +166,7 @@ class KeyManagementService:
         confirm: bool,
     ) -> tuple[TrustedKeyStatus, TrustedKeyStatus]:
         self._require_contour(PortalContour.TARGET)
-        if not confirm:
-            raise KeyManagementError(
-                "trusted_key_confirmation_required",
-                "Замена trusted SOURCE public key требует явного подтверждения",
-            )
+        self._require_confirmation(confirm, "Замена")
         entry = self._find_trusted_entry(key_id, enabled=True)
         key = self._load_public_key(public_key_pem.encode("utf-8"))
         fingerprint = public_key_fingerprint(key)
@@ -178,6 +179,7 @@ class KeyManagementService:
                 "trusted_key_exists",
                 "Новый trusted SOURCE public key уже зарегистрирован",
             )
+
         before = entry.status
         canonical = self._serialize_public_key(key)
         if new_key_id == key_id:
@@ -194,12 +196,11 @@ class KeyManagementService:
                     "trusted_key_replace_failed",
                     "Не удалось завершить atomic trust-key replacement",
                 ) from exc
-        after = TrustedKeyStatus(
+        return before, TrustedKeyStatus(
             key_id=new_key_id,
             fingerprint=fingerprint,
             enabled=True,
         )
-        return before, after
 
     def set_trusted_key_enabled(
         self,
@@ -209,11 +210,7 @@ class KeyManagementService:
         confirm: bool,
     ) -> TrustedKeyStatus:
         self._require_contour(PortalContour.TARGET)
-        if not confirm:
-            raise KeyManagementError(
-                "trusted_key_confirmation_required",
-                "Изменение состояния trusted SOURCE public key требует явного подтверждения",
-            )
+        self._require_confirmation(confirm, "Изменение состояния")
         entry = self._find_trusted_entry(key_id, enabled=not enabled)
         directory = self._ensure_trust_directory()
         disabled_dir = self._ensure_disabled_directory(directory)
@@ -242,11 +239,7 @@ class KeyManagementService:
 
     def remove_trusted_key(self, key_id: str, *, confirm: bool) -> TrustedKeyStatus:
         self._require_contour(PortalContour.TARGET)
-        if not confirm:
-            raise KeyManagementError(
-                "trusted_key_confirmation_required",
-                "Удаление trusted SOURCE public key требует явного подтверждения",
-            )
+        self._require_confirmation(confirm, "Удаление")
         entry = self._find_trusted_entry(key_id)
         try:
             entry.path.unlink()
@@ -256,6 +249,10 @@ class KeyManagementService:
                 "Не удалось удалить trusted SOURCE public key",
             ) from exc
         return entry.status
+
+    @property
+    def _max_managed_keys(self) -> int:
+        return self.settings.bundle_max_trusted_keys * _MAX_MANAGED_KEY_MULTIPLIER
 
     def _trusted_entries(self) -> tuple[_TrustedKeyEntry, ...]:
         configured = self.settings.bundle_trusted_public_keys_dir
@@ -286,6 +283,11 @@ class KeyManagementService:
             candidates.extend(
                 (path, False) for path in sorted(disabled_dir.glob("*.pem"))
             )
+        if len(candidates) > self._max_managed_keys:
+            raise KeyManagementError(
+                "trusted_key_limit_exceeded",
+                "Количество managed trusted SOURCE public keys превышает limit",
+            )
 
         entries: list[_TrustedKeyEntry] = []
         seen: set[str] = set()
@@ -309,8 +311,7 @@ class KeyManagementService:
                     path=path,
                 )
             )
-        active_count = sum(entry.status.enabled for entry in entries)
-        if active_count > self.settings.bundle_max_trusted_keys:
+        if sum(entry.status.enabled for entry in entries) > self.settings.bundle_max_trusted_keys:
             raise KeyManagementError(
                 "trusted_key_limit_exceeded",
                 "Количество active trusted SOURCE public keys превышает configured limit",
@@ -379,7 +380,6 @@ class KeyManagementService:
                 "signing_key_invalid",
                 "SOURCE signing private key не читается",
             ) from exc
-        self._check_material_size(payload)
         return self._load_private_key(payload)
 
     def _load_public_key_file(self, path: Path) -> Ed25519PublicKey:
@@ -444,6 +444,11 @@ class KeyManagementService:
                 "signing_key_invalid" if private else "trusted_key_invalid",
                 "Key material должен храниться в обычном файле",
             )
+        if info.st_size < 1 or info.st_size > _MAX_KEY_MATERIAL_BYTES:
+            raise KeyManagementError(
+                "key_material_size_invalid",
+                "Размер key material вне допустимого диапазона",
+            )
         if private and stat.S_IMODE(info.st_mode) & 0o077:
             raise KeyManagementError(
                 "signing_key_permissions",
@@ -462,6 +467,14 @@ class KeyManagementService:
     def _validate_key_id(key_id: str) -> None:
         if _KEY_ID_RE.fullmatch(key_id) is None:
             raise KeyManagementError("key_id_invalid", "Key id некорректен")
+
+    @staticmethod
+    def _require_confirmation(confirm: bool, action: str) -> None:
+        if not confirm:
+            raise KeyManagementError(
+                "trusted_key_confirmation_required",
+                f"{action} trusted SOURCE public key требует явного подтверждения",
+            )
 
     def _require_contour(self, contour: PortalContour) -> None:
         if self.settings.portal_contour is not contour:
