@@ -97,7 +97,7 @@ class TransferPolicyService:
         if unknown:
             raise TransferPolicyError(
                 "transfer_policy_unknown_field",
-                f"Unsupported transfer policy fields: {', '.join(unknown)}",
+                f"Неподдерживаемые поля transfer policy: {', '.join(unknown)}",
             )
 
         current = self._configured_values()
@@ -140,7 +140,7 @@ class TransferPolicyService:
                 if raw not in {"true", "false"}:
                     raise TransferPolicyError(
                         "transfer_policy_persisted_invalid",
-                        f"Persisted value for {field} is invalid",
+                        f"Сохранённое значение {field} некорректно",
                     )
                 values[field] = raw == "true"
             else:
@@ -149,7 +149,7 @@ class TransferPolicyService:
                 except ValueError as exc:
                     raise TransferPolicyError(
                         "transfer_policy_persisted_invalid",
-                        f"Persisted value for {field} is invalid",
+                        f"Сохранённое значение {field} некорректно",
                     ) from exc
         self._validate(values)
         return values
@@ -164,10 +164,14 @@ class TransferPolicyService:
     def _validate(values: dict[str, int | bool]) -> None:
         for field, (minimum, maximum) in _BOUNDS.items():
             value = values[field]
-            if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not minimum <= value <= maximum
+            ):
                 raise TransferPolicyError(
                     "transfer_policy_out_of_range",
-                    f"{field} must be between {minimum} and {maximum}",
+                    f"{field} должен быть в диапазоне {minimum}…{maximum}",
                 )
 
         upload = int(values["import_max_upload_bytes"])
@@ -176,10 +180,10 @@ class TransferPolicyService:
         if upload > archive:
             raise TransferPolicyError(
                 "transfer_policy_inconsistent",
-                "import_max_upload_bytes must not exceed bundle_max_archive_bytes",
+                "import_max_upload_bytes не должен превышать bundle_max_archive_bytes",
             )
         if archive > extracted:
             raise TransferPolicyError(
                 "transfer_policy_inconsistent",
-                "bundle_max_archive_bytes must not exceed bundle_max_extracted_bytes",
+                "bundle_max_archive_bytes не должен превышать bundle_max_extracted_bytes",
             )
