@@ -109,7 +109,7 @@ def _starts_with(path: PurePosixPath, *parts: str) -> bool:
 
 
 def _is_deploy_markdown(path: PurePosixPath) -> bool:
-    return len(path.parts) == 2 and path.parts[0] == "deploy" and path.suffix == ".md"
+    return len(path.parts) >= 2 and path.parts[0] == "deploy" and path.suffix == ".md"
 
 
 def _is_protocol_adr(path: PurePosixPath) -> bool:
@@ -207,7 +207,7 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
             "frontend/nginx.conf",
         }
         or _starts_with(path, "frontend", "docker-entrypoint.d")
-        or _under(path, "deploy")
+        or (_under(path, "deploy") and not _is_deploy_markdown(path))
     ):
         areas.add("compose")
 
