@@ -39,7 +39,10 @@ async function logout(): Promise<void> {
 
     <div class="workspace">
       <header class="topbar">
-        <strong>Harbor Transfer Portal</strong>
+        <div class="topbar__identity">
+          <strong>Harbor Transfer Portal</strong>
+          <span v-if="runtime.version" class="release-version">v{{ runtime.version }}</span>
+        </div>
         <div class="topbar__session">
           <span v-if="auth.user" class="current-user">
             {{ auth.user.username }} · {{ auth.user.role }}
@@ -68,6 +71,8 @@ async function logout(): Promise<void> {
 .nav-link:hover, .nav-link:focus-visible, .nav-link.router-link-exact-active { background: rgba(37,99,235,.2); color: white; }
 .workspace { min-width: 0; }
 .topbar { min-height: var(--layout-header); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: 0 var(--space-6); border-bottom: 1px solid var(--color-mist); background: var(--color-cloud-white); }
+.topbar__identity { display: flex; align-items: baseline; gap: var(--space-2); }
+.release-version { color: var(--color-steel); font-size: 12px; font-variant-numeric: tabular-nums; }
 .topbar__session { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; justify-content: flex-end; }
 .current-user { color: var(--color-steel); font-size: 14px; }
 .logout-button { min-height: 40px; display: inline-flex; align-items: center; gap: var(--space-2); border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: 0 var(--space-3); background: white; color: var(--color-deep-harbor); cursor: pointer; }
