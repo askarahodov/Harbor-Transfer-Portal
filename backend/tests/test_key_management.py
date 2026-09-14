@@ -34,7 +34,12 @@ def _public_pem(key: Ed25519PrivateKey) -> str:
     ).decode()
 
 
-def _settings(tmp_path: Path, contour: PortalContour) -> Settings:
+def _settings(
+    tmp_path: Path,
+    contour: PortalContour,
+    *,
+    max_trusted_keys: int = 16,
+) -> Settings:
     return Settings(
         portal_contour=contour,
         bundle_payload_root=tmp_path / "payload",
@@ -43,6 +48,7 @@ def _settings(tmp_path: Path, contour: PortalContour) -> Settings:
         bundle_extract_root=tmp_path / "verified",
         bundle_signing_private_key_file=tmp_path / "keys" / "source-private.pem",
         bundle_trusted_public_keys_dir=tmp_path / "keys" / "trusted",
+        bundle_max_trusted_keys=max_trusted_keys,
     )
 
 
@@ -89,6 +95,23 @@ def test_target_rejects_private_key_as_public_and_supports_overlap_rotation(tmp_
 
     service.remove_trusted_key(second_status.fingerprint)
     assert service.list_trusted_keys() == ()
+
+
+def test_replace_is_allowed_at_full_enabled_trust_capacity(tmp_path: Path) -> None:
+    first = Ed25519PrivateKey.generate()
+    second = Ed25519PrivateKey.generate()
+    service = KeyManagementService(
+        _settings(tmp_path, PortalContour.TARGET, max_trusted_keys=1)
+    )
+    old = service.add_trusted_key(_public_pem(first))
+
+    with pytest.raises(KeyManagementError) as exc_info:
+        service.add_trusted_key(_public_pem(second))
+    assert exc_info.value.code == "key_trust_limit_exceeded"
+
+    replacement = service.replace_trusted_key(old.fingerprint, _public_pem(second))
+    assert replacement.fingerprint == public_key_fingerprint(second.public_key())
+    assert service.list_trusted_keys() == (replacement,)
 
 
 def test_managed_target_trust_is_consumed_by_bundle_verifier(tmp_path: Path) -> None:
