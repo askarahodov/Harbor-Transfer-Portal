@@ -85,7 +85,7 @@ cp "$ROOT/.env.example" "$STAGE/.env.example"
 cp "$ROOT/CHANGELOG.md" "$STAGE/CHANGELOG.md"
 cp "$ROOT/$RELEASE_NOTES_REL" "$STAGE/$RELEASE_NOTES_REL"
 
-for doc in admin-guide.md troubleshooting.md key-management.md offline-lifecycle.md; do
+for doc in admin-guide.md user-guide.md troubleshooting.md key-management.md offline-lifecycle.md; do
   if [ -f "$ROOT/docs/$doc" ]; then
     cp "$ROOT/docs/$doc" "$STAGE/docs/$doc"
   fi

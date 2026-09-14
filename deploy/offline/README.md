@@ -50,7 +50,7 @@ Release Compose использует стабильное имя проекта 
 
 После первого запуска настройте через admin UI **только локальный Harbor этого контура**, CA/credentials, а также SOURCE signing key или TARGET trusted SOURCE public keys.
 
-Полный штатный пользовательский перенос выполняется через browser: SOURCE выбирает артефакты и скачивает bundle + `.sha256`, файлы физически переносятся в TARGET, затем TARGET выполняет verify/preview/import через UI. Пошаговая процедура описана в `docs/user-guide.md` внутри repository documentation.
+Полный штатный пользовательский перенос выполняется через browser: SOURCE выбирает артефакты и скачивает bundle + `.sha256`, файлы физически переносятся в TARGET, затем TARGET выполняет verify/preview/import через UI. Пошаговая процедура находится прямо в release kit: `docs/user-guide.md`.
 
 ## Backup
 
