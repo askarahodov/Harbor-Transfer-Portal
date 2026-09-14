@@ -44,6 +44,13 @@ for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
     --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$image")
   [ "$image_version" = "$VERSION" ] \
     || fail "image release label mismatch for $image: $image_version"
+
+  if [ "$VCS_REF" != unknown ]; then
+    image_revision=$(docker image inspect \
+      --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")
+    [ "$image_revision" = "$VCS_REF" ] \
+      || fail "image revision label mismatch for $image: expected $VCS_REF, got $image_revision"
+  fi
 done
 
 printf 'Release images built for %s:\n  %s\n  %s\n' "$VERSION" "$BACKEND_IMAGE" "$FRONTEND_IMAGE"
