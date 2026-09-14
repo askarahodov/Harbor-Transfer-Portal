@@ -40,12 +40,14 @@ RUN groupadd --gid 10001 htp \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/htp htp
 
 WORKDIR /app
+COPY backend/requirements-runtime.lock ./requirements-runtime.lock
 COPY backend/pyproject.toml ./pyproject.toml
 COPY backend/app ./app
 COPY backend/alembic.ini ./alembic.ini
 COPY backend/alembic ./alembic
 COPY backend/docker-entrypoint.sh /usr/local/bin/harbor-transfer-portal-entrypoint
-RUN python -m pip install --no-cache-dir . \
+RUN python -m pip install --no-cache-dir -r requirements-runtime.lock \
+    && python -m pip install --no-cache-dir --no-deps --no-build-isolation . \
     && chmod 0755 /usr/local/bin/harbor-transfer-portal-entrypoint
 
 RUN mkdir -p \
