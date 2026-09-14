@@ -22,6 +22,7 @@ jobs:
       frontend: ${{ steps.scope.outputs.frontend }}
       protocol: ${{ steps.scope.outputs.protocol }}
       security: ${{ steps.scope.outputs.security }}
+      integration: ${{ steps.scope.outputs.integration }}
       compose: ${{ steps.scope.outputs.compose }}
       docs: ${{ steps.scope.outputs.docs }}
     steps:
@@ -200,6 +201,18 @@ jobs:
           tests/test_helm_oci_hardening.py
           tests/test_structured_logging.py
 
+  integration:
+    name: Integration — Skopeo/Helm local registry
+    needs: scope
+    if: needs.scope.outputs.integration == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Проверить Skopeo/Helm через disposable registry
+        run: make test-registry-integration
+
   compose:
     name: Compose — build и smoke
     needs: scope
@@ -241,7 +254,7 @@ jobs:
   quality-gate:
     name: quality-gate
     if: always()
-    needs: [scope, backend, frontend, protocol, security, compose, docs]
+    needs: [scope, backend, frontend, protocol, security, integration, compose, docs]
     runs-on: ubuntu-24.04
     steps:
       - name: Проверить результаты обязательных jobs
@@ -252,6 +265,7 @@ jobs:
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           PROTOCOL_RESULT: ${{ needs.protocol.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
           COMPOSE_RESULT: ${{ needs.compose.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
         run: |
@@ -263,6 +277,7 @@ jobs:
             "${FRONTEND_RESULT}" \
             "${PROTOCOL_RESULT}" \
             "${SECURITY_RESULT}" \
+            "${INTEGRATION_RESULT}" \
             "${COMPOSE_RESULT}" \
             "${DOCS_RESULT}"; do
             case "${result}" in

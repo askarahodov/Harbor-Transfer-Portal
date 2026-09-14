@@ -13,6 +13,7 @@ class CiScopeTest(TestCase):
         frontend=True,
         protocol=True,
         security=True,
+        integration=True,
         compose=True,
         docs=True,
     ):
@@ -27,6 +28,12 @@ class CiScopeTest(TestCase):
         if security:
             (root / "backend/tests").mkdir(parents=True, exist_ok=True)
             (root / "backend/tests/test_bundle_package_service.py").touch()
+        if integration:
+            (root / "backend/integration").mkdir(parents=True, exist_ok=True)
+            (root / "backend/integration/registry_smoke.py").touch()
+            (root / "deploy").mkdir(parents=True, exist_ok=True)
+            (root / "deploy/compose-registry-integration.yml").touch()
+            (root / "deploy/smoke-registry-integration.sh").touch()
         if frontend:
             (root / "frontend").mkdir(parents=True, exist_ok=True)
             (root / "frontend/package.json").touch()
@@ -99,7 +106,7 @@ class CiScopeTest(TestCase):
             Scope(backend=True, security=True),
         )
 
-    def test_skopeo_and_helm_changes_run_security_regression(self):
+    def test_skopeo_and_helm_changes_run_security_and_integration(self):
         root = self._root()
         self.assertEqual(
             classify_paths(
@@ -109,7 +116,29 @@ class CiScopeTest(TestCase):
                 ],
                 root=root,
             ),
-            Scope(backend=True, security=True),
+            Scope(backend=True, security=True, integration=True),
+        )
+
+    def test_backend_dockerfile_runs_runtime_integration(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["backend/Dockerfile"], root=root),
+            Scope(backend=True, integration=True, compose=True),
+        )
+
+    def test_integration_harness_and_runner_keep_integration_scope(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["backend/integration/registry_smoke.py"], root=root),
+            Scope(backend=True, integration=True),
+        )
+        self.assertEqual(
+            classify_paths(["deploy/smoke-registry-integration.sh"], root=root),
+            Scope(integration=True, compose=True),
+        )
+        self.assertEqual(
+            classify_paths(["deploy/compose-registry-integration.yml"], root=root),
+            Scope(integration=True, compose=True),
         )
 
     def test_export_api_and_regression_test_run_security_regression(self):
@@ -179,6 +208,7 @@ class CiScopeTest(TestCase):
                 frontend=True,
                 protocol=True,
                 security=True,
+                integration=True,
                 compose=True,
                 docs=True,
             ),
@@ -190,6 +220,7 @@ class CiScopeTest(TestCase):
             frontend=False,
             protocol=False,
             security=False,
+            integration=False,
             compose=False,
             docs=False,
         )
@@ -200,6 +231,13 @@ class CiScopeTest(TestCase):
         self.assertEqual(
             classify_paths(["backend/app/services/import_orchestrator.py"], root=root),
             Scope(backend=True),
+        )
+
+    def test_integration_scope_does_not_exist_without_harness_markers(self):
+        root = self._root(integration=False)
+        self.assertEqual(
+            classify_paths(["backend/app/services/skopeo_service.py"], root=root),
+            Scope(backend=True, security=True),
         )
 
     def test_mixed_diff_unions_scopes(self):

@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: help up down logs fmt lint lint-backend typecheck-backend test test-backend test-frontend test-ci-scope dependency-locks-check docs-check migrate build compose-config smoke-compose check-foundation
+.PHONY: help up down logs fmt lint lint-backend typecheck-backend test test-backend test-frontend test-ci-scope dependency-locks-check test-registry-integration docs-check migrate build compose-config smoke-compose check-foundation
 
 help:
 	@printf '%s\n' \
@@ -16,6 +16,7 @@ help:
 	  'make test-frontend  Запустить только frontend tests' \
 	  'make test-ci-scope  Проверить regression-матрицу scoped CI selection' \
 	  'make dependency-locks-check Проверить согласованность dependency lockfiles' \
+	  'make test-registry-integration Проверить реальные Skopeo/Helm через local OCI registry' \
 	  'make docs-check     Проверить локальные Markdown-ссылки и docs checker tests' \
 	  'make migrate        Применить backend Alembic migrations' \
 	  'make build          Собрать backend/frontend artifacts' \
@@ -68,6 +69,9 @@ dependency-locks-check:
 	python3 -m unittest tools.test_dependency_locks
 	python3 tools/check_dependency_locks.py
 
+test-registry-integration:
+	sh deploy/smoke-registry-integration.sh
+
 docs-check:
 	@test -f tools/check_doc_links.py || { echo 'tools/check_doc_links.py отсутствует'; exit 2; }
 	python3 -m unittest tools.test_check_doc_links
@@ -106,6 +110,9 @@ check-foundation:
 	@test -f backend/requirements-runtime.lock
 	@test -f backend/requirements-dev.lock
 	@test -f frontend/package-lock.json
+	@test -f backend/integration/registry_smoke.py
+	@test -f deploy/compose-registry-integration.yml
+	@test -f deploy/smoke-registry-integration.sh
 	@test -f compose.yaml
 	@test -d backend
 	@test -d frontend
