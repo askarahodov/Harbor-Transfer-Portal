@@ -32,6 +32,7 @@ from app.domain.bundle import (
     HelmChartArtifact,
 )
 from app.domain.protocol import canonical_manifest_bytes, validate_archive_members
+from app.services.key_material import ed25519_public_key_fingerprint
 
 _CRITICAL_FILES = ("manifest.json", "manifest.sig", "checksums.sha256")
 _ALLOWED_PAYLOAD_ROOTS = {"images", "charts"}
@@ -169,7 +170,7 @@ class BundlePackageService:
         try:
             private_key = self._load_signing_private_key()
             public_key = private_key.public_key()
-            fingerprint = self._public_key_fingerprint(public_key)
+            fingerprint = ed25519_public_key_fingerprint(public_key)
             with tempfile.TemporaryDirectory(
                 prefix="bundle-build-",
                 dir=self.temp_root,
@@ -710,7 +711,7 @@ class BundlePackageService:
                 key.verify(signature, manifest_bytes)
             except InvalidSignature:
                 continue
-            return self._public_key_fingerprint(key)
+            return ed25519_public_key_fingerprint(key)
         raise BundlePackageError(
             "bundle_signature_untrusted",
             "Подпись bundle не подтверждается настроенными trusted SOURCE keys",
@@ -1057,14 +1058,6 @@ class BundlePackageService:
                 )
             keys.append(key)
         return tuple(keys)
-
-    @staticmethod
-    def _public_key_fingerprint(key: Ed25519PublicKey) -> str:
-        raw = key.public_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw,
-        )
-        return "sha256:" + hashlib.sha256(raw).hexdigest()
 
     def _validate_private_key_file(self, path: Path) -> None:
         try:
