@@ -43,6 +43,12 @@ const routes: RouteRecordRaw[] = [
     meta: { roles: adminRoles },
   },
   {
+    path: '/keys',
+    name: 'keys',
+    component: () => import('@/views/KeyManagementView.vue'),
+    meta: { roles: adminRoles },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
