@@ -37,8 +37,20 @@ def _under(path: PurePosixPath, directory: str) -> bool:
     return bool(path.parts) and path.parts[0] == directory
 
 
+def _starts_with(path: PurePosixPath, *parts: str) -> bool:
+    return path.parts[: len(parts)] == parts
+
+
 def _is_deploy_markdown(path: PurePosixPath) -> bool:
     return len(path.parts) == 2 and path.parts[0] == "deploy" and path.suffix == ".md"
+
+
+def _is_protocol_adr(path: PurePosixPath) -> bool:
+    return (
+        len(path.parts) == 3
+        and path.parts[:2] == ("docs", "adr")
+        and path.name.startswith("ADR-009-")
+    )
 
 
 def _classify_path(path_text: str) -> tuple[set[str], bool]:
@@ -53,14 +65,14 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
         areas.add("frontend")
 
     if (
-        path.match("backend/app/domain/*")
+        _starts_with(path, "backend", "app", "domain")
         or path_text in {
             "backend/tests/test_bundle_protocol.py",
             "backend/tests/test_bundle_schema.py",
             "docs/offline-bundle-v1.md",
         }
-        or path.match("docs/schema/*")
-        or path.match("docs/adr/ADR-009-*")
+        or _starts_with(path, "docs", "schema")
+        or _is_protocol_adr(path)
     ):
         areas.add("protocol")
 
@@ -73,7 +85,7 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
             "frontend/Dockerfile",
             "frontend/nginx.conf",
         }
-        or path.match("frontend/docker-entrypoint.d/*")
+        or _starts_with(path, "frontend", "docker-entrypoint.d")
         or _under(path, "deploy")
     ):
         areas.add("compose")
