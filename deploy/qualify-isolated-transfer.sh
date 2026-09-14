@@ -20,18 +20,41 @@ fail() {
 }
 
 cleanup() {
-  status=$?
+  original_status=$?
+  trap - EXIT HUP INT TERM
   set +e
   HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" HTP_TRANSFER_DIR="$SOURCE_OUT" \
-    docker compose -p "$SOURCE_PROJECT" -f "$COMPOSE" --profile source down --remove-orphans --volumes >/dev/null 2>&1
+    docker compose -p "$SOURCE_PROJECT" -f "$COMPOSE" --profile source \
+    down --remove-orphans --volumes >/dev/null 2>&1
+  source_cleanup_status=$?
   HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" HTP_TRANSFER_DIR="$PHYSICAL" \
-    docker compose -p "$TARGET_PROJECT" -f "$COMPOSE" --profile target down --remove-orphans --volumes >/dev/null 2>&1
+    docker compose -p "$TARGET_PROJECT" -f "$COMPOSE" --profile target \
+    down --remove-orphans --volumes >/dev/null 2>&1
+  target_cleanup_status=$?
   docker image rm -f "$ACCEPTANCE_IMAGE" >/dev/null 2>&1
+  image_cleanup_status=$?
   rm -rf "$TMP"
-  trap - EXIT HUP INT TERM
-  exit "$status"
+  temp_cleanup_status=$?
+  set -e
+
+  if [ "$original_status" -ne 0 ]; then
+    exit "$original_status"
+  fi
+  for cleanup_status in \
+    "$source_cleanup_status" \
+    "$target_cleanup_status" \
+    "$image_cleanup_status" \
+    "$temp_cleanup_status"; do
+    if [ "$cleanup_status" -ne 0 ]; then
+      exit "$cleanup_status"
+    fi
+  done
+  exit 0
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 command -v docker >/dev/null 2>&1 || fail 'docker is required'
 docker info >/dev/null 2>&1 || fail 'Docker Engine is unavailable'
@@ -47,7 +70,8 @@ HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" HT
   docker compose -p "$SOURCE_PROJECT" -f "$COMPOSE" --profile source \
   up --abort-on-container-exit --exit-code-from source-runner source-runner
 HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" HTP_TRANSFER_DIR="$SOURCE_OUT" \
-  docker compose -p "$SOURCE_PROJECT" -f "$COMPOSE" --profile source down --remove-orphans --volumes
+  docker compose -p "$SOURCE_PROJECT" -f "$COMPOSE" --profile source \
+  down --remove-orphans --volumes
 
 if docker ps -a --format '{{.Names}}' | grep -F "$SOURCE_PROJECT" >/dev/null; then
   fail 'SOURCE project still has containers after physical-transfer boundary'
@@ -61,19 +85,33 @@ archive_base=$(basename "$archive")
 [ -f "$SOURCE_OUT/$archive_base.sha256" ] || fail 'SOURCE did not produce bundle sidecar'
 [ -f "$SOURCE_OUT/source-public.pem" ] || fail 'SOURCE did not produce public trust material'
 
-# This copy is the only bridge between contour phases. No SOURCE registry/container survives it.
-cp "$SOURCE_OUT/$archive_base" "$PHYSICAL/$archive_base"
-cp "$SOURCE_OUT/$archive_base.sha256" "$PHYSICAL/$archive_base.sha256"
-cp "$SOURCE_OUT/source-public.pem" "$PHYSICAL/source-public.pem"
+# Publication files keep their production ownership/mode. The physical transport
+# is a no-network copier that can read UID 10001-owned 0440 files without changing
+# SOURCE permissions. Only copied media is made readable by the TARGET runtime.
+docker run --rm \
+  --network none \
+  --user 0 \
+  --entrypoint /bin/sh \
+  -e HTP_BUNDLE_NAME="$archive_base" \
+  -v "$SOURCE_OUT:/source:ro" \
+  -v "$PHYSICAL:/physical" \
+  "$ACCEPTANCE_IMAGE" \
+  -c 'set -eu
+      cp "/source/$HTP_BUNDLE_NAME" "/physical/$HTP_BUNDLE_NAME"
+      cp "/source/$HTP_BUNDLE_NAME.sha256" "/physical/$HTP_BUNDLE_NAME.sha256"
+      cp /source/source-public.pem /physical/source-public.pem
+      chmod 0444 "/physical/$HTP_BUNDLE_NAME" "/physical/$HTP_BUNDLE_NAME.sha256" /physical/source-public.pem'
 
 physical_count=$(find "$PHYSICAL" -maxdepth 1 -type f | wc -l | tr -d ' ')
-[ "$physical_count" = 3 ] || fail 'physical transfer contains files outside bundle/sidecar/public trust material'
+[ "$physical_count" = 3 ] \
+  || fail 'physical transfer contains files outside bundle/sidecar/public trust material'
 
 printf 'TARGET phase: SOURCE is gone; importing only physically copied material...\n'
 HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" HTP_TRANSFER_DIR="$PHYSICAL" \
   docker compose -p "$TARGET_PROJECT" -f "$COMPOSE" --profile target \
   up --abort-on-container-exit --exit-code-from target-runner target-runner
 HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" HTP_TRANSFER_DIR="$PHYSICAL" \
-  docker compose -p "$TARGET_PROJECT" -f "$COMPOSE" --profile target down --remove-orphans --volumes
+  docker compose -p "$TARGET_PROJECT" -f "$COMPOSE" --profile target \
+  down --remove-orphans --volumes
 
 printf 'Isolated SOURCE -> physical bundle -> TARGET acceptance passed.\n'
