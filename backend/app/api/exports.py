@@ -10,7 +10,7 @@ from app.auth.security import (
     decode_export_download_token,
 )
 from app.db.models import User, UserRole
-from app.db.repositories import UserRepository
+from app.db.repositories import AuditEventRepository, UserRepository
 from app.domain.bundle import OperationStatus, OperationType
 from app.schemas.exports import (
     ExportBundleResponse,
@@ -203,6 +203,7 @@ async def start_export(
     payload: ExportSelectionRequest,
     actor: ExportActorDep,
     orchestrator: ExportOrchestratorDep,
+    session: SessionDep,
 ) -> ExportStartResponse:
     try:
         result = await orchestrator.start_export(
@@ -213,6 +214,16 @@ async def start_export(
         )
     except ExportOrchestrationError as exc:
         raise _export_error(exc) from exc
+    AuditEventRepository(session).create(
+        actor=actor,
+        event_type="export.created",
+        metadata={
+            "operation_id": result.operation_id,
+            "delivery_id": result.delivery_id,
+            "artifact_count": len(payload.artifacts),
+        },
+    )
+    session.commit()
     return ExportStartResponse(
         operation_id=result.operation_id,
         delivery_id=result.delivery_id,
