@@ -260,6 +260,7 @@ onMounted(() => history.load(true))
               <dl class="metadata-grid">
                 <div><dt>Результат</dt><dd>{{ history.receipt.result }}</dd></div>
                 <div><dt>Actor</dt><dd>{{ history.receipt.actor_username }}</dd></div>
+                <div><dt>SOURCE delivery</dt><dd>{{ history.receipt.source_delivery_id }}</dd></div>
                 <div><dt>Bundle SHA-256</dt><dd :title="history.receipt.bundle_sha256">{{ shortDigest(history.receipt.bundle_sha256) }}</dd></div>
                 <div><dt>Завершение</dt><dd>{{ formatDate(history.receipt.finished_at) }}</dd></div>
               </dl>
