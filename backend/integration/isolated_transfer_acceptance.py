@@ -45,6 +45,7 @@ from app.services.helm_oci_service import (
     HelmOciService,
     HelmTargetState,
 )
+from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_orchestrator import ImportOrchestrationError, ImportOrchestrator
 from app.services.operation_manager import OperationManager
 from app.services.report_service import iter_operation_csv
@@ -290,8 +291,14 @@ def environment(settings: Settings):  # type: ignore[no-untyped-def]
 
 
 def helm_factory(settings: Settings):  # type: ignore[no-untyped-def]
+    service_type = (
+        ImportHelmOciService
+        if settings.portal_contour is PortalContour.TARGET
+        else HelmOciService
+    )
+
     def factory(session):  # type: ignore[no-untyped-def]
-        return HelmOciService(
+        return service_type(
             session,
             settings,
             digest_resolver=lambda chart: registry_manifest_digest(
