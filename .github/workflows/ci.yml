@@ -234,6 +234,18 @@ jobs:
       - name: Compose smoke test
         run: make smoke-compose
 
+  offline-install:
+    name: Offline release — clean-host install qualification
+    needs: scope
+    if: needs.scope.outputs.compose == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Проверить установку offline kit на чистом runtime boundary
+        run: sh deploy/qualify-clean-offline-install.sh
+
   docs:
     name: Documentation — local links
     needs: scope
@@ -254,7 +266,7 @@ jobs:
   quality-gate:
     name: quality-gate
     if: always()
-    needs: [scope, backend, frontend, protocol, security, integration, compose, docs]
+    needs: [scope, backend, frontend, protocol, security, integration, compose, offline-install, docs]
     runs-on: ubuntu-24.04
     steps:
       - name: Проверить результаты обязательных jobs
@@ -267,6 +279,7 @@ jobs:
           SECURITY_RESULT: ${{ needs.security.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
           COMPOSE_RESULT: ${{ needs.compose.result }}
+          OFFLINE_INSTALL_RESULT: ${{ needs.offline-install.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
         run: |
           set -euo pipefail
@@ -279,6 +292,7 @@ jobs:
             "${SECURITY_RESULT}" \
             "${INTEGRATION_RESULT}" \
             "${COMPOSE_RESULT}" \
+            "${OFFLINE_INSTALL_RESULT}" \
             "${DOCS_RESULT}"; do
             case "${result}" in
               success|skipped)
