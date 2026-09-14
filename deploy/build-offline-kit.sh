@@ -57,12 +57,14 @@ printf 'Saving %s...\n' "$FRONTEND_IMAGE"
 docker save -o "$STAGE/images/frontend.tar" "$FRONTEND_IMAGE"
 
 cp "$ROOT/deploy/offline/compose.yaml" "$STAGE/compose.yaml"
-cp "$ROOT/deploy/offline/install.sh" "$STAGE/install.sh"
-chmod 0755 "$STAGE/install.sh"
+for script in install.sh backup.sh upgrade.sh uninstall.sh; do
+  cp "$ROOT/deploy/offline/$script" "$STAGE/$script"
+  chmod 0755 "$STAGE/$script"
+done
 cp "$ROOT/deploy/offline/README.md" "$STAGE/README.md"
 cp "$ROOT/.env.example" "$STAGE/.env.example"
 
-for doc in admin-guide.md troubleshooting.md key-management.md; do
+for doc in admin-guide.md troubleshooting.md key-management.md offline-lifecycle.md; do
   if [ -f "$ROOT/docs/$doc" ]; then
     cp "$ROOT/docs/$doc" "$STAGE/docs/$doc"
   fi

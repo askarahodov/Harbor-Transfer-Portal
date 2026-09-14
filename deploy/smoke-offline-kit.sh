@@ -89,12 +89,18 @@ for required in \
   .env.example \
   compose.yaml \
   install.sh \
+  backup.sh \
+  upgrade.sh \
+  uninstall.sh \
   release-version.txt \
   release-arch.txt \
   release-manifest.json \
   images/backend.tar \
   images/frontend.tar; do
   [ -f "$KIT/$required" ] || fail "missing release payload file: $required"
+done
+for executable in install.sh backup.sh upgrade.sh uninstall.sh; do
+  [ -x "$KIT/$executable" ] || fail "release script is not executable: $executable"
 done
 [ ! -e "$KIT/.env" ] || fail 'release payload must not contain .env'
 if grep -Eq '^[[:space:]]+build:' "$KIT/compose.yaml"; then
@@ -171,4 +177,5 @@ if (
 fi
 [ ! -s "$FAKE_LOG" ] || fail 'tampered payload reached Docker before checksum rejection'
 
+sh "$ROOT/deploy/smoke-offline-lifecycle.sh"
 printf 'Offline release kit smoke passed.\n'
