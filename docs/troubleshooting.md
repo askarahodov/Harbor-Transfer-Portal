@@ -1,10 +1,10 @@
 # Troubleshooting Harbor Transfer Portal
 
-**Статус:** актуальное руководство по диагностике текущих v1 primitives и Compose runtime.
+**Статус:** актуальное руководство по диагностике текущих v1 primitives, SOURCE/TARGET transfer flow и Compose runtime.
 
 Формат каждого раздела: **симптом → вероятная причина → диагностика → безопасное решение → эскалация**.
 
-Этот документ не заменяет [security.md](security.md) и [admin-guide.md](admin-guide.md). Он также не выдаёт незавершённые #17/#19 export/import UI flows за готовые: где пользовательский end-to-end flow ещё не реализован, это указано явно.
+Этот документ не заменяет [security.md](security.md) и [admin-guide.md](admin-guide.md). SOURCE export и TARGET import orchestration/UI уже реализованы; финальная isolated cross-contour release acceptance и offline install qualification остаются задачей #28.
 
 ## 1. Базовый диагностический порядок
 
@@ -103,15 +103,13 @@ Credential валиден, но учётной записи недостаточ
 
 Сверьте scope service account:
 
-- SOURCE: read/pull разрешённых проектов/artifacts;
-- TARGET: read + push/write разрешённых target repositories;
+- SOURCE: read/pull разрешённых проектов/artifacts для browse/export;
+- TARGET: read + push/write разрешённых target repositories для preview/import;
 - не используйте глобального Harbor Administrator как автоматическое «исправление».
 
 ### Безопасное решение
 
-Выдайте минимально необходимые project/repository permissions согласно политике площадки.
-
-Точная финальная RBAC matrix feature-specific export/import повторно проверяется вместе с #17/#19; не расширяйте права шире необходимого только ради прохождения одного запроса.
+Выдайте минимально необходимые project/repository permissions согласно политике площадки и повторите штатный SOURCE/TARGET flow. Не расширяйте права шире необходимого только ради прохождения одного запроса.
 
 ### Когда эскалировать
 
@@ -373,7 +371,7 @@ bundle_signature_untrusted
 
 ### Диагностика
 
-На TARGET проверьте trust directory:
+На TARGET откройте admin **Settings → Signing и trust keys** и проверьте список trusted SOURCE fingerprints и их active/disabled state. Filesystem source of truth остаётся:
 
 ```text
 BUNDLE_TRUSTED_PUBLIC_KEYS_DIR=./data/keys/trusted-source
@@ -383,7 +381,8 @@ BUNDLE_TRUSTED_PUBLIC_KEYS_DIR=./data/keys/trusted-source
 
 ### Безопасное решение
 
-- при корректной ротации установите правильный SOURCE **public** key на TARGET;
+- при корректной ротации добавьте правильный SOURCE **public** key через admin Settings и выдержите overlap со старым ключом;
+- disabled key не участвует в verifier trust set;
 - private key на TARGET не переносится;
 - если происхождение bundle не подтверждено — отклоните его.
 
@@ -453,10 +452,12 @@ BUNDLE_MAX_EXTRACTED_BYTES
 
 ### Безопасное решение
 
-- освободите место согласно retention/backup policy;
+- освободите место по документированной backup/cleanup процедуре;
 - увеличьте storage capacity;
 - при необходимости уменьшите concurrency;
 - пересмотрите limits только после capacity/security оценки.
+
+Автоматическая retention/auto-delete policy не считается реализованной, пока для неё нет отдельного tested lifecycle.
 
 ### Когда эскалировать
 
@@ -464,63 +465,99 @@ BUNDLE_MAX_EXTRACTED_BYTES
 
 ## 13. Incoming bundle без `.sha256`
 
-### Статус случая
+### Текущее поведение
 
-**Feature-specific filesystem incoming discovery #19 ещё не завершён.** Текущий `main` не следует описывать как уже имеющий автоматический watcher, который полностью реализует этот сценарий.
+TARGET incoming discovery реализован. `POST /api/imports/discover` сканирует только `*.htp.tar.gz` непосредственно в `IMPORT_DISCOVERY_ROOT` и claim-ит archive только при наличии обычного соседнего `<bundle>.sha256`.
 
-### Безопасное правило уже сейчас
+Archive без sidecar **игнорируется** и не создаёт import operation. Это защищает от обработки ещё копируемого или не полностью доставленного bundle.
 
-Bundle на TARGET не считать готовым к автоматизированной обработке, пока рядом нет финального `.sha256` sidecar. Sidecar публикуется/copy last и служит readiness marker + whole-file integrity metadata.
+### Диагностика
 
-### Что делать
+Для transfer-media flow:
 
-Если есть archive без sidecar:
+1. скопируйте в configured incoming directory готовую пару archive + `.sha256`;
+2. откройте `/import`;
+3. нажмите **«Обнаружить готовые пакеты»**;
+4. проверьте, что появилась новая import operation.
 
-- не запускать import как «почти готовый»;
-- дождаться/повторить копирование пары файлов;
-- не генерировать TARGET-side sidecar как замену SOURCE readiness marker.
-
-После реализации #19 этот раздел должен быть дополнен конкретным UI/API watcher status/error code.
-
-## 14. Artifact conflict на TARGET
-
-### Статус случая
-
-Skopeo/Helm primitives уже различают `same_digest` и `conflicting_digest`; Helm push также защищён `helm_target_exists`. **Полный user-facing conflict preview/policy относится к #19.**
-
-### Симптом
-
-TARGET reference/version существует, но содержит другой artifact digest.
+Если operation не появилась, убедитесь, что имена пары совпадают и оба объекта являются обычными файлами в корне discovery directory.
 
 ### Безопасное решение
 
-Default policy v1: не выполнять silent overwrite. Не ретегировать/переименовывать artifact автоматически как скрытый workaround.
+Если есть archive без sidecar:
 
-До завершения #19 решение о conflict должно оставаться явным и не превращать service primitive в несанкционированный overwrite flow.
+- не пытайтесь запускать его как «почти готовый» bundle;
+- дождитесь/повторите копирование пары файлов с SOURCE/носителя;
+- не генерируйте TARGET-side sidecar как замену SOURCE readiness marker;
+- после появления корректной пары повторите **«Обнаружить готовые пакеты»**.
+
+## 14. Artifact conflict на TARGET
+
+### Симптом
+
+Verified preview показывает `CONFLICT`: TARGET reference/version уже существует, но содержит другой digest.
+
+### Текущее поведение
+
+Preview классифицирует artifacts как `NEW`, `SAME`, `CONFLICT`, `UNKNOWN` или `ERROR`.
+
+Default policy:
+
+- `NEW` → import;
+- `SAME` → `SKIPPED` без повторной mutation;
+- `CONFLICT` → execute заблокирован;
+- `UNKNOWN/ERROR` → execute заблокирован fail-closed.
+
+Overwrite возможен только когда одновременно:
+
+1. admin включил server-side `IMPORT_ALLOW_OVERWRITE`/runtime policy;
+2. operator/admin явно подтвердил conflict overwrite в TARGET wizard.
+
+### Диагностика
+
+В preview сравните exact SOURCE expectation и текущий TARGET digest для каждого conflicting artifact. Проверьте, не менялся ли target repository независимо от Portal между preview и execute.
+
+### Безопасное решение
+
+Не включайте overwrite только ради «зелёного» статуса. Сначала выясните происхождение другого TARGET digest. Если overwrite действительно разрешён организационной политикой, включите его административно и используйте отдельное подтверждаемое действие **«Импортировать с подтверждённым overwrite»** только для осознанного сценария.
+
+`UNKNOWN` и `ERROR` overwrite не обходят и должны оставаться блокирующими.
 
 ### Когда эскалировать
 
-Если конфликт не ожидается, сверить SOURCE manifest selection и текущий TARGET digest. Это может быть независимое изменение target repository.
+Если preview классифицирует известный одинаковый digest как `CONFLICT` либо меняет classification без изменения TARGET, это correctness defect conflict inspection.
 
 ## 15. Post-import digest mismatch
 
-### Статус случая
+### Симптом
 
-Skopeo primitive уже выполняет независимую TARGET digest verification и возвращает:
+Container path может вернуть:
 
 ```text
 skopeo_digest_mismatch
 ```
 
-Full TARGET import orchestration/UI ещё завершается в #19.
+а import operation завершится `FAILED`; per-artifact outcome и receipt/history сохраняют безопасный результат ошибки.
 
 ### Вероятная причина
 
-Observed TARGET digest после push не совпал с expected manifest/source digest.
+Observed TARGET digest после push не совпал с expected manifest/source digest либо TARGET artifact нельзя подтвердить после mutation.
+
+### Диагностика
+
+Откройте `/history` или текущий import wizard и проверьте:
+
+- operation id/status;
+- artifact reference;
+- expected/source digest;
+- observed TARGET digest, если он безопасно доступен;
+- safe error code.
+
+TARGET import orchestration выполняет независимую post-import verification; успешный subprocess exit code сам по себе не делает operation успешной.
 
 ### Безопасное решение
 
-Не помечать artifact/operation успешными. Не заменять expected digest observed значением и не скрывать mismatch как warning.
+Не помечайте artifact/operation успешными вручную. Не заменяйте expected digest observed значением и не скрывайте mismatch как warning. Зафиксируйте receipt/history и расследуйте состояние TARGET Harbor.
 
 ### Когда эскалировать
 
@@ -545,7 +582,7 @@ Baseline v1 не возобновляет середину Skopeo/Helm subproces
 
 ### Диагностика
 
-Проверьте persisted operation через:
+Проверьте persisted operation через History/UI или:
 
 ```text
 GET /api/operations/{id}
@@ -555,7 +592,7 @@ GET /api/operations/{id}
 
 ### Безопасное решение
 
-Не редактируйте status в SQLite вручную. После устранения причины повторите feature-specific operation штатным API/UI, когда соответствующий flow поддерживает replay.
+Не редактируйте status в SQLite вручную. Сначала оцените persisted terminal state и per-artifact outcomes, затем повторите SOURCE export или TARGET intake/import штатным UI/API, если требуется новая операция. Для `READY` import operation используйте сохранённый preview/workspace, если он остаётся валиден.
 
 ### Когда эскалировать
 
@@ -685,9 +722,13 @@ docker compose logs --tail=300 backend
 
 ## 22. Связанные документы
 
+- [User Guide](user-guide.md)
 - [Admin Guide](admin-guide.md)
 - [Security/trust model](security.md)
 - [Deployment/runtime Compose](../deploy/README.md)
+- [Import orchestration](import-orchestration.md)
+- [Export orchestration](export-orchestration.md)
+- [Key management](key-management.md)
 - [OperationManager](operation-manager.md)
 - [Skopeo service](skopeo-service.md)
 - [Helm OCI service](helm-oci-service.md)
@@ -695,4 +736,4 @@ docker compose logs --tail=300 backend
 - [Offline Bundle Protocol v1](offline-bundle-v1.md)
 - [Architecture](architecture.md)
 
-При появлении стабильных #17/#19 user-facing error codes этот документ должен обновляться вместе с implementation PR, а planned sections — переводиться в фактические UI/API инструкции.
+Стабильный user-facing error code или изменение SOURCE/TARGET workflow должно обновлять этот документ в той же implementation итерации.

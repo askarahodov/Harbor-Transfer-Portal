@@ -76,7 +76,7 @@ Frontend хранит token только в `sessionStorage` активной br
 - `401` очищает token/session без автоматического retry тем же token;
 - `403` означает отказ в конкретном действии и не очищает session;
 - viewer остаётся read-only;
-- `/export` и `/import` разрешаются `operator|admin` на уровне route UX, `/settings` — `admin`, но backend authorization обязателен независимо от UI.
+- `/export` и `/import` разрешаются `operator|admin` на уровне route UX, `/settings` и `/users` — `admin`, но backend authorization обязателен независимо от UI.
 
 ### Browser security consequence
 
@@ -230,13 +230,16 @@ Checksum отвечает на вопрос:
 BUNDLE_SIGNING_PRIVATE_KEY_FILE=./data/keys/source-signing-private.pem
 ```
 
-Требования реализации:
+Штатный admin workflow позволяет установить/ротировать Ed25519 private key через browser. Требования реализации:
 
-- regular PEM Ed25519 PKCS#8;
-- restrictive permissions, штатно `0600`;
+- принимается bounded key material (`BUNDLE_KEY_MATERIAL_MAX_BYTES`);
+- private key проверяется как Ed25519 до замены;
+- normal form — PEM PKCS#8;
+- file replacement атомарный, restrictive permissions штатно `0600`;
 - private key существует только на SOURCE;
 - private key не включается в bundle;
-- key material не выводится verifier result/API/log.
+- API/UI после submission возвращает только configured status/fingerprint и никогда не экспортирует key material;
+- audit фиксирует install/rotate без PEM.
 
 ### TARGET trust set
 
@@ -246,19 +249,24 @@ TARGET хранит доверенные SOURCE public keys в:
 BUNDLE_TRUSTED_PUBLIC_KEYS_DIR=./data/keys/trusted-source
 ```
 
-Допускается несколько public keys для controlled rotation. Verifier возвращает fingerprint совпавшего public key, но не key secret material.
+Admin UI/API позволяет list/add/replace/enable/disable/remove только валидные Ed25519 **public** keys по стабильному `sha256:` fingerprint. Private/malformed/oversized input отклоняется, filesystem filename создаётся server-side, а user-controlled path не принимается.
+
+Enabled keys представлены active `*.pem` и потребляются тем же `BundlePackageService.verify_bundle()` path. Disabled key исключён из active trust set, поэтому его состояние реально влияет на verification. Verifier возвращает fingerprint совпавшего public key, но не key material.
 
 ### Rotation v1
 
 Рекомендуемая последовательность:
 
 1. создать новую SOURCE key pair;
-2. заранее добавить новый public key на TARGET, сохранив старый trusted;
+2. заранее добавить новый public key на TARGET, сохранив старый enabled;
 3. переключить SOURCE на новый private key;
 4. выдержать окно доставки старых bundle;
-5. после завершения окна удалить старый public key из TARGET trust set.
+5. disable старый TARGET key и подтвердить ожидаемый migration state;
+6. после завершения окна удалить старый public key из TARGET trust set.
 
-Private key не переносится вместе с delivery.
+Так old/new SOURCE deliveries могут сосуществовать во время controlled overlap. Private key не переносится вместе с delivery.
+
+Подробности: [key-management.md](key-management.md).
 
 ## 12. Безопасная проверка archive
 
@@ -286,7 +294,7 @@ Extraction разрешается только после успешных verif
 
 ## 13. Resource exhaustion / decompression limits
 
-Bundle verifier применяет server-side upper bounds:
+Bundle verifier/key-management применяют server-side upper bounds:
 
 - `BUNDLE_MAX_ARCHIVE_BYTES`;
 - `BUNDLE_MAX_EXTRACTED_BYTES`;
@@ -294,9 +302,10 @@ Bundle verifier применяет server-side upper bounds:
 - `BUNDLE_MAX_PATH_BYTES`;
 - `BUNDLE_MAX_METADATA_BYTES`;
 - `BUNDLE_MAX_COMPRESSION_RATIO`;
-- `BUNDLE_MAX_TRUSTED_KEYS`.
+- `BUNDLE_MAX_TRUSTED_KEYS`;
+- `BUNDLE_KEY_MATERIAL_MAX_BYTES`.
 
-Лимиты являются security/capacity control. Их увеличение должно быть административным решением по ёмкости и риску, а не способом «пропустить» malformed bundle.
+Поддерживаемые transfer limits управляются через bounded admin policy API/UI; часть bootstrap/default values по-прежнему задаётся deployment configuration. Лимиты являются security/capacity control. Их увеличение должно быть административным решением по ёмкости и риску, а не способом «пропустить» malformed bundle.
 
 Skopeo/Helm дополнительно ограничивают execution timeout и retained stdout/stderr.
 
@@ -313,20 +322,26 @@ Skopeo/Helm дополнительно ограничивают execution timeou
 7. signed descriptor checksum/size metadata;
 8. только после этого разрешается controlled extraction и последующая import orchestration.
 
-Registry mutation не должна происходить до завершения package verification.
+Registry mutation не происходит до завершения package verification. Перед execute import orchestration дополнительно повторно проверяет exact bundle identity и target state для защиты от TOCTOU.
 
-Точный контракт: [offline-bundle-v1.md](offline-bundle-v1.md) и [package-service.md](package-service.md).
+Точный контракт: [offline-bundle-v1.md](offline-bundle-v1.md), [package-service.md](package-service.md) и [import-orchestration.md](import-orchestration.md).
 
 ## 15. Conflict и overwrite policy
 
-Безопасный baseline v1:
+Безопасный baseline v1 реализован следующим образом:
 
-- target artifact отсутствует → можно импортировать;
-- target reference уже содержит тот же expected digest → идемпотентный `SKIPPED` допустим согласно policy;
-- тот же tag/version указывает на другой digest → `CONFLICT`;
-- конфликт не перезаписывается автоматически.
+- target artifact отсутствует → `NEW`, можно импортировать;
+- target reference уже содержит тот же expected digest → `SAME`, идемпотентный `SKIPPED`;
+- тот же tag/version указывает на другой digest → `CONFLICT`, execute заблокирован по умолчанию;
+- `UNKNOWN`/`ERROR` → mutation блокируется fail-closed.
 
-Любой overwrite, если он будет разрешён продуктовой политикой, должен быть явным действием авторизованной роли и иметь audit trail. Наличие технической возможности push не означает разрешение перезаписи на уровне policy.
+Conflict overwrite возможен только если одновременно:
+
+1. admin явно разрешил server-side `IMPORT_ALLOW_OVERWRITE`/runtime policy;
+2. operator/admin выбрал explicit overwrite execute;
+3. UI отдельно подтвердил перечисленные conflicting artifacts.
+
+Включение global policy само по себе не запускает overwrite. `UNKNOWN/ERROR` этой policy не обходятся. Overwrite approval и operation context сохраняются для audit/receipt/history.
 
 ## 16. Secrets и redaction
 
@@ -341,7 +356,7 @@ Registry mutation не должна происходить до завершен
 
 Service errors не должны возвращать raw upstream stderr/body, если там потенциально могут находиться credential или sensitive internal metadata.
 
-Skopeo/Helm command runners имеют bounded output и redaction sets. Harbor connection errors/settings API также должны возвращать sanitized error model.
+Skopeo/Helm command runners имеют bounded output и redaction sets. Harbor connection errors/settings API также возвращают sanitized error model. Audit/report fixtures защищены secret-leak regression tests.
 
 ## 17. Persistent data и backup security
 
@@ -354,11 +369,11 @@ SQLite backup не является полным backup security state.
 - SOURCE signing private key;
 - TARGET trusted public keys;
 - receipts/history/report metadata;
-- incoming/outgoing packages согласно retention policy.
+- incoming/outgoing packages согласно организационной retention policy.
 
 Backup/restore должен сохранять необходимые trust/secret files с их permissions и не складывать секреты в публичный release archive.
 
-Полная operational procedure будет закреплена в [admin guide task #60](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/60) и offline release task #28.
+Current Compose procedure закреплена в [admin-guide.md](admin-guide.md). Финальная clean-VM/offline release и restore/rollback qualification остаётся задачей #28.
 
 ## 18. Offline/network security
 
@@ -382,17 +397,25 @@ Health/readiness endpoints предназначены для эксплуата�
 
 Contour identity (`SOURCE|TARGET`) не является секретом: она нужна UI и оператору, чтобы не перепутать контур.
 
-## 20. Audit, structured logging и reports
+## 20. Audit, structured logging, history и reports
 
-Требования v1:
+Persisted audit/history/report workstream реализован и не зависит от парсинга raw container logs как product state.
 
-- security/admin actions должны быть attributable к actor;
-- operation/delivery id должны использоваться для correlation;
+Security properties:
+
+- security/admin actions attributable к actor/system actor;
+- request/operation/delivery context используется для correlation;
 - passwords/tokens/Harbor credentials/private keys не должны попадать в logs/audit/report;
-- UI не должен парсить log text как источник operation status;
-- overwrite approval, когда существует, должен иметь actor context.
+- UI читает persisted operation/history state, а не log text;
+- overwrite approval сохраняется с actor context;
+- History предоставляет read-only operation/artifact result projection по role policy;
+- terminal operations имеют CSV/PDF reports из persisted state;
+- TARGET import сохраняет canonical receipt отдельно от rendered report;
+- report paths/filenames генерируются server-side;
+- CSV защищается от formula injection для опасных leading values;
+- PDF runtime не должен обращаться к internet/CDN за fonts/assets.
 
-Полный audit/history/structured logging workstream ещё развивается в #21, reports/receipts — в #25. До их завершения нельзя заявлять, что production audit/report quality gate полностью закрыт.
+Финальная offline/release qualification этих возможностей остаётся частью #28, но application audit/history/report capabilities уже реализованы.
 
 ## 21. Реализовано и ещё требуется
 
@@ -406,10 +429,12 @@ Contour identity (`SOURCE|TARGET`) не является секретом: он�
 | Helm argv/password-stdin/workspace/TLS/package validation boundary | реализовано |
 | Bundle canonical manifest/signature/checksum verification | реализовано |
 | Safe archive path/type/resource validation | реализовано |
-| Bundle key trust/rotation primitive | реализовано на filesystem/config level |
-| Full import conflict/overwrite authorization UX | в разработке |
-| Full audit/log correlation UI/API | в разработке (#21) |
-| Reports secret-leak regression and final receipt UX | в разработке (#25) |
+| Managed SOURCE signing / TARGET trust-key lifecycle | реализовано |
+| TARGET conflict/overwrite authorization UX | реализовано, default deny + explicit confirmation |
+| Audit/log correlation + History API/UI | реализовано |
+| CSV/PDF reports + TARGET receipt UX | реализовано |
+| Admin user/policy/key management | реализовано |
+| Automatic product retention/cleanup | не реализовано; требуется отдельный tested lifecycle при необходимости |
 | Final offline install/release hardening | запланировано в #28 |
 
 ## 22. Known v1 limitations / non-goals
@@ -417,7 +442,8 @@ Contour identity (`SOURCE|TARGET`) не является секретом: он�
 - Портал не защищает от администратора/host operator, который имеет полный root-доступ к backend persistent volume и key/secret files. Это deployment trust boundary.
 - Физическая защита USB/HDD и организационный процесс допуска носителя находятся вне приложения; приложение проверяет цифровое содержимое после поступления.
 - `sessionStorage` bearer token остаётся доступен JavaScript при успешной XSS-атаке активной вкладки.
-- Полный audit/report/release security gate ещё не завершён до закрытия соответствующих v1 задач.
+- Автоматическая retention/cleanup не реализована и не должна подразумеваться существующими policy settings.
+- Финальный offline-install/clean-VM/cross-contour release security acceptance ещё не выполнен до #28.
 - Портал не создаёт сетевой DLP/antivirus pipeline для произвольных файлов: Bundle Protocol разрешает только ожидаемую структуру и типы payload.
 - Отключение TLS verification не является исправлением PKI; это явное исключение с ухудшением защиты.
 
@@ -438,8 +464,14 @@ Contour identity (`SOURCE|TARGET`) не является секретом: он�
 ## 24. Связанные документы
 
 - [Архитектура](architecture.md)
+- [User Guide](user-guide.md)
+- [Admin Guide](admin-guide.md)
+- [Troubleshooting](troubleshooting.md)
 - [Offline Bundle Protocol v1](offline-bundle-v1.md)
 - [Package service](package-service.md)
+- [Import orchestration](import-orchestration.md)
+- [Key management](key-management.md)
+- [Transfer policies](transfer-policies.md)
 - [Skopeo service](skopeo-service.md)
 - [Helm OCI service](helm-oci-service.md)
 - [ADR-004: auth/session](adr/ADR-004-auth-session.md)
