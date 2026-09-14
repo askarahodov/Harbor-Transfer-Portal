@@ -19,9 +19,25 @@ describe('runtime store', () => {
     const store = useRuntimeStore()
 
     expect(store.contour).toBe('SOURCE')
+    expect(store.version).toBeNull()
   })
 
-  it('loads the authoritative contour from backend health', async () => {
+  it('loads authoritative contour and release version from backend health', async () => {
+    vi.spyOn(apiClient, 'get').mockResolvedValue({
+      data: { contour: 'TARGET', version: '1.0.0' },
+    } as unknown as AxiosResponse<{ contour: 'TARGET'; version: string }>)
+    setActivePinia(createPinia())
+
+    const store = useRuntimeStore()
+    await store.loadRuntime()
+
+    expect(apiClient.get).toHaveBeenCalledWith('/health')
+    expect(store.contour).toBe('TARGET')
+    expect(store.version).toBe('1.0.0')
+    expect(store.errorCode).toBeNull()
+  })
+
+  it('rejects health payload without a release version', async () => {
     vi.spyOn(apiClient, 'get').mockResolvedValue({
       data: { contour: 'TARGET' },
     } as unknown as AxiosResponse<{ contour: 'TARGET' }>)
@@ -30,9 +46,9 @@ describe('runtime store', () => {
     const store = useRuntimeStore()
     await store.loadRuntime()
 
-    expect(apiClient.get).toHaveBeenCalledWith('/health')
-    expect(store.contour).toBe('TARGET')
-    expect(store.errorCode).toBeNull()
+    expect(store.contour).toBeNull()
+    expect(store.version).toBeNull()
+    expect(store.errorCode).toBe('runtime_config_unavailable')
   })
 
   it('keeps injected contour if backend is temporarily unavailable', async () => {
@@ -44,6 +60,7 @@ describe('runtime store', () => {
     await store.loadRuntime()
 
     expect(store.contour).toBe('SOURCE')
+    expect(store.version).toBeNull()
     expect(store.errorCode).toBeNull()
   })
 })
