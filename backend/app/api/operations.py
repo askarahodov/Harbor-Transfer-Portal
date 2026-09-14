@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
 from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.db.models import Operation, UserRole
@@ -17,6 +19,7 @@ from app.schemas.operations import (
     OperationSummaryResponse,
 )
 from app.services.operation_manager import OperationManager, OperationManagerError
+from app.services.report_service import build_operation_pdf, iter_operation_csv, report_filename
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 
@@ -123,6 +126,21 @@ def _serialize_operation(operation: Operation) -> OperationResponse:
     )
 
 
+def _report_operation(session: SessionDep, operation_id: int) -> Operation:
+    operation = OperationRepository(session).get(operation_id)
+    if operation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="operation not found")
+    if operation.status not in TERMINAL_STATES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "operation_report_not_ready",
+                "message": "Report is available only after the operation reaches a terminal state",
+            },
+        )
+    return operation
+
+
 @router.get("", response_model=OperationListResponse)
 def list_operations(
     _user: CurrentUserDep,
@@ -171,6 +189,45 @@ def get_operation(
     if operation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="operation not found")
     return _serialize_operation(operation)
+
+
+@router.get("/{operation_id}/report.csv")
+def download_operation_csv(
+    operation_id: int,
+    _user: CurrentUserDep,
+    session: SessionDep,
+) -> StreamingResponse:
+    operation = _report_operation(session, operation_id)
+    filename = report_filename(operation_id, "csv")
+    return StreamingResponse(
+        iter_operation_csv(operation),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/{operation_id}/report.pdf")
+def download_operation_pdf(
+    operation_id: int,
+    request: Request,
+    _user: CurrentUserDep,
+    session: SessionDep,
+) -> StreamingResponse:
+    operation = _report_operation(session, operation_id)
+    stream = build_operation_pdf(operation, request.app.state.settings.portal_contour)
+    filename = report_filename(operation_id, "pdf")
+    return StreamingResponse(
+        stream,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+        background=BackgroundTask(stream.close),
+    )
 
 
 @router.post("/{operation_id}/cancel", response_model=OperationResponse)
