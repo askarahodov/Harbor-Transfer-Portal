@@ -64,7 +64,7 @@ done
 cp "$ROOT/deploy/offline/README.md" "$STAGE/README.md"
 cp "$ROOT/.env.example" "$STAGE/.env.example"
 
-for doc in admin-guide.md troubleshooting.md key-management.md; do
+for doc in admin-guide.md troubleshooting.md key-management.md offline-lifecycle.md; do
   if [ -f "$ROOT/docs/$doc" ]; then
     cp "$ROOT/docs/$doc" "$STAGE/docs/$doc"
   fi
