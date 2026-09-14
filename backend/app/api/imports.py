@@ -2,8 +2,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.auth.dependencies import require_roles
+from app.auth.dependencies import SessionDep, require_roles
 from app.db.models import User, UserRole
+from app.db.repositories import AuditEventRepository
 from app.domain.bundle import OperationStatus, OperationType
 from app.schemas.imports import (
     ImportDiscoveryResponse,
@@ -105,6 +106,43 @@ def _content_length(request: Request) -> int | None:
     return value
 
 
+def _audit_import_start(
+    session: SessionDep,
+    actor: User,
+    orchestrator: ImportOrchestrator,
+    operation_id: int,
+    *,
+    overwrite_conflicts: bool,
+) -> None:
+    operation = orchestrator.operation_manager.get_operation(operation_id)
+    metadata: dict[str, object] = {
+        "operation_id": operation_id,
+        "overwrite_conflicts": overwrite_conflicts,
+    }
+    if operation is not None and operation.source_delivery_id:
+        metadata["source_delivery_id"] = operation.source_delivery_id
+
+    repository = AuditEventRepository(session)
+    repository.create(
+        actor=actor,
+        event_type="import.started",
+        result="started",
+        metadata=metadata,
+    )
+    if overwrite_conflicts:
+        repository.create(
+            actor=actor,
+            event_type="import.overwrite.approved",
+            result="approved",
+            metadata={
+                key: value
+                for key, value in metadata.items()
+                if key != "overwrite_conflicts"
+            },
+        )
+    session.commit()
+
+
 @router.post(
     "/upload",
     response_model=ImportIntakeResponse,
@@ -182,6 +220,7 @@ async def execute_import(
     payload: ImportExecuteRequest,
     actor: ImportActorDep,
     orchestrator: ImportOrchestratorDep,
+    session: SessionDep,
 ) -> ImportStartResponse:
     _authorize_operation(orchestrator, operation_id, actor)
     try:
@@ -192,6 +231,13 @@ async def execute_import(
         )
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc
+    _audit_import_start(
+        session,
+        actor,
+        orchestrator,
+        operation_id,
+        overwrite_conflicts=payload.overwrite_conflicts,
+    )
     return ImportStartResponse(
         operation_id=operation_id,
         status=OperationStatus.IMPORTING,
