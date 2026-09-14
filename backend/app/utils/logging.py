@@ -28,10 +28,10 @@ _JWT_PATTERN = re.compile(
     r"(?![A-Za-z0-9_-])"
 )
 _SECRET_ASSIGNMENT_PATTERN = re.compile(
-    r"(?i)((?:^|[\s,{;])[\"']?[A-Za-z0-9_.-]*"
+    r"(?i)((?:^|[\s,{;(\[])[\"']?[A-Za-z0-9_.-]*"
     r"(?:password|passwd|token|secret|jwt|authorization|private[_-]?key)"
     r"[A-Za-z0-9_.-]*[\"']?\s*[:=]\s*)"
-    r"(?:\"[^\"]*\"|'[^']*'|[^\s,;}]+)"
+    r"(?:\"[^\"]*\"|'[^']*'|[^\s,;}\)\]\"']+)"
 )
 _MAX_LOGGED_PATH_LENGTH = 512
 _APPLICATION_HANDLER_MARKER = "_htp_application_handler"
