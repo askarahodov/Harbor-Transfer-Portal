@@ -48,6 +48,14 @@ make test-ci-scope
 
 Команда запускает stdlib-only regression suite `tools.test_ci_scope`. Тот же classifier `tools/ci_scope.py` используется job `Определение области изменений`, поэтому policy не дублируется между тестами и workflow.
 
+### Dependency locks
+
+```bash
+make dependency-locks-check
+```
+
+Команда запускает stdlib-only regression tests для lock checker и затем проверяет committed lockfiles через `tools/check_dependency_locks.py`. Тот же invariant запускается внутри CI `scope` job до вычисления областей, поэтому рассинхронизация dependency metadata делает весь `quality-gate` красным независимо от path selection.
+
 ### Documentation
 
 ```bash
@@ -239,7 +247,8 @@ SOURCE export orchestration и TARGET import orchestration уже реализо
 | Compose/Docker/Nginx/deploy runtime | Compose config/build/smoke |
 | Обычная docs-only правка | docs-check + quality-gate; тяжёлые code/E2E jobs skipped |
 | `deploy/*.md` | docs-check + Compose smoke согласно current path policy |
-| Workflow `.github/workflows/ci.yml` | scope-regression + все уже реализованные areas |
+| Workflow `.github/workflows/ci.yml` | scope-regression + lock invariants + все уже реализованные areas |
+| Dependency metadata/lockfiles | lock invariants + соответствующий backend/frontend gate |
 | Scope helper/tests | scope-regression всегда внутри `scope` job |
 | Release/install | полный required suite + E2E |
 
@@ -314,7 +323,7 @@ Workflow `.github/workflows/ci.yml` отвечает только за полу�
 
 ### Workflow self-test
 
-Изменение `.github/workflows/ci.yml` включает все реально существующие applicable areas. Перед classification scope job всегда выполняет `python3 -m unittest tools.test_ci_scope`, поэтому изменение workflow или classifier не может обойти regression policy молча.
+Изменение `.github/workflows/ci.yml` включает все реально существующие applicable areas. Перед classification scope job всегда выполняются regression `tools.test_ci_scope` и dependency-lock invariant, эквивалентный `make dependency-locks-check`; поэтому изменение workflow/classifier не может обойти test-selection или lock policy молча.
 
 После classification helper повторно проверяет наличие component markers (`backend/pyproject.toml`, `frontend/package.json`, protocol test, security regression marker, Compose smoke script, docs checker) и не создаёт job для компонента, которого нет в проверяемой ревизии.
 
@@ -338,7 +347,7 @@ Missing local target или path escape возвращает non-zero и дел�
 - `success` для запущенного обязательного job;
 - `skipped` для области, которая корректно признана незатронутой.
 
-Любой другой результат делает gate красным. Падение самого `scope` job, включая его regression suite, также красит `quality-gate`.
+Любой другой результат делает gate красным. Падение самого `scope` job, включая его regression suite или dependency-lock invariant, также красит `quality-gate`.
 
 ## 8. Merge gate / branch protection
 
@@ -352,36 +361,86 @@ Missing local target или path escape возвращает non-zero и дел�
 
 ## 9. Dependency reproducibility
 
+Dependency intent остаётся человекочитаемым в `backend/pyproject.toml` и `frontend/package.json`, а resolved graphs фиксируются отдельными committed lockfiles.
+
 ### Frontend
 
-`frontend/package.json` существует, но `package-lock.json` в текущем `main` отсутствует. CI использует переходный режим:
+`frontend/package-lock.json` обязателен и использует npm lockfile v3 с exact resolved versions/integrity metadata. CI и frontend Docker build выполняют только:
 
-- `npm ci` при наличии lockfile;
-- иначе `npm install` с явным warning.
+```bash
+npm ci --no-audit --no-fund
+```
 
-Для release/offline reproducibility lockfile должен стать обязательным.
+Fallback на `npm install` отсутствует: missing/stale lock должен ломать build/CI, а не незаметно разрешать новый graph.
+
+Обновлять frontend lock нужно только намеренно после изменения `package.json`:
+
+```bash
+cd frontend
+npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+cd ..
+make dependency-locks-check
+```
 
 ### Backend
 
-Python dependencies в `backend/pyproject.toml` используют compatible version ranges. Финальная release/offline стратегия требует воспроизводимого constraints/lock approach.
+`backend/pyproject.toml` остаётся source of intent с compatible ranges. Для воспроизводимого resolution committed два generated lock-файла:
 
-Поэтому dependency reproducibility work #26 ещё не считается завершённым только на основании рабочего CI baseline.
+- `backend/requirements-runtime.lock` — runtime graph для backend image;
+- `backend/requirements-dev.lock` — runtime + dev/test graph для CI.
 
-### CI-scope и documentation helpers
+Оба содержат exact `name==version` pins, включая `hatchling`, потому что локальный package собирается с `--no-build-isolation`.
 
-`tools/ci_scope.py`, `tools/test_ci_scope.py`, documentation checker и его tests используют только Python stdlib. Scope/documentation gates не создают дополнительную supply-chain dependency.
+CI устанавливает dev graph так:
+
+```bash
+python -m pip install -r backend/requirements-dev.lock
+python -m pip install --no-deps --no-build-isolation ./backend
+```
+
+Backend Docker image аналогично устанавливает `requirements-runtime.lock`, затем локальный package с `--no-deps --no-build-isolation`.
+
+Lock refresh выполняется в чистых Python 3.12 virtual environments после изменения `pyproject.toml`; runtime и dev locks генерируются в одной итерации, чтобы общие pins не расходились:
+
+```bash
+python3.12 -m venv .lock-runtime
+.lock-runtime/bin/python -m pip install hatchling
+.lock-runtime/bin/python -m pip install -e ./backend
+.lock-runtime/bin/python -m pip freeze --exclude-editable | LC_ALL=C sort > backend/requirements-runtime.lock
+
+python3.12 -m venv .lock-dev
+.lock-dev/bin/python -m pip install hatchling
+.lock-dev/bin/python -m pip install -e './backend[dev]'
+.lock-dev/bin/python -m pip freeze --exclude-editable | LC_ALL=C sort > backend/requirements-dev.lock
+
+make dependency-locks-check
+```
+
+В CI resolver не используется для выбора версий: network нужен для получения уже зафиксированных artifacts, а не для изменения dependency graph. Для полностью air-gapped runtime release #28 должен поставлять уже собранные images и не выполнять package resolution в закрытом контуре.
+
+### Lock invariant
+
+`tools/check_dependency_locks.py` и `tools/test_dependency_locks.py` используют только Python stdlib и проверяют до запуска scoped jobs:
+
+- npm lockfile v3 и совпадение root `name/version/dependencies/devDependencies` с `package.json`;
+- exact version + integrity metadata для registry entries;
+- наличие всех top-level runtime/dev Python dependencies;
+- pinned `hatchling` для `--no-build-isolation`;
+- отсутствие local backend package в lock;
+- одинаковые pins общих runtime packages в runtime/dev locks.
 
 ## 10. Текущее состояние CI
 
 | Job/capability | Статус |
 |---|---|
 | Scope detection | реализовано; classifier regression-tested |
+| Dependency lock invariant | реализовано; выполняется до scope classification |
 | Documentation local-link gate | реализовано |
-| Backend Ruff + unit/API | реализовано |
-| Frontend lint/type/unit/build | реализовано |
+| Backend Ruff + unit/API | реализовано; dependency graph locked |
+| Frontend lint/type/unit/build | реализовано; `npm ci` only |
 | Bundle Protocol contract regression | реализовано |
 | Targeted security regression | реализовано |
-| Compose build/smoke | реализовано |
+| Compose build/smoke | реализовано; Docker builds используют committed locks |
 | Final `quality-gate` | реализовано |
 | Skopeo/Helm disposable-registry integration | ещё требуется |
 | Full SOURCE→TARGET dual-contour E2E | требуется в #28 |
@@ -415,7 +474,7 @@ PR scope определяется от merge base, поэтому уже merged 
 
 ### Изменён `.github/workflows/ci.yml`
 
-Сначала запускается regression suite classifier, затем включаются все уже реализованные areas, включая security, чтобы проверить сам механизм test selection.
+Сначала запускаются regression suite classifier и dependency-lock invariant, затем включаются все уже реализованные areas, включая security, чтобы проверить сам механизм test selection.
 
 ## 12. Правило root cause
 
@@ -453,6 +512,8 @@ PR scope определяется от merge base, поэтому уже merged 
 - `.github/workflows/ci.yml`
 - `tools/ci_scope.py`
 - `tools/test_ci_scope.py`
+- `tools/check_dependency_locks.py`
+- `tools/test_dependency_locks.py`
 - `tools/check_doc_links.py`
 
 ## 14. Remaining quality work
@@ -460,8 +521,6 @@ PR scope определяется от merge base, поэтому уже merged 
 Следующие расширения не считаются реализованными только потому, что упомянуты здесь:
 
 - backend static type gate;
-- reproducible Python dependency lock/constraints;
-- frontend lockfile;
 - optional Markdown anchor validation, если будет оправдано;
 - Skopeo/Helm local-registry integration;
 - additional export/import integration where mocks are insufficient;

@@ -33,6 +33,13 @@ jobs:
       - name: Проверить regression scoped CI
         run: python3 -m unittest tools.test_ci_scope
 
+      - name: Проверить dependency lock invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest tools.test_dependency_locks
+          python3 tools/check_dependency_locks.py
+
       - name: Определить затронутые области
         id: scope
         shell: bash
@@ -72,8 +79,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Установить backend dependencies
-        run: python -m pip install -e './backend[dev]'
+      - name: Установить locked backend dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -r backend/requirements-dev.lock
+          python -m pip install --no-deps --no-build-isolation ./backend
 
       - name: Ruff
         run: make lint-backend
@@ -95,17 +106,9 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Установить frontend dependencies
+      - name: Установить locked frontend dependencies
         working-directory: frontend
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -f package-lock.json ]]; then
-            npm ci --no-audit --no-fund
-          else
-            echo 'package-lock.json пока отсутствует; используется переходный npm install.' >&2
-            npm install --no-audit --no-fund
-          fi
+        run: npm ci --no-audit --no-fund
 
       - name: ESLint
         working-directory: frontend
@@ -137,8 +140,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Установить backend dependencies
-        run: python -m pip install -e './backend[dev]'
+      - name: Установить locked backend dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -r backend/requirements-dev.lock
+          python -m pip install --no-deps --no-build-isolation ./backend
 
       - name: Проверить Bundle Protocol v1
         working-directory: backend
@@ -158,8 +165,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Установить backend dependencies
-        run: python -m pip install -e './backend[dev]'
+      - name: Установить locked backend dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -r backend/requirements-dev.lock
+          python -m pip install --no-deps --no-build-isolation ./backend
 
       - name: Проверить security-sensitive behavior
         working-directory: backend

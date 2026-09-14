@@ -1,12 +1,8 @@
 FROM node:22.23.2-alpine3.24 AS build
 
 WORKDIR /app
-COPY frontend/package*.json ./
-RUN if [ -f package-lock.json ]; then \
-        npm ci --no-audit --no-fund; \
-    else \
-        npm install --no-audit --no-fund; \
-    fi
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
