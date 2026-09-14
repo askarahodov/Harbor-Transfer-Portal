@@ -45,6 +45,10 @@ def _public_pem(key: Ed25519PrivateKey) -> str:
     ).decode("utf-8")
 
 
+def _trusted_payload(key: Ed25519PrivateKey) -> dict[str, object]:
+    return {"pem": _public_pem(key), "confirm": True}
+
+
 def _build_app(tmp_path: Path, contour: PortalContour):
     root = tmp_path / contour.value.lower()
     database_url = f"sqlite:///{root / 'portal.db'}"
@@ -146,7 +150,7 @@ def test_key_settings_and_mutations_are_admin_only(tmp_path: Path) -> None:
         for role in ("operator", "viewer"):
             denied = client.post(
                 "/api/settings/keys/trusted",
-                json={"pem": _public_pem(Ed25519PrivateKey.generate())},
+                json=_trusted_payload(Ed25519PrivateKey.generate()),
                 headers=_auth(tokens[role]),
             )
             assert denied.status_code == 403
@@ -257,7 +261,7 @@ def test_wrong_key_types_and_size_bounds_are_rejected_without_replacement(tmp_pa
         admin = _login(target, "admin")
         private_as_public = target.post(
             "/api/settings/keys/trusted",
-            json={"pem": _private_pem(valid_key)},
+            json={"pem": _private_pem(valid_key), "confirm": True},
             headers=_auth(admin),
         )
         assert private_as_public.status_code == 422
@@ -304,7 +308,7 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
         for key in (old_key, new_key):
             added = target.post(
                 "/api/settings/keys/trusted",
-                json={"pem": _public_pem(key)},
+                json=_trusted_payload(key),
                 headers=headers,
             )
             assert added.status_code == 201
@@ -332,7 +336,7 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
 
         disabled = target.patch(
             f"/api/settings/keys/trusted/{old_fingerprint}",
-            json={"enabled": False},
+            json={"enabled": False, "confirm": True},
             headers=headers,
         )
         assert disabled.status_code == 200
@@ -351,7 +355,7 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
 
         enabled = target.patch(
             f"/api/settings/keys/trusted/{old_fingerprint}",
-            json={"enabled": True},
+            json={"enabled": True, "confirm": True},
             headers=headers,
         )
         assert enabled.status_code == 200
@@ -362,6 +366,7 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
 
         removed = target.delete(
             f"/api/settings/keys/trusted/{old_fingerprint}",
+            params={"confirm": True},
             headers=headers,
         )
         assert removed.status_code == 200
@@ -412,7 +417,7 @@ def test_target_managed_actions_canonicalize_legacy_filename(tmp_path: Path) -> 
 
         disabled = client.patch(
             f"/api/settings/keys/trusted/{fingerprint}",
-            json={"enabled": False},
+            json={"enabled": False, "confirm": True},
             headers=headers,
         )
         assert disabled.status_code == 200
