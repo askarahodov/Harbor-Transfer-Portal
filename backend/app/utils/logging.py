@@ -30,6 +30,7 @@ _SECRET_ASSIGNMENT_PATTERN = re.compile(
 )
 _OPERATION_TASK_PREFIX = "operation-"
 _MAX_LOGGED_PATH_LENGTH = 512
+_APPLICATION_HANDLER_MARKER = "_htp_application_handler"
 
 _request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
 _operation_id: ContextVar[int | None] = ContextVar("operation_id", default=None)
@@ -133,10 +134,16 @@ class JsonLogFormatter(logging.Formatter):
 def configure_application_logging(*, level: str, json_output: bool) -> None:
     app_logger = logging.getLogger("app")
     app_logger.setLevel(level)
-    app_logger.handlers.clear()
-    app_logger.propagate = False
+
+    # Replace only the handler owned by this application. External handlers
+    # (pytest caplog, observability agents, embedding applications) must remain intact.
+    for existing in list(app_logger.handlers):
+        if getattr(existing, _APPLICATION_HANDLER_MARKER, False):
+            app_logger.removeHandler(existing)
+            existing.close()
 
     handler = logging.StreamHandler()
+    setattr(handler, _APPLICATION_HANDLER_MARKER, True)
     handler.addFilter(CorrelationFilter())
     if json_output:
         handler.setFormatter(JsonLogFormatter())
@@ -148,6 +155,11 @@ def configure_application_logging(*, level: str, json_output: bool) -> None:
             )
         )
     app_logger.addHandler(handler)
+
+    # Keep normal logging propagation semantics so test/host/root handlers can
+    # observe application records. The dedicated application handler remains the
+    # source of the portal's formatted stdout/stderr stream.
+    app_logger.propagate = True
 
 
 class RequestCorrelationMiddleware:
