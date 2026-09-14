@@ -9,7 +9,7 @@ from app.services.bundle_package_service import (
     BundlePackageService,
     BundleVerificationResult,
 )
-from app.services.import_orchestrator import ImportOrchestrator
+from app.services.import_orchestrator import ImportIntakeResult, ImportOrchestrator
 from app.services.operation_manager import OperationTaskFailure
 
 
@@ -49,6 +49,27 @@ class ImportPreviewProjectionOrchestrator(ImportOrchestrator):
             return cast(BundlePackageService, service)
 
         self.package_factory = capturing_factory
+
+    async def discover_ready(
+        self,
+        *,
+        actor_user_id: int,
+        actor_username: str,
+    ) -> tuple[ImportIntakeResult, ...]:
+        # Incoming media is intentionally allowed to be larger than the browser upload
+        # limit. The base orchestrator historically shared one limit for both paths;
+        # use the bundle archive limit for discovery while keeping browser upload bounded.
+        runtime_settings = self.settings
+        self.settings = runtime_settings.model_copy(
+            update={"import_max_upload_bytes": runtime_settings.bundle_max_archive_bytes}
+        )
+        try:
+            return await super().discover_ready(
+                actor_user_id=actor_user_id,
+                actor_username=actor_username,
+            )
+        finally:
+            self.settings = runtime_settings
 
     def _capture_verified_preview(self, result: BundleVerificationResult) -> None:
         self._verified_preview = result
