@@ -4,6 +4,8 @@ from pathlib import Path
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app import __version__
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 JWT_SECRET_PLACEHOLDER = "replace-with-random-high-entropy-secret"
 _ALLOWED_LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
@@ -35,7 +37,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Harbor Transfer Portal"
-    app_version: str = "0.1.0"
+    app_version: str = __version__
     portal_contour: PortalContour = PortalContour.SOURCE
     database_url: str = "sqlite:///./data/harbor-transfer-portal.db"
     log_level: str = "INFO"
