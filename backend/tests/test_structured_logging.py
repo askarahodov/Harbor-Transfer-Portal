@@ -119,7 +119,7 @@ def test_redaction_removes_bearer_env_secrets_bare_jwt_and_private_key() -> None
         "password=hunter2 token=opaque-token "
         "HARBOR_PASSWORD=harbor-secret JWT_SECRET='jwt-secret' "
         "PRIVATE_KEY=inline-secret "
-        f"raw_jwt={bare_jwt} key={private_key}"
+        f"payload {bare_jwt} key={private_key}"
     )
     jsonish = redact_log_text(
         '{"password":"json secret with spaces","token":"json-token"}'
