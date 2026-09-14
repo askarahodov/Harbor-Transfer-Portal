@@ -13,6 +13,18 @@ type HarborSettings = {
   custom_ca_configured: boolean
 }
 
+type TransferSettings = {
+  import_allow_overwrite: boolean
+  import_max_upload_bytes: number
+  bundle_max_archive_bytes: number
+  bundle_max_extracted_bytes: number
+  bundle_max_member_count: number
+  operation_disk_reserve_bytes: number
+  operation_max_concurrent: number
+  effective_operation_max_concurrent: number
+  restart_required_fields: string[]
+}
+
 type ConnectionTest = {
   ok: boolean
   code: string
@@ -20,13 +32,23 @@ type ConnectionTest = {
   version: string | null
 }
 
+const MIB = 1024 ** 2
 const settings = ref<HarborSettings | null>(null)
+const transferSettings = ref<TransferSettings | null>(null)
 const url = ref('')
 const username = ref('')
 const verifyTls = ref(true)
 const credential = ref('')
+const allowOverwrite = ref(false)
+const uploadMiB = ref(0)
+const archiveMiB = ref(0)
+const extractedMiB = ref(0)
+const memberCount = ref(0)
+const diskReserveMiB = ref(0)
+const maxConcurrent = ref(0)
 const loading = ref(true)
 const saving = ref(false)
+const transferSaving = ref(false)
 const rotating = ref(false)
 const testing = ref(false)
 const caBusy = ref(false)
@@ -48,14 +70,29 @@ function applySettings(value: HarborSettings): void {
   verifyTls.value = value.verify_tls
 }
 
+function applyTransferSettings(value: TransferSettings): void {
+  transferSettings.value = value
+  allowOverwrite.value = value.import_allow_overwrite
+  uploadMiB.value = value.import_max_upload_bytes / MIB
+  archiveMiB.value = value.bundle_max_archive_bytes / MIB
+  extractedMiB.value = value.bundle_max_extracted_bytes / MIB
+  memberCount.value = value.bundle_max_member_count
+  diskReserveMiB.value = value.operation_disk_reserve_bytes / MIB
+  maxConcurrent.value = value.operation_max_concurrent
+}
+
 async function loadSettings(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const response = await apiClient.get<HarborSettings>('/settings/harbor')
-    applySettings(response.data)
+    const [harbor, transfer] = await Promise.all([
+      apiClient.get<HarborSettings>('/settings/harbor'),
+      apiClient.get<TransferSettings>('/settings/transfer'),
+    ])
+    applySettings(harbor.data)
+    applyTransferSettings(transfer.data)
   } catch (reason) {
-    error.value = safeError('Не удалось загрузить настройки локального Harbor.', reason)
+    error.value = safeError('Не удалось загрузить настройки.', reason)
   } finally {
     loading.value = false
   }
@@ -77,6 +114,31 @@ async function saveSettings(): Promise<void> {
     error.value = safeError('Не удалось сохранить настройки Harbor.', reason)
   } finally {
     saving.value = false
+  }
+}
+
+async function saveTransferSettings(): Promise<void> {
+  transferSaving.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    const response = await apiClient.patch<TransferSettings>('/settings/transfer', {
+      import_allow_overwrite: allowOverwrite.value,
+      import_max_upload_bytes: Math.round(uploadMiB.value * MIB),
+      bundle_max_archive_bytes: Math.round(archiveMiB.value * MIB),
+      bundle_max_extracted_bytes: Math.round(extractedMiB.value * MIB),
+      bundle_max_member_count: memberCount.value,
+      operation_disk_reserve_bytes: Math.round(diskReserveMiB.value * MIB),
+      operation_max_concurrent: maxConcurrent.value,
+    })
+    applyTransferSettings(response.data)
+    message.value = response.data.restart_required_fields.length
+      ? 'Политики сохранены. Изменение параллелизма вступит в силу после перезапуска backend.'
+      : 'Политики переноса сохранены и применены.'
+  } catch (reason) {
+    error.value = safeError('Не удалось сохранить политики переноса.', reason)
+  } finally {
+    transferSaving.value = false
   }
 }
 
@@ -160,14 +222,14 @@ onMounted(loadSettings)
   <section class="settings" aria-labelledby="settings-title">
     <header class="settings__header">
       <div>
-        <h1 id="settings-title">Настройки локального Harbor</h1>
-        <p>Эта установка знает только Harbor своего изолированного контура.</p>
+        <h1 id="settings-title">Настройки</h1>
+        <p>Локальный Harbor и безопасные политики переноса этого изолированного контура.</p>
       </div>
       <strong class="contour" aria-label="Текущий контур">{{ settings?.contour ?? '—' }}</strong>
     </header>
 
     <p v-if="loading">Загрузка настроек…</p>
-    <div v-else-if="settings" class="settings__grid">
+    <div v-else-if="settings && transferSettings" class="settings__grid">
       <form class="card" @submit.prevent="saveSettings">
         <h2>Подключение</h2>
         <label for="harbor-url">URL локального Harbor</label>
@@ -217,6 +279,59 @@ onMounted(loadSettings)
           Удалить managed CA
         </button>
       </section>
+
+      <form class="card card--wide transfer-form" @submit.prevent="saveTransferSettings">
+        <div>
+          <h2>Политики переноса</h2>
+          <p class="status">Изменения валидируются backend и записываются в audit.</p>
+        </div>
+
+        <label class="checkbox-row" for="transfer-overwrite">
+          <input id="transfer-overwrite" v-model="allowOverwrite" type="checkbox" />
+          Разрешить явный overwrite конфликтов на TARGET
+        </label>
+        <p v-if="allowOverwrite" class="warning" role="alert">
+          Overwrite остаётся отдельным подтверждаемым действием оператора; эта настройка только разрешает его server-side.
+        </p>
+
+        <div class="policy-grid">
+          <label for="transfer-upload-mib">
+            Browser upload, MiB
+            <input id="transfer-upload-mib" v-model.number="uploadMiB" type="number" min="1" step="1" />
+          </label>
+          <label for="transfer-archive-mib">
+            Максимальный Bundle archive, MiB
+            <input id="transfer-archive-mib" v-model.number="archiveMiB" type="number" min="1" step="1" />
+          </label>
+          <label for="transfer-extracted-mib">
+            Максимум после распаковки, MiB
+            <input id="transfer-extracted-mib" v-model.number="extractedMiB" type="number" min="1" step="1" />
+          </label>
+          <label for="transfer-members">
+            Максимум archive members
+            <input id="transfer-members" v-model.number="memberCount" type="number" min="4" max="1000000" step="1" />
+          </label>
+          <label for="transfer-disk-reserve-mib">
+            Обязательный disk reserve, MiB
+            <input id="transfer-disk-reserve-mib" v-model.number="diskReserveMiB" type="number" min="0" step="1" />
+          </label>
+          <label for="transfer-concurrency">
+            Параллельные операции
+            <input id="transfer-concurrency" v-model.number="maxConcurrent" type="number" min="1" max="32" step="1" />
+          </label>
+        </div>
+
+        <p class="status">
+          Активный параллелизм: {{ transferSettings.effective_operation_max_concurrent }}.
+          Изменение этого поля применяется после restart backend; остальные показанные policy values — runtime-effective.
+        </p>
+        <p v-if="transferSettings.restart_required_fields.length" class="warning" role="alert">
+          Требуется restart backend для: {{ transferSettings.restart_required_fields.join(', ') }}.
+        </p>
+        <button type="submit" :disabled="transferSaving">
+          {{ transferSaving ? 'Сохранение…' : 'Сохранить политики' }}
+        </button>
+      </form>
     </div>
 
     <p v-if="message" class="success" role="status">{{ message }}</p>
@@ -232,13 +347,15 @@ onMounted(loadSettings)
 .contour { border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
 .settings__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-5); align-items: start; }
 .card { display: grid; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--color-mist); border-radius: var(--radius-lg); background: white; }
+.card--wide { grid-column: 1 / -1; }
 .card h2 { margin: 0; }
-.card input[type='text'], .card input[type='url'], .card input[type='password'] { min-height: 42px; border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; }
+.card input[type='text'], .card input[type='url'], .card input[type='password'], .card input[type='number'] { min-height: 42px; border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; }
 .card button { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-bridge-blue); color: white; font: inherit; cursor: pointer; }
 .card button:disabled { opacity: .6; cursor: wait; }
 .card button.secondary { background: white; color: var(--color-deep-harbor); border: 1px solid var(--color-mist); }
 .checkbox-row { display: flex; gap: var(--space-2); align-items: center; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
 .status { margin: 0; color: var(--color-steel); }
 .warning { margin: 0; padding: var(--space-3); border: 1px solid #b45309; border-radius: var(--radius-md); }
 .success, .error { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); }
