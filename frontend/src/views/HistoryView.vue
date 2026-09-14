@@ -210,6 +210,21 @@ onMounted(() => history.load(true))
             <div><strong>{{ history.detail.error_code }}</strong><p>{{ history.detail.error_message ?? 'Операция завершилась с ошибкой.' }}</p></div>
           </div>
 
+          <article v-if="history.canDownloadSelectedReport" class="report-card">
+            <h3>Отчёты операции</h3>
+            <p>CSV и PDF строятся из persisted operation/artifact data и доступны для terminal state.</p>
+            <div class="download-actions">
+              <button class="button button--secondary" type="button" @click="history.downloadSelectedReport('csv')">
+                <Download :size="18" aria-hidden="true" /> Скачать CSV
+              </button>
+              <button class="button button--secondary" type="button" @click="history.downloadSelectedReport('pdf')">
+                <Download :size="18" aria-hidden="true" /> Скачать PDF
+              </button>
+            </div>
+          </article>
+
+          <p v-if="history.downloadError" class="safe-error" role="alert">{{ history.downloadError }}</p>
+
           <article v-if="history.detail.bundle" class="bundle-card">
             <h3>Bundle metadata</h3>
             <dl class="metadata-grid">
@@ -221,7 +236,6 @@ onMounted(() => history.load(true))
             <button v-if="history.canDownloadSelectedExport" class="button button--secondary" type="button" @click="history.downloadSelectedExport">
               <Download :size="18" aria-hidden="true" /> Скачать через авторизованный ticket
             </button>
-            <p v-if="history.downloadError" class="safe-error">{{ history.downloadError }}</p>
           </article>
 
           <div class="table-wrap">
@@ -242,12 +256,17 @@ onMounted(() => history.load(true))
           <article v-if="history.detail.type === 'IMPORT'" class="receipt-card">
             <h3>Import receipt</h3>
             <p v-if="history.receiptState === 'loading'">Загрузка receipt…</p>
-            <dl v-else-if="history.receipt" class="metadata-grid">
-              <div><dt>Результат</dt><dd>{{ history.receipt.result }}</dd></div>
-              <div><dt>Actor</dt><dd>{{ history.receipt.actor_username }}</dd></div>
-              <div><dt>Bundle SHA-256</dt><dd :title="history.receipt.bundle_sha256">{{ shortDigest(history.receipt.bundle_sha256) }}</dd></div>
-              <div><dt>Завершение</dt><dd>{{ formatDate(history.receipt.finished_at) }}</dd></div>
-            </dl>
+            <template v-else-if="history.receipt">
+              <dl class="metadata-grid">
+                <div><dt>Результат</dt><dd>{{ history.receipt.result }}</dd></div>
+                <div><dt>Actor</dt><dd>{{ history.receipt.actor_username }}</dd></div>
+                <div><dt>Bundle SHA-256</dt><dd :title="history.receipt.bundle_sha256">{{ shortDigest(history.receipt.bundle_sha256) }}</dd></div>
+                <div><dt>Завершение</dt><dd>{{ formatDate(history.receipt.finished_at) }}</dd></div>
+              </dl>
+              <button v-if="history.canDownloadSelectedReceipt" class="button button--secondary" type="button" @click="history.downloadSelectedReceipt">
+                <Download :size="18" aria-hidden="true" /> Скачать receipt JSON
+              </button>
+            </template>
             <p v-else-if="history.receiptState === 'unavailable'">Receipt недоступен текущей роли либо ещё не существует. История операции остаётся доступной.</p>
           </article>
         </template>
@@ -271,6 +290,7 @@ onMounted(() => history.load(true))
 .button:disabled { opacity: .5; cursor: not-allowed; }
 .button--primary { background: var(--color-bridge-blue); color: white; }
 .button--secondary { background: var(--color-surface); border-color: var(--color-border); color: var(--color-text); }
+.download-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
 table { width: 100%; border-collapse: collapse; background: var(--color-surface); }
 th, td { padding: 12px; border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: top; }
@@ -291,11 +311,11 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .drawer-header { display: flex; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
 .icon-button { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
 .metadata-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0 0 var(--space-4); }
-.metadata-grid div, .bundle-card, .receipt-card { padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.metadata-grid div, .bundle-card, .receipt-card, .report-card { padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .metadata-grid dt { color: var(--color-text-muted); font-size: 12px; }
 .metadata-grid dd { margin: 4px 0 0; overflow-wrap: anywhere; font-weight: 600; }
-.bundle-card, .receipt-card { margin-top: var(--space-4); margin-bottom: var(--space-4); }
-.bundle-card h3, .receipt-card h3 { margin-top: 0; }
+.bundle-card, .receipt-card, .report-card { margin-top: var(--space-4); margin-bottom: var(--space-4); }
+.bundle-card h3, .receipt-card h3, .report-card h3 { margin-top: 0; }
 @media (max-width: 1000px) { .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .filter-search, .filter-actions { grid-column: span 2; } }
 @media (max-width: 640px) { .page-header, .pagination { align-items: stretch; flex-direction: column; } .filters, .metadata-grid { grid-template-columns: 1fr; } .filter-search, .filter-actions { grid-column: auto; } .filter-actions { align-items: stretch; flex-direction: column; } }
 </style>
