@@ -21,11 +21,12 @@
 | `/export` | `ExportView.vue` | `admin`, `operator` | только `SOURCE` |
 | `/import` | `ImportView.vue` | `admin`, `operator` | только `TARGET` |
 | `/history` | `HistoryView.vue` | authenticated | оба |
+| `/users` | `UsersView.vue` | `admin` | оба |
 | `/settings` | `SettingsView.vue` | `admin` | оба |
 
 Role/contour restrictions реализованы не только визуально. Vue Router guard проверяет роль и runtime contour; backend отдельно применяет собственный RBAC/contour policy и остаётся authoritative security boundary.
 
-Sidebar также contour-aware: SOURCE operator/admin видит «Отправка», TARGET operator/admin — «Приём». Пока contour не определён, frontend не угадывает transfer route.
+Sidebar также contour-aware: SOURCE operator/admin видит «Отправка», TARGET operator/admin — «Приём». Admin в обоих контурах дополнительно видит «Пользователи» и может управлять локальными учётными записями через `/users`. Пока contour не определён, frontend не угадывает transfer route.
 
 ## Определение контура
 
@@ -183,7 +184,8 @@ frontend/src/
 ├── api/
 │   ├── client.ts
 │   ├── exports.ts
-│   └── imports.ts
+│   ├── imports.ts
+│   └── users.ts
 ├── components/
 ├── router/index.ts
 ├── stores/
@@ -195,6 +197,7 @@ frontend/src/
 └── views/
     ├── ExportView.vue
     ├── ImportView.vue
+    ├── UsersView.vue
     └── ...
 ```
 
@@ -202,6 +205,7 @@ frontend/src/
 
 - SOURCE export backend + wizard — реализованы и используют реальные APIs;
 - TARGET intake/preview/import backend + wizard — реализованы и используют реальные APIs;
+- admin user-management browser flow `/users` — реализован поверх admin-only `/api/users`;
 - обе стороны восстанавливают persistent operation после reload;
 - history/audit/report UX развивается отдельно;
 - полный cross-contour SOURCE → physical transfer → TARGET acceptance остаётся задачей финального E2E/release этапа.
