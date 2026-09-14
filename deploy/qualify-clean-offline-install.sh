@@ -9,6 +9,7 @@ ARCHIVE="$DIST/harbor-transfer-portal-v${VERSION}-offline-install.tar.gz"
 BACKEND_IMAGE="harbor-transfer-portal-backend:$VERSION"
 FRONTEND_IMAGE="harbor-transfer-portal-frontend:$VERSION"
 VOLUME_NAME=harbor-transfer-portal_portal-data
+NETWORK_NAME=harbor-transfer-portal_default
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -26,6 +27,7 @@ cleanup() {
     fi
   done
   docker volume rm -f "$VOLUME_NAME" >/dev/null 2>&1
+  docker network rm "$NETWORK_NAME" >/dev/null 2>&1
   docker image rm -f "$BACKEND_IMAGE" "$FRONTEND_IMAGE" >/dev/null 2>&1
   rm -rf "$TMP"
   trap - EXIT HUP INT TERM
@@ -51,6 +53,9 @@ esac
 assert_clean_runtime() {
   if docker volume inspect "$VOLUME_NAME" >/dev/null 2>&1; then
     fail "qualification volume already exists: $VOLUME_NAME"
+  fi
+  if docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
+    fail "qualification network already exists: $NETWORK_NAME"
   fi
   if docker ps -a --format '{{.Names}}' | grep -E '^harbor-transfer-portal-(backend|frontend)-1$' >/dev/null; then
     fail 'qualification containers already exist before install'
