@@ -1,14 +1,18 @@
-from fastapi import APIRouter, HTTPException, Request, status
+from datetime import datetime
+
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.db.models import Operation, UserRole
 from app.db.repositories import OperationRepository
-from app.domain.bundle import ArtifactStatus
+from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.schemas.operations import (
     OperationArtifactResponse,
     OperationBundleResponse,
+    OperationListResponse,
     OperationProgressResponse,
     OperationResponse,
+    OperationSummaryResponse,
 )
 from app.services.operation_manager import OperationManager, OperationManagerError
 
@@ -17,6 +21,42 @@ router = APIRouter(prefix="/operations", tags=["operations"])
 
 def _manager(request: Request) -> OperationManager:
     return request.app.state.operation_manager
+
+
+def _serialize_bundle(operation: Operation) -> OperationBundleResponse | None:
+    if (
+        operation.bundle_filename is None
+        or operation.bundle_sha256 is None
+        or operation.bundle_size_bytes is None
+    ):
+        return None
+    return OperationBundleResponse(
+        filename=operation.bundle_filename,
+        size_bytes=operation.bundle_size_bytes,
+        sha256=operation.bundle_sha256,
+    )
+
+
+def _serialize_summary(operation: Operation) -> OperationSummaryResponse:
+    return OperationSummaryResponse(
+        id=operation.id,
+        delivery_id=operation.delivery_id,
+        type=operation.type,
+        status=operation.status,
+        actor_username=operation.actor_username,
+        comment=operation.comment,
+        created_at=operation.created_at,
+        started_at=operation.started_at,
+        finished_at=operation.finished_at,
+        error_code=operation.error_code,
+        error_message=operation.error_message,
+        total_artifacts=operation.total_artifacts,
+        successful_artifacts=operation.successful_artifacts,
+        failed_artifacts=operation.failed_artifacts,
+        skipped_artifacts=operation.skipped_artifacts,
+        conflict_artifacts=operation.conflict_artifacts,
+        bundle=_serialize_bundle(operation),
+    )
 
 
 def _serialize_operation(operation: Operation) -> OperationResponse:
@@ -33,17 +73,6 @@ def _serialize_operation(operation: Operation) -> OperationResponse:
         }
         for artifact in artifacts
     )
-    bundle = None
-    if (
-        operation.bundle_filename is not None
-        and operation.bundle_sha256 is not None
-        and operation.bundle_size_bytes is not None
-    ):
-        bundle = OperationBundleResponse(
-            filename=operation.bundle_filename,
-            size_bytes=operation.bundle_size_bytes,
-            sha256=operation.bundle_sha256,
-        )
     return OperationResponse(
         id=operation.id,
         delivery_id=operation.delivery_id,
@@ -56,7 +85,7 @@ def _serialize_operation(operation: Operation) -> OperationResponse:
         error_code=operation.error_code,
         error_message=operation.error_message,
         cancel_requested=operation.cancel_requested_at is not None,
-        bundle=bundle,
+        bundle=_serialize_bundle(operation),
         progress=OperationProgressResponse(
             total_artifacts=operation.total_artifacts,
             completed_artifacts=completed,
@@ -89,6 +118,44 @@ def _serialize_operation(operation: Operation) -> OperationResponse:
             )
             for artifact in artifacts
         ],
+    )
+
+
+@router.get("", response_model=OperationListResponse)
+def list_operations(
+    _user: CurrentUserDep,
+    session: SessionDep,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    operation_type: OperationType | None = Query(default=None, alias="type"),
+    operation_status: OperationStatus | None = Query(default=None, alias="status"),
+    actor: str | None = Query(default=None, min_length=1, max_length=128),
+    delivery_id: str | None = Query(default=None, min_length=1, max_length=96),
+    search: str | None = Query(default=None, min_length=1, max_length=200),
+    created_from: datetime | None = Query(default=None),
+    created_to: datetime | None = Query(default=None),
+) -> OperationListResponse:
+    if created_from is not None and created_to is not None and created_from > created_to:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="created_from must be earlier than or equal to created_to",
+        )
+    items, total = OperationRepository(session).list_filtered(
+        limit=limit,
+        offset=offset,
+        operation_type=operation_type,
+        operation_status=operation_status,
+        actor_username=actor,
+        delivery_id=delivery_id,
+        search=search,
+        created_from=created_from,
+        created_to=created_to,
+    )
+    return OperationListResponse(
+        items=[_serialize_summary(operation) for operation in items],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
