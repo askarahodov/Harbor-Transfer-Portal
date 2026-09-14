@@ -22,6 +22,7 @@ type KeyManagement = {
   trusted_keys: TrustedKey[]
 }
 
+const MAX_KEY_FILE_BYTES = 16 * 1024
 const state = ref<KeyManagement | null>(null)
 const loading = ref(true)
 const busy = ref(false)
@@ -58,6 +59,10 @@ async function readFile(event: Event): Promise<string> {
   const file = input.files?.[0]
   if (!file) return ''
   try {
+    if (file.size > MAX_KEY_FILE_BYTES) {
+      error.value = 'Key file превышает допустимый размер 16 KiB.'
+      return ''
+    }
     return await file.text()
   } finally {
     input.value = ''
@@ -74,7 +79,10 @@ async function installSigningKey(): Promise<void> {
     return
   }
   const rotating = state.value?.signing?.configured === true
-  if (rotating && !window.confirm('Ротировать действующий SOURCE signing key?')) return
+  if (rotating && !window.confirm('Ротировать действующий SOURCE signing key?')) {
+    signingPrivatePem.value = ''
+    return
+  }
 
   busy.value = true
   error.value = ''
