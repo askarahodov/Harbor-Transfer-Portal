@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Match
 from uuid import uuid4
 
 from starlette.datastructures import Headers, MutableHeaders
@@ -25,10 +25,11 @@ _BEARER_PATTERN = re.compile(
     r"(?i)(\bbearer\s+)([A-Za-z0-9._~+/=-]+)",
 )
 _SECRET_ASSIGNMENT_PATTERN = re.compile(
-    r"(?i)(\b(?:password|passwd|token|secret|jwt|authorization)\b\s*[:=]\s*)"
-    r"([^\s,;]+)",
+    r"(?i)(\b(?:password|passwd|token|secret|jwt|authorization)\b[\"']?\s*[:=]\s*)"
+    r"([\"']?)([^\"'\s,;}]+)([\"']?)",
 )
 _OPERATION_TASK_PREFIX = "operation-"
+_MAX_LOGGED_PATH_LENGTH = 512
 
 _request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
 _operation_id: ContextVar[int | None] = ContextVar("operation_id", default=None)
@@ -77,10 +78,25 @@ def operation_log_context(operation_id: int) -> Iterator[None]:
         _operation_id.reset(token)
 
 
+def _redact_assignment(match: Match[str]) -> str:
+    opening_quote = match.group(2)
+    closing_quote = match.group(4)
+    if opening_quote and closing_quote == opening_quote:
+        return f"{match.group(1)}{opening_quote}[REDACTED]{closing_quote}"
+    return f"{match.group(1)}[REDACTED]"
+
+
 def redact_log_text(value: str) -> str:
     redacted = _PRIVATE_KEY_PATTERN.sub("[REDACTED_PRIVATE_KEY]", value)
     redacted = _BEARER_PATTERN.sub(r"\1[REDACTED]", redacted)
-    return _SECRET_ASSIGNMENT_PATTERN.sub(r"\1[REDACTED]", redacted)
+    return _SECRET_ASSIGNMENT_PATTERN.sub(_redact_assignment, redacted)
+
+
+def _bounded_path(scope: Scope) -> str:
+    path = str(scope.get("path", "-"))
+    if len(path) <= _MAX_LOGGED_PATH_LENGTH:
+        return path
+    return f"{path[: _MAX_LOGGED_PATH_LENGTH - 3]}..."
 
 
 class CorrelationFilter(logging.Filter):
@@ -149,10 +165,13 @@ class RequestCorrelationMiddleware:
         request_token = _request_id.set(request_id)
         started = time.monotonic()
         status_code = 500
+        response_started = False
+        path = _bounded_path(scope)
 
         async def send_with_request_id(message: Message) -> None:
-            nonlocal status_code
+            nonlocal response_started, status_code
             if message["type"] == "http.response.start":
+                response_started = True
                 status_code = int(message["status"])
                 response_headers = MutableHeaders(scope=message)
                 response_headers["X-Request-ID"] = request_id
@@ -161,10 +180,12 @@ class RequestCorrelationMiddleware:
         try:
             await self.app(scope, receive, send_with_request_id)
         except Exception:
+            if response_started:
+                raise
             self.logger.error(
                 "unhandled request exception method=%s path=%s",
                 scope.get("method", "-"),
-                scope.get("path", "-"),
+                path,
             )
             response = JSONResponse(
                 status_code=500,
@@ -181,7 +202,7 @@ class RequestCorrelationMiddleware:
             self.logger.info(
                 "request completed method=%s path=%s status_code=%s duration_ms=%.1f",
                 scope.get("method", "-"),
-                scope.get("path", "-"),
+                path,
                 status_code,
                 duration_ms,
             )
