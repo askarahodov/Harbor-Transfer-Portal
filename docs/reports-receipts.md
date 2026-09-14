@@ -1,6 +1,6 @@
 # Отчёты операций и import receipts
 
-Этот документ описывает backend contract задачи #25 / P7.2. Источником истины остаются persisted `operations`, `artifact_results` и immutable import receipt metadata в SQLite. Отчёты не строятся из container logs и не становятся отдельным состоянием операции.
+Этот документ описывает contract задачи #25 / P7.2. Источником истины остаются persisted `operations`, `artifact_results` и immutable import receipt metadata в SQLite. Отчёты не строятся из container logs и не становятся отдельным состоянием операции.
 
 ## CSV report
 
@@ -63,7 +63,15 @@ PDF не обращается к CDN или интернет-ресурсам. B
 
 Download сериализует persisted `import_receipt_json` через текущую `ImportReceiptResponse` schema и использует server-generated filename `import-receipt-{id}.json`. Пользователь не передаёт filesystem path или имя файла.
 
-Receipt сохраняет существующую TARGET authorization policy: admin может читать receipt любой import operation; operator — только собственной; viewer не получает этот mutation-domain endpoint. History CSV/PDF при этом остаются read-only и доступны viewer так же, как operation detail.
+Receipt сохраняет существующую TARGET authorization policy: admin может читать receipt любой import operation; operator — только собственной; viewer не получает этот import-domain endpoint. History CSV/PDF при этом остаются read-only и доступны viewer так же, как operation detail.
+
+## History UI
+
+В drawer деталей terminal operation экран `/history` показывает две read-only команды: **«Скачать CSV»** и **«Скачать PDF»**. Frontend выполняет запрос через общий authenticated API client, поэтому bearer/session contract остаётся тем же, что и у History API.
+
+Для import operation, если текущая роль уже имеет право читать canonical receipt и receipt существует, дополнительно показывается **«Скачать receipt JSON»**. Viewer видит CSV/PDF operation reports, но не получает receipt action; другой operator не получает receipt чужой операции.
+
+Frontend не доверяет имени файла из response header: локальное имя формируется только из числового `operation_id` и фиксированного расширения (`operation-{id}.csv`, `operation-{id}.pdf`, `import-receipt-{id}.json`). Это сохраняет безопасный download UX и не добавляет user-controlled path/filename processing.
 
 ## Secret handling
 
@@ -82,4 +90,7 @@ Regression suite покрывает:
 - отсутствие intentionally secret-looking values;
 - auth/terminal-state/missing-operation behavior;
 - owner/admin policy canonical receipt;
-- safe `Content-Disposition` filenames.
+- safe `Content-Disposition` filenames;
+- History UI CSV/PDF для terminal operation;
+- canonical receipt download только для разрешённой роли;
+- отсутствие receipt download у viewer при сохранении read-only reports.
