@@ -95,6 +95,13 @@ class CiScopeTest(TestCase):
             Scope(backend=True, security=True, integration=True),
         )
 
+    def test_import_helm_adapter_runs_security_and_transfer_integration(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["backend/app/services/import_helm_service.py"], root=root),
+            Scope(backend=True, security=True, integration=True),
+        )
+
     def test_export_orchestrator_runs_security_and_transfer_integration(self):
         root = self._root()
         self.assertEqual(
