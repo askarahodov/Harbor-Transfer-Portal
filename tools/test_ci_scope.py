@@ -56,11 +56,29 @@ class CiScopeTest(TestCase):
             Scope(backend=True, protocol=True),
         )
 
+    def test_nested_protocol_path_keeps_legacy_prefix_semantics(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["backend/app/domain/v1/nested.py"], root=root),
+            Scope(backend=True, protocol=True),
+        )
+        self.assertEqual(
+            classify_paths(["docs/schema/v1/nested/schema.json"], root=root),
+            Scope(protocol=True, docs=True),
+        )
+
     def test_deploy_markdown_runs_compose_and_docs(self):
         root = self._root()
         self.assertEqual(
             classify_paths(["deploy/README.md"], root=root),
             Scope(compose=True, docs=True),
+        )
+
+    def test_nested_frontend_entrypoint_is_compose_scope(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["frontend/docker-entrypoint.d/hooks/40-runtime.sh"], root=root),
+            Scope(frontend=True, compose=True),
         )
 
     def test_makefile_keeps_current_multi_area_policy(self):
