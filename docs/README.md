@@ -107,7 +107,7 @@ TARGET UI не выполняет самостоятельную cryptographic v
 - #23 — admin users/policies/signing/trust-key console — выполнено;
 - #21/#25 — audit/history и reports/receipts — отражены в current security/admin/user docs.
 
-P7.4 считается завершённым documentation checkpoint для **текущего application/runtime Compose**. Это не означает release qualification: финальный offline installer, clean-VM procedure и isolated SOURCE → physical transfer → TARGET acceptance E2E остаются отдельной задачей #28. Quality/reproducibility work P7.3 остаётся в #26.
+P7.4 считается завершённым **current-source documentation review checkpoint** для текущего application/runtime Compose. Это не означает release qualification: финальный offline installer, clean-VM procedure и isolated SOURCE → physical transfer → TARGET acceptance E2E остаются отдельной задачей #28. Quality/reproducibility work P7.3 остаётся в #26.
 
 ## Автоматическая проверка документации
 
