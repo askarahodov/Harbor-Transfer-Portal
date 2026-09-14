@@ -73,4 +73,5 @@ def update_transfer_policy(
             },
         )
     session.commit()
+    service.apply_runtime(change.after)
     return _response(service)
