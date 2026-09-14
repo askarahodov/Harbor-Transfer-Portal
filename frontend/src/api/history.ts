@@ -14,6 +14,8 @@ import { getImportReceipt, type ImportReceipt } from '@/api/imports'
 export { apiErrorInfo, createExportDownloadTicket, getImportReceipt, getOperation }
 export type { ApiErrorInfo, ImportReceipt, Operation, OperationStatus, OperationType }
 
+export type OperationReportFormat = 'csv' | 'pdf'
+
 export type OperationSummary = {
   id: number
   delivery_id: string | null
@@ -56,6 +58,15 @@ function isoOrUndefined(value: string): string | undefined {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString()
 }
 
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 export async function listOperationHistory(
   filters: HistoryFilters,
   limit: number,
@@ -76,4 +87,21 @@ export async function listOperationHistory(
     },
   })
   return response.data
+}
+
+export async function downloadOperationReport(
+  operationId: number,
+  format: OperationReportFormat,
+): Promise<void> {
+  const response = await apiClient.get<Blob>(`/operations/${operationId}/report.${format}`, {
+    responseType: 'blob',
+  })
+  saveBlob(response.data, `operation-${operationId}.${format}`)
+}
+
+export async function downloadImportReceiptFile(operationId: number): Promise<void> {
+  const response = await apiClient.get<Blob>(`/imports/${operationId}/receipt/download`, {
+    responseType: 'blob',
+  })
+  saveBlob(response.data, `import-receipt-${operationId}.json`)
 }
