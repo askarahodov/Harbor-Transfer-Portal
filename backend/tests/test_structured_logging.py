@@ -75,6 +75,30 @@ def test_request_correlation_replaces_unsafe_or_oversized_id(tmp_path: Path) -> 
     assert generated.isalnum()
 
 
+def test_unexpected_500_keeps_request_id_and_hides_exception_secret(tmp_path: Path) -> None:
+    app = _migrated_app(tmp_path)
+    app_logger = logging.getLogger("app")
+    stream = io.StringIO()
+    app_logger.handlers[0].setStream(stream)
+
+    @app.get("/_test/unhandled")
+    def explode() -> None:
+        raise RuntimeError("password=must-never-reach-log")
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/_test/unhandled",
+            headers={"X-Request-ID": "failure-request-1"},
+        )
+
+    assert response.status_code == 500
+    assert response.headers["x-request-id"] == "failure-request-1"
+    assert response.json() == {
+        "error": {"code": "internal_error", "message": "Internal server error"}
+    }
+    assert "must-never-reach-log" not in stream.getvalue()
+
+
 def test_redaction_removes_bearer_password_token_and_private_key() -> None:
     private_key = (
         "-----BEGIN PRIVATE KEY-----\n"
