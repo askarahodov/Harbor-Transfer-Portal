@@ -122,6 +122,40 @@ class KeyManagementService:
             fingerprint=fingerprint,
         )
 
+    def replace_trusted_public_key(self, fingerprint: str, pem: str) -> KeyMutation:
+        self._require_target()
+        previous = self._validate_fingerprint(fingerprint)
+        previous_matches = self._find_trusted_key_files(previous)
+        if not previous_matches:
+            raise KeyManagementError("trusted_key_not_found", "Trusted public key не найден")
+
+        key = self._parse_public_key(self._bounded_bytes(pem))
+        replacement = ed25519_public_key_fingerprint(key)
+        replacement_matches = self._find_trusted_key_files(replacement)
+        normalized = key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        target = self._enabled_path(replacement)
+
+        # Publish the replacement before removing the previous key. Replacement does not
+        # increase the final unique-key count, so it remains valid even at the configured
+        # trust-set capacity. A crash between these steps leaves a safe overlap state.
+        self._atomic_write(target, normalized, 0o600)
+        self._remove_other_matches(replacement_matches, keep=target)
+        self._disabled_path(replacement).unlink(missing_ok=True)
+        self._fsync_directory(self.trusted_dir)
+
+        if replacement != previous:
+            for path in previous_matches:
+                if path != target:
+                    path.unlink(missing_ok=True)
+            self._enabled_path(previous).unlink(missing_ok=True)
+            self._disabled_path(previous).unlink(missing_ok=True)
+            self._fsync_directory(self.trusted_dir)
+
+        return KeyMutation(action="replaced", fingerprint=replacement)
+
     def set_trusted_key_enabled(self, fingerprint: str, enabled: bool) -> KeyMutation:
         self._require_target()
         normalized = self._validate_fingerprint(fingerprint)
