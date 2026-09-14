@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from typing import Any, Match
+from typing import Any
 from uuid import uuid4
 
 from starlette.datastructures import Headers, MutableHeaders
@@ -78,7 +78,7 @@ def operation_log_context(operation_id: int) -> Iterator[None]:
         _operation_id.reset(token)
 
 
-def _redact_assignment(match: Match[str]) -> str:
+def _redact_assignment(match: re.Match[str]) -> str:
     opening_quote = match.group(2)
     closing_quote = match.group(4)
     if opening_quote and closing_quote == opening_quote:
