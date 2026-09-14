@@ -118,11 +118,14 @@ expected_checksum_names=$(printf '%s\n' .env backup-metadata.txt portal-data.tar
 product=$(sed -n 's/^product=//p' "$tmp/backup-metadata.txt")
 backup_version=$(sed -n 's/^version=//p' "$tmp/backup-metadata.txt")
 volume_name=$(sed -n 's/^volume=//p' "$tmp/backup-metadata.txt")
+backup_env_version=$(sed -n 's/^PORTAL_VERSION=//p' "$tmp/.env" | head -n 1)
 backup_contour=$(sed -n 's/^PORTAL_CONTOUR=//p' "$tmp/.env" | head -n 1)
 kit_version=$(cat release-version.txt)
 
 [ "$product" = harbor-transfer-portal ] || fail 'backup product mismatch'
 [ -n "$backup_version" ] || fail 'backup version is missing'
+[ "$backup_env_version" = "$backup_version" ] || \
+  fail "backup metadata/.env version mismatch: metadata=$backup_version env=$backup_env_version"
 [ "$backup_version" = "$kit_version" ] || \
   fail "restore requires matching kit version: kit=$kit_version backup=$backup_version"
 [ "$volume_name" = harbor-transfer-portal_portal-data ] || fail 'backup volume identity mismatch'
