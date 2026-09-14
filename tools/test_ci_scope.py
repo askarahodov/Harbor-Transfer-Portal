@@ -112,6 +112,19 @@ class CiScopeTest(TestCase):
             Scope(backend=True, security=True),
         )
 
+    def test_export_api_and_regression_test_run_security_regression(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(
+                [
+                    "backend/app/api/exports.py",
+                    "backend/tests/test_exports_api.py",
+                ],
+                root=root,
+            ),
+            Scope(backend=True, security=True),
+        )
+
     def test_security_regression_test_changes_keep_security_scope(self):
         root = self._root()
         self.assertEqual(
