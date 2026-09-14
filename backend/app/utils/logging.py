@@ -13,6 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from starlette.datastructures import Headers, MutableHeaders
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
@@ -159,6 +160,22 @@ class RequestCorrelationMiddleware:
 
         try:
             await self.app(scope, receive, send_with_request_id)
+        except Exception:
+            self.logger.error(
+                "unhandled request exception method=%s path=%s",
+                scope.get("method", "-"),
+                scope.get("path", "-"),
+            )
+            response = JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "internal_error",
+                        "message": "Internal server error",
+                    }
+                },
+            )
+            await response(scope, receive, send_with_request_id)
         finally:
             duration_ms = (time.monotonic() - started) * 1000
             self.logger.info(
