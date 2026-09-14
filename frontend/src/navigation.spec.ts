@@ -30,6 +30,7 @@ describe('role- and contour-aware navigation', () => {
       '/export',
       '/history',
       '/users',
+      '/keys',
       '/settings',
     ])
     expect(navigationForRole('admin', 'TARGET').map((item) => item.to)).toEqual([
@@ -37,6 +38,7 @@ describe('role- and contour-aware navigation', () => {
       '/import',
       '/history',
       '/users',
+      '/keys',
       '/settings',
     ])
   })
