@@ -110,8 +110,6 @@ class TransferPolicyService:
 
         for field in changed:
             self.metadata.set_value(_KEYS[field], self._serialize(candidate[field]))
-            if field not in RESTART_REQUIRED_FIELDS:
-                setattr(self.settings, field, candidate[field])
 
         return TransferPolicyChange(
             changed_fields=changed,
@@ -119,6 +117,11 @@ class TransferPolicyService:
             after=after,
             snapshot=self.resolve(),
         )
+
+    def apply_runtime(self, values: dict[str, int | bool]) -> None:
+        for field, value in values.items():
+            if field not in RESTART_REQUIRED_FIELDS:
+                setattr(self.settings, field, value)
 
     def apply_persisted_at_startup(self) -> None:
         configured = self._configured_values()
