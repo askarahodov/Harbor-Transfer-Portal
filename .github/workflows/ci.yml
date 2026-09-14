@@ -29,6 +29,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Проверить classifier области CI
+        run: make ci-scope-check
+
       - name: Определить затронутые области
         id: scope
         shell: bash
@@ -49,86 +52,11 @@ jobs:
             git ls-files > "${changed_file}"
           fi
 
-          backend=false
-          frontend=false
-          protocol=false
-          compose=false
-          docs=false
-          workflow_changed=false
-
-          while IFS= read -r file; do
-            [[ -z "${file}" ]] && continue
-
-            case "${file}" in
-              backend/*|Makefile)
-                backend=true
-                ;;
-            esac
-
-            case "${file}" in
-              frontend/*|Makefile)
-                frontend=true
-                ;;
-            esac
-
-            case "${file}" in
-              backend/app/domain/*|backend/tests/test_bundle_protocol.py|backend/tests/test_bundle_schema.py|docs/schema/*|docs/offline-bundle-v1.md|docs/adr/ADR-009-*)
-                protocol=true
-                ;;
-            esac
-
-            case "${file}" in
-              compose.yaml|.dockerignore|backend/Dockerfile|frontend/Dockerfile|frontend/nginx.conf|frontend/docker-entrypoint.d/*|deploy/*)
-                compose=true
-                ;;
-            esac
-
-            case "${file}" in
-              README.md|CONTRIBUTING.md|docs/*|deploy/*.md|tools/check_doc_links.py|tools/test_check_doc_links.py|Makefile)
-                docs=true
-                ;;
-            esac
-
-            case "${file}" in
-              .github/workflows/ci.yml)
-                workflow_changed=true
-                ;;
-            esac
-          done < "${changed_file}"
-
-          # Изменение самого workflow должно проверить все уже реализованные области.
-          if [[ "${workflow_changed}" == "true" ]]; then
-            backend=true
-            protocol=true
-            docs=true
-            [[ -f frontend/package.json ]] && frontend=true
-            [[ -f compose.yaml ]] && compose=true
-          fi
-
-          # Не создаём ложный job для компонента, которого ещё нет в проверяемой ревизии.
-          [[ -f backend/pyproject.toml ]] || backend=false
-          [[ -f frontend/package.json ]] || frontend=false
-          [[ -f backend/tests/test_bundle_protocol.py ]] || protocol=false
-          [[ -f compose.yaml && -f deploy/smoke-compose.sh ]] || compose=false
-          [[ -f tools/check_doc_links.py ]] || docs=false
-
-          echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
-          echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
-          echo "protocol=${protocol}" >> "${GITHUB_OUTPUT}"
-          echo "compose=${compose}" >> "${GITHUB_OUTPUT}"
-          echo "docs=${docs}" >> "${GITHUB_OUTPUT}"
-
-          {
-            echo "### Область CI"
-            echo
-            echo "| Область | Запуск |"
-            echo "| --- | --- |"
-            echo "| Backend | ${backend} |"
-            echo "| Frontend | ${frontend} |"
-            echo "| Bundle protocol | ${protocol} |"
-            echo "| Compose | ${compose} |"
-            echo "| Documentation | ${docs} |"
-          } >> "${GITHUB_STEP_SUMMARY}"
+          python3 tools/ci_scope.py \
+            --repo-root . \
+            --paths-file "${changed_file}" \
+            --github-output "${GITHUB_OUTPUT}" \
+            --summary-file "${GITHUB_STEP_SUMMARY}"
 
   backend:
     name: Backend — lint и unit/API tests
