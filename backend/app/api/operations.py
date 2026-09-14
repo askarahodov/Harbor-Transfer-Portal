@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
@@ -125,15 +126,15 @@ def _serialize_operation(operation: Operation) -> OperationResponse:
 def list_operations(
     _user: CurrentUserDep,
     session: SessionDep,
-    limit: int = Query(default=50, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-    operation_type: OperationType | None = Query(default=None, alias="type"),
-    operation_status: OperationStatus | None = Query(default=None, alias="status"),
-    actor: str | None = Query(default=None, min_length=1, max_length=128),
-    delivery_id: str | None = Query(default=None, min_length=1, max_length=96),
-    search: str | None = Query(default=None, min_length=1, max_length=200),
-    created_from: datetime | None = Query(default=None),
-    created_to: datetime | None = Query(default=None),
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    operation_type: Annotated[OperationType | None, Query(alias="type")] = None,
+    operation_status: Annotated[OperationStatus | None, Query(alias="status")] = None,
+    actor: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    delivery_id: Annotated[str | None, Query(min_length=1, max_length=96)] = None,
+    search: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+    created_from: Annotated[datetime | None, Query()] = None,
+    created_to: Annotated[datetime | None, Query()] = None,
 ) -> OperationListResponse:
     if created_from is not None and created_to is not None and created_from > created_to:
         raise HTTPException(
