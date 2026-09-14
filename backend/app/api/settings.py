@@ -155,12 +155,12 @@ def install_harbor_ca(
 @router.delete("/ca", response_model=HarborMutationResponse)
 def remove_harbor_ca(
     request: Request,
-    _admin: AdminDep,
+    admin: AdminDep,
     session: SessionDep,
 ) -> HarborMutationResponse:
     service = _service(request, session)
     service.remove_managed_ca()
-    _audit(session, _admin, "harbor.ca.removed", ["custom_ca"])
+    _audit(session, admin, "harbor.ca.removed", ["custom_ca"])
     session.commit()
     return HarborMutationResponse(changed_fields=["custom_ca"])
 
@@ -248,6 +248,8 @@ def update_transfer_settings(
                 metadata=metadata,
             )
         session.commit()
+        if changed:
+            request.app.state.settings = service.effective_settings()
         return _transfer_response(service)
     except TransferSettingsError as exc:
         session.rollback()
