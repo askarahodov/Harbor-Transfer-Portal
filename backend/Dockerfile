@@ -14,10 +14,12 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         ca-certificates \
+        fonts-dejavu-core \
         gzip \
         skopeo="${SKOPEO_DEBIAN_VERSION}" \
         tar; \
     rm -rf /var/lib/apt/lists/*; \
+    test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; \
     skopeo --version | grep -F '1.9.3'
 
 RUN set -eux; \
