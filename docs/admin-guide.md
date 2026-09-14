@@ -115,7 +115,7 @@ docker compose config
 docker compose up -d --build
 ```
 
-или:
+или через Make:
 
 ```bash
 make compose-config
@@ -229,7 +229,7 @@ Hard-delete локальных пользователей не использу�
 HARBOR_MANAGED_SECRET_FILE=./data/secrets/harbor-password
 ```
 
-Managed secret создаётся server-side с restrictive permissions и не возвращается обратно в UI/API.
+Managed secret создаётся server-side с restrictive permissions и находится в persistent volume. Значение не возвращается обратно в UI/API после сохранения.
 
 Fallback order:
 
@@ -541,6 +541,7 @@ OPERATION_SHUTDOWN_TIMEOUT_SECONDS=10
 - backup/retention объём.
 
 Baseline v1 использует один backend instance и in-process `asyncio` OperationManager; Redis/Celery не используются.
+
 ## 18. Restart, shutdown и фоновые операции
 
 Resume середины Skopeo/Helm-команды после restart в v1 не поддерживается.
