@@ -3,18 +3,35 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.db.models import ArtifactResult
+from app.domain.bundle import ArtifactStatus
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmOciService,
     HelmPhase,
     HelmPushResult,
     HelmServiceError,
+    HelmTargetInspection,
     HelmTargetState,
 )
 
 
 class ImportHelmOciService(HelmOciService):
-    """Helm OCI adapter for verified TARGET import payloads and overwrite policy."""
+    """Helm OCI adapter for verified TARGET import payloads and overwrite policy.
+
+    Re-pushing the same signed chart package can produce a different OCI manifest
+    digest in TARGET. Successful imports therefore persist the verified
+    SOURCE->TARGET digest pair. Replay is SAME only while the currently observed
+    TARGET digest still matches that verified pair; external replacement remains
+    a conflict.
+    """
+
+    def __init__(self, session: Session, *args: object, **kwargs: object) -> None:
+        super().__init__(session, *args, **kwargs)  # type: ignore[arg-type]
+        self._import_session = session
 
     def _validate_package_path(self, path: Path) -> Path:
         if path.is_symlink():
@@ -36,6 +53,37 @@ class ImportHelmOciService(HelmOciService):
                 "Ожидается существующий .tgz chart package внутри verified bundle root",
             )
         return resolved
+
+    async def inspect_target(
+        self,
+        chart: HelmChartReference,
+        *,
+        expected_digest: str | None = None,
+    ) -> HelmTargetInspection:
+        inspected = await super().inspect_target(chart, expected_digest=expected_digest)
+        if (
+            expected_digest is None
+            or inspected.state is not HelmTargetState.CONFLICTING_DIGEST
+            or inspected.digest is None
+        ):
+            return inspected
+
+        verified_pair = self._import_session.scalar(
+            select(ArtifactResult.id)
+            .where(
+                ArtifactResult.artifact_type == "helm-chart",
+                ArtifactResult.repository == chart.repository,
+                ArtifactResult.name == chart.name,
+                ArtifactResult.version == chart.version,
+                ArtifactResult.source_digest == expected_digest,
+                ArtifactResult.target_digest == inspected.digest,
+                ArtifactResult.status == ArtifactStatus.VERIFIED,
+            )
+            .limit(1)
+        )
+        if verified_pair is None:
+            return inspected
+        return HelmTargetInspection(HelmTargetState.SAME_DIGEST, inspected.digest)
 
     async def push_chart(
         self,
