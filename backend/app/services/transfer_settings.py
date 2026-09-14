@@ -212,6 +212,14 @@ class TransferSettingsService:
             ) from exc
 
 
+def load_runtime_transfer_settings(
+    session_factory: sessionmaker[Session],
+    settings: Settings,
+) -> Settings:
+    with session_factory() as session:
+        return TransferSettingsService(session, settings).effective_settings()
+
+
 def load_startup_transfer_settings(
     session_factory: sessionmaker[Session],
     settings: Settings,
