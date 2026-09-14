@@ -76,7 +76,9 @@ describe('UsersView', () => {
     const wrapper = mount(UsersView)
     await flushPromises()
 
-    const row = wrapper.findAll('.user-row').find((item) => item.text().includes('operator'))
+    const row = wrapper
+      .findAll('.user-row')
+      .find((item) => item.get('.identity strong').text() === 'operator')
     expect(row).toBeTruthy()
     await row!.get('select').setValue('viewer')
     await row!.get('input[type="checkbox"]').setValue(false)
@@ -94,7 +96,9 @@ describe('UsersView', () => {
     const wrapper = mount(UsersView)
     await flushPromises()
 
-    const row = wrapper.findAll('.user-row').find((item) => item.text().includes('operator'))
+    const row = wrapper
+      .findAll('.user-row')
+      .find((item) => item.get('.identity strong').text() === 'operator')
     expect(row).toBeTruthy()
     const password = row!.get('input[type="password"]')
     const reset = row!.findAll('button').find((button) => button.text() === 'Сменить пароль')
