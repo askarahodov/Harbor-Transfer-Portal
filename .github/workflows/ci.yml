@@ -232,7 +232,7 @@ jobs:
           EOF
 
       - name: Compose smoke test
-        run: sh deploy/smoke-compose.sh
+        run: make smoke-compose
 
   docs:
     name: Documentation — local links
