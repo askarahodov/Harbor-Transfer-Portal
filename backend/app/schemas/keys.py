@@ -25,10 +25,15 @@ class KeyMaterialRequest(BaseModel):
     pem: str = Field(min_length=1, max_length=1_048_576)
 
 
+class TrustedKeyMaterialRequest(KeyMaterialRequest):
+    confirm: bool = False
+
+
 class TrustedKeyStateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
+    confirm: bool = False
 
 
 class KeyMutationResponse(BaseModel):
