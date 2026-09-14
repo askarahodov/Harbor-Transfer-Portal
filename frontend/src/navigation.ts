@@ -1,5 +1,6 @@
 import {
   History,
+  KeyRound,
   LogIn,
   PackageOpen,
   Settings,
@@ -37,6 +38,7 @@ export function navigationForRole(
 
   if (role === 'admin') {
     items.push({ to: '/users', label: 'Пользователи', icon: UsersRound })
+    items.push({ to: '/keys', label: 'Ключи', icon: KeyRound })
     items.push({ to: '/settings', label: 'Настройки', icon: Settings })
   }
 
