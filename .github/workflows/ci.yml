@@ -213,6 +213,18 @@ jobs:
       - name: Проверить Skopeo/Helm через disposable registry
         run: make test-registry-integration
 
+  acceptance:
+    name: Acceptance — isolated SOURCE → TARGET transfer
+    needs: scope
+    if: needs.scope.outputs.integration == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Проверить полный isolated transfer через physical bundle boundary
+        run: sh deploy/qualify-isolated-transfer.sh
+
   compose:
     name: Compose — build и smoke
     needs: scope
@@ -266,7 +278,7 @@ jobs:
   quality-gate:
     name: quality-gate
     if: always()
-    needs: [scope, backend, frontend, protocol, security, integration, compose, offline-install, docs]
+    needs: [scope, backend, frontend, protocol, security, integration, acceptance, compose, offline-install, docs]
     runs-on: ubuntu-24.04
     steps:
       - name: Проверить результаты обязательных jobs
@@ -278,6 +290,7 @@ jobs:
           PROTOCOL_RESULT: ${{ needs.protocol.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
+          ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
           COMPOSE_RESULT: ${{ needs.compose.result }}
           OFFLINE_INSTALL_RESULT: ${{ needs.offline-install.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
@@ -291,6 +304,7 @@ jobs:
             "${PROTOCOL_RESULT}" \
             "${SECURITY_RESULT}" \
             "${INTEGRATION_RESULT}" \
+            "${ACCEPTANCE_RESULT}" \
             "${COMPOSE_RESULT}" \
             "${OFFLINE_INSTALL_RESULT}" \
             "${DOCS_RESULT}"; do

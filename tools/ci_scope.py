@@ -53,11 +53,27 @@ _SECURITY_TEST_PREFIXES = (
     "test_user_admin_api",
 )
 _INTEGRATION_SERVICE_FILES = {
+    "bundle_package_service.py",
+    "export_orchestrator.py",
+    "export_publication_guard.py",
+    "import_helm_service.py",
+    "import_orchestrator.py",
+    "operation_manager.py",
+    "report_service.py",
     "skopeo_service.py",
     "helm_oci_service.py",
 }
+_INTEGRATION_API_FILES = {
+    "exports.py",
+    "imports.py",
+}
 _INTEGRATION_DEPLOY_FILES = {
+    "compose.yaml",
+    "deploy/build-offline-kit.sh",
     "deploy/compose-registry-integration.yml",
+    "deploy/compose-isolated-transfer-acceptance.yml",
+    "deploy/qualify-clean-offline-install.sh",
+    "deploy/qualify-isolated-transfer.sh",
     "deploy/smoke-registry-integration.sh",
 }
 
@@ -123,14 +139,24 @@ def _is_security_sensitive_backend(path: PurePosixPath) -> bool:
 
 
 def _is_local_registry_integration_path(path: PurePosixPath, path_text: str) -> bool:
-    if path_text == "backend/Dockerfile":
+    if path_text in {
+        "backend/Dockerfile",
+        "backend/app/domain/bundle.py",
+    }:
         return True
     if (
         path.parts[:3] == ("backend", "app", "services")
         and path.name in _INTEGRATION_SERVICE_FILES
     ):
         return True
+    if (
+        path.parts[:3] == ("backend", "app", "api")
+        and path.name in _INTEGRATION_API_FILES
+    ):
+        return True
     if _starts_with(path, "backend", "integration"):
+        return True
+    if _starts_with(path, "deploy", "offline") and path.suffix == ".sh":
         return True
     return path_text in _INTEGRATION_DEPLOY_FILES
 
@@ -209,6 +235,9 @@ def _integration_markers_exist(root: Path) -> bool:
             root / "backend/integration/registry_smoke.py",
             root / "deploy/compose-registry-integration.yml",
             root / "deploy/smoke-registry-integration.sh",
+            root / "backend/integration/isolated_transfer_acceptance.py",
+            root / "deploy/compose-isolated-transfer-acceptance.yml",
+            root / "deploy/qualify-isolated-transfer.sh",
         )
     )
 
@@ -272,7 +301,7 @@ def write_summary(scope: Scope, summary_path: Path) -> None:
         "frontend": "Frontend",
         "protocol": "Bundle protocol",
         "security": "Security regression",
-        "integration": "Skopeo/Helm local registry integration",
+        "integration": "Skopeo/Helm + isolated transfer integration",
         "compose": "Compose",
         "docs": "Documentation",
     }

@@ -90,10 +90,14 @@ Frontend не имеет собственного crypto verifier и не выв
 | Состояние | Значение |
 |---|---|
 | `NEW` | соответствующего target reference/version нет; можно импортировать |
-| `SAME` | target существует и digest совпадает с source expectation; повторный import должен быть skip |
-| `CONFLICT` | target reference/version существует с другим digest |
-| `UNKNOWN` | target существует, но manifest не позволяет доказать equality по digest |
+| `SAME` | target существует и его identity подтверждена для ожидаемого artifact; повторный import должен быть skip |
+| `CONFLICT` | target reference/version существует с другим подтверждённым содержимым или digest provenance |
+| `UNKNOWN` | target существует, но available metadata не позволяет безопасно доказать equality |
 | `ERROR` | target inspection не удалось безопасно выполнить |
+
+Для container image authoritative equality по-прежнему строится на OCI digest из manifest.
+
+Для Helm `source_digest` — SOURCE OCI registry provenance, а не переносимый byte identity: повторный `helm push` того же подписанного `.tgz` в независимый registry может получить другой OCI manifest digest. Переносимая identity Helm payload внутри Offline Bundle v1 — подписанный `payload_sha256` самого `.tgz`. После успешного TARGET push портал сохраняет фактически наблюдаемый TARGET OCI digest вместе с SOURCE digest. На replay `SAME` допустим только когда текущий TARGET digest совпадает с ранее сохранённой `VERIFIED` SOURCE→TARGET парой; внешняя замена TARGET digest снова классифицируется как `CONFLICT`.
 
 Preview сохраняется в DB вместе с exact bundle SHA256, source delivery id, размером, signing key fingerprint, signed SOURCE metadata и policy projection. Artifact rows создаются в manifest order и затем используются generic operation status API.
 
@@ -139,7 +143,7 @@ TARGET wizard дополнительно не показывает overwrite к�
 
 Container images импортируются через Skopeo с `expected_digest` из manifest. Skopeo проверяет локальный OCI payload и повторно инспектирует TARGET digest после copy.
 
-Helm charts валидируются и push-ятся через Helm OCI adapter. При наличии source digest итоговый TARGET digest обязан совпасть с manifest expectation.
+Helm charts валидируются и push-ятся через Helm OCI adapter. Перед фиксацией `VERIFIED` SHA-256 фактически push-нутого локального `.tgz` обязан совпасть с подписанным `payload_sha256` descriptor. Фактический TARGET OCI manifest digest читается после push и сохраняется как TARGET provenance; он не обязан равняться SOURCE OCI manifest digest.
 
 Независимые artifacts обрабатываются последовательно и имеют отдельные outcomes. Ошибка одного artifact не приводит к попытке отката уже успешно импортированного другого artifact. Portal **не заявляет atomic rollback across Harbor artifacts**.
 
@@ -151,7 +155,7 @@ TARGET wizard показывает persisted phase/counters и per-artifact resu
 
 Повторная доставка того же bundle может создать новую import operation: `source_delivery_id` намеренно не unique. Bundle identity фиксируется через SHA256.
 
-Если target уже содержит ожидаемые digests, новый preview классифицирует artifacts как `SAME`, а execution сохраняет их как `SKIPPED`. Это безопасный replay и не требует повторной mutation Harbor.
+Для image target с ожидаемым OCI digest новый preview получает `SAME`. Для Helm безопасный replay использует ранее `VERIFIED` SOURCE→TARGET digest pair: текущий TARGET OCI digest должен совпасть с тем, который портал зафиксировал при успешном импорте того же SOURCE digest. Такие artifacts execution сохраняет как `SKIPPED` без повторной mutation Harbor. Если TARGET digest изменился вне этого verified pair, результат снова `CONFLICT`.
 
 ## Receipt
 
@@ -160,7 +164,7 @@ TARGET wizard показывает persisted phase/counters и per-artifact resu
 - JSON snapshot в operation record;
 - immutable file `IMPORT_RECEIPT_ROOT/import-<operation_id>.json`, создаваемый exclusive-write (`x`) и переводимый в read-only mode.
 
-Receipt содержит source delivery id, exact bundle SHA256, actor username, execution timestamps, выбранную overwrite policy и per-artifact outcomes/digests/errors. Credentials, Harbor password, auth files и secret material туда не записываются.
+Receipt содержит source delivery id, exact bundle SHA256, actor username, execution timestamps, выбранную overwrite policy и per-artifact outcomes/digests/errors. Для Helm `expected_digest` остаётся SOURCE OCI provenance, а `target_digest` содержит фактически наблюдаемый TARGET OCI digest. Credentials, Harbor password, auth files и secret material туда не записываются.
 
 Receipt формируется и для partial failure. Если execution не начался из-за invalid bundle/conflict/unknown policy, receipt отсутствует, а причина остаётся в operation error semantics.
 
@@ -197,11 +201,13 @@ Regression suite фиксирует следующие свойства:
 - verified preview projection берёт SOURCE metadata из signed manifest и подтверждает checksum/schema/signature только после verifier;
 - legacy persisted preview остаётся parseable с безопасными false/null defaults;
 - `SAME` не вызывает повторный image/chart push;
+- Helm replay признаётся `SAME` только для ранее `VERIFIED` SOURCE→TARGET digest pair, а внешняя замена TARGET digest остаётся `CONFLICT`;
+- Helm post-push проверяет signed `.tgz payload_sha256`, сохраняя реальный TARGET OCI digest отдельно;
 - conflict блокируется по умолчанию, overwrite требует server policy и отдельного UI confirmation;
 - corrupt/invalid bundle отклоняется до target inspection;
 - streaming hard limit удаляет partial upload;
 - incoming archive без sidecar не claim-ится;
 - изменение bundle после preview обнаруживается до import;
-- post-import digest mismatch приводит к FAILED и отражается в receipt;
+- image post-import digest mismatch приводит к FAILED и отражается в receipt;
 - browser reload восстанавливает active import operation;
 - SOURCE contour не показывает normal TARGET workflow и backend отклоняет import intake.
