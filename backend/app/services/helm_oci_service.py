@@ -314,11 +314,15 @@ class HelmOciService:
         target: HelmChartReference,
         *,
         source_digest: str | None = None,
+        allow_existing: bool = False,
     ) -> HelmPushResult:
         if source_digest is not None:
             self._validate_optional_digest(source_digest)
         preflight = await self.inspect_target(target, expected_digest=source_digest)
-        if preflight.state is not HelmTargetState.ABSENT:
+        existing_conflict_allowed = (
+            allow_existing and preflight.state is HelmTargetState.CONFLICTING_DIGEST
+        )
+        if preflight.state is not HelmTargetState.ABSENT and not existing_conflict_allowed:
             raise HelmServiceError(
                 "helm_target_exists",
                 "TARGET уже содержит chart/version; решение конфликта выполняет import engine",
