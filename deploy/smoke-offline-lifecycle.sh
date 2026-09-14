@@ -63,9 +63,6 @@ case "${1:-}" in
         tar -C "$data_tmp" -czf - .
         rm -rf "$data_tmp"
         ;;
-      *' -xzf - '*)
-        cat >/dev/null
-        ;;
     esac
     ;;
   compose)
@@ -276,8 +273,8 @@ grep -F 'compose --env-file' "$FAKE_LOG" | grep -F ' down --remove-orphans' >/de
   fail 'restore must stop existing Compose workload before replacing data'
 [ "$(grep -c '^run .*--pull never --network none' "$FAKE_LOG")" -eq 3 ] || \
   fail 'restore data operations must use local backend image with no-pull/no-network boundary'
-grep -F 'run --rm -i --pull never --network none' "$FAKE_LOG" | grep -F -- '--entrypoint tar' >/dev/null || \
-  fail 'restore must stream persistent data into the local backend image'
+grep -F 'run --rm --pull never --network none' "$FAKE_LOG" | grep -F -- '--entrypoint tar' | grep -F ':/backup/portal-data.tar.gz:ro' >/dev/null || \
+  fail 'restore must mount verified persistent data read-only into the local backend image'
 grep -F 'compose --env-file' "$FAKE_LOG" | grep -F ' up -d --no-build --pull never --wait --wait-timeout 180' >/dev/null || \
   fail 'restore must start Compose with explicit no-build/no-pull semantics'
 
