@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: help up down logs fmt lint lint-backend typecheck-backend test test-backend test-frontend test-ci-scope dependency-locks-check test-registry-integration docs-check migrate build compose-config smoke-compose check-foundation
+.PHONY: help up down logs fmt lint lint-backend typecheck-backend test test-backend test-frontend test-ci-scope dependency-locks-check test-registry-integration test-offline-kit docs-check migrate build compose-config smoke-compose check-foundation
 
 help:
 	@printf '%s\n' \
@@ -17,11 +17,12 @@ help:
 	  'make test-ci-scope  Проверить regression-матрицу scoped CI selection' \
 	  'make dependency-locks-check Проверить согласованность dependency lockfiles' \
 	  'make test-registry-integration Проверить реальные Skopeo/Helm через local OCI registry' \
+	  'make test-offline-kit Проверить packaging/install contract offline release kit' \
 	  'make docs-check     Проверить локальные Markdown-ссылки и docs checker tests' \
 	  'make migrate        Применить backend Alembic migrations' \
 	  'make build          Собрать backend/frontend artifacts' \
 	  'make compose-config Проверить Docker Compose configuration' \
-	  'make smoke-compose  Собрать стек и выполнить Compose smoke test' \
+	  'make smoke-compose  Проверить offline kit, собрать стек и выполнить Compose smoke test' \
 	  'make check-foundation Проверить базовую структуру репозитория'
 
 up:
@@ -72,6 +73,9 @@ dependency-locks-check:
 test-registry-integration:
 	sh deploy/smoke-registry-integration.sh
 
+test-offline-kit:
+	sh deploy/smoke-offline-kit.sh
+
 docs-check:
 	@test -f tools/check_doc_links.py || { echo 'tools/check_doc_links.py отсутствует'; exit 2; }
 	python3 -m unittest tools.test_check_doc_links
@@ -91,7 +95,7 @@ compose-config:
 	@test -f .env || { echo 'Требуется .env; сначала скопируйте .env.example в .env'; exit 2; }
 	docker compose config >/dev/null
 
-smoke-compose:
+smoke-compose: test-offline-kit
 	./deploy/smoke-compose.sh
 
 check-foundation:
@@ -113,6 +117,11 @@ check-foundation:
 	@test -f backend/integration/registry_smoke.py
 	@test -f deploy/compose-registry-integration.yml
 	@test -f deploy/smoke-registry-integration.sh
+	@test -f deploy/build-offline-kit.sh
+	@test -f deploy/smoke-offline-kit.sh
+	@test -f deploy/offline/compose.yaml
+	@test -f deploy/offline/install.sh
+	@test -f deploy/offline/README.md
 	@test -f compose.yaml
 	@test -d backend
 	@test -d frontend
