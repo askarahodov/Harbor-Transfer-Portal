@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.auth.dependencies import SessionDep, require_roles
 from app.auth.security import hash_password
 from app.db.models import User, UserRole
-from app.db.repositories import UserRepository
+from app.db.repositories import AuditEventRepository, UserRepository
 from app.schemas.users import UserCreateRequest, UserResponse, UserUpdateRequest
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -21,6 +21,25 @@ def _to_response(user: User) -> UserResponse:
     )
 
 
+def _audit_user_change(
+    session: SessionDep,
+    admin: User,
+    *,
+    event_type: str,
+    target: User,
+    changed_fields: list[str],
+) -> None:
+    AuditEventRepository(session).create(
+        actor=admin,
+        event_type=event_type,
+        metadata={
+            "target_user_id": target.id,
+            "target_username": target.username,
+            "changed_fields": sorted(changed_fields),
+        },
+    )
+
+
 @router.get("", response_model=list[UserResponse])
 def list_users(
     _admin: AdminDep,
@@ -32,7 +51,7 @@ def list_users(
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreateRequest,
-    _admin: AdminDep,
+    admin: AdminDep,
     session: SessionDep,
 ) -> UserResponse:
     repo = UserRepository(session)
@@ -43,6 +62,13 @@ def create_user(
         password_hash=hash_password(payload.password),
         role=payload.role,
     )
+    _audit_user_change(
+        session,
+        admin,
+        event_type="user.created",
+        target=user,
+        changed_fields=["is_active", "password", "role"],
+    )
     session.commit()
     return _to_response(user)
 
@@ -51,17 +77,31 @@ def create_user(
 def update_user(
     user_id: int,
     payload: UserUpdateRequest,
-    _admin: AdminDep,
+    admin: AdminDep,
     session: SessionDep,
 ) -> UserResponse:
     user = UserRepository(session).get(user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
-    if payload.role is not None:
+
+    changed_fields: list[str] = []
+    if payload.role is not None and payload.role != user.role:
         user.role = payload.role
-    if payload.is_active is not None:
+        changed_fields.append("role")
+    if payload.is_active is not None and payload.is_active != user.is_active:
         user.is_active = payload.is_active
+        changed_fields.append("is_active")
     if payload.password is not None:
         user.password_hash = hash_password(payload.password)
+        changed_fields.append("password")
+
+    if changed_fields:
+        _audit_user_change(
+            session,
+            admin,
+            event_type="user.updated",
+            target=user,
+            changed_fields=changed_fields,
+        )
     session.commit()
     return _to_response(user)
