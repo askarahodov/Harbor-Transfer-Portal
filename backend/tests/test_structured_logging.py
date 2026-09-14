@@ -110,12 +110,16 @@ def test_redaction_removes_bearer_password_token_and_private_key() -> None:
         "password=hunter2 token=opaque-token "
         f"key={private_key}"
     )
+    jsonish = redact_log_text('{"password":"json-secret","token":"json-token"}')
 
     assert "eyJ.secret.signature" not in rendered
     assert "hunter2" not in rendered
     assert "opaque-token" not in rendered
     assert "super-sensitive-key-material" not in rendered
+    assert "json-secret" not in jsonish
+    assert "json-token" not in jsonish
     assert "[REDACTED]" in rendered
+    assert "[REDACTED]" in jsonish
     assert "[REDACTED_PRIVATE_KEY]" in rendered
 
 
