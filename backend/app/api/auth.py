@@ -28,16 +28,16 @@ def _invalid_credentials(decision: LoginRateLimitDecision | None = None) -> HTTP
 def _audit_login_failure(
     session: SessionDep,
     *,
-    username: str,
-    actor_user_id: int | None,
     reason: str,
+    decision: LoginRateLimitDecision | None = None,
 ) -> None:
-    AuditEventRepository(session).create_identity(
-        actor_user_id=actor_user_id,
-        actor_username=username,
+    metadata = {"reason": reason}
+    if decision is not None and decision.scope is not None:
+        metadata["scope"] = decision.scope.value
+    AuditEventRepository(session).create_system(
         event_type="auth.login.failed",
         result="failure",
-        metadata={"reason": reason},
+        metadata=metadata,
     )
 
 
@@ -66,12 +66,7 @@ def login(
     )
     decision = limiter.check(username=payload.username, client_address=client_address)
     if decision.blocked:
-        _audit_login_failure(
-            session,
-            username=payload.username,
-            actor_user_id=None,
-            reason="rate_limited",
-        )
+        _audit_login_failure(session, reason="rate_limited", decision=decision)
         session.commit()
         raise _invalid_credentials(decision)
 
@@ -84,12 +79,7 @@ def login(
             username=payload.username,
             client_address=client_address,
         )
-        _audit_login_failure(
-            session,
-            username=payload.username,
-            actor_user_id=user.id if user is not None else None,
-            reason="invalid_credentials",
-        )
+        _audit_login_failure(session, reason="invalid_credentials", decision=decision)
         session.commit()
         raise _invalid_credentials(decision)
 
