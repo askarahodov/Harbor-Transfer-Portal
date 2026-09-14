@@ -27,7 +27,7 @@ make typecheck-backend
 make test-backend
 ```
 
-CI backend gate выполняет Ruff → Mypy → полный backend unit/API pytest suite. Static type gate проверяет `backend/app` и не использует blanket `ignore_errors` или `ignore_missing_imports`. Для библиотек без встроенной typing metadata dev graph содержит pinned `types-*` stubs.
+CI backend gate выполняет Ruff → Mypy → полный backend unit/API pytest suite. Static type gate проверяет `backend/app` и не использует blanket `ignore_errors` или `ignore_missing_imports`; для библиотек без встроенной typing metadata dev tooling содержит поддерживаемые `types-*` stubs.
 
 ### Frontend
 
@@ -122,7 +122,7 @@ Compose smoke является обязательным для затронут�
 
 Backend Mypy gate проверяет typed contracts между FastAPI/Pydantic/SQLAlchemy services и orchestration code до runtime tests. Очевидный type mismatch должен делать backend CI красным.
 
-Цель — не «удовлетворить Mypy» широкими suppressions, а использовать type checker как дополнительный fail-able contract gate. Точечный `cast(...)` допустим только на dynamic/third-party boundary, где runtime contract известен приложению, но не выражен библиотечным stub.
+Цель — не «удовлетворить Mypy» через широкие suppressions, а использовать type checker как источник contract defects. Точечные `cast(...)` допустимы только на dynamic/third-party boundary, где runtime contract известен приложению, но не выражен библиотечным stub.
 
 ### Component
 
@@ -435,8 +435,6 @@ make dependency-locks-check
 - pinned `hatchling` для `--no-build-isolation`;
 - отсутствие local backend package в lock;
 - одинаковые pins общих runtime packages в runtime/dev locks.
-
-Mypy и stub-пакеты относятся только к dev graph и не добавляются в runtime lock/backend image.
 
 ## 10. Текущее состояние CI
 
