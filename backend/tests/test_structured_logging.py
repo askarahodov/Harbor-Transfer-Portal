@@ -15,6 +15,7 @@ from app.main import create_app
 from app.utils.logging import (
     CorrelationFilter,
     JsonLogFormatter,
+    configure_application_logging,
     current_operation_id,
     operation_log_context,
     redact_log_text,
@@ -154,6 +155,27 @@ def test_operation_worker_task_name_seeds_operation_correlation() -> None:
         return current_operation_id()
 
     assert asyncio.run(probe()) == 314
+
+
+def test_configure_logging_preserves_external_handlers_and_propagation() -> None:
+    app_logger = logging.getLogger("app")
+    external = logging.NullHandler()
+    app_logger.addHandler(external)
+    try:
+        configure_application_logging(level="INFO", json_output=False)
+        configure_application_logging(level="DEBUG", json_output=True)
+
+        assert external in app_logger.handlers
+        assert app_logger.propagate is True
+        owned = [
+            handler
+            for handler in app_logger.handlers
+            if getattr(handler, "_htp_application_handler", False)
+        ]
+        assert len(owned) == 1
+        assert app_logger.level == logging.DEBUG
+    finally:
+        app_logger.removeHandler(external)
 
 
 def test_log_level_is_normalized_and_invalid_value_rejected() -> None:
