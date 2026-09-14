@@ -25,7 +25,7 @@ make lint-backend
 make test-backend
 ```
 
-Текущий CI backend gate выполняет Ruff и backend unit/API pytest suite.
+Текущий CI backend gate выполняет Ruff и backend unit/API pytest suite. Отдельный backend static type gate пока остаётся незавершённой частью #26.
 
 ### Frontend
 
@@ -136,6 +136,8 @@ Anchor semantics внутри Markdown и доступность внешних 
 - Compose/runtime;
 - межмодульные contracts.
 
+Current backend suite уже содержит orchestration/API/persistence regressions, но отдельный disposable local-registry harness для реального Skopeo/Helm cross-service transfer остаётся quality work #26.
+
 Integration fixture должен быть локальным/disposable и не требовать public Harbor/internet во время выполнения application flow.
 
 ### Compose smoke
@@ -157,17 +159,17 @@ Integration fixture должен быть локальным/disposable и не 
 
 ### E2E / release
 
-Полный SOURCE → physical bundle → TARGET flow ещё не является текущим CI gate, потому что export/import orchestration v1 не завершена.
+SOURCE export orchestration, TARGET import orchestration и оба browser wizard уже реализованы. Однако полный **isolated SOURCE → physical bundle → TARGET** scenario пока не является текущим CI gate: для него нужен отдельный release harness с disposable registries/fixtures и проверкой поведения двух независимых installation states.
 
 Перед release требуемый scenario должен включать как минимум:
 
 1. local SOURCE registry fixture;
 2. container image + Helm chart fixture;
-3. SOURCE export;
+3. SOURCE export через текущий application flow;
 4. signed bundle + `.sha256`;
 5. перенос только разрешённых файлов;
 6. отдельный TARGET registry без source dependency;
-7. verification/preview/import;
+7. verification/preview/import через текущий application flow;
 8. target image digest verification;
 9. chart result verification;
 10. receipt/history;
@@ -175,7 +177,7 @@ Integration fixture должен быть локальным/disposable и не 
 12. conflict without automatic overwrite;
 13. tampered bundle rejection before registry mutation.
 
-Финальный release E2E относится к #28.
+Финальный release E2E и clean-VM/offline-install qualification относятся к #28. Подготовка воспроизводимых test/dependency gates до него остаётся в #26.
 
 ## 4. Матрица «изменение → проверки»
 
@@ -190,12 +192,12 @@ Integration fixture должен быть локальным/disposable и не 
 | Skopeo | argv/redaction/timeout/path/digest tests + local integration при orchestration impact |
 | Helm OCI | argv/redaction/timeout/archive/metadata tests + local integration при orchestration impact |
 | Package verifier/build | backend + protocol/security regression |
-| Export/import orchestration | unit + protocol/security + relevant integration |
+| Export/import orchestration | unit/API/persistence + protocol/security + relevant integration |
 | Compose/Docker/Nginx/deploy runtime | Compose config/build/smoke |
 | Обычная docs-only правка | docs-check + quality-gate; тяжёлые code/E2E jobs skipped |
 | `deploy/*.md` | docs-check + Compose smoke согласно current path policy |
 | Workflow `.github/workflows/ci.yml` | все уже реализованные areas, включая docs, для проверки самого workflow |
-| Release/install | полный required suite + E2E |
+| Release/install | полный required suite + isolated SOURCE→TARGET E2E |
 
 ## 5. Path-aware GitHub Actions
 
@@ -313,7 +315,7 @@ Python dependencies в `backend/pyproject.toml` используют совме�
 
 ## 10. Текущее состояние CI
 
-Реально работающие current jobs после #67:
+Реально работающие current jobs:
 
 | Job | Статус |
 |---|---|
@@ -324,8 +326,10 @@ Python dependencies в `backend/pyproject.toml` используют совме�
 | Bundle Protocol contract/security regression | реализовано |
 | Compose build/smoke | реализовано |
 | Final `quality-gate` | реализовано |
-| Skopeo/Helm disposable-registry integration | ещё требуется |
-| Full SOURCE→TARGET E2E | ещё требуется после orchestration |
+| Backend static type gate | ещё требуется в #26 |
+| Dependency lock/reproducibility | ещё требуется в #26 |
+| Skopeo/Helm disposable-registry integration | ещё требуется в #26 |
+| Isolated full SOURCE→TARGET E2E | ещё требуется в #28 |
 | Release/offline-install gate | ещё требуется в #28 |
 
 ## 11. Test selection examples
@@ -398,9 +402,8 @@ PR scope определяется от merge base, поэтому уже merged 
 - reproducible Python dependency lock/constraints;
 - frontend lockfile;
 - optional Markdown anchor validation, если будет оправдано;
-- Skopeo/Helm local-registry integration;
-- import/export orchestration integration;
-- final SOURCE→TARGET E2E;
+- Skopeo/Helm disposable local-registry integration;
+- isolated cross-contour SOURCE→TARGET release E2E;
 - offline release/install acceptance.
 
-Они должны добавляться вместе с соответствующими implementation tasks и реальными fail-able tests, а не placeholder jobs.
+Первые четыре quality/reproducibility направления относятся к #26; финальная release qualification — к #28. Они должны добавляться вместе с реальными fail-able tests, а не placeholder jobs.
