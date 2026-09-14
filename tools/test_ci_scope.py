@@ -246,12 +246,14 @@ class CiScopeTest(TestCase):
             Scope(protocol=True, docs=True),
         )
 
-    def test_deploy_markdown_runs_compose_and_docs(self):
+    def test_deploy_markdown_runs_only_docs(self):
         root = self._root()
-        self.assertEqual(
-            classify_paths(["deploy/README.md"], root=root),
-            Scope(compose=True, docs=True),
-        )
+        for path in ("deploy/README.md", "deploy/offline/README.md"):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    classify_paths([path], root=root),
+                    Scope(docs=True),
+                )
 
     def test_nested_frontend_entrypoint_is_compose_scope(self):
         root = self._root()
