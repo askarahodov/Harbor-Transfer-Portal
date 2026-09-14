@@ -2,7 +2,7 @@
 
 **Статус:** актуальная эксплуатационная инструкция для текущего development/runtime Compose v1.
 
-Этот документ описывает администрирование одной установки Harbor Transfer Portal в контуре `SOURCE` или `TARGET`: первичный запуск, локальных пользователей, подключение локального Harbor, credentials/CA, ключи Bundle v1, persistent data, backup/restore и операционные лимиты.
+Этот документ описывает администрирование одной установки Harbor Transfer Portal в контуре `SOURCE` или `TARGET`: первичный запуск, локальных пользователей, подключение локального Harbor, credentials/CA, transfer policies, ключи Bundle v1, persistent data, backup/restore и операционные лимиты.
 
 Он **не является финальной инструкцией offline installation kit**. Готовая поставка, upgrade/uninstall workflow и clean-VM acceptance относятся к задаче #28. Нормативный формат переносимого пакета определяется [Offline Bundle Protocol v1](offline-bundle-v1.md), а security/trust model — [security.md](security.md).
 
@@ -57,7 +57,7 @@ PORTAL_CONTOUR=TARGET
 - Portal не должен получать глобальные Harbor admin privileges только «для удобства»;
 - доступ должен быть ограничен локальным Harbor текущего контура.
 
-Точная минимальная Harbor RBAC matrix для feature-specific export/import должна быть повторно проверена при стабилизации #17 и #19. Пока orchestration не завершена, не фиксируйте широкую роль Harbor Administrator как обязательное требование продукта.
+SOURCE browse/export и TARGET preview/import уже используют эти локальные credentials. Не расширяйте Harbor роль шире фактического project/repository scope только ради устранения отдельного `403`.
 
 ## 4. Подготовка `.env`
 
@@ -96,6 +96,7 @@ HARBOR_MANAGED_SECRET_FILE=./data/secrets/harbor-password
 HARBOR_MANAGED_CA_FILE=./data/secrets/harbor-ca.pem
 BUNDLE_SIGNING_PRIVATE_KEY_FILE=./data/keys/source-signing-private.pem
 BUNDLE_TRUSTED_PUBLIC_KEYS_DIR=./data/keys/trusted-source
+BUNDLE_KEY_MATERIAL_MAX_BYTES=65536
 OPERATION_WORKSPACE_ROOT=./data/tmp/operations
 ```
 
@@ -164,9 +165,9 @@ unset BOOTSTRAP_ADMIN_PASSWORD
 
 | Роль | Назначение |
 |---|---|
-| `admin` | настройки Portal/Harbor, управление пользователями, административная отмена операций |
-| `operator` | рабочие transfer-действия и отмена собственных операций, когда соответствующий flow реализован |
-| `viewer` | read-only доступ к разрешённой информации |
+| `admin` | настройки Portal/Harbor, управление пользователями/policies/keys, административная отмена операций |
+| `operator` | SOURCE export, TARGET intake/import и отмена собственных операций |
+| `viewer` | read-only доступ к разрешённой истории/отчётам и состоянию |
 
 Backend содержит admin-only API:
 
@@ -290,7 +291,29 @@ openssl pkey -in source-signing-private.pem -pubout -out source-signing-public.p
 
 Private key остаётся только на SOURCE.
 
-Передать private key в current Compose persistent volume можно через stdin:
+### 10.1. Штатная установка/rotation через browser
+
+После входа под `admin` откройте **Settings → Signing и trust keys**. В SOURCE-контуре UI показывает только:
+
+- `configured / not configured`;
+- стабильный `sha256:` fingerprint public part.
+
+Выберите PEM Ed25519 private key и подтвердите install/rotation. Backend:
+
+- ограничивает размер через `BUNDLE_KEY_MATERIAL_MAX_BYTES`;
+- разбирает и проверяет Ed25519 private key до замены;
+- сохраняет нормализованный PKCS#8 PEM атомарно в `BUNDLE_SIGNING_PRIVATE_KEY_FILE`;
+- устанавливает restrictive mode `0600`;
+- возвращает только action + fingerprint;
+- записывает audit без key material.
+
+После отправки private key **нельзя скачать/прочитать обратно через normal API/UI**. Frontend также не подставляет его обратно в form state.
+
+При rotation сначала заранее добавьте новый public key в TARGET trust set, чтобы создать overlap window, и только затем переключайте SOURCE private key.
+
+### 10.2. Deployment/break-glass fallback
+
+Ручная запись файла допустима для bootstrap/recovery, когда browser workflow недоступен, но не является предпочтительным normal lifecycle:
 
 ```bash
 docker compose exec -T backend sh -c '
@@ -299,6 +322,8 @@ docker compose exec -T backend sh -c '
   cat > /app/data/keys/source-signing-private.pem
 ' < source-signing-private.pem
 ```
+
+После ручной установки проверьте mode `0600` и SOURCE key status/fingerprint через admin Settings.
 
 Не передавайте private key:
 
@@ -309,7 +334,7 @@ docker compose exec -T backend sh -c '
 - в application log;
 - через issue/PR/chat text.
 
-Проверяйте, что файл доступен только backend user и имеет restrictive permissions, штатно `0600`.
+Подробный lifecycle: [key-management.md](key-management.md).
 
 ## 11. TARGET: trusted SOURCE public keys
 
@@ -319,7 +344,39 @@ TARGET хранит только доверенные public keys SOURCE:
 BUNDLE_TRUSTED_PUBLIC_KEYS_DIR=./data/keys/trusted-source
 ```
 
-Пример установки public key:
+Public key должен поступать по доверенному организационному каналу, отдельно от обычного доверия к самому переносимому bundle.
+
+### 11.1. Штатное управление через browser
+
+В TARGET-контуре **Settings → Signing и trust keys** позволяет администратору:
+
+- видеть trusted keys по стабильному `sha256:` fingerprint;
+- добавить/заменить Ed25519 public key;
+- включить или отключить trust;
+- удалить key;
+- видеть active/disabled state.
+
+Каждая security-sensitive mutation требует явного подтверждения. Backend принимает только валидный Ed25519 **public** key: private/malformed/oversized material отклоняется. Имена файлов создаются server-side из fingerprint; пользователь не передаёт filesystem path.
+
+Enabled keys представлены `*.pem` и потребляются тем же `BundlePackageService.verify_bundle()` path. Disabled key физически исключается из active `*.pem` set, поэтому выключение trust реально влияет на verifier.
+
+### 11.2. Rotation signing key
+
+Используйте overlap:
+
+1. создайте новую SOURCE key pair;
+2. заранее добавьте новый public key в TARGET trust set, не удаляя старый;
+3. убедитесь, что оба fingerprints active;
+4. переключите SOURCE на новый private key;
+5. выдержите окно, в котором ещё могут прибывать bundle со старой подписью;
+6. сначала disable старый TARGET public key и наблюдайте expected flow;
+7. удалите старый key только после завершения migration window.
+
+TARGET verifier поддерживает несколько одновременно enabled trusted keys.
+
+### 11.3. Deployment/break-glass fallback
+
+Legacy/manual `*.pem` в trust directory остаются совместимыми. Например:
 
 ```bash
 docker compose exec -T backend sh -c '
@@ -329,21 +386,29 @@ docker compose exec -T backend sh -c '
 ' < source-signing-public.pem
 ```
 
-Public key должен поступать по доверенному организационному каналу, отдельно от обычного доверия к самому переносимому bundle.
+Managed mutation канонизирует соответствующий legacy key по fingerprint. После ручной установки проверьте trust list через UI.
 
-### 11.1. Rotation signing key
+Подробный contract: [key-management.md](key-management.md).
 
-Используйте overlap:
+## 12. Transfer policies и limits через UI
 
-1. создайте новую SOURCE key pair;
-2. заранее добавьте новый public key в TARGET trust set, не удаляя старый;
-3. переключите SOURCE на новый private key;
-4. выдержите окно, в котором ещё могут прибывать bundle со старой подписью;
-5. удалите старый TARGET public key только после завершения этого окна.
+В admin Settings доступны поддерживаемые runtime policies:
 
-TARGET verifier поддерживает несколько trusted `*.pem`.
+- `import_allow_overwrite` — глобально разрешает отдельное explicit overwrite-действие, default `false`;
+- `import_max_upload_bytes` — browser upload limit;
+- `bundle_max_archive_bytes` — physical incoming/verifier archive limit;
+- `bundle_max_extracted_bytes`;
+- `bundle_max_member_count`;
+- `operation_disk_reserve_bytes`;
+- `operation_max_concurrent`.
 
-## 12. Persistent data layout
+Backend валидирует bounds и взаимосвязи параметров и пишет audit только с безопасными field names/classification. Большинство значений начинают действовать для последующих операций сразу; `operation_max_concurrent` имеет явную restart-required semantics, потому что текущий in-process semaphore создаётся при startup.
+
+Включение `import_allow_overwrite` **не делает overwrite автоматическим**: TARGET operator/admin всё равно должен отдельно подтвердить конфликтный execute, а `UNKNOWN/ERROR` остаются блокирующими.
+
+Подробности: [transfer-policies.md](transfer-policies.md).
+
+## 13. Persistent data layout
 
 Compose named volume `portal-data` монтируется в:
 
@@ -378,7 +443,7 @@ docker compose down -v
 
 как обычный restart/update step: эта команда удаляет named volume.
 
-## 13. Backup: что обязательно сохранять
+## 14. Backup: что обязательно сохранять
 
 Полный backup установки — не только SQLite.
 
@@ -390,15 +455,15 @@ docker compose down -v
 - TARGET: `/app/data/keys/trusted-source/`;
 - необходимые receipts/history metadata;
 - configuration, достаточная для восстановления роли установки;
-- retained incoming/outgoing packages — только если этого требует retention policy.
+- retained incoming/outgoing packages — только если этого требует организационная retention policy.
 
 Backup SOURCE с private signing key является чувствительным secret backup. Не включайте его в release archive и не храните рядом с публичным SOURCE public key как обычный несекретный artifact.
 
-## 14. Consistent backup текущего Compose
+## 15. Consistent backup текущего Compose
 
 Ниже — baseline для текущего Compose, а не финальный #28 disaster-recovery contract.
 
-### 14.1. Остановить запись
+### 15.1. Остановить запись
 
 Для согласованного snapshot остановите сервисы:
 
@@ -406,7 +471,7 @@ Backup SOURCE с private signing key является чувствительны
 docker compose stop frontend backend
 ```
 
-### 14.2. Снять archive `/app/data`
+### 15.2. Снять archive `/app/data`
 
 Создайте защищённый каталог backup на host и сохраните volume через одноразовый container того же backend image:
 
@@ -422,7 +487,7 @@ docker compose run --rm -T --no-deps \
 
 Archive содержит secrets/keys и должен храниться по политике секретных backup.
 
-### 14.3. Вернуть сервисы
+### 15.3. Вернуть сервисы
 
 ```bash
 docker compose up -d
@@ -430,17 +495,17 @@ docker compose up -d
 
 После backup проверьте health/readiness.
 
-## 15. Restore текущего Compose
+## 16. Restore текущего Compose
 
 Restore выполняйте только в ожидаемую установку с правильным `PORTAL_CONTOUR` и после проверки источника backup.
 
-### 15.1. Остановить сервисы
+### 16.1. Остановить сервисы
 
 ```bash
 docker compose stop frontend backend
 ```
 
-### 15.2. Очистить восстанавливаемый volume
+### 16.2. Очистить восстанавливаемый volume
 
 Это destructive step. Выполняйте его только после подтверждения, что выбран правильный deployment:
 
@@ -451,7 +516,7 @@ docker compose run --rm -T --no-deps \
   backend -c 'find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +'
 ```
 
-### 15.3. Восстановить archive
+### 16.3. Восстановить archive
 
 ```bash
 cat backup/portal-data-YYYYMMDD-HHMMSS.tar.gz | \
@@ -472,7 +537,7 @@ docker compose run --rm -T --no-deps \
 
 Проверьте restrictive permissions secret/private-key files перед стартом.
 
-### 15.4. Запустить и проверить
+### 16.4. Запустить и проверить
 
 ```bash
 docker compose up -d
@@ -489,7 +554,7 @@ docker compose up -d
 
 Если restore выполняется между разными версиями приложения, сначала оцените DB migration compatibility. Автоматический downgrade migrations не считается гарантированным rollback-механизмом.
 
-## 16. Upgrade текущего development/runtime Compose
+## 17. Upgrade текущего development/runtime Compose
 
 До появления финального offline release #28 используйте консервативную последовательность:
 
@@ -511,9 +576,14 @@ docker compose up -d --build
 
 Не обещайте rollback только заменой image tag: если новая версия уже изменила SQLite schema, возврат старого application image может потребовать восстановление pre-upgrade backup.
 
-## 17. Disk capacity и package limits
+## 18. Disk capacity и package limits
 
-Основные Bundle limits задаются через `.env`:
+Bundle и operation limits имеют два источника:
+
+- bootstrap/default значения в `.env`/`Settings`;
+- поддерживаемые runtime overrides из admin Settings, описанные выше.
+
+Основные Bundle settings:
 
 - `BUNDLE_MAX_ARCHIVE_BYTES`;
 - `BUNDLE_MAX_EXTRACTED_BYTES`;
@@ -521,7 +591,8 @@ docker compose up -d --build
 - `BUNDLE_MAX_PATH_BYTES`;
 - `BUNDLE_MAX_METADATA_BYTES`;
 - `BUNDLE_MAX_COMPRESSION_RATIO`;
-- `BUNDLE_MAX_TRUSTED_KEYS`.
+- `BUNDLE_MAX_TRUSTED_KEYS`;
+- `BUNDLE_KEY_MATERIAL_MAX_BYTES`.
 
 OperationManager использует:
 
@@ -542,7 +613,7 @@ OPERATION_SHUTDOWN_TIMEOUT_SECONDS=10
 
 Baseline v1 использует один backend instance и in-process `asyncio` OperationManager; Redis/Celery не используются.
 
-## 18. Restart, shutdown и фоновые операции
+## 19. Restart, shutdown и фоновые операции
 
 Resume середины Skopeo/Helm-команды после restart в v1 не поддерживается.
 
@@ -558,7 +629,7 @@ Resume середины Skopeo/Helm-команды после restart в v1 не
 
 Подробности: [operation-manager.md](operation-manager.md).
 
-## 19. Логи и audit
+## 20. Логи и audit
 
 Текущий application/runtime log доступен через Docker Compose:
 
@@ -575,24 +646,33 @@ docker compose logs -f backend frontend
 
 Не публикуйте полные logs без проверки redaction и внутренней metadata.
 
-Security-sensitive administrative changes Harbor settings/credential/CA создают `AuditEvent` в SQLite. Audit metadata содержит только безопасное описание изменённых полей; credential и содержимое CA туда не должны попадать.
+Persisted audit фиксирует security-sensitive administrative changes, включая:
+
+- Harbor settings/credential/CA;
+- локальных пользователей;
+- transfer policies;
+- SOURCE signing key install/rotation;
+- TARGET trusted-key add/replace/enable/disable/remove.
+
+Audit metadata содержит actor/action и безопасные identifiers/field names; password, Harbor credential, private key PEM и другое secret material туда не должны попадать.
 
 Каталог `/app/data/logs` зарезервирован в persistent layout, но наличие каталога не означает, что current backend автоматически пишет туда весь stdout/stderr. Источником истины для current Compose logs остаётся container logging, пока отдельная file-log policy не реализована и не документирована.
 
-## 20. Retention
+## 21. Retention
 
-Финальная retention policy для incoming/outgoing bundles, receipts и history должна определяться организационной политикой и завершёнными #17/#19/#23 flows.
+Автоматическая product retention/cleanup для incoming/outgoing bundles, receipts и history **не реализована** и не должна подразумеваться настройками UI.
 
-До этого:
+До появления отдельного tested lifecycle:
 
+- определите организационную policy хранения/backup;
 - не удаляйте `data/secrets` и key material как «временные файлы»;
 - не очищайте `READY` workspace вручную без понимания operation state;
 - не смешивайте cleanup transfer payload с backup cleanup;
 - не храните bundle бесконечно только потому, что каталог persistent.
 
-Автоматическая product retention/cleanup не должна считаться реализованной без соответствующего кода и tests.
+Если автоматическая retention понадобится, она должна получить отдельный lifecycle/code/tests/audit contract, а не появляться скрытым side effect существующей настройки.
 
-## 21. Проверка после установки или изменения конфигурации
+## 22. Проверка после установки или изменения конфигурации
 
 Минимальный административный checklist:
 
@@ -605,11 +685,12 @@ Security-sensitive administrative changes Harbor settings/credential/CA созд
 7. credential configured;
 8. TLS verification включена;
 9. private CA при необходимости установлен и connection test успешен;
-10. SOURCE имеет private signing key **или** TARGET имеет правильный trust set;
-11. persistent volume не является ephemeral bind/tmp storage;
-12. disk reserve и package limits соответствуют capacity;
-13. backup procedure проверена в контролируемой среде;
-14. `make docs-check`/CI не показывает рассинхрон документации.
+10. SOURCE имеет private signing key **или** TARGET имеет правильный enabled trust set;
+11. key fingerprint сверён по доверенному организационному каналу;
+12. transfer policies/limits соответствуют capacity и security policy;
+13. persistent volume не является ephemeral bind/tmp storage;
+14. backup procedure проверена в контролируемой среде;
+15. `make docs-check`/CI не показывает рассинхрон документации.
 
 Для repository-level Compose smoke:
 
@@ -619,29 +700,33 @@ Security-sensitive administrative changes Harbor settings/credential/CA созд
 
 Smoke test предназначен прежде всего для development/CI и не заменяет площадочный operational acceptance.
 
-## 22. Что пока не следует считать готовым
+## 23. Что пока не следует считать готовым
 
-На текущем v1 development state не заявляются как завершённые:
+Текущий application v1 уже содержит SOURCE export wizard/orchestration, TARGET intake/preview/import wizard/orchestration, History/CSV/PDF reports, admin user management, runtime transfer policies и managed signing/trust-key lifecycle.
 
-- финальный SOURCE export wizard/orchestration;
-- финальный TARGET intake/preview/import wizard/orchestration;
-- полный history/report UX;
-- production-tested retention automation;
+Отдельно **ещё не заявляются как завершённые release capabilities**:
+
+- production-tested automatic retention/cleanup;
 - финальный offline installation/upgrade/uninstall kit;
-- release-grade restore/rollback acceptance на clean VM.
+- clean-VM one-command installation acceptance;
+- release-grade restore/rollback qualification;
+- полный isolated SOURCE → physical transfer → TARGET acceptance E2E из #28.
 
-Admin Guide должен обновляться в той же итерации, когда эти области становятся фактически доступными.
+Эти ограничения не следует описывать как отсутствие текущих browser transfer flows: они относятся к release/operations qualification следующего этапа.
 
-## 23. Связанные документы
+## 24. Связанные документы
 
 - [Карта документации](README.md)
+- [User Guide](user-guide.md)
+- [Troubleshooting](troubleshooting.md)
 - [Deployment/runtime Compose](../deploy/README.md)
 - [Архитектура](architecture.md)
 - [Security/trust model](security.md)
 - [OperationManager](operation-manager.md)
+- [Transfer policies](transfer-policies.md)
+- [Key management](key-management.md)
 - [Package service и key model](package-service.md)
 - [Offline Bundle Protocol v1](offline-bundle-v1.md)
 - [Testing/CI](testing.md)
-- [Troubleshooting task #61](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/61) — до появления `docs/troubleshooting.md`.
 
 Если этот документ расходится с current code, `.env.example`, accepted ADR или `deploy/README.md`, расхождение является documentation defect и должно исправляться вместе с соответствующим изменением.
