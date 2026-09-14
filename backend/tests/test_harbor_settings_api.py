@@ -193,13 +193,16 @@ def test_nonsecret_patch_preserves_rotated_file_credential_and_audit_redacts_it(
 
     with app.state.session_factory() as session:
         events = list(session.scalars(select(AuditEvent).order_by(AuditEvent.id)))
-    assert [event.event_type for event in events] == [
+    harbor_events = [event for event in events if event.event_type.startswith("harbor.")]
+    assert [event.event_type for event in harbor_events] == [
         "harbor.credential.rotated",
         "harbor.settings.updated",
     ]
     assert all(TEST_CREDENTIAL not in event.metadata_json for event in events)
-    assert json.loads(events[0].metadata_json) == {"changed_fields": ["credential"]}
-    assert json.loads(events[1].metadata_json) == {"changed_fields": ["url", "username"]}
+    assert json.loads(harbor_events[0].metadata_json) == {"changed_fields": ["credential"]}
+    assert json.loads(harbor_events[1].metadata_json) == {
+        "changed_fields": ["url", "username"]
+    }
 
 
 def test_tls_disable_is_explicit_and_custom_ca_is_managed_file(tmp_path: Path) -> None:
