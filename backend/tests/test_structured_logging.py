@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from alembic import command
 from app.config import Settings
+from app.domain.bundle import OperationType
 from app.main import create_app
 from app.utils.logging import (
     CorrelationFilter,
@@ -76,7 +77,7 @@ def test_request_correlation_replaces_unsafe_or_oversized_id(tmp_path: Path) -> 
     assert generated.isalnum()
 
 
-def test_unexpected_500_keeps_request_id_and_hides_exception_secret(tmp_path: Path) -> None:
+def test_unexpected_500_keeps_request_id_and_redacts_exception_secret(tmp_path: Path) -> None:
     app = _migrated_app(tmp_path)
     app_logger = logging.getLogger("app")
     stream = io.StringIO()
@@ -84,7 +85,7 @@ def test_unexpected_500_keeps_request_id_and_hides_exception_secret(tmp_path: Pa
 
     @app.get("/_test/unhandled")
     def explode() -> None:
-        raise RuntimeError("password=must-never-reach-log")
+        raise RuntimeError("HARBOR_PASSWORD=must-never-reach-log")
 
     with TestClient(app) as client:
         response = client.get(
@@ -97,30 +98,50 @@ def test_unexpected_500_keeps_request_id_and_hides_exception_secret(tmp_path: Pa
     assert response.json() == {
         "error": {"code": "internal_error", "message": "Internal server error"}
     }
-    assert "must-never-reach-log" not in stream.getvalue()
+    rendered = stream.getvalue()
+    assert "must-never-reach-log" not in rendered
+    records = [json.loads(line) for line in rendered.splitlines() if line]
+    error_record = next(item for item in records if item["level"] == "ERROR")
+    assert error_record["request_id"] == "failure-request-1"
+    assert "exception" in error_record
+    assert "[REDACTED]" in error_record["exception"]
 
 
-def test_redaction_removes_bearer_password_token_and_private_key() -> None:
+def test_redaction_removes_bearer_env_secrets_bare_jwt_and_private_key() -> None:
     private_key = (
         "-----BEGIN PRIVATE KEY-----\n"
         "super-sensitive-key-material\n"
         "-----END PRIVATE KEY-----"
     )
+    bare_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcGVyYXRvciJ9.signature"
     rendered = redact_log_text(
         "Authorization: Bearer eyJ.secret.signature "
         "password=hunter2 token=opaque-token "
-        f"key={private_key}"
+        "HARBOR_PASSWORD=harbor-secret JWT_SECRET='jwt-secret' "
+        "PRIVATE_KEY=inline-secret "
+        f"raw_jwt={bare_jwt} key={private_key}"
     )
-    jsonish = redact_log_text('{"password":"json-secret","token":"json-token"}')
+    jsonish = redact_log_text(
+        '{"password":"json secret with spaces","token":"json-token"}'
+    )
 
-    assert "eyJ.secret.signature" not in rendered
-    assert "hunter2" not in rendered
-    assert "opaque-token" not in rendered
-    assert "super-sensitive-key-material" not in rendered
-    assert "json-secret" not in jsonish
-    assert "json-token" not in jsonish
+    for secret in (
+        "eyJ.secret.signature",
+        "hunter2",
+        "opaque-token",
+        "harbor-secret",
+        "jwt-secret",
+        "inline-secret",
+        bare_jwt,
+        "super-sensitive-key-material",
+        "json secret with spaces",
+        "json-token",
+    ):
+        assert secret not in rendered
+        assert secret not in jsonish
     assert "[REDACTED]" in rendered
     assert "[REDACTED]" in jsonish
+    assert "[REDACTED_JWT]" in rendered
     assert "[REDACTED_PRIVATE_KEY]" in rendered
 
 
@@ -147,14 +168,38 @@ def test_json_formatter_emits_stable_safe_fields() -> None:
     assert payload["timestamp"].endswith("+00:00")
 
 
-def test_operation_worker_task_name_seeds_operation_correlation() -> None:
-    async def probe() -> int | None:
-        task = asyncio.current_task()
-        assert task is not None
-        task.set_name("operation-314")
-        return current_operation_id()
+def test_operation_manager_propagates_context_to_helper_threads(tmp_path: Path) -> None:
+    app = _migrated_app(tmp_path)
+    manager = app.state.operation_manager
+    observed: list[int | None] = []
 
-    assert asyncio.run(probe()) == 314
+    async def scenario() -> int:
+        await manager.startup()
+        operation_id = manager.create_operation(
+            operation_type=OperationType.EXPORT,
+            actor_user_id=None,
+            actor_username="logging-test",
+        )
+
+        async def worker(_context) -> None:  # type: ignore[no-untyped-def]
+            observed.append(current_operation_id())
+            observed.append(await asyncio.to_thread(current_operation_id))
+
+        manager.submit(operation_id, worker)
+        await manager.wait(operation_id)
+        await manager.shutdown()
+        return operation_id
+
+    operation_id = asyncio.run(scenario())
+    assert observed == [operation_id, operation_id]
+    assert current_operation_id() is None
+
+
+def test_operation_log_context_resets_after_scope() -> None:
+    assert current_operation_id() is None
+    with operation_log_context(314):
+        assert current_operation_id() == 314
+    assert current_operation_id() is None
 
 
 def test_configure_logging_preserves_external_handlers_and_propagation() -> None:
