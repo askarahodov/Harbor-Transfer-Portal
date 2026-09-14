@@ -42,6 +42,33 @@ class OperationBundleResponse(BaseModel):
     sha256: str
 
 
+class OperationSummaryResponse(BaseModel):
+    id: int
+    delivery_id: str | None
+    type: OperationType
+    status: OperationStatus
+    actor_username: str
+    comment: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    error_code: str | None
+    error_message: str | None
+    total_artifacts: int
+    successful_artifacts: int
+    failed_artifacts: int
+    skipped_artifacts: int
+    conflict_artifacts: int
+    bundle: OperationBundleResponse | None
+
+
+class OperationListResponse(BaseModel):
+    items: list[OperationSummaryResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 class OperationResponse(BaseModel):
     id: int
     delivery_id: str | None
