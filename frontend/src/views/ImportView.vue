@@ -13,6 +13,11 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import type { ArtifactStatus, ImportPreviewState, OperationStatus } from '@/api/imports'
+import {
+  formatBytes,
+  formatDateTimeMedium as formatDate,
+  shortDigest as formatShortDigest,
+} from '@/presentation/format'
 import { useAuthStore } from '@/stores/auth'
 import { useImportWizardStore } from '@/stores/importWizard'
 import { useRuntimeStore } from '@/stores/runtime'
@@ -87,29 +92,8 @@ const canOfferOverwrite = computed(
   () => Boolean(wizard.preview?.overwrite_allowed && auth.canStartTransfers),
 )
 
-function formatBytes(bytes: number | null | undefined): string {
-  if (bytes === null || bytes === undefined) return 'размер неизвестен'
-  const units = ['Б', 'КиБ', 'МиБ', 'ГиБ', 'ТиБ']
-  let value = bytes
-  let index = 0
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024
-    index += 1
-  }
-  return `${value.toFixed(index === 0 ? 0 : value >= 10 ? 1 : 2)} ${units[index]}`
-}
-
-function formatDate(value: string | null | undefined): string {
-  if (!value) return '—'
-  return new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'medium',
-    timeStyle: 'medium',
-  }).format(new Date(value))
-}
-
 function shortDigest(value: string | null | undefined): string {
-  if (!value) return '—'
-  return value.length > 28 ? `${value.slice(0, 18)}…${value.slice(-8)}` : value
+  return formatShortDigest(value, { maxLength: 28, headLength: 18, tailLength: 8 })
 }
 
 function artifactLabel(item: { repository: string; reference?: string | null; name?: string | null; version?: string | null }): string {
