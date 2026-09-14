@@ -40,8 +40,11 @@ PATCH /api/settings/transfer
 После успешного PATCH backend сразу обновляет effective runtime settings для новых export/import orchestration instances. Это влияет на реальные enforcement paths:
 
 - browser upload проверяется против `import_max_upload_bytes`;
+- physical incoming/discovery не ограничивается browser upload limit и проверяет размер archive против `bundle_max_archive_bytes`;
 - overwrite проверяется server-side через `import_allow_overwrite`;
 - Bundle Protocol package verifier/builder использует archive/extracted/member limits.
+
+Это разделение позволяет держать browser upload консервативным и при этом принимать более крупный bundle через штатный air-gap incoming/media path в пределах archive limit.
 
 Значения сохраняются в SQLite metadata и переживают restart.
 
