@@ -1,6 +1,6 @@
 # Карта документации Harbor Transfer Portal
 
-Этот файл объясняет, **какой документ для чего используется** и как отличать нормативный contract от текущего описания, плана или исторического материала.
+Этот файл объясняет, **какой документ для чего используется** и как отличать нормативный contract от текущего описания, release-инструкции или исторического материала.
 
 Документация проекта ведётся на русском языке; технические identifiers, API fields, environment variables, enum и CLI commands сохраняются в исходном виде.
 
@@ -22,11 +22,12 @@
 2. принятое архитектурное решение — соответствующий ADR;
 3. current architecture/status — `architecture.md` + code/tests;
 4. feature/component — специализированный component/API/frontend doc + code/tests;
-5. runtime/deployment — `deploy/README.md` + Compose/Dockerfiles/`.env.example`;
-6. administration — `admin-guide.md` + deployment/security sources;
-7. user flow — `user-guide.md` + current frontend/backend transfer behavior;
-8. diagnostics — `troubleshooting.md` + affected component/security source;
-9. historical design document не переопределяет перечисленные sources.
+5. offline release/install — `../deploy/offline/README.md` + release scripts/qualification tests;
+6. development/runtime Compose — `../deploy/README.md` + Compose/Dockerfiles/`.env.example`;
+7. administration — `admin-guide.md` + deployment/security sources;
+8. user flow — `user-guide.md` + current frontend/backend transfer behavior;
+9. diagnostics — `troubleshooting.md` + affected component/security source;
+10. historical design document не переопределяет перечисленные sources.
 
 ## Основная карта
 
@@ -38,7 +39,7 @@
 | [user-guide.md](user-guide.md) | пошаговый browser flow SOURCE → physical transfer → TARGET для operator/viewer | актуальный |
 | [export-orchestration.md](export-orchestration.md) | SOURCE export backend/API/publication/download contract | актуальный component doc |
 | [import-orchestration.md](import-orchestration.md) | TARGET intake/verify/preview/conflict/import/receipt contract | актуальный component doc |
-| [admin-guide.md](admin-guide.md) | bootstrap, Harbor, users/policies/keys, backup/restore, limits | актуальный для current Compose; не final offline installer |
+| [admin-guide.md](admin-guide.md) | bootstrap, Harbor, users/policies/keys, offline lifecycle, backup/restore, limits | актуальный admin/runtime guide |
 | [transfer-policies.md](transfer-policies.md) | admin-managed runtime transfer policies, limits и restart semantics | актуальный component/admin doc |
 | [key-management.md](key-management.md) | SOURCE signing identity и TARGET trusted-key lifecycle/rotation | актуальный component/admin doc |
 | [troubleshooting.md](troubleshooting.md) | symptom → cause → diagnostic → safe resolution для current transfer flow | актуальный |
@@ -49,10 +50,14 @@
 | [skopeo-service.md](skopeo-service.md) | container transfer service | актуальный component doc |
 | [helm-oci-service.md](helm-oci-service.md) | Helm OCI transfer service | актуальный component doc |
 | [harbor-browse-api.md](harbor-browse-api.md) | Harbor browse projection/policies | актуальный component doc |
-| [security.md](security.md) | security/trust model и known v1 limitations | актуальный; синхронизирован после audit/admin/report workstreams |
-| [testing.md](testing.md) | test selection и CI policy | актуальный; оставшаяся P7.3 quality work отслеживается #26 |
+| [history-audit-api.md](history-audit-api.md) / [history-ui.md](history-ui.md) | history/audit backend и user-facing history UX | актуальный |
+| [reports-receipts.md](reports-receipts.md) | CSV/PDF reports и immutable import receipt | актуальный |
+| [security.md](security.md) | security/trust model и known v1 limitations | актуальный |
+| [testing.md](testing.md) | scoped test selection, integration/acceptance gates и CI policy | актуальный |
+| [release-notes-v1.0.0.md](release-notes-v1.0.0.md) | release notes v1.0.0 | актуальный release artifact |
 | [decisions.md](decisions.md) | ADR registry | актуальный registry |
-| [../deploy/README.md](../deploy/README.md) | development/runtime Compose deployment | актуальный; не final offline installer |
+| [../deploy/README.md](../deploy/README.md) | development/runtime Compose deployment | актуальный development/runtime guide |
+| [../deploy/offline/README.md](../deploy/offline/README.md) | versioned offline kit install/backup/restore/upgrade/uninstall | актуальный release/install guide |
 | [harbor-transfer-portal.md](harbor-transfer-portal.md) | исходная постановка/UI concepts/ранний plan | **исторический** |
 
 ## Текущая карта transfer flow
@@ -84,30 +89,44 @@ Backend intake/import orchestration #19 и UI wizard #20 реализованы.
 
 TARGET UI не выполняет самостоятельную cryptographic validation: checksum/schema/signature indicators являются projection успешного backend verifier. `CONFLICT` не overwrite-ится по умолчанию, а `UNKNOWN/ERROR` блокируют mutation.
 
+## Offline release и qualification v1.0.0
+
+Offline release workflow реализован. В контролируемой build/release среде создаются versioned backend/frontend images и immutable installation archive; закрытый контур загружает уже собранные images и запускает их без online build/pull.
+
+Основные sources:
+
+- [../deploy/offline/README.md](../deploy/offline/README.md) — установка и lifecycle;
+- [offline-lifecycle.md](offline-lifecycle.md) — backup/restore/upgrade/uninstall semantics;
+- [release-notes-v1.0.0.md](release-notes-v1.0.0.md) и [../CHANGELOG.md](../CHANGELOG.md) — release identity/changes;
+- [testing.md](testing.md) — clean-host и isolated transfer qualification gates.
+
+CI доказывает:
+
+- clean-host installation одного и того же archive в `SOURCE` и `TARGET`;
+- сохранение persistent state после rerun/restart;
+- отсутствие runtime pull/build зависимости;
+- полный isolated SOURCE → signed bundle → physical boundary → TARGET flow с реальными Skopeo/Helm adapters;
+- image digest verification, Helm verification semantics, receipt/history/report;
+- replay skip, conflict default-deny и tamper rejection до registry mutation;
+- согласованность release version между OCI image labels, installation metadata и `/api/health`.
+
+Родительская задача #28 остаётся tracker release qualification и закрывается только после финального documentation/status audit; сами перечисленные capabilities уже реализованы и не являются future work.
+
 ## Пользовательская и эксплуатационная документация v1
 
-Родительская задача: #27.
+P7.4/current-source documentation work завершён. Реализованные application slices и release qualification отражены в текущих источниках:
 
-Декомпозиция P7.4 выполнена:
-
-- #55 — architecture/separation historical master-document — выполнено;
-- #56 — security/trust model — выполнено;
-- #57 — deployment/config/credential/key synchronization — выполнено;
-- #58 — ADR/docs hygiene и карта документации — выполнено;
-- #59 — `user-guide.md` для operator/viewer — выполнено;
-- #60 — `admin-guide.md` — выполнено;
-- #61 — `troubleshooting.md` — выполнено и синхронизировано с current SOURCE/TARGET flow;
-- #67 — automated documentation link gate — выполнено;
-- #71 — OperationManager architecture synchronization — выполнено;
-- #68 — root README current-state — выполнено;
-- #17 — SOURCE backend export — выполнено;
-- #18 — SOURCE export wizard — выполнено;
-- #19 — TARGET backend import orchestration — выполнено;
-- #20 — TARGET import wizard — выполнено;
-- #23 — admin users/policies/signing/trust-key console — выполнено;
-- #21/#25 — audit/history и reports/receipts — отражены в current security/admin/user docs.
-
-P7.4 считается завершённым **current-source documentation review checkpoint** для текущего application/runtime Compose. Это не означает release qualification: финальный offline installer, clean-VM procedure и isolated SOURCE → physical transfer → TARGET acceptance E2E остаются отдельной задачей #28. Quality/reproducibility work P7.3 остаётся в #26.
+- #17/#18 — SOURCE backend export + wizard;
+- #19/#20 — TARGET backend import + wizard;
+- #21/#25 — audit/history, reports/receipts;
+- #23 — admin users/policies/signing/trust-key console;
+- #26 — scoped CI/quality strategy, coverage/type/dependency/integration gates;
+- #27 — user/admin/troubleshooting documentation;
+- #144/#147 — offline kit foundation и hardening;
+- #150/#151 — backup/upgrade/uninstall и verified restore;
+- #153 — clean-host offline install qualification;
+- #156 — isolated SOURCE → TARGET acceptance;
+- #158 — v1.0.0 release identity, UI/API/bundle visibility, changelog/release notes.
 
 ## Автоматическая проверка документации
 
@@ -140,7 +159,7 @@ Path-aware CI включает `Documentation — local links`; результа
 | Operation/history/report state | architecture + user/admin/troubleshooting docs |
 | Stable user-facing error code | troubleshooting + affected guide/component doc |
 | CI/test policy | testing + workflow docs |
-| Release/install | deployment + admin + release notes/checklist |
+| Release/install | offline deployment + admin + release notes/checklist |
 
 ## Как документировать незавершённую функцию
 

@@ -1,21 +1,26 @@
-# Развертывание через Docker Compose
+# Развертывание Harbor Transfer Portal через Docker Compose
 
-**Статус:** документация текущего development/runtime Compose для Harbor Transfer Portal v1.
+**Статус:** актуальная deployment-документация baseline **v1.0.0**.
 
-Этот документ описывает одиночную установку в контуре `SOURCE` или `TARGET`. Он **не является финальной инструкцией offline installation kit**: готовый поставочный archive, install/upgrade/uninstall workflow и clean-VM acceptance относятся к задаче #28.
+В проекте существуют два разных workflow, которые нельзя смешивать:
+
+1. **development/runtime Compose** из корня repository — может собирать images и использовать внешние build dependencies;
+2. **offline release kit** — versioned archive с заранее собранными images, предназначенный для установки в закрытом контуре без internet/pull/build.
+
+Production/offline процедура: [deploy/offline/README.md](offline/README.md). Этот документ в основном описывает topology, configuration и development Compose.
 
 ## 1. Runtime-модель
 
-Одна установка содержит два сервиса:
+Одна установка содержит два application services:
 
-- `backend` — FastAPI, SQLite access, Skopeo, Helm и transfer services; доступен только во внутренней Compose network;
+- `backend` — FastAPI, SQLite, Skopeo, Helm, migrations и transfer services; доступен только во внутренней Compose network;
 - `frontend` — Nginx со собранным Vue SPA и reverse proxy `/api/` на backend.
 
 Хостовый HTTP-порт публикует только frontend. Браузер обращается к API same-origin через Nginx.
 
-Каждый backend получает настройки и credentials **только своего локального Harbor**. Конфигурация Harbor, `DATABASE_URL`, `JWT_SECRET`, signing private key и managed secrets во frontend-контейнер не передаются.
+Каждый backend получает настройки и credentials **только своего локального Harbor**. SOURCE и TARGET — две независимые установки. Одна installation не должна хранить credentials противоположного Harbor или создавать прямой сетевой путь между контурами.
 
-Обе роли используют одни и те же application images. Роль экземпляра задаётся:
+Роль задаётся:
 
 ```text
 PORTAL_CONTOUR=SOURCE
@@ -27,30 +32,42 @@ PORTAL_CONTOUR=SOURCE
 PORTAL_CONTOUR=TARGET
 ```
 
-SOURCE и TARGET не настраиваются одновременно в одном экземпляре.
+## 2. Development Compose и offline release
 
-## 2. Важное различие: development Compose и offline release
+### Development/runtime Compose
 
-Текущий `docker compose build` может обращаться к внешним источникам build dependencies. Это допустимо только в контролируемой build/release среде.
+Корневой `compose.yaml` содержит `build:` sections. Backend image build может получать pinned Helm archive и OS/Python dependencies, frontend build — npm dependencies. Поэтому `docker compose up -d --build` допустим только там, где build environment имеет необходимые разрешённые источники.
 
-В закрытом контуре штатный runtime должен запускаться из **заранее собранных и доставленных images**. Финальный offline release не должен требовать PyPI/npm/apt/get.helm.sh для установки на закрытой площадке.
+### Offline release
 
-Поэтому:
+Release build выполняется заранее в контролируемой среде:
 
-- для разработки используется текущий Compose build;
-- для финального air-gap deployment задача #28 должна сформировать prebuilt offline kit;
-- успешный development `docker compose up -d --build` сам по себе не означает готовность production offline installer.
+```bash
+./deploy/build-release-images.sh 1.0.0
+./deploy/build-offline-kit.sh 1.0.0
+```
+
+Kit содержит versioned backend/frontend image tar, image-only Compose, installer/lifecycle scripts, configuration template, checksums, release manifest, changelog и release notes.
+
+В закрытом контуре `install.sh` использует `docker load` и запускает Compose с:
+
+```text
+--no-build --pull never
+```
+
+Release Compose дополнительно задаёт `pull_policy: never`. Runtime не должен обращаться к PyPI/npm/apt/get.helm.sh/CDN.
+
+Полная инструкция: [offline/README.md](offline/README.md).
 
 ## 3. Persistent volume
 
 Named volume `portal-data` монтируется backend в `/app/data`.
 
-Текущая структура runtime данных включает:
+Типовая структура:
 
 ```text
 /app/data/
 ├── harbor-transfer-portal.db
-├── database/
 ├── packages/
 ├── incoming/
 ├── outgoing/
@@ -61,181 +78,134 @@ Named volume `portal-data` монтируется backend в `/app/data`.
 └── tmp/
 ```
 
-Часть каталогов создаётся по мере использования соответствующих функций.
+Backend image работает под UID/GID `10001` (`htp`). Runtime files, которые приложение должно менять, должны оставаться доступны этому пользователю.
 
-Backend image работает не от root, а под UID/GID `10001` (`htp`). Все runtime-файлы, которые приложение должно изменять, должны быть доступны этому пользователю.
-
-`docker compose down` сохраняет named volume. Команда:
+Обычный:
 
 ```bash
-docker compose down -v
+docker compose down
 ```
 
-удаляет volume вместе с постоянными данными и не должна использоваться, если данные требуется сохранить.
+не удаляет named volume. Команда `docker compose down -v` удаляет persistent data и не является штатным restart/update step.
 
-## 4. Подготовка `.env`
+Offline release использует стабильное Compose project name `harbor-transfer-portal`, поэтому volume identity не зависит от versioned каталога kit.
 
-Создайте локальный файл конфигурации:
+## 4. Development `.env`
+
+Для локальной разработки:
 
 ```bash
 cp .env.example .env
 ```
 
-`.env` исключён из Git и Docker build context.
-
-Перед первым запуском проверьте как минимум:
-
-- `PORTAL_CONTOUR=SOURCE` или `PORTAL_CONTOUR=TARGET`;
-- `PORTAL_HTTP_PORT` при необходимости;
-- `HARBOR_URL` для локального Harbor;
-- `HARBOR_USER` для local service account / пользователя;
-- `HARBOR_VERIFY_TLS=true` в штатной конфигурации;
-- уникальный `JWT_SECRET` длиной не менее 32 случайных символов;
-- `DATABASE_URL`, только если используется путь, отличный от стандартного SQLite;
-- security/resource limits, если политика установки требует отличий от `.env.example`.
-
-Не коммитьте реальные passwords, tokens, `JWT_SECRET`, private signing keys или закрытые сертификаты.
-
-## 5. Harbor configuration: bootstrap и managed state
-
-Текущая модель следует [ADR-005](../docs/adr/ADR-005-harbor-secrets-tls.md).
-
-### 5.1. Non-secret bootstrap
-
-Для первого запуска достаточно задать non-secret connection metadata:
+Проверьте как минимум:
 
 ```text
+PORTAL_CONTOUR=SOURCE|TARGET
+PORTAL_HTTP_PORT=8080
 HARBOR_URL=https://harbor.local.example
-HARBOR_USER=replace-with-local-harbor-user
+HARBOR_USER=<local-service-account>
 HARBOR_VERIFY_TLS=true
+JWT_SECRET=<unique-random-secret-at-least-32-chars>
 ```
 
-После создания локального admin предпочтительный путь — сохранить/изменить Harbor settings через web UI `Настройки локального Harbor`.
+`.env` исключён из Git и build context. Не коммитьте реальные passwords, tokens, `JWT_SECRET`, private signing keys, backup archives или private certificates.
 
-UI поддерживает:
+В offline kit `.env` не поставляется: installer создаёт его локально и генерирует случайный JWT secret, не перезаписывая существующий regular file молча.
 
-- URL;
-- username/service account;
-- TLS verification flag;
-- отдельную установку/rotation Harbor credential;
-- загрузку/removal custom CA;
-- проверку соединения.
+## 5. Local Harbor configuration
 
-Изменения effective settings применяются без restart backend.
+После bootstrap admin предпочтительный путь — настроить local Harbor через web UI **«Настройки локального Harbor»**.
 
-### 5.2. Harbor credential: предпочтительный managed flow
+Поддерживаются:
 
-В новой установке не рекомендуется хранить Harbor password как постоянное значение в `.env`.
+- URL local Harbor;
+- service-account username;
+- managed credential installation/rotation;
+- TLS verification;
+- custom CA upload/removal;
+- connection test.
 
-При установке/rotation через admin UI backend записывает credential в file-backed managed secret:
+Предпочтительный persistent credential path:
 
 ```text
 HARBOR_MANAGED_SECRET_FILE=./data/secrets/harbor-password
 ```
 
-Файл создаётся с restrictive permissions и находится в persistent volume. Значение не возвращается обратно в API/UI после сохранения.
-
-### 5.3. Bootstrap credential fallbacks
-
-Backend поддерживает следующий fallback order:
+Fallback order backend:
 
 1. managed credential file;
 2. `HARBOR_PASSWORD_FILE`;
 3. `HARBOR_PASSWORD` environment.
 
-`HARBOR_PASSWORD_FILE` подходит для deployment-managed secret, если конкретная Compose/оркестрационная конфигурация **явно монтирует** такой файл в backend. Базовый `compose.yaml` сам по себе отдельный secret mount не создаёт.
+`HARBOR_PASSWORD` — bootstrap compatibility, а не рекомендуемое постоянное production storage.
 
-`HARBOR_PASSWORD` остаётся compatibility/bootstrap fallback, но не является предпочтительным постоянным production storage.
+## 6. TLS и private CA
 
-## 6. TLS и custom CA
-
-TLS verification должна оставаться включённой:
+Штатно:
 
 ```text
 HARBOR_VERIFY_TLS=true
 ```
 
-При private PKI предпочтительный путь после первого входа:
-
-1. открыть admin Settings;
-2. загрузить PEM/CRT CA bundle;
-3. выполнить `Проверить подключение`;
-4. убедиться, что TLS verification остаётся включённой.
-
-Portal-managed CA хранится в:
+Для private PKI загрузите PEM/CRT CA bundle через admin Settings и выполните connection test. Managed CA хранится в persistent data:
 
 ```text
 HARBOR_MANAGED_CA_FILE=./data/secrets/harbor-ca.pem
 ```
 
-Deployment fallback `HARBOR_CA_FILE` также поддерживается, если deployment самостоятельно монтирует файл в backend.
+`HARBOR_VERIFY_TLS=false` не является штатным способом исправить x509/private-CA проблему. Silent fallback на insecure TLS отсутствует.
 
-`HARBOR_VERIFY_TLS=false` не является штатным исправлением x509/private CA проблемы. Silent fallback на insecure TLS отсутствует.
+## 7. Signing и trust keys
 
-## 7. Запуск Compose
+SOURCE хранит Ed25519 private signing key только локально. TARGET хранит только trusted SOURCE public keys.
 
-Проверьте итоговую конфигурацию:
+Нормальный lifecycle выполняется через **Settings → Signing и trust keys**. Key material валидируется backend; normal API/UI не возвращает SOURCE private key после сохранения.
+
+Private signing key запрещено включать в delivery bundle или offline installation kit.
+
+Подробности: [key-management.md](../docs/key-management.md).
+
+## 8. Development start
+
+Проверьте Compose:
 
 ```bash
 docker compose config
 ```
 
-Для development build/start:
+Запуск development build:
 
 ```bash
 docker compose up -d --build
 ```
 
-или через Make:
+или:
 
 ```bash
 make compose-config
 make up
 ```
 
-Портал доступен на:
+Portal доступен на:
 
 ```text
 http://localhost:${PORTAL_HTTP_PORT:-8080}
 ```
 
-Backend health через reverse proxy:
+Health endpoints:
 
 ```text
 /api/health
-```
-
-Nginx health:
-
-```text
+/api/ready
 /healthz
 ```
 
-## 8. Миграции
+Backend entrypoint применяет Alembic migrations до запуска API. Migration failure не маскируется как healthy startup.
 
-Перед запуском Uvicorn backend entrypoint выполняет:
+## 9. Bootstrap administrator
 
-```text
-python -m alembic -c /app/alembic.ini upgrade head
-```
-
-Alembic использует `DATABASE_URL` из environment, если он задан. При ошибке migration backend не начинает обслуживать API.
-
-Smoke test дополнительно проверяет migration heads через Alembic.
-
-Стандартный:
-
-```text
-DATABASE_URL=sqlite:///./data/harbor-transfer-portal.db
-```
-
-соответствует `/app/data/harbor-transfer-portal.db` внутри persistent volume.
-
-## 9. Первичный администратор
-
-После первого запуска создайте local bootstrap admin через CLI.
-
-Пароль передаётся только через временную environment variable процесса команды и не должен записываться в `.env.example`:
+В development/runtime Compose local admin можно создать так:
 
 ```bash
 export BOOTSTRAP_ADMIN_PASSWORD='replace-with-a-strong-password'
@@ -245,170 +215,91 @@ docker compose exec -T \
 unset BOOTSTRAP_ADMIN_PASSWORD
 ```
 
-Команда идемпотентна: существующему bootstrap admin пароль автоматически не перезаписывается.
+Не помещайте password в repository/script arguments. После bootstrap используйте web UI для local users, Harbor settings, policies и keys.
 
-После входа под admin настройте local Harbor через Settings и выполните connection test.
+## 10. SOURCE/TARGET operator flow
 
-## 10. SOURCE: signing private key
-
-SOURCE требует Ed25519 private signing key для создания Bundle v1.
-
-Ключ генерируется **на административной машине**, а не внутри delivery bundle. Пример из package service documentation:
-
-```bash
-umask 077
-openssl genpkey -algorithm ED25519 -out source-signing-private.pem
-openssl pkey -in source-signing-private.pem -pubout -out source-signing-public.pem
-```
-
-Private key должен остаться только в SOURCE.
-
-Стандартный backend path:
+После configuration штатная передача не требует CLI Skopeo/Helm:
 
 ```text
-BUNDLE_SIGNING_PRIVATE_KEY_FILE=./data/keys/source-signing-private.pem
+SOURCE browser
+  → local Harbor selection
+  → signed bundle + .sha256 download
+  → approved physical transfer
+TARGET browser
+  → upload/discovery
+  → signature/checksum/schema preview
+  → NEW/SAME/CONFLICT decision
+  → import
+  → receipt/history/reports
 ```
 
-Для текущего Compose private key можно безопасно передать через stdin в persistent volume от имени штатного container user:
+Подробности: [user-guide.md](../docs/user-guide.md).
 
-```bash
-docker compose exec -T backend sh -c '
-  umask 077
-  mkdir -p /app/data/keys
-  cat > /app/data/keys/source-signing-private.pem
-' < source-signing-private.pem
-```
+## 11. Backup / restore / upgrade / uninstall
 
-Не выводите private key в shell arguments, logs или PR/issue text.
-
-Публичную половину key pair передайте на TARGET доверенным организационным способом отдельно от private key.
-
-## 11. TARGET: trusted SOURCE public keys
-
-TARGET не получает SOURCE private key. Он хранит только trusted SOURCE public keys.
-
-Стандартный trust directory:
+Для production/offline install используйте scripts, поставляемые kit:
 
 ```text
-BUNDLE_TRUSTED_PUBLIC_KEYS_DIR=./data/keys/trusted-source
+backup.sh
+restore.sh
+upgrade.sh
+uninstall.sh
 ```
 
-Установить public key в текущий Compose можно так:
+Backup включает `.env` и `/app/data`, поэтому содержит secrets и требует защищённого хранения. Restore требует matching-version kit и explicit destructive confirmation. Upgrade всегда создаёт pre-upgrade backup; автоматический Alembic downgrade/rollback не обещается.
+
+Подробности: [offline/README.md](offline/README.md) и [offline-lifecycle.md](../docs/offline-lifecycle.md).
+
+## 12. Logging и diagnostics
+
+Compose использует `json-file` logging с bounded rotation. Application logs должны сохранять request/operation correlation и не раскрывать credentials, JWT, key material или raw secret-bearing command data.
+
+При проблемах проверяйте:
 
 ```bash
-docker compose exec -T backend sh -c '
-  umask 077
-  mkdir -p /app/data/keys/trusted-source
-  cat > /app/data/keys/trusted-source/source-2026.pem
-' < source-signing-public.pem
+docker compose ps
+docker compose logs backend
+docker compose logs frontend
 ```
 
-Verifier поддерживает несколько `*.pem`, что позволяет выполнить key rotation с overlap.
+а затем используйте [troubleshooting.md](../docs/troubleshooting.md).
 
-Порядок rotation:
+## 13. Release identity
 
-1. создать новую key pair на SOURCE;
-2. заранее установить новый public key на TARGET, сохранив старый;
-3. переключить SOURCE на новый private key;
-4. выдержать операционное окно старых delivery;
-5. затем удалить старый public key из trust set.
+Canonical product version baseline v1 — `1.0.0`. Release tooling проверяет согласованность:
 
-Подробности: [package-service.md](../docs/package-service.md) и [security.md](../docs/security.md).
+- backend package/runtime version;
+- backend/frontend image tags;
+- OCI `org.opencontainers.image.version`;
+- OCI `org.opencontainers.image.revision`;
+- `release-version.txt`;
+- `release-manifest.json`;
+- runtime `/api/health.version`;
+- UI runtime version;
+- SOURCE Bundle `source.portal_version`.
 
-## 12. Bundle/runtime limits
+Packaging stale image от другого source revision должен fail closed.
 
-`.env.example` содержит server-side limits, в том числе:
+## 14. CI / qualification
 
-- `BUNDLE_MAX_ARCHIVE_BYTES`;
-- `BUNDLE_MAX_EXTRACTED_BYTES`;
-- `BUNDLE_MAX_MEMBER_COUNT`;
-- `BUNDLE_MAX_PATH_BYTES`;
-- `BUNDLE_MAX_METADATA_BYTES`;
-- `BUNDLE_MAX_COMPRESSION_RATIO`;
-- `BUNDLE_MAX_TRUSTED_KEYS`;
-- Skopeo/Helm timeout и retained output limits.
-
-Не увеличивайте лимиты только для того, чтобы malformed/неожиданно большой bundle прошёл verification. Изменение лимитов требует оценки disk/capacity/security impact.
-
-## 13. Build-time dependencies и offline runtime
-
-Текущий backend/frontend build использует внешние источники, включая:
-
-- `python:3.12.14-slim-bookworm`;
-- `node:22.23.2-alpine3.24`;
-- `nginx:1.30.1-alpine`;
-- Debian bookworm repositories для Skopeo/CA/tar/gzip;
-- Python package index;
-- npm registry;
-- `get.helm.sh` для Helm `v3.22.0` на build stage.
-
-Helm archive проверяется по architecture-specific SHA-256 до установки. Backend image поддерживает `linux/amd64` и `linux/arm64` в рамках текущего Dockerfile.
-
-После сборки или загрузки готовых images обычный restart не должен загружать runtime dependencies из интернета.
-
-Финальная offline-поставка должна распространять prebuilt images и проверяемый install payload; это будет завершено в #28.
-
-## 14. Проверка развертывания
-
-Scoped smoke test:
+Development/runtime smoke:
 
 ```bash
-./deploy/smoke-compose.sh
+make smoke-compose
 ```
 
-Он проверяет:
+Release-sensitive paths дополнительно включают:
 
-- `docker compose config`;
-- build и healthy state обоих сервисов;
-- `/api/` proxy и runtime contour config;
-- нахождение DB на текущих Alembic migration heads;
-- запуск backend под UID `10001`;
-- ожидаемые версии Skopeo и Helm;
-- отсутствие `HARBOR_*`, `JWT_SECRET` и `DATABASE_URL` во frontend environment;
-- сохранение marker после restart;
-- сохранение marker после `docker compose down` и повторного `up`;
-- запуск тех же уже собранных images в противоположном SOURCE/TARGET contour через `--no-build --pull never`.
+- Skopeo/Helm disposable-registry integration;
+- clean-host offline installation qualification;
+- isolated SOURCE → physical bundle → TARGET acceptance;
+- final `quality-gate`.
 
-Последний этап подтверждает, что повторный runtime start не требует rebuild/pull.
+Clean-host qualification реально удаляет release-tagged images до install phase и проверяет один и тот же archive в SOURCE/TARGET. Isolated acceptance использует независимые local registries и не оставляет TARGET прямой зависимости от SOURCE fixture.
 
-## 15. Что входит в backup
+Test-selection policy: [testing.md](../docs/testing.md).
 
-Полный backup установки — не только SQLite.
+## 15. Что не является production contract
 
-Минимально учитывать нужно разные классы данных:
-
-- SQLite database;
-- portal-managed `data/secrets`;
-- SOURCE signing private key **или** TARGET trusted public keys;
-- receipts/history metadata, когда соответствующие функции используются;
-- configuration needed to reconstruct installation;
-- retained incoming/outgoing packages — только согласно принятой retention policy.
-
-Не помещайте пользовательские secrets/private keys в публичный release archive.
-
-Полная backup/restore/upgrade процедура относится к [admin guide #60](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/60) и release task #28. До их завершения не считайте этот раздел гарантией протестированного disaster-recovery процесса.
-
-## 16. Безопасное удаление/пересоздание
-
-Перед destructive Compose operations определите, требуется ли сохранить `portal-data`.
-
-Не используйте `docker compose down -v` как обычный restart/update step.
-
-При переустановке не удаляйте автоматически:
-
-- SQLite;
-- managed Harbor credential/CA;
-- signing/trust keys;
-- history/receipts, которые должны сохраняться по политике.
-
-## 17. Связанные документы
-
-- [Архитектура](../docs/architecture.md)
-- [Security/trust model](../docs/security.md)
-- [ADR-005: Harbor secrets/TLS](../docs/adr/ADR-005-harbor-secrets-tls.md)
-- [Package service / key model](../docs/package-service.md)
-- [Offline Bundle Protocol v1](../docs/offline-bundle-v1.md)
-- [Testing/CI](../docs/testing.md)
-- [Паспорт проекта](../docs/project-passport.md)
-
-Если deployment guide расходится с current code, `.env.example` или принятым ADR, такое расхождение считается documentation defect и должно исправляться вместе с соответствующей итерацией.
+Корневой development `compose.yaml` и `docker compose up -d --build` удобны для разработки, но не заменяют offline release artifact. Закрытая production площадка должна получать заранее построенный versioned kit и выполнять local install/lifecycle по `deploy/offline/README.md`.

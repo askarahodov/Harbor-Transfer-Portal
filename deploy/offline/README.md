@@ -1,8 +1,9 @@
 # Harbor Transfer Portal — offline install kit
 
-Этот каталог является шаблоном release payload для закрытого контура. Финальный kit создаётся из **уже собранных** Docker images командой из корня репозитория:
+Этот каталог является шаблоном release payload для закрытого контура. Финальный kit создаётся из **уже собранных release images** в контролируемой build/release среде:
 
 ```bash
+./deploy/build-release-images.sh 1.0.0
 ./deploy/build-offline-kit.sh 1.0.0
 ```
 
@@ -12,6 +13,8 @@
 dist/harbor-transfer-portal-v1.0.0-offline-install.tar.gz
 dist/harbor-transfer-portal-v1.0.0-offline-install.tar.gz.sha256
 ```
+
+Packaging fail-closed проверяет canonical product version и OCI `org.opencontainers.image.version`/`revision` labels, поэтому stale или несовместимые images нельзя молча включить в текущий release archive.
 
 ## Установка в закрытом контуре
 
@@ -46,6 +49,8 @@ Installer:
 Release Compose использует стабильное имя проекта `harbor-transfer-portal`. Поэтому named volume `portal-data` имеет одну и ту же Compose identity независимо от versioned каталога, в который распакован kit. Это важно для безопасного lifecycle.
 
 После первого запуска настройте через admin UI **только локальный Harbor этого контура**, CA/credentials, а также SOURCE signing key или TARGET trusted SOURCE public keys.
+
+Полный штатный пользовательский перенос выполняется через browser: SOURCE выбирает артефакты и скачивает bundle + `.sha256`, файлы физически переносятся в TARGET, затем TARGET выполняет verify/preview/import через UI. Пошаговая процедура описана в `docs/user-guide.md` внутри repository documentation.
 
 ## Backup
 
@@ -116,4 +121,14 @@ PORTAL_CONFIRM_PURGE=DELETE_PORTAL_DATA ./uninstall.sh --purge-data
 
 Release payload не содержит `.env`, Harbor credentials, JWT secret, SOURCE private key, TARGET trust material, SQLite DB, receipts/history, backup archives или другие пользовательские данные.
 
-Packaging/install/lifecycle/recovery contract проверяется deterministic smoke. Полный clean-VM test и SOURCE → physical bundle → TARGET acceptance E2E выполняются отдельными следующими slices P8.1 (#28).
+Release payload включает version metadata, checksums, changelog/release notes и on-site documentation. User secrets создаются или настраиваются только в локальной установке.
+
+## Автоматическая release qualification
+
+Offline release contract не основан только на документации. CI содержит отдельные fail-able gates:
+
+- deterministic offline-kit/lifecycle smoke проверяет checksums, no-pull/no-build semantics, idempotent install, backup/restore/upgrade/uninstall и fail-closed version identity;
+- **Offline release — clean-host install qualification** собирает immutable kit, удаляет release images из runner и устанавливает один и тот же archive сначала как SOURCE, затем как TARGET; проверяет health, Alembic, Skopeo/Helm, version identity и сохранение persistent state после rerun/restart;
+- **Acceptance — isolated SOURCE → TARGET transfer** проверяет реальный image + Helm chart через SOURCE export, signed physical bundle boundary и отдельный TARGET registry, включая receipt/history/report, replay `SKIPPED`, conflict default-deny и tamper rejection до mutation.
+
+Эти gates входят в общий CI `quality-gate` для соответствующего release/transfer scope. Они уже реализованы и являются частью v1 release qualification, а не будущей работой.
