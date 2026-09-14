@@ -58,6 +58,14 @@ Checker использует только Python stdlib и проверяет re
 
 External HTTP(S)/mailto/tel/data links не проверяются по сети. Это осознанно: docs-only CI не должен становиться flaky из-за третьего сайта или отсутствия internet access.
 
+### Scoped CI selection
+
+```bash
+make ci-scope-check
+```
+
+Gate запускает stdlib-only regression suite `tools.test_ci_scope` для единого classifier `tools/ci_scope.py`. Тот же classifier вызывается непосредственно job `scope`, поэтому тесты и production CI selection не расходятся на две независимые реализации.
+
 ### Bundle Protocol / security regression
 
 Для protocol/schema/domain изменений минимум:
@@ -199,7 +207,9 @@ Integration fixture должен быть локальным/disposable и не 
 
 ## 5. Path-aware GitHub Actions
 
-Текущий workflow `.github/workflows/ci.yml` вычисляет область diff и выставляет outputs:
+Текущий workflow `.github/workflows/ci.yml` сохраняет event-specific discovery changed files, а path → CI-area policy вынесена в `tools/ci_scope.py`. Это один источник истины для runtime selection и regression tests.
+
+Classifier выставляет outputs:
 
 - `backend`;
 - `frontend`;
@@ -207,11 +217,15 @@ Integration fixture должен быть локальным/disposable и не 
 - `compose`;
 - `docs`.
 
+Перед вычислением outputs job `scope` всегда выполняет `make ci-scope-check`. Helper и tests используют только Python stdlib и не требуют pip/npm/network.
+
 ### PR diff semantics
 
 Для pull request changed files вычисляются относительно **merge base** base/head, а не прямым `base.sha → head.sha` diff.
 
 Это важно для отставшей, но неконфликтующей ветки: изменения, которые уже попали в `main` после создания branch, не должны ошибочно считаться «изменениями PR» и запускать unrelated jobs.
+
+Merge-base/push/workflow-dispatch discovery остаётся в `.github/workflows/ci.yml`; helper классифицирует уже найденный список путей и не изменяет Git semantics.
 
 ### Backend scope
 
@@ -248,6 +262,10 @@ Integration fixture должен быть локальным/disposable и не 
 ### Workflow self-test
 
 Изменение `.github/workflows/ci.yml` включает все уже существующие applicable areas, включая documentation, чтобы workflow не мог изменить собственную логику без реальных checks.
+
+После classification каждый area дополнительно gated наличием соответствующего компонента в проверяемой ревизии. Поэтому optional component, которого физически нет, не создаёт ложный job даже при workflow self-test.
+
+Regression suite отдельно фиксирует docs-only, backend-only, frontend-only, backend+protocol, deploy runtime/Markdown, `Makefile`, workflow self-test, mixed diff и missing-component cases.
 
 ## 6. Documentation job
 
@@ -317,7 +335,7 @@ Python dependencies в `backend/pyproject.toml` используют совме�
 
 | Job | Статус |
 |---|---|
-| Scope detection | реализовано |
+| Scope detection | реализовано; classifier покрыт stdlib regression tests |
 | Documentation local-link gate | реализовано |
 | Backend Ruff + unit/API | реализовано |
 | Frontend lint/type/unit/build | реализовано |
@@ -381,13 +399,15 @@ PR scope определяется от merge base, поэтому уже merged 
 
 Если documentation-only path неожиданно запускает или пропускает тяжёлый job, проверить merge-base scope и intentional path policy (например `deploy/*.md` → docs + Compose), затем исправлять workflow или docs.
 
-Связанные документы:
+Связанные документы и source files:
 
 - [Карта документации](README.md)
 - [Архитектура](architecture.md)
 - [Security](security.md)
 - [CONTRIBUTING](../CONTRIBUTING.md)
 - `.github/workflows/ci.yml`
+- `tools/ci_scope.py`
+- `tools/test_ci_scope.py`
 - `tools/check_doc_links.py`
 
 ## 14. Remaining quality work
