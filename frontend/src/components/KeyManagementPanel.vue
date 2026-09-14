@@ -98,7 +98,7 @@ async function addTrustedKey(event: Event): Promise<void> {
   error.value = ''
   try {
     const pem = await file.text()
-    await apiClient.post('/settings/keys/trusted', { pem })
+    await apiClient.post('/settings/keys/trusted', { pem }, { params: { confirm: true } })
     await loadKeys()
     message.value = 'Trusted SOURCE public key добавлен.'
   } catch (reason) {
@@ -117,15 +117,46 @@ async function setTrustedState(key: TrustedKeyStatus, enabled: boolean): Promise
   message.value = ''
   error.value = ''
   try {
-    await apiClient.patch(`/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}`, {
-      enabled,
-    })
+    await apiClient.patch(
+      `/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}`,
+      { enabled },
+      { params: { confirm: true } },
+    )
     await loadKeys()
     message.value = enabled ? 'Trusted key включён.' : 'Trusted key отключён.'
   } catch (reason) {
     error.value = safeError('Не удалось изменить состояние trusted key.', reason)
   } finally {
     busy.value = false
+  }
+}
+
+async function replaceTrustedKey(key: TrustedKeyStatus, event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (!window.confirm(`Заменить trusted key ${key.fingerprint} новым public key?`)) {
+    input.value = ''
+    return
+  }
+
+  busy.value = true
+  message.value = ''
+  error.value = ''
+  try {
+    const pem = await file.text()
+    await apiClient.put(
+      `/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}/replace`,
+      { pem },
+      { params: { confirm: true } },
+    )
+    await loadKeys()
+    message.value = 'Trusted key заменён.'
+  } catch (reason) {
+    error.value = safeError('Не удалось заменить trusted public key.', reason)
+  } finally {
+    busy.value = false
+    input.value = ''
   }
 }
 
@@ -136,7 +167,9 @@ async function removeTrustedKey(key: TrustedKeyStatus): Promise<void> {
   message.value = ''
   error.value = ''
   try {
-    await apiClient.delete(`/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}`)
+    await apiClient.delete(`/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}`, {
+      params: { confirm: true },
+    })
     await loadKeys()
     message.value = 'Trusted key удалён.'
   } catch (reason) {
@@ -218,6 +251,17 @@ onMounted(loadKeys)
             >
               Включить
             </button>
+            <label class="file-action" :class="{ 'file-action--disabled': busy }">
+              Заменить
+              <input
+                class="file-action__input"
+                type="file"
+                accept=".pem,text/plain"
+                :data-replace-key="key.fingerprint"
+                :disabled="busy"
+                @change="replaceTrustedKey(key, $event)"
+              />
+            </label>
             <button type="button" class="danger" :disabled="busy" @click="removeTrustedKey(key)">
               Удалить
             </button>
@@ -225,7 +269,7 @@ onMounted(loadKeys)
         </li>
       </ul>
       <p class="status">
-        Для rotation сначала добавьте новый public key, выдержите overlap, затем отключите старый.
+        Для planned rotation можно атомарно заменить выбранный key; для overlap rotation сначала добавьте новый public key и только затем отключите старый.
       </p>
     </template>
 
@@ -238,10 +282,12 @@ onMounted(loadKeys)
 .card { display: grid; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--color-mist); border-radius: var(--radius-lg); background: white; }
 .card--wide { grid-column: 1 / -1; }
 .card h2 { margin: 0; }
-.card button { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-bridge-blue); color: white; font: inherit; cursor: pointer; }
-.card button:disabled { opacity: .6; cursor: wait; }
+.card button, .file-action { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-bridge-blue); color: white; font: inherit; cursor: pointer; display: inline-flex; align-items: center; }
+.card button:disabled, .file-action--disabled { opacity: .6; cursor: wait; }
 .card button.secondary { background: white; color: var(--color-deep-harbor); border: 1px solid var(--color-mist); }
 .card button.danger { background: white; color: #991b1b; border: 1px solid #b91c1c; }
+.file-action { position: relative; background: white; color: var(--color-deep-harbor); border: 1px solid var(--color-mist); }
+.file-action__input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .status { margin: 0; color: var(--color-steel); }
 .fingerprint { margin: 0; overflow-wrap: anywhere; }
 .warning { margin: 0; padding: var(--space-3); border: 1px solid #b45309; border-radius: var(--radius-md); }
