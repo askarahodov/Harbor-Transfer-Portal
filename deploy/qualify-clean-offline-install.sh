@@ -182,6 +182,33 @@ qualify_contour() {
   assert_release_images_absent
 }
 
+publish_qualified_release() {
+  output_dir=${PORTAL_RELEASE_OUTPUT_DIR:-}
+  [ -n "$output_dir" ] || return 0
+
+  case "$output_dir" in
+    "$TMP"|"$TMP"/*) fail 'PORTAL_RELEASE_OUTPUT_DIR must be outside qualification temporary directory' ;;
+  esac
+
+  mkdir -p "$output_dir"
+  [ -d "$output_dir" ] && [ ! -L "$output_dir" ] \
+    || fail 'PORTAL_RELEASE_OUTPUT_DIR must be a regular directory'
+
+  output_archive="$output_dir/$(basename "$ARCHIVE")"
+  output_checksum="$output_archive.sha256"
+  [ ! -e "$output_archive" ] && [ ! -e "$output_checksum" ] \
+    || fail 'qualified release output already exists'
+
+  cp "$ARCHIVE" "$output_archive"
+  cp "$ARCHIVE.sha256" "$output_checksum"
+  chmod 0644 "$output_archive" "$output_checksum"
+  (
+    cd "$output_dir"
+    sha256sum -c "$(basename "$output_checksum")" >/dev/null
+  )
+  printf 'Qualified release output preserved in %s\n' "$output_dir"
+}
+
 cd "$ROOT"
 assert_clean_runtime
 
@@ -202,5 +229,6 @@ assert_release_images_absent
 
 qualify_contour SOURCE "$TMP/source"
 qualify_contour TARGET "$TMP/target"
+publish_qualified_release
 
 printf 'Clean-host offline install qualification passed for SOURCE and TARGET using the same archive.\n'
