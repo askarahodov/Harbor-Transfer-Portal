@@ -7,6 +7,7 @@ import { apiClient } from '@/api/client'
 import KeyManagementPanel from './KeyManagementPanel.vue'
 
 const fingerprint = `sha256:${'a'.repeat(64)}`
+const replacementFingerprint = `sha256:${'b'.repeat(64)}`
 
 function response<T>(data: T, status = 200): AxiosResponse<T> {
   return {
@@ -69,7 +70,7 @@ describe('KeyManagementPanel', () => {
     expect(wrapper.text()).not.toContain(pem)
   })
 
-  it('manages TARGET trust state with confirmations', async () => {
+  it('manages TARGET trust state with server-side confirmations', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     vi.spyOn(apiClient, 'get').mockResolvedValue(
       response({
@@ -95,12 +96,14 @@ describe('KeyManagementPanel', () => {
     expect(patch).toHaveBeenCalledWith(
       `/settings/keys/trusted/${encodeURIComponent(fingerprint)}`,
       { enabled: false },
+      { params: { confirm: true } },
     )
 
     await wrapper.get('.key-row button.danger').trigger('click')
     await flushPromises()
     expect(remove).toHaveBeenCalledWith(
       `/settings/keys/trusted/${encodeURIComponent(fingerprint)}`,
+      { params: { confirm: true } },
     )
     expect(window.confirm).toHaveBeenCalledTimes(2)
   })
@@ -125,7 +128,46 @@ describe('KeyManagementPanel', () => {
     await input.trigger('change')
     await flushPromises()
 
-    expect(post).toHaveBeenCalledWith('/settings/keys/trusted', { pem })
+    expect(post).toHaveBeenCalledWith(
+      '/settings/keys/trusted',
+      { pem },
+      { params: { confirm: true } },
+    )
+    expect(wrapper.text()).not.toContain(pem)
+  })
+
+  it('replaces a TARGET trust key only after confirmation and sends confirm=true', async () => {
+    const pem = 'synthetic-replacement-public-key-fixture'
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(apiClient, 'get').mockResolvedValue(
+      response({
+        contour: 'TARGET',
+        signing_key: null,
+        trusted_keys: [{ fingerprint, enabled: true }],
+      }),
+    )
+    const put = vi.spyOn(apiClient, 'put').mockResolvedValue(
+      response({ action: 'replaced', fingerprint: replacementFingerprint }),
+    )
+
+    const wrapper = mount(KeyManagementPanel, { props: { contour: 'TARGET' } })
+    await flushPromises()
+    const input = wrapper.get('.file-action__input')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [{ text: () => Promise.resolve(pem) }],
+    })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(window.confirm).toHaveBeenCalledWith(
+      `Заменить trusted key ${fingerprint} новым public key?`,
+    )
+    expect(put).toHaveBeenCalledWith(
+      `/settings/keys/trusted/${encodeURIComponent(fingerprint)}/replace`,
+      { pem },
+      { params: { confirm: true } },
+    )
     expect(wrapper.text()).not.toContain(pem)
   })
 })
