@@ -9,6 +9,33 @@ from app.db.models import ArtifactResult, AuditEvent, Operation, SettingMetadata
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.domain.operations import validate_transition
 
+_AUDIT_METADATA_MAX_BYTES = 8192
+_AUDIT_SENSITIVE_KEYS = {
+    "authorization",
+    "credential",
+    "harbor_password",
+    "jwt",
+    "jwt_secret",
+    "password",
+    "password_hash",
+    "private_key",
+    "secret",
+    "token",
+}
+
+
+def _sanitize_audit_value(value: Any, *, key: str | None = None) -> Any:
+    if key is not None and key.strip().lower() in _AUDIT_SENSITIVE_KEYS:
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {
+            str(item_key): _sanitize_audit_value(item_value, key=str(item_key))
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_audit_value(item) for item in value]
+    return value
+
 
 class UserRepository:
     def __init__(self, session: Session) -> None:
@@ -175,21 +202,43 @@ class AuditEventRepository:
     def create(
         self,
         *,
-        actor: User,
         event_type: str,
+        actor: User | None = None,
+        actor_username: str | None = None,
         result: str = "success",
         metadata: dict[str, Any] | None = None,
     ) -> AuditEvent:
+        if actor is None and not actor_username:
+            raise ValueError("audit actor or actor_username is required")
+        resolved_username = actor.username if actor is not None else str(actor_username)
+        safe_metadata = _sanitize_audit_value(metadata or {})
+        metadata_json = json.dumps(safe_metadata, ensure_ascii=False, sort_keys=True)
+        if len(metadata_json.encode()) > _AUDIT_METADATA_MAX_BYTES:
+            raise ValueError("audit metadata exceeds 8192 bytes")
         event = AuditEvent(
-            actor_user_id=actor.id,
-            actor_username=actor.username,
+            actor_user_id=actor.id if actor is not None else None,
+            actor_username=resolved_username,
             event_type=event_type,
             result=result,
-            metadata_json=json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
+            metadata_json=metadata_json,
         )
         self.session.add(event)
         self.session.flush()
         return event
+
+    def create_system(
+        self,
+        *,
+        event_type: str,
+        result: str = "success",
+        metadata: dict[str, Any] | None = None,
+    ) -> AuditEvent:
+        return self.create(
+            actor_username="system",
+            event_type=event_type,
+            result=result,
+            metadata=metadata,
+        )
 
     def list_filtered(
         self,
