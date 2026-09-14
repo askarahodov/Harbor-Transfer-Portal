@@ -24,8 +24,9 @@
 4. feature/component — специализированный component/API/frontend doc + code/tests;
 5. runtime/deployment — `deploy/README.md` + Compose/Dockerfiles/`.env.example`;
 6. administration — `admin-guide.md` + deployment/security sources;
-7. diagnostics — `troubleshooting.md` + affected component/security source;
-8. historical design document не переопределяет перечисленные sources.
+7. user flow — `user-guide.md` + current frontend/backend transfer behavior;
+8. diagnostics — `troubleshooting.md` + affected component/security source;
+9. historical design document не переопределяет перечисленные sources.
 
 ## Основная карта
 
@@ -34,6 +35,7 @@
 | [project-passport.md](project-passport.md) | простое описание продукта и целевого процесса | актуальный product overview |
 | [architecture.md](architecture.md) | components, boundaries, data flows, current implementation state | актуальный |
 | [frontend.md](frontend.md) | Vue architecture, role/contour routing, SOURCE/TARGET wizard | актуальный |
+| [user-guide.md](user-guide.md) | пошаговый browser flow SOURCE → physical transfer → TARGET для operator/viewer | актуальный |
 | [export-orchestration.md](export-orchestration.md) | SOURCE export backend/API/publication/download contract | актуальный component doc |
 | [import-orchestration.md](import-orchestration.md) | TARGET intake/verify/preview/conflict/import/receipt contract | актуальный component doc |
 | [admin-guide.md](admin-guide.md) | bootstrap, Harbor, keys, backup/restore, limits, эксплуатация | актуальный для current Compose; не final offline installer |
@@ -59,6 +61,7 @@ Backend orchestration #17 и UI wizard #18 реализованы.
 
 Основные sources:
 
+- [user-guide.md](user-guide.md) — пошаговый operator/viewer browser flow;
 - [harbor-browse-api.md](harbor-browse-api.md) — выбор metadata из local Harbor;
 - [export-orchestration.md](export-orchestration.md) — authoritative validation, OperationManager, Skopeo/Helm, publication, download;
 - [frontend.md](frontend.md) — 4-step wizard, reload/poll/cancel, browser download ticket;
@@ -70,6 +73,7 @@ Backend intake/import orchestration #19 и UI wizard #20 реализованы.
 
 Основные sources:
 
+- [user-guide.md](user-guide.md) — intake, verification, preview/conflict, import, receipt/history/report простым пользовательским языком;
 - [import-orchestration.md](import-orchestration.md) — upload/discovery, verify-before-mutation, signed metadata projection, preview/conflict policy, execute, receipt;
 - [offline-bundle-v1.md](offline-bundle-v1.md) — normative bundle verification contract;
 - [frontend.md](frontend.md) — intake/verification, conflict decisions, persistent import/result flow.
@@ -86,6 +90,7 @@ TARGET UI не выполняет самостоятельную cryptographic v
 - #56 — security/trust model — выполнено;
 - #57 — deployment/config/credential/key synchronization — выполнено;
 - #58 — ADR/docs hygiene и карта документации — выполнено;
+- #59 — `user-guide.md` для operator/viewer — выполнено;
 - #60 — `admin-guide.md` — выполнено;
 - #61 — `troubleshooting.md` — current operational guide создан;
 - #67 — automated documentation link gate — выполнено;
@@ -94,10 +99,9 @@ TARGET UI не выполняет самостоятельную cryptographic v
 - #17 — SOURCE backend export — выполнено;
 - #18 — SOURCE export wizard — выполнено;
 - #19 — TARGET backend import orchestration — выполнено;
-- #20 — TARGET import wizard — выполнено;
-- #59 — `user-guide.md` — больше не заблокирован незавершёнными transfer wizard и является следующей логичной operator-documentation задачей.
+- #20 — TARGET import wizard — выполнено.
 
-Наличие двух готовых application wizard не означает автоматически пройденный full SOURCE→physical→TARGET acceptance: финальный cross-contour E2E и offline release qualification остаются отдельной задачей #28.
+Наличие двух готовых application wizard и user guide не означает автоматически пройденный full SOURCE→physical→TARGET acceptance: финальный cross-contour E2E и offline release qualification остаются отдельной задачей #28.
 
 ## Автоматическая проверка документации
 
@@ -124,7 +128,7 @@ Path-aware CI включает `Documentation — local links`; результа
 | Bundle schema/protocol | protocol doc + schema + tests + ADR при несовместимости |
 | Architecture/service boundary | architecture + specialized doc + ADR при значимом решении |
 | Background lifecycle/restart/cancel | architecture + operation-manager + affected UX docs |
-| Auth/security/secret handling | security + deployment/admin + ADR при необходимости |
+| Auth/security/secret handling | security + deployment/admin docs + ADR при необходимости |
 | Environment/config | `.env.example` + deployment/admin docs |
 | Frontend flow | frontend + current-state/user guide |
 | Operation/history/report state | architecture + user/admin/troubleshooting docs |
