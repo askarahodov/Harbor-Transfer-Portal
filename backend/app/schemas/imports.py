@@ -41,6 +41,21 @@ class ImportPreviewResponse(BaseModel):
     bundle_size_bytes: int = Field(ge=1)
     signing_key_fingerprint: str
     verified_at: datetime
+
+    # UI projection. Defaults keep already-persisted READY previews from older
+    # v1 builds readable after an application upgrade.
+    bundle_filename: str | None = None
+    intake_mode: ImportIntakeMode | None = None
+    source_harbor: str | None = None
+    source_portal_version: str | None = None
+    source_created_at: datetime | None = None
+    source_created_by: str | None = None
+    source_comment: str | None = None
+    checksum_verified: bool = False
+    signature_verified: bool = False
+    schema_verified: bool = False
+    overwrite_allowed: bool = False
+
     artifacts: list[ImportArtifactPreviewResponse]
 
 

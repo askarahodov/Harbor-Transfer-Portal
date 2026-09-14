@@ -1,6 +1,612 @@
+<script setup lang="ts">
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  FileArchive,
+  FolderSearch,
+  RefreshCw,
+  ShieldCheck,
+  Upload,
+  XCircle,
+} from 'lucide-vue-next'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+
+import type { ArtifactStatus, ImportPreviewState, OperationStatus } from '@/api/imports'
+import { useAuthStore } from '@/stores/auth'
+import { useImportWizardStore } from '@/stores/importWizard'
+import { useRuntimeStore } from '@/stores/runtime'
+
+const wizard = useImportWizardStore()
+const runtime = useRuntimeStore()
+const auth = useAuthStore()
+const fileInput = ref<HTMLInputElement | null>(null)
+const dragging = ref(false)
+
+const steps = [
+  { id: 1, label: 'Приём и проверка' },
+  { id: 2, label: 'Preview и конфликты' },
+  { id: 3, label: 'Импорт и результат' },
+] as const
+
+const phaseLabels: Record<OperationStatus, string> = {
+  CREATED: 'Создана',
+  VALIDATING: 'Проверка',
+  RUNNING: 'Выполнение',
+  PACKAGING: 'Сборка',
+  VERIFYING: 'Криптографическая проверка пакета',
+  UPLOADED: 'Загружено',
+  DISCOVERED: 'Обнаружено на носителе',
+  READY: 'Пакет проверен — готов к решению',
+  IMPORTING: 'Импорт в TARGET Harbor',
+  VERIFYING_TARGET: 'Проверка результата в TARGET',
+  COMPLETED: 'Завершено',
+  FAILED: 'Завершено с ошибками',
+  REJECTED: 'Пакет отклонён',
+  CANCELLED: 'Отменено',
+}
+
+const artifactStatusLabels: Record<ArtifactStatus, string> = {
+  PENDING: 'Ожидает',
+  RUNNING: 'Импортируется',
+  IMPORTED: 'Импортирован',
+  SKIPPED: 'Пропущен',
+  CONFLICT: 'Конфликт',
+  FAILED: 'Ошибка',
+  VERIFIED: 'Импортирован и проверен',
+}
+
+const classificationLabels: Record<ImportPreviewState, string> = {
+  NEW: 'NEW — будет импортирован',
+  SAME: 'SAME — уже есть, будет пропущен',
+  CONFLICT: 'CONFLICT — другой digest, заблокирован',
+  UNKNOWN: 'UNKNOWN — состояние нельзя доказать',
+  ERROR: 'ERROR — проверка TARGET не удалась',
+}
+
+const activeFilename = computed(
+  () => wizard.selectedFile?.name ?? wizard.operation?.bundle?.filename ?? wizard.preview?.bundle_filename ?? '—',
+)
+const activeSize = computed(
+  () => wizard.selectedFile?.size ?? wizard.operation?.bundle?.size_bytes ?? wizard.preview?.bundle_size_bytes ?? null,
+)
+const uploadPercent = computed(() => {
+  const progress = wizard.uploadProgress
+  if (!progress || !progress.total || progress.total <= 0) return null
+  return Math.min(100, Math.round((progress.loaded / progress.total) * 100))
+})
+const operationPercent = computed(() => {
+  const progress = wizard.operation?.progress
+  if (!progress || progress.progress_total <= 0) return null
+  return Math.round((progress.progress_current / progress.progress_total) * 100)
+})
+const largeBundleGuidance = computed(() =>
+  ['import_upload_too_large', 'operation_insufficient_disk'].includes(wizard.error?.code ?? ''),
+)
+const canOfferOverwrite = computed(
+  () => Boolean(wizard.preview?.overwrite_allowed && auth.canStartTransfers),
+)
+
+function formatBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined) return 'размер неизвестен'
+  const units = ['Б', 'КиБ', 'МиБ', 'ГиБ', 'ТиБ']
+  let value = bytes
+  let index = 0
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024
+    index += 1
+  }
+  return `${value.toFixed(index === 0 ? 0 : value >= 10 ? 1 : 2)} ${units[index]}`
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return '—'
+  return new Intl.DateTimeFormat('ru-RU', {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  }).format(new Date(value))
+}
+
+function shortDigest(value: string | null | undefined): string {
+  if (!value) return '—'
+  return value.length > 28 ? `${value.slice(0, 18)}…${value.slice(-8)}` : value
+}
+
+function artifactLabel(item: { repository: string; reference?: string | null; name?: string | null; version?: string | null }): string {
+  if (item.reference) return `${item.repository}:${item.reference}`
+  if (item.name && item.version) return `${item.repository}/${item.name}:${item.version}`
+  return item.repository
+}
+
+function chooseFile(): void {
+  fileInput.value?.click()
+}
+
+async function submitFile(file: File | undefined): Promise<void> {
+  if (!file) return
+  await wizard.upload(file)
+}
+
+async function onFileChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  await submitFile(input.files?.[0])
+  input.value = ''
+}
+
+async function onDrop(event: DragEvent): Promise<void> {
+  dragging.value = false
+  await submitFile(event.dataTransfer?.files?.[0])
+}
+
+function downloadReceipt(): void {
+  if (!wizard.receipt) return
+  const blob = new Blob([`${JSON.stringify(wizard.receipt, null, 2)}\n`], {
+    type: 'application/json;charset=utf-8',
+  })
+  const href = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = href
+  anchor.download = `import-${wizard.receipt.operation_id}-receipt.json`
+  anchor.click()
+  URL.revokeObjectURL(href)
+}
+
+onMounted(async () => {
+  if (!runtime.contour) {
+    await runtime.loadRuntime()
+  }
+  if (runtime.contour === 'TARGET') {
+    await wizard.initialize()
+  }
+})
+
+onBeforeUnmount(() => {
+  wizard.stopPolling()
+})
+</script>
+
 <template>
-  <section aria-labelledby="import-title">
-    <h1 id="import-title">Приём пакета</h1>
-    <p>Мастер импорта будет подключён после реализации проверки и import orchestration.</p>
+  <section class="import-page" aria-labelledby="import-title">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">TARGET workflow</p>
+        <h1 id="import-title">Приём и импорт Offline Bundle</h1>
+        <p class="lead">
+          Пакет сначала проходит checksum, schema и Ed25519 signature verification. Изменение TARGET Harbor начинается только после verified preview и явного решения оператора.
+        </p>
+      </div>
+    </header>
+
+    <div v-if="runtime.contour !== 'TARGET'" class="notice notice--danger" role="alert">
+      <XCircle :size="20" aria-hidden="true" />
+      <div>
+        <strong>Import workflow доступен только в контуре TARGET.</strong>
+        <p>Эта установка не должна принимать offline bundle как TARGET.</p>
+      </div>
+    </div>
+
+    <template v-else>
+      <ol class="steps" aria-label="Этапы импорта">
+        <li
+          v-for="item in steps"
+          :key="item.id"
+          :class="['step', { 'step--active': wizard.step === item.id, 'step--done': wizard.step > item.id }]"
+        >
+          <span class="step__number">{{ item.id }}</span>
+          <span>{{ item.label }}</span>
+        </li>
+      </ol>
+
+      <div v-if="wizard.error" class="notice notice--danger" role="alert">
+        <AlertTriangle :size="20" aria-hidden="true" />
+        <div>
+          <strong>{{ wizard.error.code }}</strong>
+          <p>{{ wizard.error.message }}</p>
+          <p v-if="largeBundleGuidance" class="notice__hint">
+            Для большого пакета скопируйте <code>.htp.tar.gz</code> и его <code>.sha256</code> в настроенный incoming directory или смонтированный transfer media, затем используйте «Обнаружить готовые пакеты».
+          </p>
+        </div>
+      </div>
+
+      <section v-if="wizard.step === 1" class="panel" aria-labelledby="intake-title">
+        <div class="panel__header">
+          <div>
+            <p class="eyebrow">Шаг 1</p>
+            <h2 id="intake-title">Приём и криптографическая проверка</h2>
+          </div>
+          <ShieldCheck :size="28" aria-hidden="true" />
+        </div>
+
+        <div class="intake-grid">
+          <article class="intake-card">
+            <h3>Загрузка через браузер</h3>
+            <p>Подходит для умеренных размеров. Файл отправляется raw stream; multipart и фиктивные demo rows не используются.</p>
+            <div
+              :class="['drop-zone', { 'drop-zone--active': dragging }]"
+              tabindex="0"
+              role="button"
+              aria-label="Выбрать Offline Bundle для загрузки"
+              @click="chooseFile"
+              @keydown.enter.prevent="chooseFile"
+              @keydown.space.prevent="chooseFile"
+              @dragenter.prevent="dragging = true"
+              @dragover.prevent="dragging = true"
+              @dragleave.prevent="dragging = false"
+              @drop.prevent="onDrop"
+            >
+              <Upload :size="28" aria-hidden="true" />
+              <strong>Перетащите .htp.tar.gz сюда</strong>
+              <span>или нажмите для выбора файла</span>
+            </div>
+            <input
+              ref="fileInput"
+              class="visually-hidden"
+              type="file"
+              accept=".gz,.htp.tar.gz,application/gzip"
+              @change="onFileChange"
+            >
+            <div v-if="wizard.selectedFile" class="file-summary">
+              <FileArchive :size="20" aria-hidden="true" />
+              <div>
+                <strong>{{ wizard.selectedFile.name }}</strong>
+                <span>{{ formatBytes(wizard.selectedFile.size) }}</span>
+              </div>
+            </div>
+            <div v-if="wizard.busy === 'upload' && wizard.uploadProgress" class="progress-block" aria-live="polite">
+              <div>Загрузка: {{ uploadPercent === null ? formatBytes(wizard.uploadProgress.loaded) : `${uploadPercent}%` }}</div>
+              <progress v-if="uploadPercent !== null" :value="uploadPercent" max="100">{{ uploadPercent }}%</progress>
+            </div>
+          </article>
+
+          <article class="intake-card">
+            <h3>Большой пакет / transfer media</h3>
+            <p>Скопируйте archive и финальный <code>.sha256</code> sidecar в configured incoming directory. Портал claim-ит только готовые пары.</p>
+            <button
+              class="button button--secondary"
+              type="button"
+              :disabled="wizard.busy !== null"
+              @click="wizard.discover"
+            >
+              <FolderSearch :size="18" aria-hidden="true" />
+              Обнаружить готовые пакеты
+            </button>
+            <p v-if="wizard.discovered.length === 0" class="muted">После поиска здесь появятся только пакеты, которые backend безопасно claim-нул.</p>
+            <div v-else class="discovery-list">
+              <button
+                v-for="item in wizard.discovered"
+                :key="item.intake.operation_id"
+                class="discovered-item"
+                type="button"
+                @click="wizard.selectOperation(item.intake.operation_id)"
+              >
+                <span>{{ item.operation.bundle?.filename ?? `Import #${item.intake.operation_id}` }}</span>
+                <small>{{ formatBytes(item.operation.bundle?.size_bytes) }} · {{ phaseLabels[item.operation.status] }}</small>
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <article v-if="wizard.operation" class="verification-card" aria-labelledby="verification-title">
+          <div class="verification-card__title">
+            <div>
+              <p class="eyebrow">Операция #{{ wizard.operation.id }}</p>
+              <h3 id="verification-title">{{ phaseLabels[wizard.operation.status] }}</h3>
+            </div>
+            <button
+              class="icon-button"
+              type="button"
+              aria-label="Обновить состояние операции"
+              @click="wizard.refreshOperation()"
+            >
+              <RefreshCw :size="18" aria-hidden="true" />
+            </button>
+          </div>
+          <dl class="metadata-grid">
+            <div><dt>Файл</dt><dd>{{ activeFilename }}</dd></div>
+            <div><dt>Размер</dt><dd>{{ formatBytes(activeSize) }}</dd></div>
+            <div><dt>Intake</dt><dd>{{ wizard.preview?.intake_mode ?? 'проверяется' }}</dd></div>
+          </dl>
+          <div class="verification-list">
+            <div class="verification-row">
+              <CheckCircle2 v-if="wizard.preview?.checksum_verified" :size="20" aria-hidden="true" />
+              <RefreshCw v-else-if="wizard.operation.status === 'VERIFYING'" :size="20" aria-hidden="true" />
+              <XCircle v-else-if="wizard.operation.status === 'REJECTED'" :size="20" aria-hidden="true" />
+              <span>SHA-256 integrity</span>
+              <strong>{{ wizard.preview?.checksum_verified ? 'подтверждена' : wizard.operation.status === 'VERIFYING' ? 'проверяется' : 'не подтверждена' }}</strong>
+            </div>
+            <div class="verification-row">
+              <CheckCircle2 v-if="wizard.preview?.schema_verified" :size="20" aria-hidden="true" />
+              <RefreshCw v-else-if="wizard.operation.status === 'VERIFYING'" :size="20" aria-hidden="true" />
+              <XCircle v-else-if="wizard.operation.status === 'REJECTED'" :size="20" aria-hidden="true" />
+              <span>Bundle v1 schema/canonical manifest</span>
+              <strong>{{ wizard.preview?.schema_verified ? 'совместима' : wizard.operation.status === 'VERIFYING' ? 'проверяется' : 'не подтверждена' }}</strong>
+            </div>
+            <div class="verification-row">
+              <CheckCircle2 v-if="wizard.preview?.signature_verified" :size="20" aria-hidden="true" />
+              <RefreshCw v-else-if="wizard.operation.status === 'VERIFYING'" :size="20" aria-hidden="true" />
+              <XCircle v-else-if="wizard.operation.status === 'REJECTED'" :size="20" aria-hidden="true" />
+              <span>Ed25519 signature trust</span>
+              <strong>{{ wizard.preview?.signature_verified ? 'подпись доверена' : wizard.operation.status === 'VERIFYING' ? 'проверяется' : 'не подтверждена' }}</strong>
+            </div>
+          </div>
+          <button
+            v-if="wizard.canCancel"
+            class="button button--danger"
+            type="button"
+            :disabled="wizard.busy !== null"
+            @click="wizard.cancel"
+          >
+            Отменить проверку
+          </button>
+        </article>
+      </section>
+
+      <section v-else-if="wizard.step === 2 && wizard.preview" class="panel" aria-labelledby="preview-title">
+        <div class="panel__header">
+          <div>
+            <p class="eyebrow">Шаг 2 · package verified</p>
+            <h2 id="preview-title">Preview TARGET и политика конфликтов</h2>
+          </div>
+          <CheckCircle2 :size="28" aria-hidden="true" />
+        </div>
+
+        <div class="notice notice--success">
+          <ShieldCheck :size="20" aria-hidden="true" />
+          <p>Пакет прошёл checksum, schema и signature verification. Это <strong>не означает</strong>, что артефакты уже импортированы.</p>
+        </div>
+
+        <dl class="metadata-grid metadata-grid--wide">
+          <div><dt>Delivery ID</dt><dd>{{ wizard.preview.source_delivery_id }}</dd></div>
+          <div><dt>SOURCE Harbor</dt><dd>{{ wizard.preview.source_harbor ?? 'нет данных в legacy preview' }}</dd></div>
+          <div><dt>Создан</dt><dd>{{ formatDate(wizard.preview.source_created_at) }}</dd></div>
+          <div><dt>Автор</dt><dd>{{ wizard.preview.source_created_by ?? '—' }}</dd></div>
+          <div><dt>Portal SOURCE</dt><dd>{{ wizard.preview.source_portal_version ?? '—' }}</dd></div>
+          <div><dt>Проверен TARGET</dt><dd>{{ formatDate(wizard.preview.verified_at) }}</dd></div>
+          <div><dt>Bundle SHA-256</dt><dd :title="wizard.preview.bundle_sha256">{{ shortDigest(wizard.preview.bundle_sha256) }}</dd></div>
+          <div><dt>Signing key fingerprint</dt><dd :title="wizard.preview.signing_key_fingerprint">{{ shortDigest(wizard.preview.signing_key_fingerprint) }}</dd></div>
+        </dl>
+        <div v-if="wizard.preview.source_comment" class="comment-box">
+          <strong>Комментарий SOURCE</strong>
+          <p>{{ wizard.preview.source_comment }}</p>
+        </div>
+
+        <div class="classification-summary">
+          <span v-for="state in (['NEW', 'SAME', 'CONFLICT', 'UNKNOWN', 'ERROR'] as ImportPreviewState[])" :key="state">
+            {{ state }}: {{ wizard.preview.artifacts.filter((item) => item.classification === state).length }}
+          </span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Артефакт</th>
+                <th>Класс</th>
+                <th>Expected digest</th>
+                <th>TARGET digest</th>
+                <th>Размер</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in wizard.preview.artifacts" :key="item.index">
+                <td>{{ artifactLabel(item) }}</td>
+                <td><span :class="['classification', `classification--${item.classification.toLowerCase()}`]">{{ classificationLabels[item.classification] }}</span></td>
+                <td :title="item.expected_digest ?? undefined">{{ shortDigest(item.expected_digest) }}</td>
+                <td :title="item.target_digest ?? undefined">{{ shortDigest(item.target_digest) }}</td>
+                <td>{{ formatBytes(item.payload_size) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="wizard.unresolved.length > 0" class="notice notice--danger" role="alert">
+          <XCircle :size="20" aria-hidden="true" />
+          <div>
+            <strong>Import заблокирован.</strong>
+            <p>UNKNOWN/ERROR нельзя трактовать как NEW. Сначала устраните проблему TARGET inspection.</p>
+          </div>
+        </div>
+
+        <div v-if="wizard.conflicts.length > 0" class="conflict-box">
+          <div class="notice notice--warning">
+            <AlertTriangle :size="20" aria-hidden="true" />
+            <div>
+              <strong>Обнаружены точные CONFLICT</strong>
+              <ul>
+                <li v-for="item in wizard.conflicts" :key="item.index">
+                  {{ artifactLabel(item) }} — expected {{ shortDigest(item.expected_digest) }}, TARGET {{ shortDigest(item.target_digest) }}
+                </li>
+              </ul>
+            </div>
+          </div>
+          <p v-if="!canOfferOverwrite">
+            Server-side policy не разрешает overwrite. Безопасное действие — остановить import и разрешить конфликт отдельно.
+          </p>
+          <label v-else class="overwrite-confirmation">
+            <input v-model="wizard.overwriteConfirmed" type="checkbox">
+            <span>Я подтверждаю перезапись <strong>только перечисленных выше CONFLICT</strong>. SAME останутся skip; UNKNOWN/ERROR по-прежнему блокируют import.</span>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button
+            v-if="wizard.conflicts.length === 0"
+            class="button button--primary"
+            type="button"
+            :disabled="!wizard.canExecuteDefault || wizard.busy !== null"
+            @click="wizard.execute(false)"
+          >
+            Импортировать NEW · пропустить SAME
+          </button>
+          <button
+            v-else-if="canOfferOverwrite"
+            class="button button--danger"
+            type="button"
+            :disabled="!wizard.canExecuteOverwrite || wizard.busy !== null"
+            @click="wizard.execute(true)"
+          >
+            Импортировать с подтверждённым overwrite
+          </button>
+          <button class="button button--secondary" type="button" @click="wizard.reset">
+            Выбрать другой пакет
+          </button>
+        </div>
+      </section>
+
+      <section v-else-if="wizard.step === 3 && wizard.operation" class="panel" aria-labelledby="result-title">
+        <div class="panel__header">
+          <div>
+            <p class="eyebrow">Шаг 3 · Import #{{ wizard.operation.id }}</p>
+            <h2 id="result-title">{{ phaseLabels[wizard.operation.status] }}</h2>
+          </div>
+          <RefreshCw v-if="['IMPORTING', 'VERIFYING_TARGET'].includes(wizard.operation.status)" :size="28" aria-hidden="true" />
+          <CheckCircle2 v-else-if="wizard.operation.status === 'COMPLETED'" :size="28" aria-hidden="true" />
+          <XCircle v-else :size="28" aria-hidden="true" />
+        </div>
+
+        <div class="progress-block" aria-live="polite">
+          <div>
+            {{ wizard.operation.progress.progress_current }} / {{ wizard.operation.progress.progress_total || wizard.operation.progress.total_artifacts }}
+            · imported/verified {{ wizard.operation.progress.successful_artifacts }}
+            · skipped {{ wizard.operation.progress.skipped_artifacts }}
+            · conflicts {{ wizard.operation.progress.conflict_artifacts }}
+            · failed {{ wizard.operation.progress.failed_artifacts }}
+          </div>
+          <progress v-if="operationPercent !== null" :value="operationPercent" max="100">{{ operationPercent }}%</progress>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Артефакт</th><th>Результат</th><th>SOURCE digest</th><th>TARGET digest</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in wizard.operation.artifacts" :key="item.id">
+                <td>{{ artifactLabel(item) }}</td>
+                <td>{{ artifactStatusLabels[item.status] }}<span v-if="item.error_message"> · {{ item.error_message }}</span></td>
+                <td :title="item.source_digest ?? undefined">{{ shortDigest(item.source_digest) }}</td>
+                <td :title="item.target_digest ?? undefined">{{ shortDigest(item.target_digest) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="wizard.operation.status === 'FAILED'" class="notice notice--danger" role="alert">
+          <AlertTriangle :size="20" aria-hidden="true" />
+          <div>
+            <strong>{{ wizard.operation.error_code ?? 'import_failed' }}</strong>
+            <p>{{ wizard.operation.error_message ?? 'Import завершён с ошибками.' }}</p>
+            <p>Уже успешно импортированные независимые артефакты не откатываются автоматически. Смотрите per-artifact результат и receipt.</p>
+          </div>
+        </div>
+
+        <article v-if="wizard.receipt" class="receipt-card">
+          <h3>Immutable receipt</h3>
+          <dl class="metadata-grid">
+            <div><dt>Delivery</dt><dd>{{ wizard.receipt.source_delivery_id }}</dd></div>
+            <div><dt>Результат</dt><dd>{{ wizard.receipt.result }}</dd></div>
+            <div><dt>Actor</dt><dd>{{ wizard.receipt.actor_username }}</dd></div>
+            <div><dt>Завершён</dt><dd>{{ formatDate(wizard.receipt.finished_at) }}</dd></div>
+          </dl>
+          <div class="actions">
+            <button class="button button--secondary" type="button" @click="downloadReceipt">
+              <Download :size="18" aria-hidden="true" />
+              Скачать receipt JSON
+            </button>
+            <RouterLink class="button button--secondary" to="/history">Перейти к истории операций</RouterLink>
+          </div>
+        </article>
+
+        <div class="actions">
+          <button
+            v-if="wizard.canCancel"
+            class="button button--danger"
+            type="button"
+            :disabled="wizard.busy !== null"
+            @click="wizard.cancel"
+          >
+            Отменить import
+          </button>
+          <button
+            v-if="['COMPLETED', 'FAILED', 'CANCELLED'].includes(wizard.operation.status)"
+            class="button button--primary"
+            type="button"
+            @click="wizard.reset"
+          >
+            Принять следующий пакет
+          </button>
+        </div>
+      </section>
+    </template>
   </section>
 </template>
+
+<style scoped>
+.import-page { display: grid; gap: var(--space-6); }
+.page-header { display: flex; justify-content: space-between; gap: var(--space-4); }
+.eyebrow { margin: 0 0 var(--space-1); color: var(--color-bridge-blue); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+h1, h2, h3, p { margin-top: 0; }
+.lead { max-width: 850px; color: var(--color-steel); line-height: 1.6; }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.step { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-mist); border-radius: var(--radius-md); color: var(--color-steel); background: white; }
+.step--active { border-color: var(--color-bridge-blue); color: var(--color-deep-harbor); box-shadow: var(--shadow-sm); }
+.step--done { border-color: var(--color-transfer-green); }
+.step__number { display: grid; place-items: center; min-width: 28px; height: 28px; border-radius: 50%; background: var(--color-fog-gray); font-weight: 700; }
+.panel { display: grid; gap: var(--space-6); padding: var(--space-6); border: 1px solid var(--color-mist); border-radius: var(--radius-lg); background: white; box-shadow: var(--shadow-sm); }
+.panel__header, .verification-card__title { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.intake-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.intake-card, .verification-card, .receipt-card { padding: var(--space-4); border: 1px solid var(--color-mist); border-radius: var(--radius-md); background: var(--color-cloud-white); }
+.drop-zone { display: grid; place-items: center; gap: var(--space-2); min-height: 180px; margin: var(--space-4) 0; padding: var(--space-4); border: 2px dashed var(--color-mist); border-radius: var(--radius-md); text-align: center; cursor: pointer; }
+.drop-zone:hover, .drop-zone:focus-visible, .drop-zone--active { border-color: var(--color-bridge-blue); background: var(--color-sky); outline: none; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.file-summary { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-fog-gray); }
+.file-summary div { display: grid; gap: var(--space-1); }
+.discovery-list { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.discovered-item { display: grid; gap: var(--space-1); text-align: left; padding: var(--space-3); border: 1px solid var(--color-mist); border-radius: var(--radius-md); background: white; cursor: pointer; }
+.discovered-item:hover, .discovered-item:focus-visible { border-color: var(--color-bridge-blue); }
+.verification-list { display: grid; gap: var(--space-2); margin: var(--space-4) 0; }
+.verification-row { display: grid; grid-template-columns: auto 1fr auto; gap: var(--space-3); align-items: center; padding: var(--space-3); border: 1px solid var(--color-mist); border-radius: var(--radius-md); }
+.metadata-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: 0; }
+.metadata-grid--wide { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.metadata-grid div { min-width: 0; padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-fog-gray); }
+dt { color: var(--color-steel); font-size: 12px; }
+dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; font-weight: 600; }
+.notice { display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-4); border-radius: var(--radius-md); }
+.notice p { margin-bottom: 0; }
+.notice--danger { background: var(--color-rose); }
+.notice--warning { background: var(--color-sand); }
+.notice--success { background: var(--color-mint); }
+.notice__hint { margin-top: var(--space-2); }
+.progress-block { display: grid; gap: var(--space-2); }
+progress { width: 100%; height: 12px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: var(--space-3); border-bottom: 1px solid var(--color-mist); text-align: left; vertical-align: top; }
+th { color: var(--color-steel); font-size: 12px; }
+.classification-summary { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.classification-summary span, .classification { padding: var(--space-1) var(--space-2); border-radius: var(--radius-full); background: var(--color-fog-gray); font-size: 12px; font-weight: 700; }
+.classification--new, .classification--same { background: var(--color-mint); }
+.classification--conflict { background: var(--color-sand); }
+.classification--unknown, .classification--error { background: var(--color-rose); }
+.conflict-box { display: grid; gap: var(--space-3); }
+.overwrite-confirmation { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-stop-red); border-radius: var(--radius-md); }
+.comment-box { padding: var(--space-4); border-left: 4px solid var(--color-bridge-blue); background: var(--color-fog-gray); }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); padding: 0 var(--space-4); border: 1px solid transparent; border-radius: var(--radius-md); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
+.button:disabled { cursor: not-allowed; opacity: .55; }
+.button--primary { background: var(--color-bridge-blue); color: white; }
+.button--secondary { border-color: var(--color-mist); background: white; color: var(--color-deep-harbor); }
+.button--danger { background: var(--color-stop-red); color: white; }
+.icon-button { min-width: 40px; min-height: 40px; display: grid; place-items: center; border: 1px solid var(--color-mist); border-radius: var(--radius-md); background: white; cursor: pointer; }
+.muted { color: var(--color-steel); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+@media (max-width: 900px) {
+  .intake-grid, .metadata-grid, .metadata-grid--wide { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .steps, .intake-grid, .metadata-grid, .metadata-grid--wide { grid-template-columns: 1fr; }
+  .verification-row { grid-template-columns: auto 1fr; }
+  .verification-row strong { grid-column: 2; }
+  .panel { padding: var(--space-4); }
+}
+</style>

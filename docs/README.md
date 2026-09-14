@@ -33,9 +33,9 @@
 |---|---|---|
 | [project-passport.md](project-passport.md) | простое описание продукта и целевого процесса | актуальный product overview |
 | [architecture.md](architecture.md) | components, boundaries, data flows, current implementation state | актуальный |
-| [frontend.md](frontend.md) | Vue architecture, role/contour routing, SOURCE export wizard | актуальный |
+| [frontend.md](frontend.md) | Vue architecture, role/contour routing, SOURCE/TARGET wizard | актуальный |
 | [export-orchestration.md](export-orchestration.md) | SOURCE export backend/API/publication/download contract | актуальный component doc |
-| [import-orchestration.md](import-orchestration.md) | TARGET intake/verify/conflict/import/receipt contract | актуальный component doc |
+| [import-orchestration.md](import-orchestration.md) | TARGET intake/verify/preview/conflict/import/receipt contract | актуальный component doc |
 | [admin-guide.md](admin-guide.md) | bootstrap, Harbor, keys, backup/restore, limits, эксплуатация | актуальный для current Compose; не final offline installer |
 | [troubleshooting.md](troubleshooting.md) | symptom → cause → diagnostic → safe resolution | актуальный; UI-specific cases дополняются вместе с flows |
 | [offline-bundle-v1.md](offline-bundle-v1.md) | Bundle v1 signing/checksum/archive contract | **нормативный** |
@@ -66,13 +66,15 @@ Backend orchestration #17 и UI wizard #18 реализованы.
 
 ### TARGET
 
-Backend intake/import orchestration #19 реализован; законченный import wizard/UI ещё в разработке.
+Backend intake/import orchestration #19 и UI wizard #20 реализованы.
 
 Основные sources:
 
-- [import-orchestration.md](import-orchestration.md) — upload/discovery, verify-before-mutation, preview/conflict policy, execute, receipt;
+- [import-orchestration.md](import-orchestration.md) — upload/discovery, verify-before-mutation, signed metadata projection, preview/conflict policy, execute, receipt;
 - [offline-bundle-v1.md](offline-bundle-v1.md) — normative bundle verification contract;
-- [frontend.md](frontend.md) — current UI status; TARGET route не следует считать готовым wizard только по наличию route.
+- [frontend.md](frontend.md) — intake/verification, conflict decisions, persistent import/result flow.
+
+TARGET UI не выполняет самостоятельную cryptographic validation: checksum/schema/signature indicators являются projection успешного backend verifier. `CONFLICT` не overwrite-ится по умолчанию, а `UNKNOWN/ERROR` блокируют mutation.
 
 ## Пользовательская и эксплуатационная документация v1
 
@@ -92,9 +94,10 @@ Backend intake/import orchestration #19 реализован; законченн
 - #17 — SOURCE backend export — выполнено;
 - #18 — SOURCE export wizard — выполнено;
 - #19 — TARGET backend import orchestration — выполнено;
-- #59 — `user-guide.md` — SOURCE section теперь может описываться по фактическому UI; полный SOURCE→TARGET operator guide ждёт завершения TARGET import UI.
+- #20 — TARGET import wizard — выполнено;
+- #59 — `user-guide.md` — больше не заблокирован незавершёнными transfer wizard и является следующей логичной operator-documentation задачей.
 
-Нельзя дописывать незавершённый TARGET UI как будто он уже существует. Backend API contract и готовый пользовательский workflow — разные уровни готовности.
+Наличие двух готовых application wizard не означает автоматически пройденный full SOURCE→physical→TARGET acceptance: финальный cross-contour E2E и offline release qualification остаются отдельной задачей #28.
 
 ## Автоматическая проверка документации
 

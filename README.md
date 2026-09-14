@@ -6,7 +6,7 @@
 
 Harbor Transfer Portal — локальный веб-портал для безопасной офлайн-передачи container images и Helm OCI charts между двумя физически и сетево изолированными Harbor-контурами.
 
-> **Статус:** активная разработка **v1**. SOURCE backend orchestration и 4-step export wizard реализованы; TARGET backend intake/import orchestration также реализован, но законченный TARGET import wizard, history/report UX и финальный offline installation kit ещё развиваются. Текущий `main` не следует автоматически считать готовым production-релизом.
+> **Статус:** активная разработка **v1**. SOURCE export backend + wizard и TARGET intake/import backend + wizard реализованы. History/report UX, полный cross-contour acceptance и финальный offline installation kit ещё развиваются. Текущий `main` не следует автоматически считать готовым production-релизом.
 
 ## За 30 секунд
 
@@ -48,7 +48,7 @@ Harbor TARGET
 | SOURCE export wizard/UI | реализовано |
 | SOURCE bundle metadata и disk-backed browser download | реализовано |
 | TARGET intake/preview/import backend orchestration/API | реализовано |
-| TARGET import wizard/UI | в разработке |
+| TARGET import wizard/UI | реализовано |
 | Vue shell/login/settings foundation | реализовано |
 | Full history/audit/report UX | в разработке |
 | Final offline installer + acceptance E2E | запланировано |
@@ -66,9 +66,12 @@ Harbor TARGET
 - Harbor credentials и signing private keys не хранятся в Git и не включаются в bundle.
 - Skopeo/Helm запускаются через структурированный subprocess argv без shell-конкатенации пользовательского ввода.
 - Conflict не должен приводить к неявной перезаписи target artifact.
+- `UNKNOWN/ERROR` на TARGET блокируют mutation, а не трактуются как `NEW`.
 - Operation status — persisted domain state, а не вывод из текста логов.
 - SOURCE delivery считается готовым только после verified publication и terminal `COMPLETED`; incomplete/cancelled/restarted export не должен оставлять ready-looking `.sha256`.
 - Большой SOURCE archive отдаётся браузеру через disk-backed `FileResponse`, а не буферизуется целиком в frontend memory.
+- TARGET wizard показывает checksum/schema/signature success только из backend verifier-derived preview; browser не является источником trust decision.
+- Partial TARGET failure не означает rollback уже успешно импортированных независимых artifacts.
 
 Полная модель угроз и доверия: [docs/security.md](docs/security.md).
 
@@ -83,7 +86,8 @@ Harbor TARGET
 | настраиваете development/runtime Compose | [Deployment](deploy/README.md) |
 | проектируете/разрабатываете backend или интеграции | [Архитектура](docs/architecture.md) |
 | работаете с SOURCE export API/orchestration | [SOURCE export orchestration](docs/export-orchestration.md) |
-| работаете с frontend/export wizard | [Frontend](docs/frontend.md) |
+| работаете с TARGET import API/orchestration | [TARGET import orchestration](docs/import-orchestration.md) |
+| работаете с transfer wizard UI | [Frontend](docs/frontend.md) |
 | реализуете совместимость SOURCE/TARGET | [Offline Bundle Protocol v1](docs/offline-bundle-v1.md) |
 | разбираете security/trust boundaries | [Security](docs/security.md) |
 | меняете background execution | [OperationManager](docs/operation-manager.md) |
@@ -194,6 +198,8 @@ TARGET
 
 SOURCE хранит private Ed25519 signing key. TARGET хранит только trusted SOURCE public keys.
 
+Для больших TARGET deliveries browser upload не является обязательным: archive + `.sha256` можно положить в configured incoming directory/transfer media workflow и claim-ить через discovery.
+
 ## Проверки и CI
 
 Локально запускайте минимально достаточный gate для затронутого поведения:
@@ -224,11 +230,10 @@ Documentation gate проверяет repository-relative Markdown links без 
 
 Ближайшие продуктовые milestones:
 
-1. подключить законченный TARGET import wizard/UI к готовому backend orchestration;
-2. завершить history/audit/report user experience;
-3. завершить user guide по фактическим SOURCE/TARGET UI flows;
-4. выполнить cross-contour UX/E2E acceptance для export → physical transfer → import;
-5. собрать финальный offline installation kit и выполнить release acceptance E2E.
+1. завершить history/audit/report user experience;
+2. завершить user guide по фактическим SOURCE/TARGET UI flows;
+3. выполнить cross-contour UX/E2E acceptance для export → physical transfer → import;
+4. собрать финальный offline installation kit и выполнить release acceptance E2E.
 
 Актуальная детализация работ ведётся в GitHub Issues; README намеренно не дублирует issue backlog.
 
