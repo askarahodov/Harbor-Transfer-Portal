@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: help up down logs fmt lint lint-backend test test-backend test-frontend docs-check migrate build compose-config smoke-compose check-foundation
+.PHONY: help up down logs fmt lint lint-backend test test-backend test-frontend test-ci-scope docs-check migrate build compose-config smoke-compose check-foundation
 
 help:
 	@printf '%s\n' \
@@ -13,6 +13,7 @@ help:
 	  'make test           Запустить backend и frontend tests' \
 	  'make test-backend   Запустить только backend tests' \
 	  'make test-frontend  Запустить только frontend tests' \
+	  'make test-ci-scope  Проверить regression-матрицу scoped CI selection' \
 	  'make docs-check     Проверить локальные Markdown-ссылки и docs checker tests' \
 	  'make migrate        Применить backend Alembic migrations' \
 	  'make build          Собрать backend/frontend artifacts' \
@@ -54,6 +55,9 @@ test-frontend:
 	@test -f frontend/package.json || { echo 'frontend/package.json отсутствует'; exit 2; }
 	cd frontend && npm test
 
+test-ci-scope:
+	python3 -m unittest tools.test_ci_scope
+
 docs-check:
 	@test -f tools/check_doc_links.py || { echo 'tools/check_doc_links.py отсутствует'; exit 2; }
 	python3 -m unittest tools.test_check_doc_links
@@ -85,6 +89,8 @@ check-foundation:
 	@test -f docs/README.md
 	@test -f docs/decisions.md
 	@test -f tools/check_doc_links.py
+	@test -f tools/ci_scope.py
+	@test -f tools/test_ci_scope.py
 	@test -f compose.yaml
 	@test -d backend
 	@test -d frontend
