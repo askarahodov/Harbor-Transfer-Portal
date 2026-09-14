@@ -20,10 +20,13 @@ GET    /api/settings/keys
 PUT    /api/settings/keys/signing
 POST   /api/settings/keys/trusted
 PATCH  /api/settings/keys/trusted/{fingerprint}
+PUT    /api/settings/keys/trusted/{fingerprint}/replace
 DELETE /api/settings/keys/trusted/{fingerprint}
 ```
 
 Все endpoints доступны только роли `admin`. `operator` и `viewer` получают `403` server-side.
+
+TARGET mutation endpoints `add`, `enable/disable`, `replace` и `remove` дополнительно требуют query parameter `confirm=true`. UI передаёт его только после явного подтверждения оператора. Отсутствующий или `false` confirmation возвращает стабильный `409 key_mutation_confirmation_required` **до** filesystem mutation и audit event.
 
 ## 2. Stable key id / fingerprint
 
@@ -99,7 +102,7 @@ Disabled key хранится под server-generated именем:
 
 Пользователь не задаёт filesystem path или filename.
 
-`BundlePackageService` продолжает загружать только active `*.pem`; поэтому disable реально меняет verifier enforcement, а не только UI metadata.
+`BundlePackageService` продолжает загружать только active `*.pem`; поэтому disable/replace реально меняют verifier enforcement, а не только UI metadata.
 
 ## 5. Совместимость с ранее установленными keys
 
@@ -111,13 +114,34 @@ Malformed/symlink/non-file entry считается ошибкой key store и 
 
 ## 6. Add / replace / disable / enable / remove
 
+Все TARGET mutations ниже требуют и UI-confirmation, и server-side `confirm=true`.
+
 ### Add
 
 Admin выбирает public PEM и подтверждает добавление. Backend проверяет key и лимит `BUNDLE_MAX_TRUSTED_KEYS`, затем атомарно публикует active key.
 
-### Replace
+Повторный add **того же fingerprint** по-прежнему нормализует managed file и возвращает `replaced` для того же key id. Это не является rotation на новый fingerprint.
 
-Повторная загрузка того же key/fingerprint нормализует и заменяет managed file atomically. Key id при этом не меняется, потому что fingerprint определяется самим public key.
+### Replace old fingerprint → new public key
+
+Для реальной замены trust identity используется отдельная операция:
+
+```text
+PUT /api/settings/keys/trusted/{old_fingerprint}/replace?confirm=true
+```
+
+Body содержит новый Ed25519 public PEM. Backend:
+
+1. проверяет наличие старого fingerprint и валидность нового key;
+2. отклоняет replacement с тем же fingerprint или fingerprint, уже существующим в trust set;
+3. сохраняет enabled/disabled состояние заменяемого key;
+4. атомарно публикует новый managed key через temporary file + `os.replace`;
+5. **только после успешной публикации нового key** удаляет старый fingerprint;
+6. при failure публикации не трогает old key;
+7. при failure удаления выполняет safety-first rollback к old canonical key;
+8. пишет audit только после успешного завершения.
+
+Replace занимает слот старого key, поэтому разрешён даже когда `BUNDLE_MAX_TRUSTED_KEYS` уже заполнен. Операция не создаёт дополнительный постоянный slot и не позволяет обойти общий лимит.
 
 ### Disable
 
@@ -131,11 +155,13 @@ Enable возвращает key в active `*.pem`; verifier начинает и�
 
 Remove удаляет trusted key из managed trust set. Используйте remove только после окончания overlap window и организационного срока, когда старые bundle больше не должны приниматься.
 
-## 7. Overlap rotation
+## 7. Rotation strategies
+
+### Overlap rotation
 
 TARGET поддерживает несколько active Ed25519 public keys одновременно до `BUNDLE_MAX_TRUSTED_KEYS`.
 
-Пример безопасной схемы:
+Пример безопасной схемы, когда старые deliveries должны продолжать приниматься:
 
 ```text
 old key active
@@ -155,7 +181,11 @@ disable old key
 remove old key после окончания rollback/delivery window
 ```
 
-Это не требует изменения Bundle v1 archive или manifest.
+### Direct replace
+
+`old fingerprint → new key` полезен, когда policy требует немедленно прекратить доверие старому fingerprint либо trust set уже заполнен. После successful replace verifier доверяет новому key вместо старого. Поэтому direct replace **не создаёт overlap window** и должен использоваться только когда старые bundle больше не обязаны проходить verification.
+
+Обе схемы не требуют изменения Bundle v1 archive или manifest.
 
 ## 8. Limits
 
@@ -167,7 +197,7 @@ remove old key после окончания rollback/delivery window
 
 Это deployment/security bound и не переносится в generic runtime transfer-policy UI.
 
-Количество trusted keys дополнительно ограничивает `BUNDLE_MAX_TRUSTED_KEYS`.
+Количество trusted keys дополнительно ограничивает `BUNDLE_MAX_TRUSTED_KEYS`. Replace существующего fingerprint сохраняет количество logical trusted keys и поэтому допустим при заполненном лимите.
 
 ## 9. Audit
 
@@ -188,12 +218,14 @@ trust.key.disabled
 trust.key.removed
 ```
 
-Audit metadata содержит только:
+Обычные mutation events содержат action и public fingerprint. `trust.key.replaced` дополнительно содержит:
 
-- action;
-- public fingerprint.
+```text
+old_fingerprint
+new_fingerprint
+```
 
-Private/public PEM contents в audit не записываются.
+Private/public PEM contents в audit не записываются. Запрос, отклонённый confirmation guard, audit event не создаёт.
 
 ## 10. Backup и restore
 
@@ -215,7 +247,9 @@ TARGET trust directory не содержит private secrets, но опреде�
 - сохранять private key в Git, issue, PR, logs или screenshots;
 - принимать public key из того же недоверенного канала только потому, что по нему пришёл bundle;
 - давать пользователю возможность задавать key filename/path;
+- обходить server-side confirmation прямым HTTP-вызовом;
 - менять расширение disabled key вручную как штатную admin procedure;
+- использовать direct replace, если старые deliveries ещё должны проходить verifier — для этого нужен overlap rotation;
 - удалять old trust key до завершения overlap window.
 
 Связанные документы:
