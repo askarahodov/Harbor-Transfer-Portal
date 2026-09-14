@@ -1,3 +1,6 @@
+ARG RELEASE_VERSION=dev
+ARG VCS_REF=unknown
+
 FROM node:22.23.2-alpine3.24 AS build
 
 WORKDIR /app
@@ -7,6 +10,12 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM nginx:1.30.1-alpine
+
+ARG RELEASE_VERSION
+ARG VCS_REF
+LABEL org.opencontainers.image.title="Harbor Transfer Portal frontend" \
+      org.opencontainers.image.version="${RELEASE_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}"
 
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY frontend/docker-entrypoint.d/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
