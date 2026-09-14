@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 JWT_SECRET_PLACEHOLDER = "replace-with-random-high-entropy-secret"
+_ALLOWED_LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
 
 
 class PortalContour(StrEnum):
@@ -37,6 +38,8 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     portal_contour: PortalContour = PortalContour.SOURCE
     database_url: str = "sqlite:///./data/harbor-transfer-portal.db"
+    log_level: str = "INFO"
+    log_json: bool = False
 
     harbor_url: AnyHttpUrl | None = None
     harbor_user: str | None = None
@@ -123,6 +126,14 @@ class Settings(BaseSettings):
         if len(secret) < 32 or secret == JWT_SECRET_PLACEHOLDER:
             raise ValueError("JWT_SECRET must be a unique secret of at least 32 characters")
         return SecretStr(secret)
+
+    @field_validator("log_level")
+    @classmethod
+    def validate_log_level(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if normalized not in _ALLOWED_LOG_LEVELS:
+            raise ValueError("LOG_LEVEL must be one of CRITICAL, ERROR, WARNING, INFO, DEBUG")
+        return normalized
 
 
 def get_settings() -> Settings:
