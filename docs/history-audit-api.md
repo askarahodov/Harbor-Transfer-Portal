@@ -93,7 +93,9 @@ Audit trail разделяет два типа фактов:
 
 Application logging поддерживает plain/JSON output, `X-Request-ID`, operation correlation и formatter-level secret redaction. Логи полезны для диагностики, но UI и audit/history не парсят текст логов как источник product state.
 
-Audit event и operation record остаются persisted data в SQLite; log shipping/rotation не должен быть единственным способом доказать пользовательское действие или terminal outcome.
+Compose storage/rotation policy, `PORTAL_LOG_MAX_SIZE`, `PORTAL_LOG_MAX_FILES` и operational semantics описаны в [structured-logging.md](structured-logging.md).
+
+Audit event и operation record остаются persisted data в SQLite; log rotation не является способом управления product history и не должна быть единственным способом доказать пользовательское действие или terminal outcome.
 
 ## Retention v1
 

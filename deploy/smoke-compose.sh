@@ -55,7 +55,16 @@ wait_frontend() {
     return 1
 }
 
-docker compose config >/dev/null
+compose_config=$(docker compose config)
+logging_driver_count=$(printf '%s\n' "$compose_config" | awk '/driver: json-file/ {count++} END {print count+0}')
+logging_max_size_count=$(printf '%s\n' "$compose_config" | awk '/max-size:/ {count++} END {print count+0}')
+logging_max_file_count=$(printf '%s\n' "$compose_config" | awk '/max-file:/ {count++} END {print count+0}')
+if [ "$logging_driver_count" -ne 2 ] || [ "$logging_max_size_count" -ne 2 ] || [ "$logging_max_file_count" -ne 2 ]; then
+    echo 'Backend и frontend должны иметь bounded json-file logging policy.' >&2
+    exit 1
+fi
+unset compose_config logging_driver_count logging_max_size_count logging_max_file_count
+
 docker compose up -d --build
 wait_backend
 wait_frontend
@@ -91,4 +100,4 @@ docker compose exec -T frontend wget -q -O - http://127.0.0.1/api/health | grep 
 docker compose exec -T backend test -f /app/data/.compose-smoke
 docker compose exec -T backend rm /app/data/.compose-smoke
 
-printf '%s\n' 'Compose smoke test пройден: миграции до текущего head, proxy health, SOURCE/TARGET, изоляция runtime и persistent volume проверены без повторной сборки/загрузки образов.'
+printf '%s\n' 'Compose smoke test пройден: logging policy, миграции до текущего head, proxy health, SOURCE/TARGET, изоляция runtime и persistent volume проверены без повторной сборки/загрузки образов.'
