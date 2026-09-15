@@ -130,7 +130,11 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.text()).toContain('package verified')
     expect(wrapper.text()).toContain('не означает')
     expect(wrapper.get('#mapping-title').text()).toContain('Куда импортировать артефакты')
-    expect(wrapper.text()).toContain('Проверить destination plan')
+
+    const confirmPlanButton = wrapper.findAll('button').find((item) =>
+      item.text().includes('Проверить и подтвердить destination plan'),
+    )
+    expect(confirmPlanButton).toBeDefined()
 
     const defaultImportButton = wrapper.findAll('button').find((item) =>
       item.text().includes('Импортировать NEW'),
