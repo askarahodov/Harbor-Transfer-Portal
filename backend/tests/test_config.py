@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.config import PortalContour, Settings
+from app.config import BrowserScheme, PortalContour, Settings
 
 
 def test_invalid_portal_contour_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -15,3 +15,16 @@ def test_invalid_portal_contour_is_rejected(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_supported_contours_are_source_and_target() -> None:
     assert {item.value for item in PortalContour} == {"SOURCE", "TARGET"}
+
+
+def test_invalid_browser_scheme_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PORTAL_BROWSER_SCHEME", "ftp")
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings()
+
+    assert "PORTAL_BROWSER_SCHEME" in str(exc_info.value).upper()
+
+
+def test_supported_browser_schemes_are_http_and_https() -> None:
+    assert {item.value for item in BrowserScheme} == {"http", "https"}
