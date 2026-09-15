@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Isolated SOURCE -> physical bundle -> TARGET acceptance driver.
 
-This harness deliberately uses the production Skopeo/Helm, bundle, export and
-import services. A metadata-only Harbor client stand-in is used on SOURCE because
-the disposable fixture is a distribution registry, not a Harbor API server.
-OCI mutations and verification always go through the production adapters.
+The harness uses production Skopeo/Helm, bundle, export, destination-plan and
+import services. Disposable fixtures are plain distribution registries, so Harbor
+project/access metadata is represented by a deterministic local validator while
+all OCI mutations and digest/content verification use the production adapters.
 """
 
 from __future__ import annotations
@@ -32,21 +32,28 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.config import PortalContour, Settings
 from app.db.base import Base
+from app.db.models import Operation as OperationModel
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.artifacts import ArtifactKind
 from app.domain.bundle import ArtifactStatus, OperationStatus
 from app.domain.imports import ImportPreviewState
 from app.schemas.exports import ExportArtifactSelection
+from app.schemas.imports import (
+    ImportArtifactDestinationOverride,
+    ImportDestinationPlanRequest,
+)
 from app.services.bundle_package_service import BundlePackageService
 from app.services.export_orchestrator import ExportOrchestrator
 from app.services.harbor_client import HarborArtifact
+from app.services.harbor_destination_validator import DestinationCapability
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmOciService,
     HelmTargetState,
 )
+from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
 from app.services.import_helm_service import ImportHelmOciService
-from app.services.import_orchestrator import ImportOrchestrationError, ImportOrchestrator
+from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.operation_manager import OperationManager
 from app.services.report_service import iter_operation_csv
 from app.services.skopeo_service import ImageReference, SkopeoService, TargetState
@@ -54,11 +61,23 @@ from app.services.skopeo_service import ImageReference, SkopeoService, TargetSta
 REGISTRY_URL = os.environ.get("HTP_ACCEPTANCE_REGISTRY_URL", "").rstrip("/")
 TRANSFER_DIR = Path(os.environ.get("HTP_ACCEPTANCE_TRANSFER_DIR", "/transfer"))
 WORK_ROOT = Path(os.environ.get("HTP_ACCEPTANCE_WORK_ROOT", "/tmp/htp-isolated-acceptance"))
+
 IMAGE_REPOSITORY = "team/images/app"
 IMAGE_TAG = "1.0.0"
+SECOND_IMAGE_REPOSITORY = "team/images/worker"
+SECOND_IMAGE_TAG = "2.0.0"
 CHART_REPOSITORY = "team/charts"
 CHART_NAME = "fixture-chart"
 CHART_VERSION = "1.2.3"
+
+IMAGE_TARGET_PROJECT = "docker-prod"
+IMAGE_OVERRIDE_PROJECT = "docker-special"
+HELM_TARGET_PROJECT = "helm-prod"
+ALT_IMAGE_TARGET_PROJECT = "docker-alt"
+ALT_IMAGE_OVERRIDE_PROJECT = "docker-alt-special"
+ALT_HELM_TARGET_PROJECT = "helm-alt"
+TARGET_ACTOR = "acceptance-operator"
+
 OCI_MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
 DOCKER_MANIFEST_MEDIA_TYPE = "application/vnd.docker.distribution.manifest.v2+json"
 HELM_CONTENT_MEDIA_TYPE = "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
@@ -73,6 +92,39 @@ class MetadataHarborClient:
 
     def close(self) -> None:
         return None
+
+
+class AcceptanceDestinationValidator:
+    """Harbor project/access stand-in for a plain disposable distribution registry."""
+
+    def __init__(self) -> None:
+        registry_host = urlsplit(REGISTRY_URL).netloc
+        if not registry_host:
+            raise ValueError("acceptance TARGET registry host is empty")
+        self.registry_host = registry_host
+        self.missing_projects: set[str] = set()
+        self.denied_repositories: set[str] = set()
+
+    async def validate(self, project: str, repository: str) -> DestinationCapability:
+        if project in self.missing_projects:
+            return DestinationCapability(
+                False,
+                False,
+                "import_destination_project_missing",
+                f"acceptance project '{project}' is missing",
+            )
+        if repository in self.denied_repositories:
+            return DestinationCapability(
+                True,
+                False,
+                "import_destination_write_forbidden",
+                f"acceptance repository '{repository}' denies push",
+            )
+        return DestinationCapability(True, True)
+
+    def reset(self) -> None:
+        self.missing_projects.clear()
+        self.denied_repositories.clear()
 
 
 def fail(message: str) -> None:
@@ -366,16 +418,182 @@ def stage_incoming(settings: Settings, archive: Path, sidecar: Path) -> None:
     shutil.copy2(sidecar, incoming / sidecar.name)
 
 
-async def discover_one(manager: OperationManager, orchestrator: ImportOrchestrator) -> int:
+async def discover_one(
+    manager: OperationManager,
+    orchestrator: ImportDestinationPlanOrchestrator,
+) -> int:
     ready = await orchestrator.discover_ready(
         actor_user_id=None,  # type: ignore[arg-type]
-        actor_username="acceptance-operator",
+        actor_username=TARGET_ACTOR,
     )
     if len(ready) != 1:
         fail(f"expected exactly one discovered bundle, got {len(ready)}")
     operation_id = ready[0].operation_id
     await manager.wait(operation_id)
     return operation_id
+
+
+def mapping_for_preview(
+    preview,  # type: ignore[no-untyped-def]
+    *,
+    image_project: str,
+    image_override_project: str,
+    helm_project: str,
+) -> ImportDestinationPlanRequest:
+    second = next(
+        item for item in preview.artifacts if item.repository == SECOND_IMAGE_REPOSITORY
+    )
+    return ImportDestinationPlanRequest(
+        container_image_project=image_project,
+        helm_chart_project=helm_project,
+        artifact_overrides=[
+            ImportArtifactDestinationOverride(
+                index=second.index,
+                target_project=image_override_project,
+            )
+        ],
+    )
+
+
+def assert_no_sensitive_text(label: str, value: object) -> None:
+    text = (
+        value
+        if isinstance(value, str)
+        else json.dumps(value, ensure_ascii=False, sort_keys=True)
+    )
+    lowered = text.lower()
+    for marker in (
+        "password",
+        "credential",
+        "private_key",
+        "private-key",
+        "-----begin private key-----",
+    ):
+        if marker in lowered:
+            fail(f"{label} contains sensitive marker: {marker}")
+
+
+def assert_bundle_has_no_private_material(archive: Path) -> None:
+    with tarfile.open(archive, "r:gz") as bundle:
+        for member in bundle.getmembers():
+            lowered_name = member.name.lower()
+            if (
+                "private" in lowered_name
+                or "credential" in lowered_name
+                or "password" in lowered_name
+            ):
+                fail(f"bundle contains sensitive-looking member name: {member.name}")
+            if not member.isfile():
+                continue
+            handle = bundle.extractfile(member)
+            if handle is None:
+                fail(f"could not inspect archive member: {member.name}")
+            if b"-----BEGIN PRIVATE KEY-----" in handle.read():
+                fail(f"bundle contains private key material in {member.name}")
+
+
+def planned_by_source(plan):  # type: ignore[no-untyped-def]
+    return {item.source_repository: item for item in plan.artifacts}
+
+
+def receipt_by_source(receipt):  # type: ignore[no-untyped-def]
+    return {item.repository: item for item in receipt.artifacts}
+
+
+def target_coordinates(
+    *,
+    image_project: str,
+    image_override_project: str,
+    helm_project: str,
+) -> dict[str, tuple[str, str]]:
+    return {
+        IMAGE_REPOSITORY: (f"{image_project}/images/app", IMAGE_TAG),
+        SECOND_IMAGE_REPOSITORY: (
+            f"{image_override_project}/images/worker",
+            SECOND_IMAGE_TAG,
+        ),
+        CHART_REPOSITORY: (
+            f"{helm_project}/charts/{CHART_NAME}",
+            CHART_VERSION,
+        ),
+    }
+
+
+def assert_registry_absent(coordinates: dict[str, tuple[str, str]]) -> None:
+    for source_repository, (repository, reference) in coordinates.items():
+        if registry_manifest_digest(repository, reference) is not None:
+            fail(
+                "TARGET mutated before import for "
+                f"{source_repository} -> {repository}:{reference}"
+            )
+
+
+def assert_plan_destinations(
+    plan,  # type: ignore[no-untyped-def]
+    *,
+    image_project: str,
+    image_override_project: str,
+    helm_project: str,
+    expected_state: ImportPreviewState,
+) -> None:
+    if len(plan.artifacts) != 3 or not plan.valid:
+        fail(f"destination plan is not a valid three-artifact plan: {plan}")
+    if any(item.classification is not expected_state for item in plan.artifacts):
+        fail(f"destination plan state is not uniformly {expected_state}: {plan.artifacts}")
+
+    host = urlsplit(REGISTRY_URL).netloc
+    by_source = planned_by_source(plan)
+    expected = {
+        IMAGE_REPOSITORY: (
+            f"{image_project}/images/app",
+            f"{host}/{image_project}/images/app:{IMAGE_TAG}",
+        ),
+        SECOND_IMAGE_REPOSITORY: (
+            f"{image_override_project}/images/worker",
+            f"{host}/{image_override_project}/images/worker:{SECOND_IMAGE_TAG}",
+        ),
+        CHART_REPOSITORY: (
+            f"{helm_project}/charts",
+            f"oci://{host}/{helm_project}/charts/{CHART_NAME}:{CHART_VERSION}",
+        ),
+    }
+    for source_repository, (target_repository, final_reference) in expected.items():
+        item = by_source.get(source_repository)
+        if item is None:
+            fail(f"destination plan is missing source artifact {source_repository}")
+        if item.target_repository != target_repository or item.final_reference != final_reference:
+            fail(
+                f"wrong mapped target for {source_repository}: "
+                f"{item.target_repository} / {item.final_reference}"
+            )
+
+
+def assert_receipt_destinations(receipt, plan) -> None:  # type: ignore[no-untyped-def]
+    if (
+        receipt.destination_plan_id != plan.plan_id
+        or receipt.destination_plan_hash != plan.plan_hash
+    ):
+        fail("receipt is not bound to the executed destination plan")
+    planned = planned_by_source(plan)
+    actual = receipt_by_source(receipt)
+    if set(actual) != set(planned):
+        fail("receipt source artifact set does not match destination plan")
+    for source_repository, planned_item in planned.items():
+        item = actual[source_repository]
+        if (
+            item.artifact_type != planned_item.artifact_type
+            or item.target_repository != planned_item.target_repository
+            or item.final_reference != planned_item.final_reference
+        ):
+            fail(f"receipt destination mismatch for {source_repository}")
+
+
+def assert_import_policy_has_no_secrets(factory, operation_id: int) -> None:  # type: ignore[no-untyped-def]
+    with factory() as session:
+        operation = session.get(OperationModel, operation_id)
+        if operation is None or operation.import_policy_json is None:
+            fail("destination mapping policy was not persisted")
+        assert_no_sensitive_text("destination mapping policy", operation.import_policy_json)
 
 
 def tamper_signature(source: Path, destination: Path) -> None:
@@ -424,10 +642,10 @@ async def source_phase() -> None:
     try:
         with factory() as session:
             skopeo = SkopeoService(session, settings)
-            image_layout = settings.skopeo_payload_root / "seed" / "image"
+            image_layout = settings.skopeo_payload_root / "seed" / "image-app"
             image_digest = write_oci_image_fixture(
                 image_layout,
-                b"isolated-source-image-v1\n",
+                b"isolated-source-image-app-v1\n",
             )
             seeded_image = await skopeo.import_image(
                 image_layout,
@@ -435,7 +653,20 @@ async def source_phase() -> None:
                 expected_digest=image_digest,
             )
             if not seeded_image.verified or seeded_image.target_digest != image_digest:
-                fail("SOURCE image seed digest mismatch")
+                fail("SOURCE primary image seed digest mismatch")
+
+            second_layout = settings.skopeo_payload_root / "seed" / "image-worker"
+            second_digest = write_oci_image_fixture(
+                second_layout,
+                b"isolated-source-image-worker-v2\n",
+            )
+            seeded_second = await skopeo.import_image(
+                second_layout,
+                ImageReference(SECOND_IMAGE_REPOSITORY, SECOND_IMAGE_TAG),
+                expected_digest=second_digest,
+            )
+            if not seeded_second.verified or seeded_second.target_digest != second_digest:
+                fail("SOURCE second image seed digest mismatch")
 
             helm = helm_factory(settings)(session)
             chart_package = package_chart(settings)
@@ -448,7 +679,12 @@ async def source_phase() -> None:
                 ("team", "images/app", IMAGE_TAG): HarborArtifact(
                     digest=image_digest,
                     type="IMAGE",
-                    size=image_layout.stat().st_size if image_layout.is_file() else None,
+                    size=None,
+                ),
+                ("team", "images/worker", SECOND_IMAGE_TAG): HarborArtifact(
+                    digest=second_digest,
+                    type="IMAGE",
+                    size=None,
                 ),
                 ("team", "charts/fixture-chart", CHART_VERSION): HarborArtifact(
                     digest=chart_digest,
@@ -474,6 +710,13 @@ async def source_phase() -> None:
                 digest=image_digest,
             ),
             ExportArtifactSelection(
+                kind=ArtifactKind.CONTAINER_IMAGE,
+                project="team",
+                repository="images/worker",
+                reference=SECOND_IMAGE_TAG,
+                digest=second_digest,
+            ),
+            ExportArtifactSelection(
                 kind=ArtifactKind.HELM_CHART,
                 project="team",
                 repository="charts/fixture-chart",
@@ -485,7 +728,7 @@ async def source_phase() -> None:
             selections,
             actor_user_id=None,  # type: ignore[arg-type]
             actor_username="source-operator",
-            comment="isolated acceptance",
+            comment="isolated mixed destination acceptance",
         )
         await manager.wait(started.operation_id)
         operation = manager.get_operation(started.operation_id)
@@ -499,8 +742,13 @@ async def source_phase() -> None:
             metadata_result.archive_path,
             sidecar_path=sidecar,
         )
-        if len(verified.manifest.artifacts) != 2:
-            fail("SOURCE bundle does not contain both acceptance artifacts")
+        if len(verified.manifest.artifacts) != 3:
+            fail("SOURCE bundle does not contain two images and one Helm chart")
+        if [item.type for item in verified.manifest.artifacts].count("container-image") != 2:
+            fail("SOURCE bundle does not contain exactly two image descriptors")
+        if [item.type for item in verified.manifest.artifacts].count("helm-chart") != 1:
+            fail("SOURCE bundle does not contain exactly one Helm descriptor")
+        assert_bundle_has_no_private_material(metadata_result.archive_path)
 
         transfer_archive = TRANSFER_DIR / metadata_result.archive_path.name
         transfer_sidecar = TRANSFER_DIR / sidecar.name
@@ -508,17 +756,74 @@ async def source_phase() -> None:
         shutil.copy2(metadata_result.archive_path, transfer_archive)
         shutil.copy2(sidecar, transfer_sidecar)
         shutil.copy2(public_key, transfer_public_key)
-        # These are physical-media staging copies, not the protected portal originals.
-        # Bundle/signature integrity is cryptographic; none of these three files is secret.
         for path in (transfer_archive, transfer_sidecar, transfer_public_key):
             os.chmod(path, 0o644)
 
         print(
             f"SOURCE acceptance export OK: {started.delivery_id}; "
-            f"image={image_digest}; chart={chart_digest}"
+            f"images={image_digest},{second_digest}; chart={chart_digest}"
         )
     finally:
         await manager.shutdown()
+
+
+async def execute_planned_import(
+    orchestrator: ImportDestinationPlanOrchestrator,
+    manager: OperationManager,
+    operation_id: int,
+    plan,
+) -> None:  # type: ignore[no-untyped-def]
+    await orchestrator.start_import(
+        operation_id,
+        actor_username=TARGET_ACTOR,
+        overwrite_conflicts=False,
+        destination_plan_id=plan.plan_id,
+    )
+    await manager.wait(operation_id)
+    operation = manager.get_operation(operation_id)
+    if operation is None or operation.status is not OperationStatus.COMPLETED:
+        fail(f"TARGET import did not complete: {operation}")
+
+
+async def verify_target_content(
+    factory,  # type: ignore[no-untyped-def]
+    settings: Settings,
+    plan,
+    descriptors: dict[str, object],
+) -> None:  # type: ignore[no-untyped-def]
+    planned = planned_by_source(plan)
+    with factory() as session:
+        skopeo = SkopeoService(session, settings)
+        for source_repository in (IMAGE_REPOSITORY, SECOND_IMAGE_REPOSITORY):
+            descriptor = descriptors[source_repository]
+            item = planned[source_repository]
+            state = await skopeo.inspect_target(
+                ImageReference(item.target_repository, item.reference),
+                expected_digest=descriptor.source_digest,
+            )
+            if state.state is not TargetState.SAME_DIGEST:
+                fail(f"TARGET image digest mismatch for {source_repository}: {state}")
+
+        chart_descriptor = descriptors[CHART_REPOSITORY]
+        chart_item = planned[CHART_REPOSITORY]
+        helm = helm_factory(settings)(session)
+        chart_ref = HelmChartReference(
+            chart_item.target_repository,
+            chart_item.name,
+            chart_item.version,
+        )
+        chart_state = await helm.inspect_target(
+            chart_ref,
+            expected_digest=chart_descriptor.source_digest,
+        )
+        if chart_state.state is not HelmTargetState.SAME_DIGEST:
+            fail(f"TARGET Helm digest mismatch: {chart_state}")
+        pull_root = settings.helm_workspace_root / "acceptance-verify" / plan.plan_id[:12]
+        pulled = await helm.pull_chart(chart_ref, pull_root)
+        if pulled.package.name != CHART_NAME or pulled.package.version != CHART_VERSION:
+            fail("TARGET Helm package identity mismatch")
+        if pulled.package.sha256 != chart_descriptor.payload_sha256:
+            fail("TARGET Helm package content differs from signed bundle payload")
 
 
 async def target_phase() -> None:
@@ -534,45 +839,72 @@ async def target_phase() -> None:
     await manager.startup()
     try:
         package_service = BundlePackageService(settings)
-        verified_transfer = package_service.verify_bundle(archive, sidecar_path=sidecar)
-        image_descriptor = next(
-            item
-            for item in verified_transfer.manifest.artifacts
-            if item.type == "container-image"
+        verified_transfer = package_service.verify_bundle(
+            archive,
+            sidecar_path=sidecar,
+            extract_to=settings.bundle_extract_root / "acceptance-inspection",
         )
-        chart_descriptor = next(
-            item
-            for item in verified_transfer.manifest.artifacts
-            if item.type == "helm-chart"
-        )
+        if len(verified_transfer.manifest.artifacts) != 3:
+            fail("physical bundle is not the expected mixed three-artifact bundle")
+        assert_bundle_has_no_private_material(archive)
+        descriptors = {
+            item.repository: item for item in verified_transfer.manifest.artifacts
+        }
+        if set(descriptors) != {
+            IMAGE_REPOSITORY,
+            SECOND_IMAGE_REPOSITORY,
+            CHART_REPOSITORY,
+        }:
+            fail(f"unexpected mixed bundle source repositories: {set(descriptors)}")
 
-        orchestrator = ImportOrchestrator(
+        validator = AcceptanceDestinationValidator()
+        orchestrator = ImportDestinationPlanOrchestrator(
             factory,
             settings,
             manager,
             skopeo_factory=lambda session: SkopeoService(session, settings),
             helm_factory=helm_factory(settings),
+            destination_validator_factory=lambda _session: validator,
         )
 
+        # Initial mixed import: two images use the image default except for a
+        # per-artifact override; Helm uses a separate project.
         stage_incoming(settings, archive, sidecar)
         operation_id = await discover_one(manager, orchestrator)
         preview = orchestrator.preview(operation_id)
-        if [item.classification for item in preview.artifacts] != [
-            ImportPreviewState.NEW,
-            ImportPreviewState.NEW,
-        ]:
-            fail(f"initial TARGET preview is not NEW/NEW: {preview.artifacts}")
-        await orchestrator.start_import(
-            operation_id,
-            actor_username="target-operator",
-            overwrite_conflicts=False,
+        mapping = mapping_for_preview(
+            preview,
+            image_project=IMAGE_TARGET_PROJECT,
+            image_override_project=IMAGE_OVERRIDE_PROJECT,
+            helm_project=HELM_TARGET_PROJECT,
         )
-        await manager.wait(operation_id)
+        assert_no_sensitive_text("destination mapping request", mapping.model_dump(mode="json"))
+        plan = await orchestrator.build_destination_plan(
+            operation_id,
+            mapping,
+            actor_username=TARGET_ACTOR,
+        )
+        assert_plan_destinations(
+            plan,
+            image_project=IMAGE_TARGET_PROJECT,
+            image_override_project=IMAGE_OVERRIDE_PROJECT,
+            helm_project=HELM_TARGET_PROJECT,
+            expected_state=ImportPreviewState.NEW,
+        )
+        initial_coordinates = target_coordinates(
+            image_project=IMAGE_TARGET_PROJECT,
+            image_override_project=IMAGE_OVERRIDE_PROJECT,
+            helm_project=HELM_TARGET_PROJECT,
+        )
+        assert_registry_absent(initial_coordinates)
+        assert_import_policy_has_no_secrets(factory, operation_id)
+
+        await execute_planned_import(orchestrator, manager, operation_id, plan)
         operation = manager.get_operation(operation_id)
-        if operation is None or operation.status is not OperationStatus.COMPLETED:
-            fail(f"TARGET import did not complete: {operation}")
-        if any(item.status is not ArtifactStatus.VERIFIED for item in operation.artifacts):
-            fail("TARGET import artifacts are not all VERIFIED")
+        if operation is None or any(
+            item.status is not ArtifactStatus.VERIFIED for item in operation.artifacts
+        ):
+            fail("TARGET mixed import artifacts are not all VERIFIED")
 
         receipt = orchestrator.receipt(operation_id)
         if (
@@ -580,99 +912,203 @@ async def target_phase() -> None:
             or receipt.source_delivery_id != verified_transfer.manifest.delivery_id
         ):
             fail("TARGET immutable receipt identity/result mismatch")
+        assert_receipt_destinations(receipt, plan)
+        assert_no_sensitive_text("import receipt", receipt.model_dump(mode="json"))
         receipt_path = settings.import_receipt_root / f"import-{operation_id}.json"
         if not receipt_path.is_file() or (receipt_path.stat().st_mode & 0o777) != 0o440:
             fail("TARGET immutable receipt file is missing or has wrong mode")
+
         report_text = b"".join(iter_operation_csv(operation)).decode("utf-8")
         rows = list(csv.DictReader(io.StringIO(report_text)))
-        if len(rows) != 2 or {row["artifact_result"] for row in rows} != {"VERIFIED"}:
-            fail("TARGET CSV report does not contain verified artifact outcomes")
+        if len(rows) != 3 or {row["artifact_result"] for row in rows} != {"VERIFIED"}:
+            fail("TARGET CSV report does not contain all verified mixed artifact outcomes")
         if verified_transfer.manifest.delivery_id not in report_text:
             fail("TARGET CSV report is missing source delivery id")
 
-        with factory() as session:
-            skopeo = SkopeoService(session, settings)
-            image_state = await skopeo.inspect_target(
-                ImageReference(image_descriptor.repository, image_descriptor.reference),
-                expected_digest=image_descriptor.source_digest,
-            )
-            if image_state.state is not TargetState.SAME_DIGEST:
-                fail(f"TARGET image digest mismatch: {image_state}")
-            helm = helm_factory(settings)(session)
-            chart_state = await helm.inspect_target(
-                HelmChartReference(
-                    chart_descriptor.repository,
-                    chart_descriptor.name,
-                    chart_descriptor.version,
-                ),
-                expected_digest=chart_descriptor.source_digest,
-            )
-            if chart_state.state is not HelmTargetState.SAME_DIGEST:
-                fail(f"TARGET Helm digest mismatch: {chart_state}")
+        await verify_target_content(factory, settings, plan, descriptors)
+        # Mapping must not accidentally mutate SOURCE paths in the TARGET registry.
+        if registry_manifest_digest(IMAGE_REPOSITORY, IMAGE_TAG) is not None:
+            fail("mapped image import leaked into original SOURCE repository")
+        if registry_manifest_digest(SECOND_IMAGE_REPOSITORY, SECOND_IMAGE_TAG) is not None:
+            fail("mapped second image import leaked into original SOURCE repository")
+        if registry_manifest_digest(f"{CHART_REPOSITORY}/{CHART_NAME}", CHART_VERSION) is not None:
+            fail("mapped Helm import leaked into original SOURCE repository")
 
+        # Replay the same physical bundle with the same mapping. The resolved plan
+        # identity remains stable and all three actual TARGET references are SAME.
         stage_incoming(settings, archive, sidecar)
         replay_id = await discover_one(manager, orchestrator)
         replay_preview = orchestrator.preview(replay_id)
-        if any(
-            item.classification is not ImportPreviewState.SAME
-            for item in replay_preview.artifacts
-        ):
-            fail("replay preview is not idempotent SAME")
-        await orchestrator.start_import(
-            replay_id,
-            actor_username="target-operator",
-            overwrite_conflicts=False,
+        replay_mapping = mapping_for_preview(
+            replay_preview,
+            image_project=IMAGE_TARGET_PROJECT,
+            image_override_project=IMAGE_OVERRIDE_PROJECT,
+            helm_project=HELM_TARGET_PROJECT,
         )
-        await manager.wait(replay_id)
+        replay_plan = await orchestrator.build_destination_plan(
+            replay_id,
+            replay_mapping,
+            actor_username=TARGET_ACTOR,
+        )
+        assert_plan_destinations(
+            replay_plan,
+            image_project=IMAGE_TARGET_PROJECT,
+            image_override_project=IMAGE_OVERRIDE_PROJECT,
+            helm_project=HELM_TARGET_PROJECT,
+            expected_state=ImportPreviewState.SAME,
+        )
+        if replay_plan.plan_id != plan.plan_id:
+            fail("same bundle + same resolved mapping did not keep stable plan_id")
+        await execute_planned_import(orchestrator, manager, replay_id, replay_plan)
         replay = manager.get_operation(replay_id)
-        if replay is None or replay.status is not OperationStatus.COMPLETED:
-            fail("replay import did not complete")
-        if any(item.status is not ArtifactStatus.SKIPPED for item in replay.artifacts):
-            fail("replay did not SKIP identical artifacts")
+        if replay is None or any(
+            item.status is not ArtifactStatus.SKIPPED for item in replay.artifacts
+        ):
+            fail("replay did not SKIP all identical mapped artifacts")
 
+        # The same bundle with another mapping must create a distinct plan and
+        # mutate only the alternate final references.
+        stage_incoming(settings, archive, sidecar)
+        alternate_id = await discover_one(manager, orchestrator)
+        alternate_preview = orchestrator.preview(alternate_id)
+        alternate_mapping = mapping_for_preview(
+            alternate_preview,
+            image_project=ALT_IMAGE_TARGET_PROJECT,
+            image_override_project=ALT_IMAGE_OVERRIDE_PROJECT,
+            helm_project=ALT_HELM_TARGET_PROJECT,
+        )
+        alternate_plan = await orchestrator.build_destination_plan(
+            alternate_id,
+            alternate_mapping,
+            actor_username=TARGET_ACTOR,
+        )
+        assert_plan_destinations(
+            alternate_plan,
+            image_project=ALT_IMAGE_TARGET_PROJECT,
+            image_override_project=ALT_IMAGE_OVERRIDE_PROJECT,
+            helm_project=ALT_HELM_TARGET_PROJECT,
+            expected_state=ImportPreviewState.NEW,
+        )
+        if alternate_plan.plan_id == plan.plan_id:
+            fail("different resolved mapping reused the previous destination plan id")
+        alternate_coordinates = target_coordinates(
+            image_project=ALT_IMAGE_TARGET_PROJECT,
+            image_override_project=ALT_IMAGE_OVERRIDE_PROJECT,
+            helm_project=ALT_HELM_TARGET_PROJECT,
+        )
+        assert_registry_absent(alternate_coordinates)
+        await execute_planned_import(orchestrator, manager, alternate_id, alternate_plan)
+        alternate_receipt = orchestrator.receipt(alternate_id)
+        assert_receipt_destinations(alternate_receipt, alternate_plan)
+        await verify_target_content(factory, settings, alternate_plan, descriptors)
+
+        # Missing project / denied write access must fail during planning, before
+        # any registry mutation. Use fresh destination paths to prove absence.
+        validator.missing_projects.add("missing-images")
+        validator.denied_repositories.add(f"readonly-charts/charts/{CHART_NAME}")
+        stage_incoming(settings, archive, sidecar)
+        denied_id = await discover_one(manager, orchestrator)
+        denied_preview = orchestrator.preview(denied_id)
+        denied_mapping = mapping_for_preview(
+            denied_preview,
+            image_project="missing-images",
+            image_override_project="missing-images",
+            helm_project="readonly-charts",
+        )
+        denied_plan = await orchestrator.build_destination_plan(
+            denied_id,
+            denied_mapping,
+            actor_username=TARGET_ACTOR,
+        )
+        if denied_plan.valid:
+            fail("missing/no-write destination plan unexpectedly became valid")
+        error_codes = {item.error_code for item in denied_plan.artifacts}
+        if error_codes != {
+            "import_destination_project_missing",
+            "import_destination_write_forbidden",
+        }:
+            fail(f"unexpected destination access errors: {error_codes}")
+        denied_coordinates = target_coordinates(
+            image_project="missing-images",
+            image_override_project="missing-images",
+            helm_project="readonly-charts",
+        )
+        assert_registry_absent(denied_coordinates)
+        try:
+            await orchestrator.start_import(
+                denied_id,
+                actor_username=TARGET_ACTOR,
+                overwrite_conflicts=False,
+                destination_plan_id=denied_plan.plan_id,
+            )
+        except ImportOrchestrationError as exc:
+            if exc.code != "import_destination_plan_invalid":
+                raise
+        else:
+            fail("invalid destination plan unexpectedly reached import execution")
+        assert_registry_absent(denied_coordinates)
+        validator.reset()
+
+        # Seed a conflicting digest at one resolved image destination. Planning
+        # must classify the exact final reference as CONFLICT and default deny
+        # must leave that digest untouched.
+        primary_target_repository = f"{IMAGE_TARGET_PROJECT}/images/app"
         with factory() as session:
             skopeo = SkopeoService(session, settings)
             conflict_layout = settings.skopeo_payload_root / "conflict" / "image"
             conflict_digest = write_oci_image_fixture(
                 conflict_layout,
-                b"isolated-target-conflict-v2\n",
+                b"isolated-target-conflict-v3\n",
             )
-            if conflict_digest == image_descriptor.source_digest:
+            if conflict_digest == descriptors[IMAGE_REPOSITORY].source_digest:
                 fail("conflict fixture unexpectedly matches source digest")
             conflict_import = await skopeo.import_image(
                 conflict_layout,
-                ImageReference(image_descriptor.repository, image_descriptor.reference),
+                ImageReference(primary_target_repository, IMAGE_TAG),
                 expected_digest=conflict_digest,
             )
             if conflict_import.target_digest != conflict_digest:
-                fail("failed to seed conflicting TARGET image")
+                fail("failed to seed conflicting mapped TARGET image")
 
         stage_incoming(settings, archive, sidecar)
         conflict_id = await discover_one(manager, orchestrator)
         conflict_preview = orchestrator.preview(conflict_id)
-        if conflict_preview.artifacts[0].classification is not ImportPreviewState.CONFLICT:
-            fail("conflict fixture was not classified as CONFLICT")
+        conflict_mapping = mapping_for_preview(
+            conflict_preview,
+            image_project=IMAGE_TARGET_PROJECT,
+            image_override_project=IMAGE_OVERRIDE_PROJECT,
+            helm_project=HELM_TARGET_PROJECT,
+        )
+        conflict_plan = await orchestrator.build_destination_plan(
+            conflict_id,
+            conflict_mapping,
+            actor_username=TARGET_ACTOR,
+        )
+        conflict_by_source = planned_by_source(conflict_plan)
+        if conflict_by_source[IMAGE_REPOSITORY].classification is not ImportPreviewState.CONFLICT:
+            fail("mapped conflict fixture was not classified as CONFLICT")
+        if any(
+            item.classification is not ImportPreviewState.SAME
+            for source, item in conflict_by_source.items()
+            if source != IMAGE_REPOSITORY
+        ):
+            fail("non-conflicting mapped artifacts are not SAME during conflict scenario")
         try:
             await orchestrator.start_import(
                 conflict_id,
-                actor_username="target-operator",
+                actor_username=TARGET_ACTOR,
                 overwrite_conflicts=False,
+                destination_plan_id=conflict_plan.plan_id,
             )
         except ImportOrchestrationError as exc:
             if exc.code != "import_conflict_blocked":
                 raise
         else:
-            fail("default conflict policy unexpectedly allowed overwrite")
+            fail("default conflict policy unexpectedly allowed mapped overwrite")
+        if registry_manifest_digest(primary_target_repository, IMAGE_TAG) != conflict_digest:
+            fail("blocked mapped conflict mutated TARGET image")
 
-        with factory() as session:
-            skopeo = SkopeoService(session, settings)
-            still_conflict = await skopeo.inspect_target(
-                ImageReference(image_descriptor.repository, image_descriptor.reference),
-                expected_digest=conflict_digest,
-            )
-            if still_conflict.state is not TargetState.SAME_DIGEST:
-                fail("blocked conflict mutated TARGET image")
-
+        # Signed-bundle tamper remains fail-closed even after destination mapping.
         with tempfile.TemporaryDirectory(prefix="htp-tamper-") as temp_name:
             tampered = Path(temp_name) / "tampered.htp.tar.gz"
             tamper_signature(archive, tampered)
@@ -686,18 +1122,13 @@ async def target_phase() -> None:
             ):
                 fail(f"tampered signed bundle was not REJECTED: {tampered_operation}")
 
-        with factory() as session:
-            skopeo = SkopeoService(session, settings)
-            unchanged = await skopeo.inspect_target(
-                ImageReference(image_descriptor.repository, image_descriptor.reference),
-                expected_digest=conflict_digest,
-            )
-            if unchanged.state is not TargetState.SAME_DIGEST:
-                fail("tampered bundle mutated TARGET registry")
+        if registry_manifest_digest(primary_target_repository, IMAGE_TAG) != conflict_digest:
+            fail("tampered bundle mutated TARGET registry")
 
         print(
-            f"TARGET acceptance import OK: {verified_transfer.manifest.delivery_id}; "
-            "digest verification, receipt/report, replay, conflict and tamper assertions passed"
+            f"TARGET mixed acceptance OK: {verified_transfer.manifest.delivery_id}; "
+            "mapped refs, digests/content, replay, alternate mapping, access fail-closed, "
+            "conflict policy, receipt provenance and tamper assertions passed"
         )
     finally:
         await manager.shutdown()

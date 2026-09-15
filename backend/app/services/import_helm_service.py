@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db.models import ArtifactResult
 from app.domain.bundle import ArtifactStatus
+from app.schemas.imports import ImportReceiptResponse
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmCommandRunner,
@@ -86,22 +87,59 @@ class ImportHelmOciService(HelmOciService):
         ):
             return inspected
 
-        verified_pair = self._import_session.scalar(
-            select(ArtifactResult.id)
-            .where(
-                ArtifactResult.artifact_type == "helm-chart",
-                ArtifactResult.repository == chart.repository,
-                ArtifactResult.name == chart.name,
-                ArtifactResult.version == chart.version,
-                ArtifactResult.source_digest == expected_digest,
-                ArtifactResult.target_digest == inspected.digest,
-                ArtifactResult.status == ArtifactStatus.VERIFIED,
-            )
-            .limit(1)
-        )
-        if verified_pair is None:
+        if not self._verified_digest_pair_matches_target(
+            chart,
+            source_digest=expected_digest,
+            target_digest=inspected.digest,
+        ):
             return inspected
         return HelmTargetInspection(HelmTargetState.SAME_DIGEST, inspected.digest)
+
+    def _verified_digest_pair_matches_target(
+        self,
+        chart: HelmChartReference,
+        *,
+        source_digest: str,
+        target_digest: str,
+    ) -> bool:
+        candidates = self._import_session.scalars(
+            select(ArtifactResult).where(
+                ArtifactResult.artifact_type == "helm-chart",
+                ArtifactResult.name == chart.name,
+                ArtifactResult.version == chart.version,
+                ArtifactResult.source_digest == source_digest,
+                ArtifactResult.target_digest == target_digest,
+                ArtifactResult.status == ArtifactStatus.VERIFIED,
+            )
+        ).all()
+        for candidate in candidates:
+            # Legacy/identity imports stored the same repository coordinate directly.
+            if candidate.repository == chart.repository:
+                return True
+
+            # Destination mapping keeps ArtifactResult.repository as SOURCE provenance.
+            # Bind the verified digest pair to the actual mapped TARGET path recorded in
+            # the immutable receipt so a pair from another project cannot authorize replay.
+            receipt_json = candidate.operation.import_receipt_json
+            if receipt_json is None:
+                continue
+            try:
+                receipt = ImportReceiptResponse.model_validate_json(receipt_json)
+            except ValueError:
+                continue
+            if any(
+                item.artifact_type == "helm-chart"
+                and item.repository == candidate.repository
+                and item.name == chart.name
+                and item.version == chart.version
+                and item.expected_digest == source_digest
+                and item.target_digest == target_digest
+                and item.target_repository == chart.repository
+                and item.status == ArtifactStatus.VERIFIED
+                for item in receipt.artifacts
+            ):
+                return True
+        return False
 
     async def push_chart(
         self,
