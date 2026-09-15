@@ -4,7 +4,7 @@
 
 Формат каждого раздела: **симптом → вероятная причина → диагностика → безопасное решение → эскалация**.
 
-Этот документ не заменяет [security.md](security.md) и [admin-guide.md](admin-guide.md). SOURCE export и TARGET import orchestration/UI уже реализованы; финальная isolated cross-contour release acceptance и offline install qualification остаются задачей #28.
+Этот документ не заменяет [security.md](security.md) и [admin-guide.md](admin-guide.md). SOURCE export, TARGET import orchestration/UI, clean-host offline install qualification и isolated SOURCE → TARGET release acceptance реализованы в текущем v1 release boundary.
 
 ## 1. Базовый диагностический порядок
 
@@ -34,6 +34,76 @@ docker compose logs --tail=100 frontend
 - содержимое managed secret;
 - полный `.env`;
 - raw logs до проверки redaction/internal metadata.
+
+## 1A. Browser HTTPS / transport boundary
+
+### Симптом
+
+Возможные проявления:
+
+- Portal доступен только через `http://127.0.0.1:8080`, но нужен удалённый browser access;
+- login работает локально, но remote browser должен использовать production HTTPS;
+- export download ticket через HTTPS не работает после неправильной deployment-настройки;
+- есть подозрение, что reverse proxy/header влияет на определение HTTPS.
+
+### Вероятная причина
+
+- site TLS terminator ещё не настроен;
+- `PORTAL_BROWSER_SCHEME` не соответствует реальному browser transport;
+- `PORTAL_HTTP_BIND` изменён на сетевой интерфейс без firewall/ACL;
+- внешний proxy пытается использовать `X-Forwarded-Proto` как способ управлять security state Portal.
+
+### Диагностика
+
+Проверьте `.env` без вывода secrets:
+
+```text
+PORTAL_HTTP_BIND
+PORTAL_HTTP_PORT
+PORTAL_BROWSER_SCHEME
+```
+
+Safe default:
+
+```text
+PORTAL_HTTP_BIND=127.0.0.1
+PORTAL_HTTP_PORT=8080
+PORTAL_BROWSER_SCHEME=http
+```
+
+Для production authenticated browser path ожидается site-managed HTTPS terminator и:
+
+```text
+PORTAL_BROWSER_SCHEME=https
+```
+
+Проверьте `docker compose config`: frontend host port не должен неожиданно публиковаться на `0.0.0.0`. Browser должен открывать site HTTPS URL с ожидаемым сертификатом.
+
+Portal намеренно не доверяет client-supplied `X-Forwarded-Proto`: inner Nginx удаляет его перед backend. Поэтому изменение этого header клиентом не должно менять `Secure` behavior download cookie.
+
+### Безопасное решение
+
+Предпочтительная topology:
+
+```text
+Browser --HTTPS--> site TLS terminator --HTTP--> 127.0.0.1:8080 --> Portal
+```
+
+1. оставьте `PORTAL_HTTP_BIND=127.0.0.1`, если terminator находится на том же host;
+2. настройте site certificate/private key на terminator, а не в release kit;
+3. установите `PORTAL_BROWSER_SCHEME=https`;
+4. перезапустите Compose;
+5. проверьте login, `/api/health` и export download через site HTTPS URL.
+
+Если terminator находится на другом доверенном узле, задайте `PORTAL_HTTP_BIND` адресом выделенного внутреннего интерфейса и ограничьте firewall доступом только с terminator.
+
+Не исправляйте browser HTTPS отключением `HARBOR_VERIFY_TLS`: это другая trust boundary.
+
+### Когда эскалировать
+
+Если при корректном site HTTPS и `PORTAL_BROWSER_SCHEME=https` download cookie не получает `Secure`, приложите sanitized `docker compose config`, browser endpoint scheme/host и response headers без token/cookie value.
+
+Подробная модель: [browser-transport.md](browser-transport.md).
 
 ## 2. Harbor отклоняет credential
 
@@ -715,6 +785,7 @@ docker compose logs --tail=300 backend
 - operation id;
 - safe error code;
 - phase/status;
+- Browser endpoint scheme/host и `PORTAL_BROWSER_SCHEME` для transport issue;
 - Harbor version;
 - artifact repository/reference без credentials;
 - bundle delivery id + SHA-256 + signing-key fingerprint, если это protocol issue;
@@ -724,8 +795,10 @@ docker compose logs --tail=300 backend
 Не прикладывать:
 
 - passwords/tokens;
+- cookie values;
 - `JWT_SECRET`;
 - SOURCE private key;
+- TLS private key;
 - `data/secrets` contents;
 - полный backup;
 - raw environment dump.
@@ -735,6 +808,7 @@ docker compose logs --tail=300 backend
 - [User Guide](user-guide.md)
 - [Admin Guide](admin-guide.md)
 - [Security/trust model](security.md)
+- [Browser transport](browser-transport.md)
 - [Deployment/runtime Compose](../deploy/README.md)
 - [Import orchestration](import-orchestration.md)
 - [Export orchestration](export-orchestration.md)
