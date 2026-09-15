@@ -181,6 +181,48 @@ describe('SOURCE export wizard view', () => {
     expect(button(wrapper, 'Скачать `.sha256`').attributes('type')).toBe('button')
   })
 
+  it('shows unknown OCI references for diagnostics without export controls', async () => {
+    mockHappyPath()
+    vi.mocked(exportsApi.listHarborArtifacts).mockResolvedValue({
+      pagination: { page: 1, page_size: 25, total: 1 },
+      items: [
+        {
+          kind: 'unknown-oci',
+          project: 'team',
+          repository: 'apps/demo',
+          references: ['release-2026.09', 'latest'],
+          digest: DIGEST,
+          size: 2048,
+          pushed_at: null,
+          media_type: 'application/vnd.example.unknown',
+          artifact_type: 'application/vnd.example.unknown',
+        },
+      ],
+    })
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    await button(wrapper, 'team').trigger('click')
+    await flushPromises()
+    await button(wrapper, 'apps/demo').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('OCI (не поддерживается)')
+    expect(wrapper.text()).toContain('Не поддерживается export v1')
+    expect(wrapper.text()).toContain('release-2026.09')
+    expect(wrapper.text()).toContain('latest')
+    expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(0)
+    expect(wrapper.text()).toContain('0 выбрано')
+    expect(button(wrapper, 'Проверить выбранное').attributes('disabled')).toBeDefined()
+  })
+
   it('searches automatically after debounce while explicit submit stays immediate', async () => {
     vi.useFakeTimers()
     mockHappyPath()

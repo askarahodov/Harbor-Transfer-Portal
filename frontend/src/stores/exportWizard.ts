@@ -328,7 +328,6 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   function referencesFor(artifact: HarborArtifact): string[] {
-    if (artifact.kind === 'unknown-oci') return []
     if (artifact.references.length > 0) return artifact.references
     return artifact.kind === 'container-image' ? [artifact.digest] : []
   }
