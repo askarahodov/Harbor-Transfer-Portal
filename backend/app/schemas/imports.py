@@ -69,6 +69,10 @@ class ImportArtifactDestinationOverride(BaseModel):
 
 
 class ImportDestinationPlanRequest(BaseModel):
+    # Server-owned snapshot marker. Client values are overwritten by the policy-aware
+    # orchestrator before planning; the field exists so persisted mapping_request is
+    # cryptographically bound to the policy revision used for that plan.
+    mapping_policy_revision: int = Field(default=0, ge=0)
     container_image_project: str | None = Field(
         default=None,
         min_length=1,
@@ -165,14 +169,15 @@ class ImportDestinationPlanResponse(BaseModel):
     bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     plan_id: str = Field(pattern=r"^[a-f0-9]{64}$")
     plan_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    mapping_policy_revision: int = Field(default=0, ge=0)
     created_at: datetime
     valid: bool
     artifacts: list[ImportDestinationArtifactPlanResponse]
 
     @model_validator(mode="after")
     def normalize_derived_fields(self) -> ImportDestinationPlanResponse:
-        # plan_id is deliberately stable across TARGET state drift; plan_hash below the
-        # service layer binds the concrete observed state and timestamp.
+        # plan_id is deliberately stable across TARGET state drift and policy revisions
+        # when the resolved destinations remain identical. plan_hash binds the revision.
         self.plan_id = destination_plan_id(self.bundle_sha256, self.artifacts)
         self.valid = all(
             item.project_exists
