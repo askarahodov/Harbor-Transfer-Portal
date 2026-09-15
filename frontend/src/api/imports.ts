@@ -104,6 +104,7 @@ export type ImportDestinationPlan = {
   bundle_sha256: string
   plan_id: string
   plan_hash: string
+  mapping_policy_revision: number
   created_at: string
   valid: boolean
   artifacts: ImportDestinationArtifactPlan[]
