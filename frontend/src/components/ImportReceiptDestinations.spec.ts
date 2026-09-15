@@ -15,6 +15,7 @@ function receipt(): ImportReceipt {
     finished_at: '2026-09-15T08:02:00Z',
     overwrite_conflicts: false,
     destination_plan_id: 'e'.repeat(64),
+    destination_plan_hash: 'f'.repeat(64),
     result: 'COMPLETED',
     artifacts: [
       {
