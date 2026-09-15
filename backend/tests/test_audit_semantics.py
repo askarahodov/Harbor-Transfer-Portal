@@ -98,10 +98,21 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
                 self.operation_manager = _OperationManager(operation_id)
                 self.states = states
 
-            def preview(self, operation_id: int):
+            def destination_plan(self, operation_id: int):
                 assert operation_id == self.operation_manager.operation_id
                 return SimpleNamespace(
-                    artifacts=[SimpleNamespace(classification=state) for state in self.states]
+                    plan_id=f"plan-{operation_id}",
+                    artifacts=[
+                        SimpleNamespace(
+                            index=index,
+                            artifact_type="container-image",
+                            source_repository=f"source/app-{index}",
+                            target_repository=f"target/app-{index}",
+                            final_reference=f"harbor.target.local/target/app-{index}:1.0",
+                            classification=state,
+                        )
+                        for index, state in enumerate(self.states)
+                    ],
                 )
 
             async def start_import(
@@ -110,10 +121,12 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
                 *,
                 actor_username: str,
                 overwrite_conflicts: bool,
+                destination_plan_id: str | None = None,
             ) -> None:
                 assert operation_id == self.operation_manager.operation_id
                 assert actor_username == operator.username
                 assert overwrite_conflicts is True
+                assert destination_plan_id is None
 
         no_conflict = _Orchestrator(41, [ImportPreviewState.NEW, ImportPreviewState.SAME])
         response = asyncio.run(
@@ -159,6 +172,8 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
     second_metadata = json.loads(events[1].metadata_json)
     approval_metadata = json.loads(events[2].metadata_json)
     assert first_metadata["conflict_count"] == 0
+    assert first_metadata["destination_plan_id"] == "plan-41"
     assert second_metadata["conflict_count"] == 2
+    assert second_metadata["destination_plan_id"] == "plan-42"
     assert approval_metadata["conflict_count"] == 2
     assert approval_metadata["source_delivery_id"] == "DELIVERY-42"
