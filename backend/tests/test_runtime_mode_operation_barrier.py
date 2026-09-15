@@ -12,7 +12,7 @@ from app.db.models import Operation, User, UserRole
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import OperationStatus, OperationType
 from app.services.correlated_operation_manager import CorrelatedOperationManager
-from app.services.operation_manager import OperationManager
+from app.services.operation_manager import OperationManager, OperationManagerError
 from app.services.runtime_mode import RuntimeModeError, RuntimeModeService
 
 
@@ -185,9 +185,9 @@ def test_submit_backfills_legacy_snapshot_only_in_compatible_mode(tmp_path: Path
         return None
 
     # submit() requires an event loop, but snapshot backfill happens before task creation.
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(OperationManagerError) as exc_info:
         manager.submit(operation_id, no_op)
-    assert getattr(exc_info.value, "code", None) == "operation_event_loop_required"
+    assert exc_info.value.code == "operation_event_loop_required"
 
     with session_factory() as session:
         operation = session.get(Operation, operation_id)
