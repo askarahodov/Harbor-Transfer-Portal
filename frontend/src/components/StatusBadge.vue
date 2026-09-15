@@ -21,8 +21,8 @@ defineProps<{
   font-size: 12px;
   font-weight: 600;
 }
-.status-badge--success { background: var(--color-mint); color: #065f46; }
-.status-badge--warning { background: var(--color-sand); color: #92400e; }
-.status-badge--error { background: var(--color-rose); color: #991b1b; }
-.status-badge--info { background: var(--color-sky); color: #1e40af; }
+.status-badge--success { background: var(--color-success-surface); color: var(--color-success-text); }
+.status-badge--warning { background: var(--color-warning-surface); color: var(--color-warning-text); }
+.status-badge--error { background: var(--color-danger-surface); color: var(--color-danger-text); }
+.status-badge--info { background: var(--color-info-surface); color: var(--color-info-text); }
 </style>
