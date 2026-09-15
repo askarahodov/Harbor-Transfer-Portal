@@ -34,9 +34,11 @@ PORTAL_BACKUP_DIR=/secure/offline-backups ./backup.sh
 
 Backup **содержит секреты**: JWT secret, portal-managed Harbor credential/CA, SOURCE private signing key или TARGET trust material могут находиться в `.env` и `/app/data`. Поэтому backup не является переносимым публичным release artifact. Храните его как secret backup с ограниченным доступом. Release builder никогда не включает каталог `backups/` в install archive.
 
+Runtime role и `runtime.portal_mode_version` хранятся в SQLite внутри `/app/data`, поэтому корректный backup сохраняет authoritative runtime mode вместе с остальным persistent state. `PORTAL_CONTOUR` в `.env` остаётся bootstrap metadata, а не источником текущей роли после инициализации базы.
+
 ## Restore / recovery
 
-Restore — отдельная destructive recovery-операция. Используйте release kit **той же версии**, что указана в backup metadata. Backup версии `1.0.0` нельзя напрямую восстанавливать kit версии `1.1.0`: сначала восстановите `1.0.0`, проверьте health/readiness, затем выполните обычный upgrade.
+Restore — отдельная destructive recovery-операция. Используйте release kit **той же версии**, что указана в backup metadata. Backup версии `1.0.0` нельзя напрямую восстанавливать kit версии `1.1.0`: сначала восстановите `1.0.0`, проверьте health/readiness и runtime mode, затем выполните обычный upgrade.
 
 Пример:
 
@@ -53,13 +55,15 @@ cd /opt/harbor-transfer-portal-v1.0.0-offline-install
 4. проверяет strict allowlist outer archive: `.env`, `backup-metadata.txt`, `portal-data.tar.gz`, `CHECKSUMS.sha256`;
 5. проверяет внутренние checksums;
 6. проверяет `product=harbor-transfer-portal`, matching release version и stable volume identity;
-7. получает contour из backup `.env` и запрещает молча менять contour существующей установки;
+7. проверяет bootstrap contour metadata из backup `.env`, не подменяя им authoritative runtime mode восстановленной SQLite;
 8. проверяет persistent-data tar на absolute/`..` traversal paths и запрещает symlink/special-file members;
 9. проверяет host/release architecture.
 
 После validation script загружает только bundled backend/frontend images matching-версии, проверяет exact refs/architecture, атомарно восстанавливает `.env`, останавливает существующие containers, заменяет содержимое `harbor-transfer-portal_portal-data`, возвращает ownership `10001:10001` и стартует Compose с `--no-build --pull never --wait`.
 
 Операции очистки/restoration volume выполняются через локальный backend image с `--pull never --network none`; network helper image не нужен.
+
+После restore backend читает runtime role и revision из восстановленной SQLite DB. Значение `PORTAL_CONTOUR` из `.env` не должно переопределять уже сохранённый mode. Проверьте `/api/runtime` или mode indicator в UI до новых export/import operations.
 
 ### Ограничение rollback
 
@@ -86,7 +90,7 @@ Upgrade выполняет операции в таком порядке:
 6. копирует прежнюю конфигурацию, атомарно меняя только `PORTAL_VERSION`;
 7. запускает новый Compose с `--no-build --pull never --wait`.
 
-`PORTAL_CONTOUR`, JWT secret, Harbor settings и остальные строки старой `.env` сохраняются без регенерации. Stable Compose project name `harbor-transfer-portal` сохраняет identity named volume между versioned каталогами.
+`PORTAL_CONTOUR`, JWT secret, Harbor settings и остальные строки старой `.env` сохраняются без регенерации. Для уже инициализированной installation `PORTAL_CONTOUR` остаётся bootstrap fallback; authoritative runtime mode сохраняется в SQLite persistent state. Stable Compose project name `harbor-transfer-portal` сохраняет identity named volume между versioned каталогами.
 
 Если startup новой версии завершается ошибкой, `upgrade.sh` возвращает `.env` к предыдущей `PORTAL_VERSION` и сообщает путь к backup. Это **не является полным automatic rollback**: backend startup мог уже применить forward Alembic migration к SQLite. Если migration не backwards compatible, используйте matching-version `restore.sh` с созданным pre-upgrade backup.
 
@@ -131,4 +135,4 @@ PORTAL_CONFIRM_PURGE=DELETE_PORTAL_DATA ./uninstall.sh --purge-data
 
 Lifecycle scripts не скачивают helper images, packages или binaries. Backup и restore используют current/matching local backend image с отключённой сетью, upgrade использует только bundled images, а Compose startup выполняется с `--no-build --pull never`.
 
-Full clean-VM installation acceptance и полный SOURCE → physical bundle → TARGET acceptance E2E остаются следующими release gates задачи #28.
+Clean-host installation qualification и полный isolated SOURCE → physical bundle → TARGET acceptance **реализованы** как fail-able CI gates baseline v1.0.0. Они проверяют offline install/restart persistence и end-to-end transfer соответственно; актуальная test-selection policy описана в [testing.md](testing.md).
