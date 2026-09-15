@@ -11,6 +11,9 @@ services:
       - .env
     environment:
       PORTAL_CONTOUR: ${PORTAL_CONTOUR:-SOURCE}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "${HARBOR_DOCKER_HOSTNAME:-harbor.softrust.ru}:${HARBOR_DOCKER_HOST_IP:-192.168.32.15}"
     volumes:
       - portal-data:/app/data
     expose:
