@@ -18,9 +18,27 @@
   --color-surface: var(--color-cloud-white);
   --color-surface-subtle: var(--color-fog-gray);
   --color-border: var(--color-mist);
+  --color-border-control: #64748B;
   --color-text: var(--color-deep-harbor);
   --color-text-muted: var(--color-steel);
-  --color-danger: var(--color-stop-red);
+
+  /*
+   * Status text must only be paired with the matching status surface.
+   * These combinations meet WCAG AA for normal text (>= 4.5:1).
+   */
+  --color-success-text: #065F46;
+  --color-success-surface: var(--color-mint);
+  --color-warning-text: #92400E;
+  --color-warning-surface: var(--color-sand);
+  --color-danger-text: #991B1B;
+  --color-danger-surface: var(--color-rose);
+  --color-info-text: #1E40AF;
+  --color-info-surface: var(--color-sky);
+  --color-danger: var(--color-danger-text);
+
+  --color-focus-ring: var(--color-bridge-blue);
+  --focus-ring-width: 3px;
+  --focus-ring-offset: 2px;
 
   --space-1: 4px;
   --space-2: 8px;

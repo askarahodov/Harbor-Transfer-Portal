@@ -62,10 +62,10 @@ function errorMessage(code: string | null | undefined): string | null {
 <style scoped>
 .mode-control { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .mode-control__label { color: var(--color-steel); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.mode-switcher { display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid var(--color-mist); border-radius: var(--radius-md); background: var(--color-cloud); }
+.mode-switcher { display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-cloud); }
 .mode-switcher__option { min-height: 34px; border: 0; border-radius: calc(var(--radius-md) - 3px); padding: 0 var(--space-3); background: transparent; color: var(--color-steel); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
-.mode-switcher__option:hover:not(:disabled), .mode-switcher__option:focus-visible { color: var(--color-deep-harbor); outline: 2px solid var(--color-bridge-blue); outline-offset: 1px; }
+.mode-switcher__option:hover:not(:disabled), .mode-switcher__option:focus-visible { color: var(--color-deep-harbor); }
 .mode-switcher__option--active { background: white; color: var(--color-deep-harbor); box-shadow: 0 1px 3px rgba(15, 23, 42, .12); cursor: default; }
 .mode-switcher__option:disabled:not(.mode-switcher__option--active) { opacity: .55; cursor: wait; }
-.mode-control__error { flex-basis: 100%; max-width: 360px; color: var(--color-danger); font-size: 12px; }
+.mode-control__error { flex-basis: 100%; max-width: 360px; color: var(--color-danger-text); font-size: 12px; }
 </style>

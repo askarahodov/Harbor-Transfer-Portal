@@ -12,6 +12,9 @@ body {
 }
 button, input, select, textarea { font: inherit; }
 a, button { -webkit-tap-highlight-color: transparent; }
-:focus-visible { outline: 3px solid var(--color-bridge-blue); outline-offset: 2px; }
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
 h1 { margin: 0 0 var(--space-3); font-size: 24px; line-height: 1.25; }
 p { color: var(--color-steel); }
