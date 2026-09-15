@@ -18,6 +18,17 @@ function response<T>(data: T, status = 200): AxiosResponse<T> {
   }
 }
 
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+} {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -159,5 +170,59 @@ describe('KeyManagementPanel', () => {
       { pem: replacementPem, confirm: true },
     )
     expect(wrapper.text()).not.toContain(replacementPem)
+  })
+
+  it('hides stale SOURCE controls and reloads after runtime contour changes', async () => {
+    const get = vi
+      .spyOn(apiClient, 'get')
+      .mockResolvedValueOnce(
+        response({
+          contour: 'SOURCE',
+          signing_key: { configured: true, fingerprint },
+          trusted_keys: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({ contour: 'TARGET', signing_key: null, trusted_keys: [] }),
+      )
+
+    const wrapper = mount(KeyManagementPanel, { props: { contour: 'SOURCE' } })
+    await flushPromises()
+    expect(wrapper.find('#source-signing-key').exists()).toBe(true)
+
+    await wrapper.setProps({ contour: 'TARGET' })
+    expect(wrapper.find('#source-signing-key').exists()).toBe(false)
+    await flushPromises()
+
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('#target-trusted-key').exists()).toBe(true)
+    expect(wrapper.find('#source-signing-key').exists()).toBe(false)
+  })
+
+  it('ignores a stale key-settings response from the previous runtime contour', async () => {
+    const staleSource = deferred<AxiosResponse>()
+    vi.spyOn(apiClient, 'get')
+      .mockReturnValueOnce(staleSource.promise)
+      .mockResolvedValueOnce(
+        response({ contour: 'TARGET', signing_key: null, trusted_keys: [] }),
+      )
+
+    const wrapper = mount(KeyManagementPanel, { props: { contour: 'SOURCE' } })
+    await wrapper.setProps({ contour: 'TARGET' })
+    await flushPromises()
+    expect(wrapper.find('#target-trusted-key').exists()).toBe(true)
+
+    staleSource.resolve(
+      response({
+        contour: 'SOURCE',
+        signing_key: { configured: true, fingerprint },
+        trusted_keys: [],
+      }),
+    )
+    await flushPromises()
+
+    expect(wrapper.find('#target-trusted-key').exists()).toBe(true)
+    expect(wrapper.find('#source-signing-key').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain(fingerprint)
   })
 })
