@@ -38,7 +38,12 @@ class PolicyAwareImportDestinationPlanOrchestrator(ImportDestinationPlanOrchestr
         actor_username: str | None = None,
     ) -> ImportDestinationPlanResponse:
         operation = self.operation_manager.get_operation(operation_id)
-        if operation is not None and operation.import_policy_json is not None:
+        if operation is not None and operation.worker_token is not None:
+            raise ImportOrchestrationError(
+                "import_destination_plan_stale",
+                "Import worker уже захватил operation; destination plan больше нельзя менять",
+            )
+        if operation is not None and getattr(operation, "import_policy_json", None) is not None:
             policy = self._policy_object(operation)
             if "retry" in policy:
                 raise ImportOrchestrationError(
@@ -46,11 +51,6 @@ class PolicyAwareImportDestinationPlanOrchestrator(ImportDestinationPlanOrchestr
                     "Retry operation привязана к исходному destination plan; "
                     "для другого mapping создайте новый Preview/import",
                 )
-        if operation is not None and operation.worker_token is not None:
-            raise ImportOrchestrationError(
-                "import_destination_plan_stale",
-                "Import worker уже захватил operation; destination plan больше нельзя менять",
-            )
         with self.session_factory() as session:
             effective_mapping = DestinationMappingPolicyService(session).resolve_request(mapping)
         return await super().build_destination_plan(
