@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.auth.security import hash_password
-from app.config import PortalContour, Settings
+from app.config import BrowserScheme, PortalContour, Settings
 from app.db.base import Base
 from app.db.models import Operation, UserRole
 from app.db.repositories import UserRepository
@@ -16,11 +16,17 @@ DIGEST = "sha256:" + "a" * 64
 DELIVERY_ID = "DELIVERY-20260911-API12345"
 
 
-def _app_with_users(tmp_path: Path, contour: PortalContour):
+def _app_with_users(
+    tmp_path: Path,
+    contour: PortalContour,
+    *,
+    browser_scheme: BrowserScheme = BrowserScheme.HTTP,
+):
     database_url = f"sqlite:///{tmp_path / 'exports-api.db'}"
     settings = Settings(
         _env_file=None,
         portal_contour=contour,
+        portal_browser_scheme=browser_scheme,
         database_url=database_url,
         jwt_secret=JWT_SECRET,
         harbor_url="https://harbor.local",
@@ -62,6 +68,13 @@ def _login(client: TestClient, username: str) -> str:
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def _cookie_attributes(response) -> set[str]:
+    return {
+        part.strip().lower()
+        for part in response.headers["set-cookie"].split(";")[1:]
+    }
 
 
 def _selection_payload() -> dict[str, object]:
@@ -204,10 +217,11 @@ def test_download_ticket_allows_native_browser_stream_without_bearer(tmp_path: P
             "download_url": f"/api/exports/{operation_id}/download",
             "expires_in_seconds": 120,
         }
-        set_cookie = ticket.headers["set-cookie"].lower()
-        assert "httponly" in set_cookie
-        assert "samesite=strict" in set_cookie
-        assert f"path=/api/exports/{operation_id}/download" in set_cookie
+        attributes = _cookie_attributes(ticket)
+        assert "httponly" in attributes
+        assert "samesite=strict" in attributes
+        assert f"path=/api/exports/{operation_id}/download" in attributes
+        assert "secure" not in attributes
 
         response = client.get(f"/api/exports/{operation_id}/download")
 
@@ -215,6 +229,44 @@ def test_download_ticket_allows_native_browser_stream_without_bearer(tmp_path: P
     assert response.headers["content-length"] == str(archive.stat().st_size)
     assert response.headers["x-checksum-sha256"] == digest
     assert response.content == b"large-bundle-stream-path"
+
+
+def test_download_ticket_ignores_spoofed_https_forwarding_header(tmp_path: Path) -> None:
+    app, user_ids = _app_with_users(
+        tmp_path,
+        PortalContour.SOURCE,
+        browser_scheme=BrowserScheme.HTTP,
+    )
+    operation_id, _archive, _digest = _completed_export(app, user_ids["operator"])
+
+    with TestClient(app) as client:
+        owner = _login(client, "operator")
+        response = client.post(
+            f"/api/exports/{operation_id}/download-ticket",
+            headers={**_auth(owner), "X-Forwarded-Proto": "https"},
+        )
+
+    assert response.status_code == 200
+    assert "secure" not in _cookie_attributes(response)
+
+
+def test_download_ticket_stays_secure_when_https_is_configured(tmp_path: Path) -> None:
+    app, user_ids = _app_with_users(
+        tmp_path,
+        PortalContour.SOURCE,
+        browser_scheme=BrowserScheme.HTTPS,
+    )
+    operation_id, _archive, _digest = _completed_export(app, user_ids["operator"])
+
+    with TestClient(app) as client:
+        owner = _login(client, "operator")
+        response = client.post(
+            f"/api/exports/{operation_id}/download-ticket",
+            headers={**_auth(owner), "X-Forwarded-Proto": "http"},
+        )
+
+    assert response.status_code == 200
+    assert "secure" in _cookie_attributes(response)
 
 
 def test_download_ticket_is_owner_scoped_and_viewer_cannot_mint_it(tmp_path: Path) -> None:
