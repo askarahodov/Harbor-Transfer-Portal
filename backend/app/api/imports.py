@@ -62,8 +62,11 @@ def _import_error(exc: ImportOrchestrationError) -> HTTPException:
         "import_conflict_blocked": status.HTTP_409_CONFLICT,
         "import_overwrite_disabled": status.HTTP_403_FORBIDDEN,
         "import_destination_plan_not_ready": status.HTTP_409_CONFLICT,
+        "import_destination_plan_required": status.HTTP_409_CONFLICT,
         "import_destination_plan_stale": status.HTTP_409_CONFLICT,
         "import_destination_plan_invalid": status.HTTP_409_CONFLICT,
+        "import_destination_plan_actor_missing": status.HTTP_409_CONFLICT,
+        "import_destination_plan_actor_mismatch": status.HTTP_403_FORBIDDEN,
         "import_destination_override_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "harbor_not_configured": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "harbor_configuration_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -135,9 +138,11 @@ def _audit_import_start(
     )
     metadata: dict[str, object] = {
         "operation_id": operation_id,
+        "bundle_sha256": destination_plan.bundle_sha256,
         "overwrite_conflicts": overwrite_conflicts,
         "conflict_count": conflict_count,
         "destination_plan_id": destination_plan.plan_id,
+        "destination_plan_hash": destination_plan.plan_hash,
         "destinations": [
             {
                 "index": item.index,
@@ -252,7 +257,11 @@ async def import_destination_plan(
 ) -> ImportDestinationPlanResponse:
     _authorize_operation(orchestrator, operation_id, actor)
     try:
-        return await orchestrator.build_destination_plan(operation_id, payload)
+        return await orchestrator.build_destination_plan(
+            operation_id,
+            payload,
+            actor_username=actor.username,
+        )
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc
 

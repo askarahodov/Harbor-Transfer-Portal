@@ -83,8 +83,11 @@ def test_project_verified_bundle_uses_persisted_target_repositories(monkeypatch)
     ]
     plan = ImportDestinationPlanResponse(
         operation_id=17,
+        source_delivery_id="DELIVERY-20260915-WORKER1",
+        actor_username="operator",
         bundle_sha256="e" * 64,
         plan_id=ImportDestinationPlanOrchestrator._plan_id("e" * 64, artifacts),
+        plan_hash="0" * 64,
         created_at="2026-09-15T07:01:00Z",
         valid=True,
         artifacts=artifacts,

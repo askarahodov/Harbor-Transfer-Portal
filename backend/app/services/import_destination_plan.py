@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
+import secrets
 from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import replace
@@ -34,6 +34,11 @@ from app.services.bundle_package_service import (
     BundlePackageService,
     BundleVerificationResult,
 )
+from app.services.destination_plan_integrity import (
+    canonical_plan_hash,
+    colliding_artifact_indices,
+    validated_source_repository,
+)
 from app.services.harbor_destination_validator import (
     DestinationCapability,
     DestinationValidator,
@@ -61,7 +66,7 @@ from app.services.skopeo_service import (
 )
 
 _PROJECT_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
-_POLICY_VERSION = 1
+_POLICY_VERSION = 2
 DestinationValidatorFactory = Callable[[Session], DestinationValidator]
 
 
@@ -122,11 +127,13 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         self,
         operation_id: int,
         mapping: ImportDestinationPlanRequest,
+        *,
+        actor_username: str | None = None,
     ) -> ImportDestinationPlanResponse:
         return await self._build_destination_plan(
             operation_id,
             mapping,
-            identity_fallback=False,
+            actor_username=actor_username,
         )
 
     def destination_plan(self, operation_id: int) -> ImportDestinationPlanResponse:
@@ -143,7 +150,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         operation_id: int,
         mapping: ImportDestinationPlanRequest,
         *,
-        identity_fallback: bool,
+        actor_username: str | None,
     ) -> ImportDestinationPlanResponse:
         self._require_target()
         operation = self._get_import_operation(operation_id)
@@ -153,6 +160,12 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 "Destination plan можно строить только после verified preview",
             )
         preview = ImportPreviewResponse.model_validate_json(operation.import_preview_json)
+        planner_username = actor_username or operation.actor_username
+        if not planner_username:
+            raise ImportOrchestrationError(
+                "import_destination_plan_actor_missing",
+                "Destination plan нельзя сохранить без actor identity",
+            )
         overrides = {item.index: item.target_project for item in mapping.artifact_overrides}
         known_indices = {item.index for item in preview.artifacts}
         unknown_overrides = sorted(set(overrides) - known_indices)
@@ -180,16 +193,43 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     validator,
                     skopeo,
                     helm,
-                    identity_fallback=identity_fallback,
                 )
                 for item in preview.artifacts
             ]
 
+        collisions = colliding_artifact_indices(planned)
+        if collisions:
+            planned = [
+                item.model_copy(
+                    update={
+                        "classification": ImportPreviewState.ERROR,
+                        "error_code": "import_destination_collision",
+                        "message": "Несколько source artifacts дают один final TARGET reference",
+                    }
+                )
+                if item.index in collisions
+                else item
+                for item in planned
+            ]
+
+        created_at = datetime.now(UTC)
+        plan_hash = canonical_plan_hash(
+            operation_id=operation_id,
+            source_delivery_id=preview.source_delivery_id,
+            actor_username=planner_username,
+            bundle_sha256=preview.bundle_sha256,
+            created_at=created_at,
+            mapping=mapping,
+            artifacts=planned,
+        )
         plan = ImportDestinationPlanResponse(
             operation_id=operation_id,
+            source_delivery_id=preview.source_delivery_id,
+            actor_username=planner_username,
             bundle_sha256=preview.bundle_sha256,
-            plan_id=self._plan_id(preview.bundle_sha256, planned),
-            created_at=datetime.now(UTC),
+            plan_id=secrets.token_hex(32),
+            plan_hash=plan_hash,
+            created_at=created_at,
             valid=all(
                 item.project_exists
                 and item.write_allowed
@@ -210,18 +250,32 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         validator: DestinationValidator,
         skopeo: SkopeoService,
         helm: HelmOciService,
-        *,
-        identity_fallback: bool,
     ) -> ImportDestinationArtifactPlanResponse:
-        source_project, _, suffix = item.repository.partition("/")
+        try:
+            source_project, suffix = validated_source_repository(item.repository)
+        except ValueError as exc:
+            source_project = item.repository.partition("/")[0]
+            return ImportDestinationArtifactPlanResponse(
+                index=item.index,
+                artifact_type=item.artifact_type,
+                source_repository=item.repository,
+                source_project=source_project,
+                name=item.name,
+                reference=item.reference,
+                version=item.version,
+                expected_digest=item.expected_digest,
+                payload_size=item.payload_size,
+                classification=ImportPreviewState.ERROR,
+                error_code="import_destination_repository_invalid",
+                message=str(exc),
+            )
+
         target_project = overrides.get(item.index) or mapping.project_mappings.get(source_project)
         if target_project is None:
             if item.artifact_type == "container-image":
                 target_project = mapping.container_image_project
             elif item.artifact_type == "helm-chart":
                 target_project = mapping.helm_chart_project
-        if target_project is None and identity_fallback:
-            target_project = source_project
 
         base: dict[str, Any] = {
             "index": item.index,
@@ -465,20 +519,24 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         self._require_target()
         plan = self._persisted_destination_plan(operation_id)
         if plan is None:
-            if destination_plan_id is not None:
-                raise ImportOrchestrationError(
-                    "import_destination_plan_not_ready",
-                    "Указанный destination plan не найден",
-                )
-            plan = await self._build_destination_plan(
-                operation_id,
-                ImportDestinationPlanRequest(),
-                identity_fallback=True,
+            raise ImportOrchestrationError(
+                "import_destination_plan_not_ready",
+                "Import требует заранее сохранённый destination plan",
             )
-        if destination_plan_id is not None and destination_plan_id != plan.plan_id:
+        if destination_plan_id is None:
+            raise ImportOrchestrationError(
+                "import_destination_plan_required",
+                "Укажите plan_id подтверждённого destination plan",
+            )
+        if destination_plan_id != plan.plan_id:
             raise ImportOrchestrationError(
                 "import_destination_plan_stale",
                 "Destination plan изменился; обновите Preview перед Import",
+            )
+        if plan.actor_username != actor_username:
+            raise ImportOrchestrationError(
+                "import_destination_plan_actor_mismatch",
+                "Destination plan подтверждён другим actor",
             )
         if not plan.valid:
             raise ImportOrchestrationError(
@@ -519,9 +577,20 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     "import_destination_plan_stale",
                     "Persisted destination plan изменился перед запуском Import",
                 )
+            if (
+                persisted.operation_id != operation.id
+                or persisted.bundle_sha256 != operation.bundle_sha256
+                or persisted.source_delivery_id != operation.source_delivery_id
+                or persisted.actor_username != actor_username
+            ):
+                raise ImportOrchestrationError(
+                    "import_destination_plan_stale",
+                    "Destination plan больше не связан с этой import operation",
+                )
             policy.update(
                 {
                     "bundle_sha256": operation.bundle_sha256,
+                    "destination_plan_hash": persisted.plan_hash,
                     "overwrite_conflicts": overwrite_conflicts,
                     "requested_by": actor_username,
                     "requested_at": requested_at.isoformat(),
@@ -540,6 +609,8 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
     async def _import_worker(self, context: OperationContext, operation_id: int) -> None:
         token = self._execution_operation_id.set(operation_id)
         try:
+            # The base worker re-inspects each mapped final TARGET reference immediately
+            # before mutation. Preview classification is advisory and never trusted here.
             await super()._import_worker(context, operation_id)
         finally:
             self._execution_operation_id.reset(token)
@@ -651,10 +722,14 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     "import_not_ready",
                     "Import operation изменилась во время destination preview",
                 )
-            if operation.bundle_sha256 != plan.bundle_sha256:
+            if (
+                operation.bundle_sha256 != plan.bundle_sha256
+                or operation.source_delivery_id != plan.source_delivery_id
+                or operation.id != plan.operation_id
+            ):
                 raise ImportOrchestrationError(
                     "import_destination_plan_stale",
-                    "Bundle изменился во время построения destination plan",
+                    "Bundle или delivery изменились во время построения destination plan",
                 )
             operation.import_policy_json = self._dump_policy(
                 {
@@ -672,24 +747,55 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         operation = self._get_import_operation(operation_id)
         if operation.import_policy_json is None:
             return None
-        return self._plan_from_policy(self._policy_object(operation))
+        plan = self._plan_from_policy(self._policy_object(operation))
+        if plan is None:
+            return None
+        if (
+            plan.operation_id != operation.id
+            or plan.bundle_sha256 != operation.bundle_sha256
+            or plan.source_delivery_id != operation.source_delivery_id
+        ):
+            raise ImportOrchestrationError(
+                "import_destination_plan_stale",
+                "Persisted destination plan не связан с текущей import operation",
+            )
+        return plan
 
     def _plan_from_policy(self, policy: dict[str, Any]) -> ImportDestinationPlanResponse | None:
         raw = policy.get("destination_plan")
         if raw is None:
             return None
+        if policy.get("version") != _POLICY_VERSION:
+            raise ImportOrchestrationError(
+                "import_destination_plan_invalid",
+                "Persisted destination plan использует устаревшую integrity policy",
+            )
         try:
+            mapping = ImportDestinationPlanRequest.model_validate(policy.get("mapping_request", {}))
             plan = ImportDestinationPlanResponse.model_validate(raw)
         except ValueError as exc:
             raise ImportOrchestrationError(
                 "import_destination_plan_invalid",
                 "Persisted destination plan повреждён",
             ) from exc
-        expected_id = self._plan_id(plan.bundle_sha256, plan.artifacts)
-        if plan.plan_id != expected_id:
+        expected_hash = canonical_plan_hash(
+            operation_id=plan.operation_id,
+            source_delivery_id=plan.source_delivery_id,
+            actor_username=plan.actor_username,
+            bundle_sha256=plan.bundle_sha256,
+            created_at=plan.created_at,
+            mapping=mapping,
+            artifacts=plan.artifacts,
+        )
+        if plan.plan_hash != expected_hash:
             raise ImportOrchestrationError(
                 "import_destination_plan_invalid",
-                "Persisted destination plan id не соответствует его содержимому",
+                "Persisted destination plan hash не соответствует его содержимому",
+            )
+        if colliding_artifact_indices(plan.artifacts):
+            raise ImportOrchestrationError(
+                "import_destination_plan_invalid",
+                "Persisted destination plan содержит duplicate final TARGET references",
             )
         return plan
 
@@ -714,33 +820,6 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
     @staticmethod
     def _dump_policy(policy: dict[str, Any]) -> str:
         return json.dumps(policy, sort_keys=True, separators=(",", ":"))
-
-    @staticmethod
-    def _plan_id(
-        bundle_sha256: str,
-        artifacts: list[ImportDestinationArtifactPlanResponse],
-    ) -> str:
-        identity = {
-            "bundle_sha256": bundle_sha256,
-            "artifacts": [
-                {
-                    "index": item.index,
-                    "artifact_type": item.artifact_type,
-                    "source_repository": item.source_repository,
-                    "source_project": item.source_project,
-                    "name": item.name,
-                    "reference": item.reference,
-                    "version": item.version,
-                    "expected_digest": item.expected_digest,
-                    "target_project": item.target_project,
-                    "target_repository": item.target_repository,
-                    "final_reference": item.final_reference,
-                }
-                for item in artifacts
-            ],
-        }
-        encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
 
     @staticmethod
     def _image_display_reference(host: str, repository: str, reference: str) -> str:
@@ -779,6 +858,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 finished_at=now,
                 overwrite_conflicts=overwrite,
                 destination_plan_id=plan.plan_id,
+                destination_plan_hash=plan.plan_hash,
                 result="FAILED" if failures else "COMPLETED",
                 artifacts=[
                     ImportReceiptArtifactResponse(

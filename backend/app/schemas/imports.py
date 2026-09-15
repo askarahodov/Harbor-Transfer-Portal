@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.domain.bundle import ArtifactStatus, OperationStatus
 from app.domain.imports import ImportIntakeMode, ImportPreviewState
@@ -128,13 +130,58 @@ class ImportDestinationArtifactPlanResponse(BaseModel):
     message: str | None = None
 
 
+def destination_plan_id(
+    bundle_sha256: str,
+    artifacts: list[ImportDestinationArtifactPlanResponse],
+) -> str:
+    """Stable identity of bundle + resolved mapping, excluding observed TARGET state."""
+    identity = {
+        "bundle_sha256": bundle_sha256,
+        "artifacts": [
+            {
+                "index": item.index,
+                "artifact_type": item.artifact_type,
+                "source_repository": item.source_repository,
+                "source_project": item.source_project,
+                "name": item.name,
+                "reference": item.reference,
+                "version": item.version,
+                "expected_digest": item.expected_digest,
+                "target_project": item.target_project,
+                "target_repository": item.target_repository,
+                "final_reference": item.final_reference,
+            }
+            for item in sorted(artifacts, key=lambda item: item.index)
+        ],
+    }
+    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 class ImportDestinationPlanResponse(BaseModel):
     operation_id: int
+    source_delivery_id: str
+    actor_username: str
     bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     plan_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    plan_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     created_at: datetime
     valid: bool
     artifacts: list[ImportDestinationArtifactPlanResponse]
+
+    @model_validator(mode="after")
+    def normalize_derived_fields(self) -> ImportDestinationPlanResponse:
+        # plan_id is deliberately stable across TARGET state drift; plan_hash below the
+        # service layer binds the concrete observed state and timestamp.
+        self.plan_id = destination_plan_id(self.bundle_sha256, self.artifacts)
+        self.valid = all(
+            item.project_exists
+            and item.write_allowed
+            and item.classification
+            in {ImportPreviewState.NEW, ImportPreviewState.SAME, ImportPreviewState.CONFLICT}
+            for item in self.artifacts
+        )
+        return self
 
 
 class ImportExecuteRequest(BaseModel):
@@ -172,5 +219,6 @@ class ImportReceiptResponse(BaseModel):
     finished_at: datetime
     overwrite_conflicts: bool
     destination_plan_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    destination_plan_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     result: str
     artifacts: list[ImportReceiptArtifactResponse]
