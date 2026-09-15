@@ -8,6 +8,8 @@ from app.db.repositories import AuditEventRepository
 from app.domain.bundle import OperationStatus, OperationType
 from app.domain.imports import ImportPreviewState
 from app.schemas.imports import (
+    ImportDestinationPlanRequest,
+    ImportDestinationPlanResponse,
     ImportDiscoveryResponse,
     ImportExecuteRequest,
     ImportIntakeResponse,
@@ -15,9 +17,9 @@ from app.schemas.imports import (
     ImportReceiptResponse,
     ImportStartResponse,
 )
+from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
 from app.services.import_helm_service import ImportHelmOciService
-from app.services.import_orchestrator import ImportOrchestrationError, ImportOrchestrator
-from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
+from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.report_service import receipt_filename
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -27,9 +29,9 @@ ImportActorDep = Annotated[
 ]
 
 
-def get_import_orchestrator(request: Request) -> ImportOrchestrator:
+def get_import_orchestrator(request: Request) -> ImportDestinationPlanOrchestrator:
     settings = request.app.state.settings
-    return ImportPreviewProjectionOrchestrator(
+    return ImportDestinationPlanOrchestrator(
         request.app.state.session_factory,
         settings,
         request.app.state.operation_manager,
@@ -37,7 +39,10 @@ def get_import_orchestrator(request: Request) -> ImportOrchestrator:
     )
 
 
-ImportOrchestratorDep = Annotated[ImportOrchestrator, Depends(get_import_orchestrator)]
+ImportOrchestratorDep = Annotated[
+    ImportDestinationPlanOrchestrator,
+    Depends(get_import_orchestrator),
+]
 
 
 def _api_error(status_code: int, code: str, message: str) -> HTTPException:
@@ -56,6 +61,12 @@ def _import_error(exc: ImportOrchestrationError) -> HTTPException:
         "import_preview_unresolved": status.HTTP_409_CONFLICT,
         "import_conflict_blocked": status.HTTP_409_CONFLICT,
         "import_overwrite_disabled": status.HTTP_403_FORBIDDEN,
+        "import_destination_plan_not_ready": status.HTTP_409_CONFLICT,
+        "import_destination_plan_stale": status.HTTP_409_CONFLICT,
+        "import_destination_plan_invalid": status.HTTP_409_CONFLICT,
+        "import_destination_override_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "harbor_not_configured": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "harbor_configuration_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "operation_worker_already_running": status.HTTP_409_CONFLICT,
         "operation_insufficient_disk": status.HTTP_507_INSUFFICIENT_STORAGE,
         "import_operation_create_failed": status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -68,7 +79,7 @@ def _import_error(exc: ImportOrchestrationError) -> HTTPException:
 
 
 def _authorize_operation(
-    orchestrator: ImportOrchestrator,
+    orchestrator: ImportDestinationPlanOrchestrator,
     operation_id: int,
     actor: User,
 ) -> None:
@@ -111,17 +122,32 @@ def _content_length(request: Request) -> int | None:
 def _audit_import_start(
     session: SessionDep,
     actor: User,
-    orchestrator: ImportOrchestrator,
+    orchestrator: ImportDestinationPlanOrchestrator,
     operation_id: int,
     *,
     overwrite_conflicts: bool,
-    conflict_count: int,
+    destination_plan: ImportDestinationPlanResponse,
 ) -> None:
     operation = orchestrator.operation_manager.get_operation(operation_id)
+    conflict_count = sum(
+        item.classification is ImportPreviewState.CONFLICT
+        for item in destination_plan.artifacts
+    )
     metadata: dict[str, object] = {
         "operation_id": operation_id,
         "overwrite_conflicts": overwrite_conflicts,
         "conflict_count": conflict_count,
+        "destination_plan_id": destination_plan.plan_id,
+        "destinations": [
+            {
+                "index": item.index,
+                "artifact_type": item.artifact_type,
+                "source_repository": item.source_repository,
+                "target_repository": item.target_repository,
+                "final_reference": item.final_reference,
+            }
+            for item in destination_plan.artifacts
+        ],
     }
     if operation is not None and operation.source_delivery_id:
         metadata["source_delivery_id"] = operation.source_delivery_id
@@ -214,6 +240,23 @@ def import_preview(
         raise _import_error(exc) from exc
 
 
+@router.put(
+    "/{operation_id}/destination-plan",
+    response_model=ImportDestinationPlanResponse,
+)
+async def import_destination_plan(
+    operation_id: int,
+    payload: ImportDestinationPlanRequest,
+    actor: ImportActorDep,
+    orchestrator: ImportOrchestratorDep,
+) -> ImportDestinationPlanResponse:
+    _authorize_operation(orchestrator, operation_id, actor)
+    try:
+        return await orchestrator.build_destination_plan(operation_id, payload)
+    except ImportOrchestrationError as exc:
+        raise _import_error(exc) from exc
+
+
 @router.post(
     "/{operation_id}/execute",
     response_model=ImportStartResponse,
@@ -228,15 +271,13 @@ async def execute_import(
 ) -> ImportStartResponse:
     _authorize_operation(orchestrator, operation_id, actor)
     try:
-        preview = orchestrator.preview(operation_id)
-        conflict_count = sum(
-            item.classification is ImportPreviewState.CONFLICT for item in preview.artifacts
-        )
         await orchestrator.start_import(
             operation_id,
             actor_username=actor.username,
             overwrite_conflicts=payload.overwrite_conflicts,
+            destination_plan_id=payload.destination_plan_id,
         )
+        destination_plan = orchestrator.destination_plan(operation_id)
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc
     _audit_import_start(
@@ -245,7 +286,7 @@ async def execute_import(
         orchestrator,
         operation_id,
         overwrite_conflicts=payload.overwrite_conflicts,
-        conflict_count=conflict_count,
+        destination_plan=destination_plan,
     )
     return ImportStartResponse(
         operation_id=operation_id,
