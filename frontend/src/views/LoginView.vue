@@ -126,12 +126,11 @@ async function submit(): Promise<void> {
 .login-card__hint { margin: var(--space-4) 0 var(--space-6); color: var(--color-steel); }
 .login-form { display: grid; gap: var(--space-3); }
 .login-form label { font-weight: 600; color: var(--color-deep-harbor); }
-.login-form input { width: 100%; min-height: 44px; box-sizing: border-box; border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: 0 var(--space-3); background: white; color: var(--color-deep-harbor); }
-.login-form input:focus-visible, .password-toggle:focus-visible, .submit-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-bridge-blue) 30%, transparent); outline-offset: 2px; }
+.login-form input { width: 100%; min-height: 44px; box-sizing: border-box; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); padding: 0 var(--space-3); background: white; color: var(--color-deep-harbor); }
 .password-field { position: relative; }
 .password-field input { padding-right: 48px; }
 .password-toggle { position: absolute; top: 2px; right: 2px; width: 40px; height: 40px; display: grid; place-items: center; border: 0; background: transparent; color: var(--color-steel); cursor: pointer; }
-.form-error { margin: 0; color: var(--color-stop-red); }
+.form-error { margin: 0; color: var(--color-danger-text); }
 .submit-button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); margin-top: var(--space-2); border: 0; border-radius: var(--radius-md); background: var(--color-bridge-blue); color: white; font-weight: 700; cursor: pointer; }
 .submit-button:disabled, .password-toggle:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 520px) {
