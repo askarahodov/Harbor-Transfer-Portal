@@ -27,8 +27,8 @@
 | ADR-003 | Представление payload container images и multi-arch | **Заменено ADR-009** | Ранний placeholder superseded принятым [ADR-009](adr/ADR-009-oci-layout-payload.md). |
 | ADR-004 | [Аутентификация, авторизация и frontend-сессия](adr/ADR-004-auth-session.md) | **Принято** | `sessionStorage` bearer model, backend RBAC remains authoritative. |
 | ADR-005 | [TLS, пользовательский CA и хранение credential локального Harbor](adr/ADR-005-harbor-secrets-tls.md) | **Принято** | Managed file-backed credential/CA + bootstrap fallbacks. |
-| ADR-006 | Политика конфликтов импорта и идемпотентности | **Запланировано** | Product baseline `same digest → skip`, `different digest → conflict/no automatic overwrite` уже зафиксирован, но окончательная import orchestration/policy ещё развивается. |
-| ADR-007 | Модель офлайн-установки и упаковки зависимостей | **Запланировано** | Development Compose существует, финальный prebuilt offline kit/clean-VM acceptance относится к #28. |
+| ADR-006 | Политика конфликтов импорта и идемпотентности | Архитектурный invariant зафиксирован; отдельный ADR-файл отсутствует | Реализовано: `same digest → skip`, `different digest → conflict`, overwrite default-deny и только explicit authorized policy. Authoritative sources: [import-orchestration.md](import-orchestration.md), [security.md](security.md). |
+| ADR-007 | Модель офлайн-установки и упаковки зависимостей | Архитектурный invariant зафиксирован; отдельный ADR-файл отсутствует | Versioned prebuilt offline kit, no-pull/no-build runtime, lifecycle scripts, clean-host qualification и isolated acceptance реализованы. Authoritative sources: [../deploy/offline/README.md](../deploy/offline/README.md), [offline-lifecycle.md](offline-lifecycle.md), [testing.md](testing.md). |
 | ADR-008 | [Element Plus + Lucide и runtime-источник идентичности контура](adr/ADR-008-frontend-ui-kit.md) | **Принято** | Frontend foundation использует принятое решение. |
 | ADR-009 | [OCI image-layout как представление payload контейнерного образа в Bundle Protocol v1](adr/ADR-009-oci-layout-payload.md) | **Принято** | Реализовано в Skopeo/Bundle boundaries; заменяет ранний ADR-003 placeholder. |
 

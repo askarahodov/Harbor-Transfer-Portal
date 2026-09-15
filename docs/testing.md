@@ -1,24 +1,39 @@
 # Стратегия тестирования и CI
 
-**Статус:** актуальная test-selection и CI policy текущего `main`.
+**Статус:** актуальная test-selection и CI policy release-qualified baseline **v1.0.0**.
 
-Этот документ определяет, какие проверки запускать для разных типов изменений Harbor Transfer Portal. Цель — не запускать весь тяжёлый набор после каждого локального изменения, но не пропускать проверки, соответствующие реальному blast radius.
+Этот документ определяет минимально достаточные проверки для разных типов изменений Harbor Transfer Portal. Источники истины для фактического CI selection — `.github/workflows/ci.yml`, `tools/ci_scope.py` и regression tests `tools/test_ci_scope.py`; этот документ объясняет их назначение и правила применения.
 
-Общие статусы документации и правила источников истины описаны в [карте документации](README.md).
+Общие статусы документации и приоритет источников истины описаны в [карте документации](README.md).
 
 ## 1. Основные принципы
 
-1. Проверки выбираются по затронутому поведению и зависимостям, а не только по расширению файла.
-2. Красный test исправляется через root cause. Нельзя ослаблять assertions, добавлять `|| true`, `continue-on-error: true` или маскировать обязательную ошибку.
-3. Runtime/integration tests не должны зависеть от публичного Harbor или внешнего registry. Используются mocks/local disposable fixtures.
-4. Полный regression/E2E нужен перед release, после крупных shared/core изменений или когда blast radius нельзя надёжно ограничить.
-5. CI на merge checkpoint является authoritative gate даже если локально агент запускал только scoped subset.
-6. Planned test job не создаётся как пустой зелёный placeholder: gate появляется вместе с поведением, которое он реально проверяет.
-7. Логика выбора CI scope сама является тестируемым кодом: изменение classifier не должно незаметно расширять или сужать обязательные gates.
-8. Documentation gate не выполняет network crawling: локальная целостность репозитория проверяется детерминированно без зависимости от внешних сайтов.
-9. Integration gate должен проверять реальный production runtime boundary, а не дублировать unit mocks под другим именем.
+1. Проверки выбираются по затронутому поведению, зависимостям и blast radius, а не по принципу «всегда запускать всё».
+2. Красный test исправляется через root cause. Нельзя ослаблять assertions, скрывать exit code, добавлять `|| true` или `continue-on-error` для обязательной проверки.
+3. Быстрый низкоуровневый test предпочтительнее тяжёлого E2E, если он надёжно защищает тот же contract.
+4. Полный regression/release qualification нужен для release-sensitive/shared/runtime изменений или когда blast radius нельзя надёжно ограничить.
+5. CI на merge checkpoint является authoritative gate; локальный scoped subset не заменяет итоговый `quality-gate`.
+6. Test job не создаётся как фиктивный зелёный placeholder: gate существует вместе с реальным проверяемым поведением.
+7. Логика CI scope сама покрыта regression tests.
+8. Runtime/integration flow не должен зависеть от public Harbor/registry/internet после запуска fixture.
+9. Documentation-only изменение не должно запускать несвязанные тяжёлые runtime jobs.
 
-## 2. Текущие локальные gates
+## 2. Локальные проверки
+
+### Documentation
+
+```bash
+make docs-check
+```
+
+Запускает:
+
+```text
+python3 -m unittest tools.test_check_doc_links
+python3 tools/check_doc_links.py
+```
+
+Checker проверяет repository-relative Markdown links в root Markdown, `docs/**/*.md` и `deploy/**/*.md`. External HTTP(S)/mailto/tel/data links не crawl-ятся.
 
 ### Backend
 
@@ -28,9 +43,7 @@ make typecheck-backend
 make test-backend
 ```
 
-CI backend gate выполняет Ruff → Mypy → полный backend unit/API pytest suite. Static type gate проверяет `backend/app` и не использует blanket `ignore_errors` или `ignore_missing_imports`; для библиотек без встроенной typing metadata dev tooling содержит поддерживаемые `types-*` stubs.
-
-Полный backend suite одновременно является application coverage gate: `make test-backend` запускает `python -m pytest --cov=app --cov-report=term-missing --cov-fail-under=70`. Coverage source ограничен `backend/app`; tests, migrations и generated fixtures не используются для искусственного повышения процента. Порог 70% — обязательный floor merge gate, а не цель для подгонки тестов. Targeted protocol/security suites сохраняют scoped-команды без глобального coverage threshold.
+Backend gate выполняет Ruff → Mypy → pytest. `make test-backend` применяет application coverage floor `>=70%` для `backend/app`.
 
 ### Frontend
 
@@ -42,44 +55,200 @@ npm test
 npm run build
 ```
 
-CI выполняет ESLint, TypeScript, unit/component tests и production build.
+CI устанавливает зависимости через `npm ci --no-audit --no-fund` и выполняет lint, typecheck, unit/component tests и production build.
 
-### Scoped CI classifier
+### CI scope regression
 
 ```bash
 make test-ci-scope
 ```
 
-Команда запускает stdlib-only regression suite `tools.test_ci_scope`. Тот же classifier `tools/ci_scope.py` используется job `Определение области изменений`, поэтому policy не дублируется между тестами и workflow.
+Проверяет behavior `tools/ci_scope.py`, включая docs-only, backend/frontend, protocol/security/integration, deployment и mixed diffs.
 
-### Dependency locks
+### Dependency lock invariants
 
 ```bash
 make dependency-locks-check
 ```
 
-Команда запускает stdlib-only regression tests для lock checker и затем проверяет committed lockfiles через `tools/check_dependency_locks.py`. Тот же invariant запускается внутри CI `scope` job до вычисления областей, поэтому рассинхронизация dependency metadata делает весь `quality-gate` красным независимо от path selection.
+Проверяет committed dependency locks до запуска scoped jobs. Backend использует `requirements-runtime.lock`/`requirements-dev.lock`, frontend — `package-lock.json` и `npm ci`.
+
+### Skopeo/Helm integration
+
+```bash
+make test-registry-integration
+```
+
+Поднимает disposable local OCI registry и проверяет реальные production Skopeo/Helm binaries без зависимости application flow от public registry/internet.
+
+### Offline-kit contract
+
+```bash
+make test-offline-kit
+```
+
+Проверяет packaging/install contract versioned offline kit.
+
+### Compose/runtime
+
+```bash
+make smoke-compose
+```
+
+Проверяет runtime topology, health/readiness, migrations, persistence и container boundary. Этот gate относится к реальным deployment/runtime изменениям, а не к Markdown-файлам в `deploy/`.
+
+## 3. Уровни тестирования
+
+Используются следующие уровни:
+
+- **Unit** — локальная domain/business logic;
+- **Component** — frontend view/component или backend component с ближайшими dependencies;
+- **Static type** — typed contracts до runtime tests;
+- **Integration** — DB/API/OCI CLI/runtime boundaries;
+- **Protocol regression** — normative Bundle v1/schema/package behavior;
+- **Security regression** — auth/RBAC, archive/key/subprocess/import-export security boundaries;
+- **Compose smoke** — container/runtime topology;
+- **Acceptance E2E** — полный SOURCE → physical bundle → TARGET flow;
+- **Release qualification** — clean-host offline installation и release identity.
+
+Не дублируйте один и тот же behavior на всех уровнях без причины.
+
+## 4. Реализованные CI jobs
+
+`.github/workflows/ci.yml` содержит fail-able jobs:
+
+| Job | Назначение |
+|---|---|
+| `Определение области изменений` | regression CI scope + lock invariants + path classification |
+| `Backend — lint, types и unit/API tests` | Ruff, Mypy, pytest + coverage |
+| `Frontend — lint, types, unit, build` | ESLint, TypeScript, unit/component, build |
+| `Bundle protocol — contract regression` | Bundle v1/schema/package contract |
+| `Security — targeted regression` | security-sensitive backend behavior |
+| `Integration — Skopeo/Helm local registry` | real OCI CLI boundary |
+| `Acceptance — isolated SOURCE → TARGET transfer` | full isolated transfer через physical bundle boundary |
+| `Compose — build и smoke` | development/runtime Compose topology |
+| `Offline release — clean-host install qualification` | immutable offline kit install в SOURCE/TARGET bootstrap roles |
+| `Documentation — local links` | local Markdown integrity |
+| `quality-gate` | агрегирует результаты всех требуемых jobs |
+
+**Acceptance E2E и clean-host offline-install qualification реализованы и являются частью v1 release qualification.** Они больше не являются future work задачи #28.
+
+## 5. Как выбирается CI scope
+
+Для PR changed files вычисляются относительно merge base. Это важно для параллельной работы: уже merged изменения base не должны ошибочно попадать в scope отставшей, но неконфликтующей ветки.
+
+`tools/ci_scope.py` выставляет области:
+
+- `backend`;
+- `frontend`;
+- `protocol`;
+- `security`;
+- `integration`;
+- `compose`;
+- `docs`.
+
+### Backend
+
+Включается для `backend/*` и `Makefile`.
+
+### Frontend
+
+Включается для `frontend/*` и `Makefile`.
+
+### Protocol
+
+Включается для Bundle domain/schema/package paths, normative `docs/offline-bundle-v1.md`, `docs/schema/*` и protocol ADR-009.
+
+### Security
+
+Включается для security-sensitive backend boundaries: auth, import/export, package verifier/builder, key management, Harbor security-sensitive integration, Skopeo/Helm subprocess services и соответствующих tests.
+
+### Integration
+
+Включается для реальных Skopeo/Helm/transfer runtime boundaries, включая relevant backend services/API, integration harness и release/acceptance scripts.
+
+Когда `integration=true`, workflow запускает **оба**:
+
+- `Integration — Skopeo/Helm local registry`;
+- `Acceptance — isolated SOURCE → TARGET transfer`.
+
+### Compose
+
+Включается для runtime/container/deployment paths, включая:
+
+- `compose.yaml`;
+- `.dockerignore`;
+- backend/frontend Dockerfiles;
+- `frontend/nginx.conf` и runtime entrypoint files;
+- non-Markdown files под `deploy/`.
+
+Когда `compose=true`, workflow запускает:
+
+- `Compose — build и smoke`;
+- `Offline release — clean-host install qualification`.
+
+**Markdown под `deploy/` специально исключён из Compose scope.** Например, изменение только `deploy/README.md` запускает documentation gate, но не Compose/offline qualification.
 
 ### Documentation
 
-```bash
-make docs-check
-```
+Включается для:
 
-Gate запускает:
+- root `README.md` и `CONTRIBUTING.md`;
+- `docs/*`;
+- `deploy/**/*.md`;
+- documentation checker/tests;
+- `Makefile`.
 
-```text
-python3 -m unittest tools.test_check_doc_links
-python3 tools/check_doc_links.py
-```
+### Workflow self-test
 
-Checker использует только Python stdlib и проверяет repository-relative Markdown links в root Markdown, `docs/**/*.md` и `deploy/**/*.md`.
+Изменение `.github/workflows/ci.yml` включает все существующие applicable areas. Scope job всегда сначала запускает regression `tools.test_ci_scope` и dependency-lock invariant, поэтому изменение механизма selection не может молча обойти policy.
 
-External HTTP(S)/mailto/tel/data links не проверяются по сети. Это осознанно: docs-only CI не должен становиться flaky из-за третьего сайта или отсутствия internet access.
+## 6. Матрица «изменение → минимальные проверки»
 
-### Bundle Protocol regression
+| Изменение | Минимальный CI scope |
+|---|---|
+| Обычная docs-only правка | docs + quality-gate |
+| `deploy/*.md` / `deploy/**/*.md` | docs + quality-gate |
+| Только frontend view/component | frontend + quality-gate |
+| Обычный backend service/API | backend + quality-gate |
+| Auth/RBAC/security-sensitive backend | backend + security + quality-gate |
+| Bundle protocol/schema/package | backend + protocol + security по affected paths + quality-gate |
+| Skopeo/Helm/transfer runtime boundary | backend/security по affected path + integration + acceptance + quality-gate |
+| Dockerfile/runtime deployment/non-Markdown `deploy/*` | affected code gates + compose + offline-install + quality-gate |
+| Workflow CI | все существующие applicable areas + quality-gate |
+| Release-sensitive mixed change | объединение всех affected areas; release gates не пропускаются |
 
-Для protocol/schema/domain изменений минимум:
+## 7. Release qualification v1.0.0
+
+### Isolated SOURCE → TARGET acceptance
+
+`Acceptance — isolated SOURCE → TARGET transfer` уже реализован. Scenario проверяет как минимум:
+
+1. отдельный SOURCE registry fixture;
+2. container image и Helm chart fixture;
+3. SOURCE export;
+4. signed bundle + `.sha256`;
+5. physical boundary — перенос только разрешённых files/trust material;
+6. отдельный TARGET registry без runtime source dependency;
+7. backend verification/preview/import;
+8. target image digest verification;
+9. Helm result/integrity semantics;
+10. receipt/history/report;
+11. idempotent replay → safe skip;
+12. conflict → default deny;
+13. tampered bundle → rejection до registry mutation.
+
+### Clean-host offline installation
+
+`Offline release — clean-host install qualification` уже реализован. Он собирает immutable kit, удаляет release-tagged images перед install phase, устанавливает один и тот же archive в SOURCE/TARGET bootstrap roles, проверяет exact local image identity/architecture, health/readiness, migrations, runtime tools, persistent state после rerun/restart и release version identity.
+
+На push/workflow-dispatch qualified archive сохраняется как CI artifact вместе с внешним `.sha256`.
+
+## 8. Protocol и security regression
+
+### Bundle Protocol
+
+Для protocol/schema/package boundary используется:
 
 ```bash
 cd backend
@@ -90,350 +259,39 @@ python -m pytest \
   tests/test_bundle_package_key_bounds.py
 ```
 
-Package builder/verifier относится одновременно к protocol и security boundary, поэтому его изменения включают и protocol, и security gates.
+Типовые invariants:
 
-### Security regression
+- archive traversal/absolute paths запрещены;
+- symlink/hardlink/special members запрещены;
+- unsupported schema major отклоняется;
+- canonical manifest/signature tamper обнаруживается;
+- payload checksum tamper обнаруживается;
+- resource/member/path limits применяются fail closed.
 
-Отдельный job `Security — targeted regression` запускается для security-sensitive backend paths. Он покрывает существующими fail-able tests:
+### Security
+
+Targeted security suite защищает:
 
 - auth/RBAC/login throttling;
-- Bundle package build/verify и key read bounds;
+- Bundle build/verify/key bounds;
 - export/import orchestration и publication guards;
-- key-management lifecycle/hardening;
-- Skopeo/Helm argv, redaction, metadata/digest behavior;
+- key-management lifecycle;
+- Skopeo/Helm argv, metadata/digest behavior;
 - structured logging redaction.
 
-Security gate не заменяет backend suite: он является отдельным обязательным сигналом для security-sensitive diff и входит в финальный `quality-gate`.
-
-### Skopeo/Helm local-registry integration
-
-```bash
-make test-registry-integration
-```
-
-Gate собирает **production backend image**, поднимает disposable OCI Distribution registry и запускает реальные production binaries `skopeo` и `helm` внутри отдельной Docker topology.
-
-Registry fixture pinned:
-
-```text
-registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
-```
-
-Перед запуском test containers runner может получить pinned registry image и собрать backend image. После старта test topology оба контейнера находятся только в Docker network с `internal: true`: application flow не имеет маршрута к public registry или интернету.
-
-Fixture artifacts не скачиваются извне:
-
-- container image детерминированно создаётся локально как OCI image-layout;
-- Helm chart создаётся локально и package-ится реальным `helm package`.
-
-Skopeo integration проверяет OCI layout → local registry → OCI layout → другой repository и сохранение manifest digest на каждом этапе. Helm integration проверяет реальный `helm push`/`helm pull`, manifest digest через стандартный OCI Distribution API, chart name/version и SHA-256 package bytes после round trip.
-
-Local-registry gate не заменяет Harbor API tests и не является full SOURCE→TARGET E2E. Его задача — поймать несовместимость production Skopeo/Helm runtime, OCI transport и packaging semantics до release qualification.
-
-### Compose/runtime
-
-```bash
-make smoke-compose
-```
-
-Compose smoke является обязательным для затронутого deployment/container/runtime scope.
-
-## 3. Уровни тестирования
-
-### Fast / unit
-
-Используются для локальной бизнес-логики, domain transitions, API contracts, parsers/validators и UI components без внешнего service lifecycle.
-
-Предпочтительный уровень, если дефект можно надёжно поймать быстро и локально.
-
-### Static type
-
-Backend Mypy gate проверяет typed contracts между FastAPI/Pydantic/SQLAlchemy services и orchestration code до runtime tests. Очевидный type mismatch должен делать backend CI красным.
-
-Цель — не «удовлетворить Mypy» через широкие suppressions, а использовать type checker как источник contract defects. Точечные `cast(...)` допустимы только на dynamic/third-party boundary, где runtime contract известен приложению, но не выражен библиотечным stub.
-
-### Component
-
-Проверяет frontend component/view или backend component с ближайшими dependencies без полного transfer flow.
-
-### CI-policy regression
-
-`tools/test_ci_scope.py` фиксирует selection policy как behavior, а не как комментарий в YAML. Минимальная матрица включает:
-
-- docs-only → только documentation;
-- обычный backend-only → backend;
-- frontend-only → frontend;
-- protocol domain path → backend + protocol;
-- package service → backend + protocol + security;
-- import/export/key-management/auth security-sensitive path → backend + security;
-- Skopeo/Helm service → backend + security + integration;
-- backend Dockerfile → backend + integration + Compose;
-- integration harness → backend + integration;
-- integration Compose/runner → integration + Compose;
-- `deploy/README.md` → Compose + documentation;
-- `Makefile` → backend + frontend + documentation;
-- изменение `.github/workflows/ci.yml` → все существующие areas;
-- mixed diff → объединение flags;
-- отсутствие component/security/integration marker в ревизии → отсутствие фиктивного job.
-
-Scope job всегда запускает эти regression tests **до** вычисления outputs. Если classifier сломан, `scope` падает и финальный `quality-gate` не может стать зелёным.
-
-### Documentation integrity
-
-Проверяет, что документационная навигация внутри репозитория не ведёт на отсутствующие файлы и не выходит за repository root.
-
-Unit tests документационного checker покрывают валидные relative links, missing targets, external/pure-anchor skip, path escape, fenced-code examples и image paths.
-
-Anchor semantics внутри Markdown и доступность внешних URL пока не входят в gate. Их можно расширить отдельной задачей, если это можно сделать без ухудшения надёжности CI.
-
-### Protocol regression
-
-Обязателен для Bundle Protocol/schema/domain и package builder/verifier, потому что package implementation формирует и проверяет normative v1 archive.
-
-Типовые cases:
-
-- archive traversal / absolute paths;
-- non-canonical path aliases;
-- symlink/hardlink/special members;
-- normalized duplicate/file-directory collisions;
-- unsupported schema major;
-- canonical manifest/signature tamper;
-- payload checksum tamper;
-- resource/member/path limits.
-
-### Security regression
-
-Обязателен для package/import/export/key-management/auth и subprocess boundaries.
-
-Типовые cases уже включают или должны включаться одновременно с соответствующей реализацией:
-
-- unsafe archive/signature/checksum behavior;
-- key material bounds и symlink semantics;
-- conflict/overwrite default deny;
-- secret/token redaction;
-- subprocess argv без `shell=True`;
-- Skopeo/Helm digest/metadata validation;
-- auth/RBAC matrix и login throttling.
-
-Нельзя менять expected result только для того, чтобы security regression снова стал зелёным, если test обнаружил реальный defect.
-
-### Integration
-
-Запускается при изменении границ, где unit mocks недостаточны:
-
-- Harbor client/settings;
-- SQLAlchemy/Alembic persistence;
-- Skopeo/Helm services;
-- package service;
-- export/import orchestration;
-- Compose/runtime;
-- межмодульные contracts.
-
-Integration fixture должен быть локальным/disposable и не требовать public Harbor/internet во время выполнения application flow.
-
-Реализованный `Integration — Skopeo/Helm local registry` дополнительно проверяет production CLI/OCI boundary через disposable registry с internal-only network и не использует внешний artifact fixture во время application flow.
-
-### Compose smoke
-
-Текущий `deploy/smoke-compose.sh` проверяет runtime topology:
-
-- `docker compose config`;
-- build/healthy services;
-- Nginx `/api/` proxy;
-- contour configuration;
-- Alembic heads;
-- backend UID `10001`;
-- Skopeo/Helm runtime versions;
-- отсутствие backend secrets/config во frontend environment;
-- persistence через restart/down-up;
-- запуск тех же images в противоположном SOURCE/TARGET contour без rebuild/pull.
-
-Поэтому изменения `deploy/*`, Compose/Docker/Nginx не считаются обычным docs-only scope даже если изменяется документация рядом с runtime scripts.
-
-### E2E / release
-
-SOURCE export orchestration и TARGET import orchestration уже реализованы. Полный SOURCE → physical bundle → TARGET flow пока не является обычным PR gate не из-за отсутствия orchestration, а потому что он требует отдельного dual-contour/local-registry acceptance environment и относится к offline release qualification #28.
-
-Перед release scenario должен включать как минимум:
-
-1. local SOURCE registry fixture;
-2. container image + Helm chart fixture;
-3. SOURCE export;
-4. signed bundle + `.sha256`;
-5. перенос только разрешённых файлов;
-6. отдельный TARGET registry без source dependency;
-7. verification/preview/import;
-8. target image digest verification;
-9. chart result verification;
-10. receipt/history/report;
-11. idempotent replay;
-12. conflict without automatic overwrite;
-13. tampered bundle rejection before registry mutation.
-
-## 4. Матрица «изменение → проверки»
-
-| Изменение | Минимальные проверки |
-|---|---|
-| Только обычный backend service/API | Ruff + Mypy + соответствующие backend tests |
-| Auth/RBAC | backend lint/type + targeted security; frontend role/session tests при затронутом UI |
-| DB model/migration | backend lint/type/tests + migration/persistence integration |
-| Только frontend view/component | ESLint + typecheck + unit/component + build |
-| Bundle protocol/schema/domain | docs-check + backend lint/type + protocol regression + affected backend tests |
-| Harbor client/settings | backend lint/type/tests + mocked/integration Harbor scenarios |
-| Skopeo service | backend lint/type + targeted security + local-registry integration |
-| Helm OCI service | backend lint/type + targeted security + local-registry integration |
-| Backend Dockerfile | backend + local-registry integration + Compose smoke |
-| Local-registry harness | backend + local-registry integration |
-| Local-registry Compose/runner | local-registry integration + Compose smoke |
-| Package verifier/build | backend lint/type + protocol + targeted security |
-| Export/import orchestration | backend lint/type + targeted security + relevant integration |
-| Key management | backend lint/type + targeted security |
-| Compose/Docker/Nginx/deploy runtime | Compose config/build/smoke |
-| Обычная docs-only правка | docs-check + quality-gate; тяжёлые code/E2E jobs skipped |
-| `deploy/*.md` | docs-check + Compose smoke согласно current path policy |
-| Workflow `.github/workflows/ci.yml` | scope-regression + lock invariants + все уже реализованные areas |
-| Dependency metadata/lockfiles | lock invariants + соответствующий backend/frontend gate |
-| Scope helper/tests | scope-regression всегда внутри `scope` job |
-| Release/install | полный required suite + E2E |
-
-## 5. Path-aware GitHub Actions
-
-Workflow `.github/workflows/ci.yml` отвечает только за получение списка changed files:
-
-- PR — diff от merge base base/head;
-- push — diff `before → sha`;
-- fallback/workflow dispatch — `git ls-files`.
-
-Само преобразование changed paths в areas выполняет `tools/ci_scope.py`. Он выставляет outputs:
-
-- `backend`;
-- `frontend`;
-- `protocol`;
-- `security`;
-- `integration`;
-- `compose`;
-- `docs`.
-
-### PR diff semantics
-
-Для pull request changed files вычисляются относительно **merge base**, а не прямым `base.sha → head.sha` diff.
-
-Это важно для отставшей, но неконфликтующей ветки: изменения, которые уже попали в `main` после создания branch, не должны ошибочно считаться изменениями PR и запускать unrelated jobs.
-
-### Backend scope
-
-Включается для `backend/*` и `Makefile`. Для включённого backend scope обязательная последовательность CI — Ruff → Mypy → Pytest.
-
-### Frontend scope
-
-Включается для `frontend/*` и `Makefile`.
-
-### Protocol scope
-
-Включается для protocol/domain/schema paths, в том числе `backend/app/domain/*`, protocol/schema regression files, `docs/offline-bundle-v1.md`, `docs/schema/*`, связанного ADR-009, а также package builder/verifier и его regression tests.
-
-### Security scope
-
-Включается только для backend paths с явным security blast radius, а не для любого backend-файла. В текущую policy входят:
-
-- `backend/app/auth/*`;
-- auth/import/key-settings/user admin API boundaries;
-- `bundle_package_service.py`;
-- export/import orchestrators и publication guard;
-- key management;
-- Skopeo/Helm subprocess services;
-- соответствующие security/hardening tests.
-
-Обычный backend service вроде `harbor_client.py` не включает security job автоматически, если security boundary не затронут.
-
-### Integration scope
-
-Включается только для реальной Skopeo/Helm runtime boundary:
-
-- `backend/app/services/skopeo_service.py`;
-- `backend/app/services/helm_oci_service.py`;
-- `backend/Dockerfile` — он определяет production версии Skopeo/Helm;
-- `backend/integration/*`;
-- `deploy/compose-registry-integration.yml`;
-- `deploy/smoke-registry-integration.sh`.
-
-Обычный backend service, docs-only изменение или unrelated unit test не включает тяжёлый integration job.
-
-Classifier включает integration при изменении workflow только если в проверяемой ревизии существуют все marker-файлы: harness, integration Compose topology и runner.
-
-### Compose scope
-
-Включается для:
-
-- `compose.yaml`;
-- `.dockerignore`;
-- backend/frontend Dockerfiles;
-- Nginx/entrypoint runtime files;
-- `deploy/*`.
-
-### Documentation scope
-
-Включается для:
-
-- root `README.md`/`CONTRIBUTING.md`;
-- `docs/*`;
-- Markdown в `deploy/`;
-- documentation checker/tests;
-- `Makefile`.
-
-### Workflow self-test
-
-Изменение `.github/workflows/ci.yml` включает все реально существующие applicable areas. Перед classification scope job всегда выполняются regression `tools.test_ci_scope` и dependency-lock invariant, эквивалентный `make dependency-locks-check`; поэтому изменение workflow/classifier не может обойти test-selection или lock policy молча.
-
-После classification helper повторно проверяет наличие component markers (`backend/pyproject.toml`, `frontend/package.json`, protocol test, security regression marker, integration harness/topology/runner, Compose smoke script, docs checker) и не создаёт job для компонента, которого нет в проверяемой ревизии.
-
-## 6. Documentation job
-
-Job `Documentation — local links`:
-
-1. checkout repository;
-2. устанавливает Python 3.12 через pinned setup action;
-3. выполняет `make docs-check`;
-4. не устанавливает дополнительные Python/npm packages и не обращается к внешним URL.
-
-Missing local target или path escape возвращает non-zero и делает job красным.
-
-## 7. `quality-gate`
-
-Финальный `quality-gate` выполняется всегда и зависит от scope/backend/frontend/protocol/security/integration/compose/docs.
-
-Он принимает только:
-
-- `success` для запущенного обязательного job;
-- `skipped` для области, которая корректно признана незатронутой.
-
-Любой другой результат делает gate красным. Падение самого `scope` job, включая его regression suite или dependency-lock invariant, также красит `quality-gate`.
-
-## 8. Merge gate / branch protection
-
-Для `main` в GitHub Rulesets/Branch protection требуется/рекомендуется:
-
-- запрет merge при красных required checks;
-- required status check: `CI / quality-gate`;
-- требование актуальной ветки перед merge — только если оно не ломает согласованную параллельную работу команды.
-
-Если connector/app не имеет administration permission для изменения branch protection, эта настройка остаётся действием владельца repository.
+Нельзя менять expected result только для того, чтобы этот suite снова стал зелёным, если test обнаружил реальный defect.
 
 ## 9. Dependency reproducibility
 
-Dependency intent остаётся человекочитаемым в `backend/pyproject.toml` и `frontend/package.json`, а resolved graphs фиксируются отдельными committed lockfiles.
-
 ### Frontend
 
-`frontend/package-lock.json` обязателен и использует npm lockfile v3 с exact resolved versions/integrity metadata. CI и frontend Docker build выполняют только:
+`frontend/package-lock.json` обязателен; CI и Docker build используют:
 
 ```bash
 npm ci --no-audit --no-fund
 ```
 
-Fallback на `npm install` отсутствует: missing/stale lock должен ломать build/CI, а не незаметно разрешать новый graph.
-
-Обновлять frontend lock нужно только намеренно после изменения `package.json`:
+После намеренного изменения `package.json` обновите lock и проверьте invariant:
 
 ```bash
 cd frontend
@@ -444,109 +302,56 @@ make dependency-locks-check
 
 ### Backend
 
-`backend/pyproject.toml` остаётся source of intent с compatible ranges. Для воспроизводимого resolution committed два generated lock-файла:
+Dependency intent находится в `backend/pyproject.toml`, resolved graphs — в:
 
-- `backend/requirements-runtime.lock` — runtime graph для backend image;
-- `backend/requirements-dev.lock` — runtime + dev/test/type graph для CI.
+- `backend/requirements-runtime.lock`;
+- `backend/requirements-dev.lock`.
 
-Оба содержат exact `name==version` pins, включая `hatchling`, потому что локальный package собирается с `--no-build-isolation`.
-
-CI устанавливает dev graph так:
+CI устанавливает dev graph без resolver drift:
 
 ```bash
 python -m pip install -r backend/requirements-dev.lock
 python -m pip install --no-deps --no-build-isolation ./backend
 ```
 
-Backend Docker image аналогично устанавливает `requirements-runtime.lock`, затем локальный package с `--no-deps --no-build-isolation`.
+Backend image аналогично использует runtime lock. В закрытом runtime contour package resolution не выполняется: versioned offline kit уже содержит prebuilt images.
 
-Lock refresh выполняется в чистых Python 3.12 virtual environments после изменения `pyproject.toml`; runtime и dev locks генерируются в одной итерации, чтобы общие pins не расходились:
+## 10. `quality-gate`
 
-```bash
-python3.12 -m venv .lock-runtime
-.lock-runtime/bin/python -m pip install hatchling
-.lock-runtime/bin/python -m pip install -e ./backend
-.lock-runtime/bin/python -m pip freeze --exclude-editable | LC_ALL=C sort > backend/requirements-runtime.lock
+`quality-gate` выполняется всегда и зависит от scope и всех потенциальных jobs.
 
-python3.12 -m venv .lock-dev
-.lock-dev/bin/python -m pip install hatchling
-.lock-dev/bin/python -m pip install -e './backend[dev]'
-.lock-dev/bin/python -m pip freeze --exclude-editable | LC_ALL=C sort > backend/requirements-dev.lock
+Допустимые результаты для каждой области:
 
-make dependency-locks-check
-```
+- `success` — job был обязателен и прошёл;
+- `skipped` — область корректно признана незатронутой.
 
-В CI resolver не используется для выбора версий: network нужен для получения уже зафиксированных artifacts, а не для изменения dependency graph. Для полностью air-gapped runtime release #28 должен поставлять уже собранные images и не выполнять package resolution в закрытом контуре.
+Любой failure/cancelled/unexpected result делает итоговый gate красным. Падение самого scope job также блокирует merge.
 
-### Lock invariant
+## 11. Примеры
 
-`tools/check_dependency_locks.py` и `tools/test_dependency_locks.py` используют только Python stdlib и проверяют до запуска scoped jobs:
+### Только `docs/architecture.md`
 
-- npm lockfile v3 и совпадение root `name/version/dependencies/devDependencies` с `package.json`;
-- exact version + integrity metadata для registry entries;
-- наличие всех top-level runtime/dev Python dependencies;
-- pinned `hatchling` для `--no-build-isolation`;
-- отсутствие local backend package в lock;
-- одинаковые pins общих runtime packages в runtime/dev locks.
+Ожидается `Documentation — local links`; backend/frontend/protocol/security/integration/acceptance/compose/offline-install skipped; `quality-gate` success.
 
-## 10. Текущее состояние CI
+### Только `deploy/README.md`
 
-| Job/capability | Статус |
-|---|---|
-| Scope detection | реализовано; classifier regression-tested |
-| Dependency lock invariant | реализовано; выполняется до scope classification |
-| Documentation local-link gate | реализовано |
-| Backend Ruff + Mypy + unit/API + coverage ≥70% | реализовано; dependency graph locked; `backend/app` coverage fail-under 70% |
-| Frontend lint/type/unit/build | реализовано; `npm ci` only |
-| Bundle Protocol contract regression | реализовано |
-| Targeted security regression | реализовано |
-| Skopeo/Helm disposable-registry integration | реализовано; real production binaries + internal-only registry topology |
-| Compose build/smoke | реализовано; Docker builds используют committed locks |
-| Final `quality-gate` | реализовано; учитывает integration result |
-| Full SOURCE→TARGET dual-contour E2E | требуется в #28 |
-| Release/offline-install gate | требуется в #28 |
+Это documentation-only deployment guide change: docs job запускается, Compose и offline-install **не** запускаются.
 
-## 11. Test selection examples
+### `backend/app/services/skopeo_service.py`
 
-### Изменён только `frontend/src/views/LoginView.vue`
+Включаются affected backend/security/integration areas; integration приводит также к isolated acceptance.
 
-Запустить frontend lint/type/unit/build. Backend package/protocol/Compose/integration не нужны, если contract/runtime не менялся.
+### `backend/Dockerfile`
 
-### Изменён `backend/app/services/bundle_package_service.py`
+Включаются backend + integration + compose; следовательно выполняются real registry integration, isolated acceptance, Compose smoke и clean-host offline-install qualification.
 
-Нужны backend Ruff + Mypy + tests + Bundle protocol regression + targeted security regression. При изменении deployment/runtime boundary дополнительно Compose smoke.
+### `.github/workflows/ci.yml`
 
-### Изменён `backend/app/services/import_orchestrator.py`
+Сначала scope regression и lock invariant, затем все существующие applicable areas, чтобы проверить сам механизм test selection.
 
-Нужны backend Ruff + Mypy + tests + targeted security regression. Protocol gate не добавляется автоматически, если normative Bundle v1 contract/package boundary не менялись.
+## 12. Root cause при падении
 
-### Изменён `backend/app/services/skopeo_service.py` или `helm_oci_service.py`
-
-Нужны backend Ruff + Mypy + tests + targeted security regression + real local-registry integration.
-
-### Изменён `backend/Dockerfile`
-
-Нужны backend + Compose smoke + local-registry integration, потому что Dockerfile определяет фактические версии и наличие Skopeo/Helm в production image.
-
-### Изменён только `docs/architecture.md`
-
-Запускается documentation gate + quality-gate. Backend/frontend/Compose/integration не нужны.
-
-### Изменён `deploy/README.md`
-
-Запускаются docs-check и Compose smoke, поскольку `deploy/*` остаётся deployment scope, а Markdown одновременно относится к documentation scope.
-
-### Отставшая docs-ветка не меняет deployment
-
-PR scope определяется от merge base, поэтому уже merged изменение `deploy/README.md` в base не должно само по себе включить Compose job для такой ветки.
-
-### Изменён `.github/workflows/ci.yml`
-
-Сначала запускаются regression suite classifier и dependency-lock invariant, затем включаются все уже реализованные areas, включая security и integration, чтобы проверить сам механизм test selection.
-
-## 12. Правило root cause
-
-При падении проверки определить тип:
+Классифицируйте failure как:
 
 - product/code defect;
 - documentation defect;
@@ -556,46 +361,31 @@ PR scope определяется от merge base, поэтому уже merged 
 - contract mismatch;
 - CI selection defect.
 
-Исправляется первопричина. Нельзя:
-
-- ослаблять assertion реального security/correctness invariant;
-- скрывать exit code;
-- отключать required job;
-- использовать `continue-on-error` для обязательной проверки;
-- добавлять исключение для сломанной локальной ссылки вместо исправления ссылки/структуры без документированной причины;
-- превращать интеграционный defect в mock-only green test без объяснения;
-- включать runtime network egress вместо исправления fixture/setup boundary;
-- выключать Mypy для целого приложения/модуля вместо исправления contract или точечного typing boundary.
+Исправляйте первопричину. Запрещено маскировать обязательную ошибку, отключать required gate, подменять реальный integration defect mock-only test или добавлять runtime network egress вместо исправления fixture boundary.
 
 ## 13. Documentation impact
 
-Если test/CI behavior меняется, в той же итерации обновить этот документ.
+Если CI/test behavior меняется, `docs/testing.md`, `tools/ci_scope.py`, его regression tests и workflow должны оставаться согласованными в одной итерации.
 
-Если documentation-only path неожиданно запускает или пропускает тяжёлый job, сначала воспроизвести expected mapping через `make test-ci-scope`, затем исправлять classifier/tests вместе как один contract.
+Связанные источники:
 
-Связанные документы:
-
-- [Карта документации](README.md)
-- [Архитектура](architecture.md)
-- [Security](security.md)
-- [CONTRIBUTING](../CONTRIBUTING.md)
-- `.github/workflows/ci.yml`
-- `backend/integration/registry_smoke.py`
-- `deploy/compose-registry-integration.yml`
-- `deploy/smoke-registry-integration.sh`
-- `tools/ci_scope.py`
-- `tools/test_ci_scope.py`
-- `tools/check_dependency_locks.py`
-- `tools/test_dependency_locks.py`
-- `tools/check_doc_links.py`
+- [Карта документации](README.md);
+- [Архитектура](architecture.md);
+- [Security](security.md);
+- [CONTRIBUTING](../CONTRIBUTING.md);
+- `.github/workflows/ci.yml`;
+- `tools/ci_scope.py`;
+- `tools/test_ci_scope.py`;
+- `tools/check_dependency_locks.py`;
+- `tools/check_doc_links.py`;
+- `deploy/qualify-clean-offline-install.sh`;
+- `deploy/qualify-isolated-transfer.sh`.
 
 ## 14. Remaining quality work
 
-Следующие расширения не считаются реализованными только потому, что упомянуты здесь:
+Реально незавершённые улучшения следует формулировать отдельно от уже существующих release gates. На текущем baseline это, например:
 
-- optional Markdown anchor validation, если будет оправдано;
-- additional export/import integration where mocks are insufficient;
-- final SOURCE→TARGET E2E;
-- offline release/install acceptance.
+- optional Markdown anchor validation, если она будет оправдана без flaky external crawling;
+- дополнительные targeted integration cases там, где существующих fixtures недостаточно.
 
-Они должны добавляться вместе с соответствующими implementation tasks и реальными fail-able tests, а не placeholder jobs.
+Full SOURCE→TARGET acceptance и offline clean-host qualification **не относятся к remaining work**: они уже реализованы и входят в current CI policy.
