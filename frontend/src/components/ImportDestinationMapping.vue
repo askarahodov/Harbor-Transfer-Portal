@@ -95,6 +95,7 @@ onMounted(() => {
         <h3 id="mapping-title">Куда импортировать артефакты</h3>
         <p>
           Приоритет правил: override конкретного артефакта → mapping SOURCE project → default project типа.
+          Пустые значения дополняются admin-managed defaults TARGET-контура; явные значения этой операции имеют приоритет.
           Harbor изменится только после подтверждённого plan.
         </p>
       </div>
@@ -135,7 +136,7 @@ onMounted(() => {
           :disabled="!canEdit || projectsLoading"
           @change="wizard.setDefaultProject('container-image', projectFromEvent($event))"
         >
-          <option value="">Не задан</option>
+          <option value="">Admin default / не задан</option>
           <option v-for="project in projects" :key="project" :value="project">{{ project }}</option>
         </select>
       </label>
@@ -146,7 +147,7 @@ onMounted(() => {
           :disabled="!canEdit || projectsLoading"
           @change="wizard.setDefaultProject('helm-chart', projectFromEvent($event))"
         >
-          <option value="">Не задан</option>
+          <option value="">Admin default / не задан</option>
           <option v-for="project in projects" :key="project" :value="project">{{ project }}</option>
         </select>
       </label>
@@ -162,7 +163,7 @@ onMounted(() => {
             :disabled="!canEdit || projectsLoading"
             @change="wizard.setSourceProjectMapping(sourceProject, projectFromEvent($event))"
           >
-            <option value="">Использовать default типа</option>
+            <option value="">Admin mapping / default типа</option>
             <option v-for="project in projects" :key="project" :value="project">{{ project }}</option>
           </select>
         </label>
@@ -229,7 +230,10 @@ onMounted(() => {
     </div>
     <div v-else-if="wizard.destinationPlan?.valid" class="mapping-message mapping-message--success" role="status">
       <CheckCircle2 :size="18" aria-hidden="true" />
-      <span>Destination plan подтверждён · {{ wizard.destinationPlan.plan_id.slice(0, 12) }}…</span>
+      <span>
+        Destination plan подтверждён · {{ wizard.destinationPlan.plan_id.slice(0, 12) }}… · mapping policy rev {{ wizard.destinationPlan.mapping_policy_revision }}.
+        Эта revision зафиксирована в plan и не меняется при последующей правке global defaults.
+      </span>
     </div>
     <div v-else-if="wizard.destinationPlan" class="mapping-message mapping-message--danger" role="alert">
       <ShieldAlert :size="18" aria-hidden="true" />
