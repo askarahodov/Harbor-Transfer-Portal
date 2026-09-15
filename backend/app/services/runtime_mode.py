@@ -133,6 +133,11 @@ class RuntimeModeService:
                     "runtime_mode_mismatch",
                     f"Операция требует режим {required_mode.value}, текущий режим {snapshot.mode.value}",
                 )
+            # The guard may be used while the caller writes the operation through a
+            # separate SQLAlchemy Session. End this read transaction first so SQLite
+            # does not keep a shared lock that can block that writer's commit. The
+            # process-wide RLock remains held for the entire operation creation.
+            self.session.rollback()
             yield snapshot
 
     def switch(self, target: PortalContour, *, actor: User) -> RuntimeModeSwitchResult:
