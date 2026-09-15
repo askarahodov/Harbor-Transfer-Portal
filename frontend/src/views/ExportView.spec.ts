@@ -131,6 +131,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.useRealTimers()
   sessionStorage.clear()
 })
 
@@ -178,6 +179,53 @@ describe('SOURCE export wizard view', () => {
     expect(wrapper.text()).toContain('bbbbbbbbbbbbbbbb')
     expect(button(wrapper, 'Скачать bundle').attributes('type')).toBe('button')
     expect(button(wrapper, 'Скачать `.sha256`').attributes('type')).toBe('button')
+  })
+
+  it('searches automatically after debounce while explicit submit stays immediate', async () => {
+    vi.useFakeTimers()
+    mockHappyPath()
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    const projectsSpy = vi.mocked(exportsApi.listHarborProjects)
+    projectsSpy.mockClear()
+    const input = wrapper.get('#project-search')
+
+    await input.setValue('rep')
+    expect(projectsSpy).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(299)
+    expect(projectsSpy).not.toHaveBeenCalled()
+
+    await input.setValue('report')
+    await vi.advanceTimersByTimeAsync(299)
+    expect(projectsSpy).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    await flushPromises()
+
+    expect(projectsSpy).toHaveBeenCalledTimes(1)
+    expect(projectsSpy).toHaveBeenLastCalledWith(1, 25, 'report')
+
+    projectsSpy.mockClear()
+    await input.setValue('team')
+    const projectSearchForm = wrapper.findAll('form.search-row')[0]
+    if (!projectSearchForm) throw new Error('Project search form not found')
+    await projectSearchForm.trigger('submit')
+    await flushPromises()
+
+    expect(projectsSpy).toHaveBeenCalledTimes(1)
+    expect(projectsSpy).toHaveBeenLastCalledWith(1, 25, 'team')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    expect(projectsSpy).toHaveBeenCalledTimes(1)
+
+    wrapper.unmount()
   })
 
   it('renders an actionable TARGET fallback and does not browse Harbor', async () => {
