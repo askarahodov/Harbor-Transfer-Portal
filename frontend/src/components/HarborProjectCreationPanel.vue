@@ -19,6 +19,7 @@ const errorMessage = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
 
 const missingProjects = computed(() => {
+  if (wizard.mappingDirty) return []
   const names = new Set<string>()
   for (const artifact of wizard.destinationPlan?.artifacts ?? []) {
     if (
