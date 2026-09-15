@@ -1,8 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import type { AxiosResponse } from 'axios'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiClient } from '@/api/client'
+import { useRuntimeStore } from '@/stores/runtime'
 
 import KeyManagementPanel from './KeyManagementPanel.vue'
 
@@ -28,6 +30,10 @@ function deferred<T>(): {
   })
   return { promise, resolve }
 }
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -172,7 +178,7 @@ describe('KeyManagementPanel', () => {
     expect(wrapper.text()).not.toContain(replacementPem)
   })
 
-  it('hides stale SOURCE controls and reloads after runtime contour changes', async () => {
+  it('hides stale SOURCE controls and reloads after live runtime mode changes', async () => {
     const get = vi
       .spyOn(apiClient, 'get')
       .mockResolvedValueOnce(
@@ -186,11 +192,14 @@ describe('KeyManagementPanel', () => {
         response({ contour: 'TARGET', signing_key: null, trusted_keys: [] }),
       )
 
+    const runtime = useRuntimeStore()
+    runtime.setContour('SOURCE')
     const wrapper = mount(KeyManagementPanel, { props: { contour: 'SOURCE' } })
     await flushPromises()
     expect(wrapper.find('#source-signing-key').exists()).toBe(true)
 
-    await wrapper.setProps({ contour: 'TARGET' })
+    runtime.setContour('TARGET')
+    await wrapper.vm.$nextTick()
     expect(wrapper.find('#source-signing-key').exists()).toBe(false)
     await flushPromises()
 
@@ -199,7 +208,7 @@ describe('KeyManagementPanel', () => {
     expect(wrapper.find('#source-signing-key').exists()).toBe(false)
   })
 
-  it('ignores a stale key-settings response from the previous runtime contour', async () => {
+  it('ignores a stale key-settings response from the previous runtime mode', async () => {
     const staleSource = deferred<AxiosResponse>()
     vi.spyOn(apiClient, 'get')
       .mockReturnValueOnce(staleSource.promise)
@@ -207,8 +216,10 @@ describe('KeyManagementPanel', () => {
         response({ contour: 'TARGET', signing_key: null, trusted_keys: [] }),
       )
 
+    const runtime = useRuntimeStore()
+    runtime.setContour('SOURCE')
     const wrapper = mount(KeyManagementPanel, { props: { contour: 'SOURCE' } })
-    await wrapper.setProps({ contour: 'TARGET' })
+    runtime.setContour('TARGET')
     await flushPromises()
     expect(wrapper.find('#target-trusted-key').exists()).toBe(true)
 
