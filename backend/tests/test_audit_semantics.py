@@ -104,6 +104,7 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
                     plan_id=f"plan-{operation_id}",
                     plan_hash="b" * 64,
                     bundle_sha256="a" * 64,
+                    mapping_policy_revision=0,
                     artifacts=[
                         SimpleNamespace(
                             index=index,
@@ -176,6 +177,9 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
     assert first_metadata["conflict_count"] == 0
     assert first_metadata["destination_plan_id"] == "plan-41"
     assert first_metadata["destination_plan_hash"] == "b" * 64
+    assert first_metadata["mapping_policy_revision"] == 0
+    assert first_metadata["destination_count"] == 2
+    assert first_metadata["destinations_truncated"] is False
     assert first_metadata["destinations"] == [
         {
             "index": 0,
