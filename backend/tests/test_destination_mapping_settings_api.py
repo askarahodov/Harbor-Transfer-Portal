@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 from alembic.config import Config
@@ -148,6 +149,45 @@ def test_destination_mapping_defaults_persist_revision_and_safe_audit(tmp_path: 
     assert metadata["after"]["destination_container_image_project"] == "images-default"
     assert "credential" not in event.metadata_json.lower()
     assert "secret" not in event.metadata_json.lower()
+
+
+def test_database_backup_restore_preserves_destination_mapping_policy(tmp_path: Path) -> None:
+    live_dir = tmp_path / "live"
+    live_dir.mkdir()
+    live_app = _build_app(live_dir)
+    with TestClient(live_app) as client:
+        admin = _login(client, "admin")
+        changed = client.patch(
+            "/api/settings/transfer",
+            json={
+                "destination_container_image_project": "images-backup",
+                "destination_helm_chart_project": "helm-backup",
+                "destination_project_mappings": {"source-backup": "target-backup"},
+            },
+            headers=_auth(admin),
+        )
+        assert changed.status_code == 200
+        assert changed.json()["destination_mapping_revision"] == 1
+
+    live_app.state.db_engine.dispose()
+    restored_dir = tmp_path / "restored"
+    restored_dir.mkdir()
+    shutil.copy2(
+        live_dir / "destination-mapping-policy.db",
+        restored_dir / "destination-mapping-policy.db",
+    )
+
+    restored_app = _build_app(restored_dir)
+    with TestClient(restored_app) as client:
+        admin = _login(client, "admin")
+        restored = client.get("/api/settings/transfer", headers=_auth(admin))
+
+    assert restored.status_code == 200
+    body = restored.json()
+    assert body["destination_mapping_revision"] == 1
+    assert body["destination_container_image_project"] == "images-backup"
+    assert body["destination_helm_chart_project"] == "helm-backup"
+    assert body["destination_project_mappings"] == {"source-backup": "target-backup"}
 
 
 def test_destination_mapping_settings_validate_and_can_be_cleared(tmp_path: Path) -> None:
