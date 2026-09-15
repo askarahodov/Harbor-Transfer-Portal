@@ -27,7 +27,30 @@ IMAGE_DIGEST = "sha256:" + "a" * 64
 class FakeDestinationValidator:
     registry_host = "harbor.target.local"
 
-    async def validate(self, _project: str, _repository: str) -> DestinationCapability:
+    def __init__(
+        self,
+        *,
+        missing_projects: set[str] | None = None,
+        denied_projects: set[str] | None = None,
+    ) -> None:
+        self.missing_projects = missing_projects or set()
+        self.denied_projects = denied_projects or set()
+
+    async def validate(self, project: str, _repository: str) -> DestinationCapability:
+        if project in self.missing_projects:
+            return DestinationCapability(
+                False,
+                False,
+                "import_destination_project_missing",
+                "missing project",
+            )
+        if project in self.denied_projects:
+            return DestinationCapability(
+                True,
+                False,
+                "import_destination_write_forbidden",
+                "push denied",
+            )
         return DestinationCapability(True, True)
 
 
@@ -82,20 +105,25 @@ def _preview(operation_id: int) -> ImportPreviewResponse:
     )
 
 
-def _environment(tmp_path: Path):
+def _environment(
+    tmp_path: Path,
+    *,
+    validator: FakeDestinationValidator | None = None,
+):
     database_url = f"sqlite:///{tmp_path / 'mapping-plan-policy.db'}"
     settings = _settings(tmp_path, database_url)
     engine = create_db_engine(database_url)
     Base.metadata.create_all(engine)
     factory = create_session_factory(engine)
     manager = OperationManager(factory, settings)
+    validator = validator or FakeDestinationValidator()
     orchestrator = PolicyAwareImportDestinationPlanOrchestrator(
         factory,
         settings,
         manager,
         skopeo_factory=lambda _session: FakeSkopeoService(),  # type: ignore[arg-type]
         helm_factory=lambda _session: FakeHelmService(),  # type: ignore[arg-type]
-        destination_validator_factory=lambda _session: FakeDestinationValidator(),
+        destination_validator_factory=lambda _session: validator,
     )
     with factory() as session:
         operation = Operation(
@@ -174,3 +202,50 @@ def test_explicit_import_default_overrides_global_default(tmp_path: Path) -> Non
 
     assert plan.mapping_policy_revision == 1
     assert plan.artifacts[0].target_repository == "images-explicit/app/api"
+
+
+def test_missing_global_default_project_keeps_plan_invalid(tmp_path: Path) -> None:
+    validator = FakeDestinationValidator(missing_projects={"images-missing"})
+    factory, orchestrator, operation_id = _environment(tmp_path, validator=validator)
+    with factory() as session:
+        DestinationMappingPolicyService(session).update(
+            {"container_image_project": "images-missing"}
+        )
+        session.commit()
+
+    plan = asyncio.run(
+        orchestrator.build_destination_plan(
+            operation_id,
+            ImportDestinationPlanRequest(),
+            actor_username="operator",
+        )
+    )
+
+    assert plan.valid is False
+    assert plan.mapping_policy_revision == 1
+    assert plan.artifacts[0].error_code == "import_destination_project_missing"
+    assert plan.artifacts[0].project_exists is False
+
+
+def test_global_default_without_write_access_keeps_plan_invalid(tmp_path: Path) -> None:
+    validator = FakeDestinationValidator(denied_projects={"images-denied"})
+    factory, orchestrator, operation_id = _environment(tmp_path, validator=validator)
+    with factory() as session:
+        DestinationMappingPolicyService(session).update(
+            {"container_image_project": "images-denied"}
+        )
+        session.commit()
+
+    plan = asyncio.run(
+        orchestrator.build_destination_plan(
+            operation_id,
+            ImportDestinationPlanRequest(),
+            actor_username="operator",
+        )
+    )
+
+    assert plan.valid is False
+    assert plan.mapping_policy_revision == 1
+    assert plan.artifacts[0].error_code == "import_destination_write_forbidden"
+    assert plan.artifacts[0].project_exists is True
+    assert plan.artifacts[0].write_allowed is False
