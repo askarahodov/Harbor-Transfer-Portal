@@ -23,6 +23,7 @@ _BLOCKING_OPERATION_STATUSES = {
     OperationStatus.VERIFYING,
     OperationStatus.UPLOADED,
     OperationStatus.DISCOVERED,
+    OperationStatus.READY,
     OperationStatus.IMPORTING,
     OperationStatus.VERIFYING_TARGET,
 }
