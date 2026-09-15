@@ -81,6 +81,13 @@ else
   printf 'Created .env for contour %s. Existing files are never overwritten.\n' "$contour"
 fi
 
+browser_scheme=$(sed -n 's/^PORTAL_BROWSER_SCHEME=//p' .env | head -n 1)
+[ -n "$browser_scheme" ] || browser_scheme=http
+case "$browser_scheme" in
+  http|https) ;;
+  *) fail 'PORTAL_BROWSER_SCHEME must be http or https' ;;
+esac
+
 printf 'Loading prebuilt images...\n'
 docker load -i images/backend.tar
 docker load -i images/frontend.tar
@@ -103,10 +110,17 @@ esac
 printf 'Starting Harbor Transfer Portal %s...\n' "$version"
 docker compose --env-file .env -f compose.yaml up -d --no-build --pull never --wait --wait-timeout "$timeout"
 
+http_bind=$(sed -n 's/^PORTAL_HTTP_BIND=//p' .env | head -n 1)
+[ -n "$http_bind" ] || http_bind=127.0.0.1
 http_port=$(sed -n 's/^PORTAL_HTTP_PORT=//p' .env | head -n 1)
 [ -n "$http_port" ] || http_port=8080
 contour=$(sed -n 's/^PORTAL_CONTOUR=//p' .env | head -n 1)
 printf '\nInstallation completed.\n'
-printf 'Portal: http://127.0.0.1:%s\n' "$http_port"
+printf 'Internal HTTP listener: http://%s:%s\n' "$http_bind" "$http_port"
 printf 'Contour: %s\n' "$contour"
+if [ "$browser_scheme" = https ]; then
+  printf 'Browser transport: HTTPS expected via a site-managed TLS terminator.\n'
+else
+  printf 'Browser transport: HTTP bootstrap/diagnostic mode only; configure HTTPS before authenticated remote use.\n'
+fi
 printf 'Next: configure local Harbor credentials/CA and signing/trust keys in the admin UI.\n'
