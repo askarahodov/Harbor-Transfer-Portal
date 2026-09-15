@@ -125,6 +125,17 @@ class ArtifactResult(Base):
     version: Mapped[str | None] = mapped_column(String(256), nullable=True)
     source_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
     target_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_project: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_repository: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    source_reference: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_version: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    target_project: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    target_repository: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    target_reference: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    target_version: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    destination_plan_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    destination_plan_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    overwrite_approved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     status: Mapped[ArtifactStatus] = mapped_column(
         Enum(ArtifactStatus, native_enum=False),
         nullable=False,

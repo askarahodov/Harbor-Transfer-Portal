@@ -9,6 +9,11 @@ from app.db.models import AuditEvent, Operation, UserRole
 from app.db.repositories import UserRepository
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import OperationStatus, OperationType
+from app.domain.imports import ImportPreviewState
+from app.schemas.imports import (
+    ImportDestinationArtifactPlanResponse,
+    ImportDestinationPlanResponse,
+)
 from app.services.operation_audit import install_operation_audit_hooks
 
 
@@ -95,6 +100,37 @@ def test_import_verification_and_completion_are_audited_once(tmp_path: Path) -> 
         operation.source_delivery_id = "DELIVERY-20260914-SOURCE01"
         operation.status = OperationStatus.READY
         session.commit()
+
+        planned = ImportDestinationArtifactPlanResponse(
+            index=0,
+            artifact_type="container-image",
+            source_repository="source-team/app",
+            source_project="source-team",
+            reference="1.0.0",
+            expected_digest="sha256:" + "a" * 64,
+            payload_size=128,
+            target_project="docker-prod",
+            target_repository="docker-prod/app",
+            final_reference="harbor.target.local/docker-prod/app:1.0.0",
+            project_exists=True,
+            write_allowed=True,
+            classification=ImportPreviewState.NEW,
+        )
+        plan = ImportDestinationPlanResponse(
+            operation_id=operation_id,
+            source_delivery_id=operation.source_delivery_id,
+            actor_username=actor.username,
+            bundle_sha256="b" * 64,
+            plan_id="0" * 64,
+            plan_hash="c" * 64,
+            mapping_policy_revision=7,
+            created_at="2026-09-15T10:00:00Z",
+            valid=True,
+            artifacts=[planned],
+        )
+        operation.import_policy_json = json.dumps(
+            {"destination_plan": plan.model_dump(mode="json")}
+        )
         operation.status = OperationStatus.IMPORTING
         session.commit()
         operation.status = OperationStatus.VERIFYING_TARGET
@@ -113,6 +149,19 @@ def test_import_verification_and_completion_are_audited_once(tmp_path: Path) -> 
         assert events[1].actor_username == "operator"
         assert events[2].actor_username == "system"
         assert events[3].actor_username == "system"
-        assert json.loads(events[-1].metadata_json)["source_delivery_id"] == (
-            "DELIVERY-20260914-SOURCE01"
-        )
+        metadata = json.loads(events[-1].metadata_json)
+        assert metadata["source_delivery_id"] == "DELIVERY-20260914-SOURCE01"
+        assert metadata["destination_plan_id"] == plan.plan_id
+        assert metadata["destination_plan_hash"] == "c" * 64
+        assert metadata["mapping_policy_revision"] == 7
+        assert metadata["destination_count"] == 1
+        assert metadata["destinations_truncated"] is False
+        assert metadata["destinations"] == [
+            {
+                "index": 0,
+                "artifact_type": "container-image",
+                "source_repository": "source-team/app",
+                "target_repository": "docker-prod/app",
+                "final_reference": "harbor.target.local/docker-prod/app:1.0.0",
+            }
+        ]

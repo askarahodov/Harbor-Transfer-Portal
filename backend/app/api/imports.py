@@ -21,7 +21,9 @@ from app.schemas.imports import (
 )
 from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
 from app.services.import_helm_service import ImportHelmOciService
+from app.services.import_mapping_audit import destination_plan_audit_metadata
 from app.services.import_orchestrator import ImportOrchestrationError
+from app.services.policy_aware_destination_plan import PolicyAwareImportDestinationPlanOrchestrator
 from app.services.report_service import receipt_filename
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -31,9 +33,9 @@ ImportActorDep = Annotated[
 ]
 
 
-def get_import_orchestrator(request: Request) -> ImportDestinationPlanOrchestrator:
+def get_import_orchestrator(request: Request) -> PolicyAwareImportDestinationPlanOrchestrator:
     settings = request.app.state.settings
-    return ImportDestinationPlanOrchestrator(
+    return PolicyAwareImportDestinationPlanOrchestrator(
         request.app.state.session_factory,
         settings,
         request.app.state.operation_manager,
@@ -42,7 +44,7 @@ def get_import_orchestrator(request: Request) -> ImportDestinationPlanOrchestrat
 
 
 ImportOrchestratorDep = Annotated[
-    ImportDestinationPlanOrchestrator,
+    PolicyAwareImportDestinationPlanOrchestrator,
     Depends(get_import_orchestrator),
 ]
 
@@ -144,18 +146,7 @@ def _audit_import_start(
         "bundle_sha256": destination_plan.bundle_sha256,
         "overwrite_conflicts": overwrite_conflicts,
         "conflict_count": conflict_count,
-        "destination_plan_id": destination_plan.plan_id,
-        "destination_plan_hash": destination_plan.plan_hash,
-        "destinations": [
-            {
-                "index": item.index,
-                "artifact_type": item.artifact_type,
-                "source_repository": item.source_repository,
-                "target_repository": item.target_repository,
-                "final_reference": item.final_reference,
-            }
-            for item in destination_plan.artifacts
-        ],
+        **destination_plan_audit_metadata(destination_plan),
     }
     if operation is not None and operation.source_delivery_id:
         metadata["source_delivery_id"] = operation.source_delivery_id

@@ -1,28 +1,30 @@
 # Пользовательское руководство Harbor Transfer Portal
 
-**Статус:** актуальное руководство для текущего v1 UI на SOURCE и TARGET.
+**Статус:** актуальное руководство для текущего v1 UI в runtime-ролях SOURCE и TARGET.
 
-Это руководство предназначено для ролей `operator` и `viewer`. Оно описывает фактически реализованный путь через браузер: выбрать артефакты на SOURCE, получить offline bundle, физически перенести его в TARGET, проверить preview, выполнить импорт и прочитать результат в истории.
+Это руководство предназначено для ролей `operator` и `viewer`. Оно описывает фактически реализованный путь через браузер: выбрать артефакты в SOURCE role, получить offline bundle, физически перенести его в принимающий контур, проверить preview в TARGET role, выполнить импорт и прочитать результат в истории.
 
-Административная настройка Harbor, пользователей, TLS/CA и ключей описана отдельно в [admin-guide.md](admin-guide.md). Технический формат переносимого пакета определяет [Offline Bundle Protocol v1](offline-bundle-v1.md).
+Административная настройка Harbor, пользователей, TLS/CA и ключей описана отдельно в [admin-guide.md](admin-guide.md). Переключение универсального runtime SOURCE/TARGET — в [runtime-mode.md](runtime-mode.md). Технический формат переносимого пакета определяет [Offline Bundle Protocol v1](offline-bundle-v1.md).
 
 ## 1. Что важно понимать до начала
 
-Harbor Transfer Portal работает как **две независимые установки**:
+Harbor Transfer Portal использует **один universal software/deployment**, который в каждый момент работает в одной runtime-роли:
 
-- **SOURCE** знает только локальный SOURCE Harbor и создаёт подписанный offline bundle;
-- **TARGET** знает только локальный TARGET Harbor, проверяет полученный bundle и импортирует его;
-- прямого сетевого пути SOURCE → TARGET нет;
+- **SOURCE** знает только настроенный local Harbor и создаёт подписанный offline bundle;
+- **TARGET** знает только тот же настроенный local Harbor этой installation, проверяет полученный bundle и импортирует его;
+- переключение SOURCE/TARGET меняет рабочую роль Portal, но **не выбирает другой Harbor** и не меняет credentials;
+- в реальном air-gap процессе физически раздельные контуры обычно имеют собственные Portal installations, потому что прямого сетевого пути SOURCE → TARGET нет;
 - перенос между контурами выполняется физически по принятой в организации процедуре;
 - Harbor replication между контурами не используется.
 
-Никогда не пытайтесь «ускорить» перенос, настраивая TARGET credentials на SOURCE или SOURCE credentials на TARGET.
+Operator/Admin может переключить runtime role через UI, если нет блокирующей незавершённой операции. Viewer видит mode read-only. Никогда не пытайтесь «ускорить» перенос, настраивая credentials чужого физического Harbor или создавая сетевой путь между изолированными контурами.
 
 ## 2. Роли пользователя
 
 | Возможность | `operator` | `viewer` |
 |---|---:|---:|
-| Войти и видеть текущий контур | да | да |
+| Войти и видеть текущий runtime mode | да | да |
+| Переключать SOURCE ↔ TARGET | да | нет |
 | Смотреть Dashboard и History | да | да |
 | Запускать SOURCE export | да | нет |
 | Запускать TARGET import | да | нет |
@@ -32,32 +34,35 @@ Harbor Transfer Portal работает как **две независимые �
 
 `viewer` работает в режиме только для чтения. Если необходимо выполнить перенос, нужен `operator` или `admin`.
 
-## 3. Вход и проверка текущего контура
+## 3. Вход и проверка текущего режима
 
-1. Откройте URL нужной установки Portal в браузере.
+1. Откройте URL Portal в браузере.
 2. Войдите под выданной учётной записью.
-3. На странице **«Главная»** найдите карточку **«Текущий контур»**.
-4. Перед переносом убедитесь, что она показывает ожидаемое значение:
+3. На странице **«Главная»** найдите карточку **«Текущий контур»** / runtime mode.
+4. Перед операцией убедитесь, что она показывает ожидаемое значение:
    - `SOURCE` — здесь создаётся пакет;
    - `TARGET` — здесь пакет проверяется и импортируется.
-5. Проверьте карточку локального Harbor. Для transfer workflow Harbor должен быть доступен.
+5. Если вы `operator`/`admin` и нужна другая role, используйте runtime switcher в UI. Не редактируйте `.env` и не перезапускайте Docker ради обычного переключения.
+6. Проверьте карточку локального Harbor. Для transfer workflow Harbor должен быть доступен.
 
-Если Portal не может подтвердить контур, на Dashboard появляется предупреждение. **Не запускайте перенос**, пока администратор не восстановит корректную конфигурацию.
+Если switch заблокирован из-за незавершённой export/import operation, сначала дождитесь её terminal state либо завершите её штатным способом. Не пытайтесь обходить `runtime_mode_busy` рестартом или прямым изменением SQLite.
 
-Frontend дополнительно скрывает неподходящие действия, но контур и роль повторно проверяются backend. Нельзя использовать `/export` как TARGET или `/import` как SOURCE обходом адресной строки.
+Если Portal не может подтвердить runtime mode, на Dashboard появляется предупреждение. **Не запускайте перенос**, пока администратор не восстановит корректное persistent state.
+
+Frontend дополнительно скрывает неподходящие действия, но mode и роль пользователя повторно проверяются backend. Нельзя использовать `/export` как TARGET или `/import` как SOURCE обходом адресной строки.
 
 ## 4. Полный путь SOURCE → физический перенос → TARGET
 
 Нормальный пользовательский сценарий выглядит так:
 
 ```text
-SOURCE Portal
+Portal в SOURCE role
   → выбрать точные image/chart versions
   → проверить preview
   → создать подписанный .htp.tar.gz
   → скачать archive + .sha256
   → физически перенести оба файла
-TARGET Portal
+Portal в принимающем контуре, TARGET role
   → принять archive
   → проверить schema/signature/checksums
   → увидеть NEW/SAME/CONFLICT/UNKNOWN/ERROR
@@ -65,6 +70,8 @@ TARGET Portal
   → импортировать
   → проверить результат / receipt / History / reports
 ```
+
+В тестовой/универсальной single-instance схеме один и тот же Portal может последовательно пройти SOURCE → TARGET → SOURCE без restart. В production air-gap на разных физических площадках это не отменяет необходимость физической передачи файлов и отсутствия сетевого пути между Harbors.
 
 Ни `skopeo`, ни `helm`, ни `tar`, ни `sha256sum` пользователю для штатного переноса не нужны.
 
@@ -74,7 +81,7 @@ TARGET Portal
 
 ## 5. Откройте workflow отправки
 
-На SOURCE Dashboard для `operator` доступно основное действие **«Отправить артефакты»**. Оно ведёт на `/export`.
+В SOURCE mode на Dashboard для `operator` доступно основное действие **«Отправить артефакты»**. Оно ведёт на `/export`.
 
 Wizard состоит из четырёх этапов:
 
@@ -83,11 +90,11 @@ Wizard состоит из четырёх этапов:
 3. **Выполнение**;
 4. **Готово**.
 
-Если вместо wizard отображается сообщение «Экспорт доступен только в контуре SOURCE», вы открыли не ту установку.
+Если вместо wizard отображается сообщение «Экспорт доступен только в контуре SOURCE», текущий runtime mode — TARGET. Переключите role через UI только если нет незавершённой блокирующей операции.
 
 ## 6. Шаг 1 — выберите точные артефакты
 
-Выбор выполняется только из **локального SOURCE Harbor**.
+Выбор выполняется только из **локального Harbor текущей installation** в SOURCE role.
 
 Последовательно:
 
@@ -175,7 +182,7 @@ SOURCE UI прямо рекомендует переносить archive и `.sh
 
 ## 11. Откройте workflow приёма
 
-На TARGET Dashboard для `operator` доступно основное действие **«Принять пакет»**. Оно ведёт на `/import`.
+В TARGET mode на Dashboard для `operator` доступно основное действие **«Принять пакет»**. Оно ведёт на `/import`.
 
 Wizard состоит из трёх этапов:
 
@@ -183,7 +190,7 @@ Wizard состоит из трёх этапов:
 2. **Preview и конфликты**;
 3. **Импорт и результат**.
 
-Если отображается сообщение «Import workflow доступен только в контуре TARGET», вы открыли не ту установку.
+Если отображается сообщение «Import workflow доступен только в контуре TARGET», текущий runtime mode — SOURCE. Переключите role через UI только после завершения блокирующих SOURCE operations.
 
 ## 12. Шаг 1 — передайте пакет Portal
 
@@ -419,6 +426,10 @@ Import должен оставаться заблокированным. Сна�
 
 Portal не обещает прозрачное продолжение середины Skopeo/Helm команды. Смотрите final persisted status в History и только после этого решайте, нужен ли новый transfer.
 
+### Runtime switch заблокирован
+
+Если UI сообщает `runtime_mode_busy`, существует незавершённая mode-bound operation. Не обходите блокировку. Дождитесь terminal state/штатной отмены, обновите runtime state и повторите switch.
+
 Полный список диагностических сценариев: [troubleshooting.md](troubleshooting.md).
 
 ---
@@ -429,8 +440,9 @@ Portal не обещает прозрачное продолжение сере�
 
 - не создавайте сетевой путь SOURCE ↔ TARGET ради Portal;
 - не используйте Harbor replication между изолированными контурами;
-- не переносите SOURCE private signing key в TARGET;
-- не переносите TARGET Harbor credentials в SOURCE;
+- не переносите SOURCE private signing key в другой физический TARGET-контур;
+- не переносите TARGET Harbor credentials в SOURCE-контур;
+- не используйте runtime switch как способ выбрать credentials удалённого Harbor;
 - не распаковывайте непроверенный bundle вручную;
 - не пересчитывайте checksum после изменения package;
 - не редактируйте подписанный manifest;
@@ -457,7 +469,7 @@ Portal не обещает прозрачное продолжение сере�
 Текущий browser flow поддерживает:
 
 - login и role-aware UI;
-- явное отображение SOURCE/TARGET;
+- authoritative runtime SOURCE/TARGET mode и live switcher для operator/admin;
 - SOURCE Harbor browse и 4-step export wizard;
 - подписанный Offline Bundle v1;
 - archive + `.sha256` download;
@@ -474,13 +486,12 @@ Portal не обещает прозрачное продолжение сере�
 
 Этот guide описывает уже существующий application flow, но **не является доказательством финального release acceptance**.
 
-Отдельная задача #28 должна ещё подтвердить полный isolated-style SOURCE → physical copy → TARGET E2E и финальный offline installation kit на чистой VM.
-
-Не выдавайте наличие работающих wizard за подтверждение production release qualification до завершения соответствующего release gate.
+Release/acceptance gates отдельно подтверждают offline installation, runtime lifecycle и isolated-style SOURCE → physical copy → TARGET E2E. Не выдавайте наличие работающих wizard за единственное доказательство production readiness.
 
 ## 27. Связанные документы
 
 - [Карта документации](README.md)
+- [Runtime SOURCE/TARGET mode](runtime-mode.md)
 - [Архитектура](architecture.md)
 - [Frontend/current UI](frontend.md)
 - [SOURCE export orchestration](export-orchestration.md)

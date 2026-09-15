@@ -52,11 +52,20 @@ function shortDigest(value: string | null | undefined): string {
   return formatShortDigest(value, { maxLength: 24, headLength: 16, tailLength: 8 })
 }
 
-function artifactLabel(item: OperationArtifact): string {
+function sourceArtifactLabel(item: OperationArtifact): string {
+  const repository = item.source_repository ?? item.repository
+  const reference = item.source_reference ?? item.source_version ?? item.reference ?? item.version
   if (item.artifact_type === 'helm-chart') {
-    return `${item.repository}/${item.name ?? 'chart'}:${item.version ?? '—'}`
+    return `${repository}/${item.name ?? 'chart'}:${reference ?? '—'}`
   }
-  return `${item.repository}:${item.reference ?? '—'}`
+  return `${repository}:${reference ?? '—'}`
+}
+
+function targetArtifactLabel(item: OperationArtifact): string {
+  if (item.target_reference) return item.target_reference
+  if (!item.target_repository) return '—'
+  const reference = item.reference ?? item.version
+  return reference ? `${item.target_repository}:${reference}` : item.target_repository
 }
 
 function statusClass(status: OperationStatus): string {
@@ -237,10 +246,16 @@ onMounted(() => history.load(true))
 
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Артефакт</th><th>Статус</th><th>Source digest</th><th>Target digest</th><th>Ошибка</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Тип</th><th>SOURCE</th><th>TARGET</th><th>Статус</th><th>Source digest</th><th>Target digest</th><th>Ошибка</th>
+                </tr>
+              </thead>
               <tbody>
                 <tr v-for="artifact in history.detail.artifacts" :key="artifact.id">
-                  <td>{{ artifactLabel(artifact) }}</td>
+                  <td>{{ artifact.artifact_type }}</td>
+                  <td>{{ sourceArtifactLabel(artifact) }}</td>
+                  <td>{{ targetArtifactLabel(artifact) }}</td>
                   <td>{{ artifact.status }}</td>
                   <td :title="artifact.source_digest ?? undefined">{{ shortDigest(artifact.source_digest) }}</td>
                   <td :title="artifact.target_digest ?? undefined">{{ shortDigest(artifact.target_digest) }}</td>
@@ -305,7 +320,7 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .notice--danger { background: color-mix(in srgb, var(--color-danger) 10%, transparent); color: var(--color-danger); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .drawer-backdrop { position: fixed; inset: 0; z-index: 30; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .38); }
-.detail-drawer { width: min(760px, 96vw); height: 100%; overflow-y: auto; padding: var(--space-5); background: var(--color-background); box-shadow: -10px 0 30px rgba(0,0,0,.18); }
+.detail-drawer { width: min(900px, 96vw); height: 100%; overflow-y: auto; padding: var(--space-5); background: var(--color-background); box-shadow: -10px 0 30px rgba(0,0,0,.18); }
 .drawer-header { display: flex; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
 .icon-button { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
 .metadata-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0 0 var(--space-4); }

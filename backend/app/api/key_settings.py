@@ -16,6 +16,7 @@ from app.schemas.keys import (
     TrustedKeyStatusResponse,
 )
 from app.services.key_management import KeyManagementError, KeyManagementService, KeyMutation
+from app.services.runtime_mode import RuntimeModeError, RuntimeModeService, RuntimeModeSnapshot
 
 router = APIRouter(prefix="/settings/keys", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
@@ -39,6 +40,21 @@ def _api_error(exc: KeyManagementError) -> HTTPException:
     )
 
 
+def _runtime_error(exc: RuntimeModeError) -> HTTPException:
+    if exc.code == "runtime_mode_mismatch":
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "key_management_wrong_contour",
+                "message": exc.message,
+            },
+        )
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail={"code": exc.code, "message": exc.message},
+    )
+
+
 def _require_confirmation(confirm: bool) -> None:
     if not confirm:
         raise _api_error(
@@ -54,12 +70,15 @@ def _audit(
     admin: User,
     event_type: str,
     mutation: KeyMutation,
+    runtime: RuntimeModeSnapshot,
     *,
     extra: dict[str, object] | None = None,
 ) -> None:
     metadata: dict[str, object] = {
         "action": mutation.action,
         "fingerprint": mutation.fingerprint,
+        "runtime_mode": runtime.mode.value,
+        "runtime_mode_version": runtime.version,
     }
     if extra:
         metadata.update(extra)
@@ -71,34 +90,41 @@ def _audit(
     session.commit()
 
 
+def _runtime_service(request: Request, session: SessionDep) -> RuntimeModeService:
+    return RuntimeModeService(session, request.app.state.settings)
+
+
 @router.get("", response_model=KeySettingsResponse)
 def get_key_settings(
     request: Request,
     _admin: AdminDep,
+    session: SessionDep,
 ) -> KeySettingsResponse:
-    service = _service(request)
-    contour = request.app.state.settings.portal_contour
     try:
-        if contour is PortalContour.SOURCE:
-            signing = service.signing_status()
-            return KeySettingsResponse(
-                contour=contour,
-                signing_key=SigningKeyStatusResponse(
-                    configured=signing.configured,
-                    fingerprint=signing.fingerprint,
-                ),
-            )
-        trusted = service.list_trusted_keys()
-        return KeySettingsResponse(
-            contour=contour,
-            trusted_keys=[
-                TrustedKeyStatusResponse(
-                    fingerprint=item.fingerprint,
-                    enabled=item.enabled,
+        with _runtime_service(request, session).mode_guard() as runtime:
+            service = _service(request)
+            if runtime.mode is PortalContour.SOURCE:
+                signing = service.signing_status()
+                return KeySettingsResponse(
+                    contour=runtime.mode,
+                    signing_key=SigningKeyStatusResponse(
+                        configured=signing.configured,
+                        fingerprint=signing.fingerprint,
+                    ),
                 )
-                for item in trusted
-            ],
-        )
+            trusted = service.list_trusted_keys()
+            return KeySettingsResponse(
+                contour=runtime.mode,
+                trusted_keys=[
+                    TrustedKeyStatusResponse(
+                        fingerprint=item.fingerprint,
+                        enabled=item.enabled,
+                    )
+                    for item in trusted
+                ],
+            )
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
 
@@ -110,12 +136,14 @@ def install_signing_key(
     admin: AdminDep,
     session: SessionDep,
 ) -> KeyMutationResponse:
-    service = _service(request)
     try:
-        mutation = service.install_signing_private_key(payload.pem)
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE) as runtime:
+            mutation = _service(request).install_signing_private_key(payload.pem)
+            _audit(session, admin, f"signing.key.{mutation.action}", mutation, runtime)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
-    _audit(session, admin, f"signing.key.{mutation.action}", mutation)
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
 
 
@@ -131,12 +159,14 @@ def add_trusted_key(
     session: SessionDep,
 ) -> KeyMutationResponse:
     _require_confirmation(payload.confirm)
-    service = _service(request)
     try:
-        mutation = service.add_trusted_public_key(payload.pem)
+        with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
+            mutation = _service(request).add_trusted_public_key(payload.pem)
+            _audit(session, admin, f"trust.key.{mutation.action}", mutation, runtime)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
-    _audit(session, admin, f"trust.key.{mutation.action}", mutation)
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
 
 
@@ -149,18 +179,21 @@ def replace_trusted_key(
     session: SessionDep,
 ) -> KeyMutationResponse:
     _require_confirmation(payload.confirm)
-    service = _service(request)
     try:
-        mutation = service.replace_trusted_public_key(fingerprint, payload.pem)
+        with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
+            mutation = _service(request).replace_trusted_public_key(fingerprint, payload.pem)
+            _audit(
+                session,
+                admin,
+                "trust.key.replaced",
+                mutation,
+                runtime,
+                extra={"previous_fingerprint": fingerprint.strip().lower()},
+            )
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
-    _audit(
-        session,
-        admin,
-        "trust.key.replaced",
-        mutation,
-        extra={"previous_fingerprint": fingerprint.strip().lower()},
-    )
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
 
 
@@ -173,12 +206,14 @@ def set_trusted_key_state(
     session: SessionDep,
 ) -> KeyMutationResponse:
     _require_confirmation(payload.confirm)
-    service = _service(request)
     try:
-        mutation = service.set_trusted_key_enabled(fingerprint, payload.enabled)
+        with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
+            mutation = _service(request).set_trusted_key_enabled(fingerprint, payload.enabled)
+            _audit(session, admin, f"trust.key.{mutation.action}", mutation, runtime)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
-    _audit(session, admin, f"trust.key.{mutation.action}", mutation)
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
 
 
@@ -191,10 +226,12 @@ def remove_trusted_key(
     confirm: bool = Query(default=False),
 ) -> KeyMutationResponse:
     _require_confirmation(confirm)
-    service = _service(request)
     try:
-        mutation = service.remove_trusted_key(fingerprint)
+        with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
+            mutation = _service(request).remove_trusted_key(fingerprint)
+            _audit(session, admin, "trust.key.removed", mutation, runtime)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
-    _audit(session, admin, "trust.key.removed", mutation)
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)

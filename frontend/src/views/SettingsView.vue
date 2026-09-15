@@ -24,6 +24,10 @@ type TransferSettings = {
   operation_max_concurrent: number
   effective_operation_max_concurrent: number
   restart_required_fields: string[]
+  destination_mapping_revision: number
+  destination_container_image_project: string | null
+  destination_helm_chart_project: string | null
+  destination_project_mappings: Record<string, string>
 }
 
 type ConnectionTest = {
@@ -47,6 +51,9 @@ const extractedMiB = ref(0)
 const memberCount = ref(0)
 const diskReserveMiB = ref(0)
 const maxConcurrent = ref(0)
+const destinationImageProject = ref('')
+const destinationHelmProject = ref('')
+const destinationMappingsText = ref('')
 const loading = ref(true)
 const saving = ref(false)
 const transferSaving = ref(false)
@@ -61,7 +68,37 @@ function safeError(fallback: string, value: unknown): string {
     const apiMessage = value.response?.data?.error?.message
     if (typeof apiMessage === 'string') return apiMessage
   }
+  if (value instanceof Error && value.message) return value.message
   return fallback
+}
+
+function formatProjectMappings(value: Record<string, string>): string {
+  return Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([source, target]) => `${source}=${target}`)
+    .join('\n')
+}
+
+function parseProjectMappings(value: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const [index, raw] of value.split(/\r?\n/).entries()) {
+    const line = raw.trim()
+    if (!line) continue
+    const separator = line.indexOf('=')
+    if (separator <= 0 || separator !== line.lastIndexOf('=') || separator === line.length - 1) {
+      throw new Error(`Mapping строка ${index + 1}: используйте формат source-project=target-project.`)
+    }
+    const source = line.slice(0, separator).trim()
+    const target = line.slice(separator + 1).trim()
+    if (!source || !target) {
+      throw new Error(`Mapping строка ${index + 1}: SOURCE и TARGET project обязательны.`)
+    }
+    if (Object.prototype.hasOwnProperty.call(result, source)) {
+      throw new Error(`Mapping строка ${index + 1}: SOURCE project ${source} указан повторно.`)
+    }
+    result[source] = target
+  }
+  return result
 }
 
 function applySettings(value: HarborSettings): void {
@@ -80,6 +117,9 @@ function applyTransferSettings(value: TransferSettings): void {
   memberCount.value = value.bundle_max_member_count
   diskReserveMiB.value = value.operation_disk_reserve_bytes / MIB
   maxConcurrent.value = value.operation_max_concurrent
+  destinationImageProject.value = value.destination_container_image_project ?? ''
+  destinationHelmProject.value = value.destination_helm_chart_project ?? ''
+  destinationMappingsText.value = formatProjectMappings(value.destination_project_mappings)
 }
 
 async function loadSettings(): Promise<void> {
@@ -123,6 +163,7 @@ async function saveTransferSettings(): Promise<void> {
   error.value = ''
   message.value = ''
   try {
+    const projectMappings = parseProjectMappings(destinationMappingsText.value)
     const response = await apiClient.patch<TransferSettings>('/settings/transfer', {
       import_allow_overwrite: allowOverwrite.value,
       import_max_upload_bytes: Math.round(uploadMiB.value * MIB),
@@ -131,11 +172,14 @@ async function saveTransferSettings(): Promise<void> {
       bundle_max_member_count: memberCount.value,
       operation_disk_reserve_bytes: Math.round(diskReserveMiB.value * MIB),
       operation_max_concurrent: maxConcurrent.value,
+      destination_container_image_project: destinationImageProject.value.trim() || null,
+      destination_helm_chart_project: destinationHelmProject.value.trim() || null,
+      destination_project_mappings: projectMappings,
     })
     applyTransferSettings(response.data)
     message.value = response.data.restart_required_fields.length
       ? 'Политики сохранены. Изменение параллелизма вступит в силу после перезапуска backend.'
-      : 'Политики переноса сохранены и применены.'
+      : `Политики переноса сохранены и применены. Mapping policy revision: ${response.data.destination_mapping_revision}.`
   } catch (reason) {
     error.value = safeError('Не удалось сохранить политики переноса.', reason)
   } finally {
@@ -324,6 +368,53 @@ onMounted(loadSettings)
           </label>
         </div>
 
+        <section class="mapping-policy" aria-labelledby="mapping-policy-title">
+          <div>
+            <h3 id="mapping-policy-title">TARGET mapping defaults</h3>
+            <p class="status">
+              Revision {{ transferSettings.destination_mapping_revision }}. Новые destination plans фиксируют эту revision;
+              уже подтверждённые plans не изменяются при последующей правке defaults.
+            </p>
+          </div>
+          <div class="policy-grid">
+            <label for="destination-image-project">
+              Default project · Container Images
+              <input
+                id="destination-image-project"
+                v-model="destinationImageProject"
+                type="text"
+                placeholder="например, docker-prod"
+                autocomplete="off"
+              />
+            </label>
+            <label for="destination-helm-project">
+              Default project · Helm Charts
+              <input
+                id="destination-helm-project"
+                v-model="destinationHelmProject"
+                type="text"
+                placeholder="например, helm-prod"
+                autocomplete="off"
+              />
+            </label>
+          </div>
+          <label for="destination-project-mappings">
+            SOURCE project → TARGET project
+            <textarea
+              id="destination-project-mappings"
+              v-model="destinationMappingsText"
+              rows="5"
+              placeholder="source-team=target-team\nsource-charts=helm-prod"
+              spellcheck="false"
+            />
+          </label>
+          <p class="status">
+            По одной паре <code>source-project=target-project</code> на строку. В конкретном Import явный SOURCE mapping
+            или per-artifact override имеет приоритет над global defaults. Пустые defaults не создают скрытого mapping:
+            unmapped artifact остаётся fail-closed.
+          </p>
+        </section>
+
         <p class="status">
           Активный параллелизм: {{ transferSettings.effective_operation_max_concurrent }}.
           Изменение этого поля применяется после restart backend; остальные показанные policy values — runtime-effective.
@@ -351,14 +442,17 @@ onMounted(loadSettings)
 .settings__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-5); align-items: start; }
 .card { display: grid; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--color-mist); border-radius: var(--radius-lg); background: white; }
 .card--wide { grid-column: 1 / -1; }
-.card h2 { margin: 0; }
-.card input[type='text'], .card input[type='url'], .card input[type='password'], .card input[type='number'] { min-height: 42px; border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; }
+.card h2, .card h3 { margin: 0; }
+.card input[type='text'], .card input[type='url'], .card input[type='password'], .card input[type='number'], .card textarea { min-height: 42px; border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; }
+.card textarea { width: 100%; min-height: 120px; padding-block: var(--space-3); resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .card button { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-bridge-blue); color: white; font: inherit; cursor: pointer; }
 .card button:disabled { opacity: .6; cursor: wait; }
 .card button.secondary { background: white; color: var(--color-deep-harbor); border: 1px solid var(--color-mist); }
 .checkbox-row { display: flex; gap: var(--space-2); align-items: center; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 .policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
+.mapping-policy { display: grid; gap: var(--space-3); margin-top: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-mist); }
+.mapping-policy label { display: grid; gap: var(--space-2); }
 .status { margin: 0; color: var(--color-steel); }
 .warning { margin: 0; padding: var(--space-3); border: 1px solid #b45309; border-radius: var(--radius-md); }
 .success, .error { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); }

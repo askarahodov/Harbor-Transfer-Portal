@@ -15,7 +15,7 @@ GET   /api/settings/transfer
 PATCH /api/settings/transfer
 ```
 
-`operator` и `viewer` получают `403` server-side независимо от frontend navigation.
+`operator` и `viewer` получают `403` server-side независимо от frontend navigation. При этом `operator` по-прежнему может задавать разрешённые mapping/override только для собственной import operation; это не изменяет global policy.
 
 ## Управляемые policy values
 
@@ -28,11 +28,43 @@ PATCH /api/settings/transfer
 | `bundle_max_member_count` | максимальное число archive members | runtime |
 | `operation_disk_reserve_bytes` | обязательный свободный disk reserve перед operation | runtime |
 | `operation_max_concurrent` | число одновременно выполняемых background operations | **после restart backend** |
+| `destination_container_image_project` | global fallback TARGET project для container images | для новых destination plans |
+| `destination_helm_chart_project` | global fallback TARGET project для Helm charts | для новых destination plans |
+| `destination_project_mappings` | global fallback `SOURCE project → TARGET project` | для новых destination plans |
 
 API также возвращает:
 
 - `effective_operation_max_concurrent` — фактически активное значение текущего процесса;
-- `restart_required_fields` — поля, сохранённое значение которых ещё не стало effective.
+- `restart_required_fields` — поля, сохранённое значение которых ещё не стало effective;
+- `destination_mapping_revision` — monotonic revision текущих TARGET mapping defaults.
+
+Mapping defaults по умолчанию пустые. Portal не подставляет скрытые `docker`, `helm` или другие project names. Если итоговый TARGET project не разрешён ни global policy, ни значениями конкретного Import, artifact остаётся `import_destination_unmapped` и import fail-closed.
+
+## TARGET mapping defaults и precedence
+
+Global defaults нужны, чтобы admin один раз задал типичную раскладку TARGET Harbor, но оператор сохранил возможность безопасно уточнить destination для конкретной передачи.
+
+При построении **нового** destination plan effective mapping формируется в таком порядке, от наиболее специфичного к fallback:
+
+1. per-artifact override конкретной import operation;
+2. explicit `SOURCE project → TARGET project` mapping текущей import operation;
+3. admin-managed `destination_project_mappings`;
+4. explicit default project типа текущей import operation;
+5. admin-managed default project соответствующего типа.
+
+Global policy не может менять registry host/scheme, Harbor credential, TLS trust или artifact name/tag/version. Она выбирает только нормализованный Harbor project. Backend принимает project names формата `lowercase`, цифры и внутренние `.`, `_`, `-`; authority, URL и repository path вместо project отклоняются.
+
+После resolution обычный destination validator всё равно проверяет, что TARGET project существует и service account имеет write capability. Наличие global default **не обходит** access checks. Missing project или отсутствие write permission блокируют plan до любой mutation Harbor.
+
+### Revision и immutable plan
+
+Каждое фактическое изменение mapping defaults увеличивает `destination_mapping_revision` на единицу. PATCH без изменений revision не увеличивает.
+
+Новый destination plan сохраняет revision, с которой были разрешены defaults. Revision входит в canonical `plan_hash`, поэтому изменение policy нельзя незаметно представить как тот же confirmed plan.
+
+Изменение global policy после построения plan **не переписывает** уже сохранённый plan. Он продолжает содержать прежние final TARGET references, `plan_hash` и `mapping_policy_revision`. Чтобы применить новую policy к READY import operation, оператор явно запускает новую проверку destination plan. Только rebuilt plan получает новую revision.
+
+Для совместимости планы, созданные до появления mapping policy, трактуются как revision `0`. Canonical hash revision `0` сохраняет прежнее представление и не инвалидирует уже сохранённые READY plans после upgrade.
 
 ## Default deny для overwrite
 
@@ -83,17 +115,22 @@ import_max_upload_bytes <= bundle_max_archive_bytes <= bundle_max_extracted_byte
 - archive/extracted/member limits;
 - disk reserve.
 
+Destination mapping defaults не копируются в process `Settings`: planner читает persistent snapshot при каждом новом `build_destination_plan`. Поэтому они также не требуют restart, но намеренно не воздействуют на уже сохранённый plan.
+
 `operation_max_concurrent` отличается: `OperationManager` создаёт semaphore при startup. Поэтому новое значение сохраняется в `SettingMetadata`, но текущий semaphore не пересоздаётся на лету.
 
 После изменения UI показывает необходимость restart. При следующем startup backend загружает persisted transfer policy **до** `OperationManager.startup()`, и новый concurrency limit становится effective.
 
 ## Persistence и precedence
 
-`.env` остаётся bootstrap/default source. Admin override хранится в SQLite `SettingMetadata` под namespace `transfer.*` и имеет приоритет для поддерживаемых policy fields.
+`.env` остаётся bootstrap/default source для numeric/boolean transfer limits. Admin override хранится в SQLite `SettingMetadata` под namespace `transfer.*` и имеет приоритет для поддерживаемых policy fields.
 
-Это относится только к перечисленным transfer policies. Через этот механизм нельзя менять:
+Destination mapping policy хранится в том же persistent store под namespace `transfer.destination_mapping.*`; вместе с остальной SQLite БД она попадает в штатный backup/restore lifecycle.
+
+Через этот механизм нельзя менять:
 
 - `JWT_SECRET`;
+- Harbor URL/registry host через mapping policy;
 - Harbor credential;
 - SOURCE private signing key;
 - filesystem paths;
@@ -114,12 +151,13 @@ transfer.policy.updated
 Metadata содержит:
 
 - `changed_fields`;
-- безопасные `before`/`after` numeric/boolean values;
+- безопасные `before`/`after` numeric/boolean/mapping values;
+- old/new `destination_mapping_revision`, когда изменена mapping policy;
 - `restart_required_fields`.
 
-Secret material в transfer policy store отсутствует.
+Secret material в transfer policy store отсутствует. Mapping audit не содержит Harbor credential, token, CA private material или signing keys.
 
-PATCH без фактического изменения не создаёт audit event.
+PATCH без фактического изменения не создаёт audit event и не увеличивает mapping revision.
 
 ## Что намеренно не реализовано
 
@@ -135,16 +173,18 @@ Backend не пытается динамически заменять semaphore 
 
 ## Операционный checklist
 
-Перед увеличением limits оцените:
+Перед увеличением limits или изменением destination defaults оцените:
 
 1. размер переносимых payload;
 2. одновременное наличие archive, staged/extracted workspace и final payload;
 3. число параллельных операций;
 4. обязательный disk reserve;
 5. backup/retention capacity;
-6. ожидаемую длительность verifier/Skopeo/Helm операций.
+6. ожидаемую длительность verifier/Skopeo/Helm операций;
+7. существование новых TARGET projects и write permissions service account;
+8. какие READY destination plans уже подтверждены и должны остаться на прежней revision.
 
-Не увеличивайте limits только для прохождения неожиданно большого или malformed bundle.
+Не увеличивайте limits только для прохождения неожиданно большого или malformed bundle и не меняйте global mapping только для обхода access/conflict validation конкретного Import.
 
 Связанные документы:
 

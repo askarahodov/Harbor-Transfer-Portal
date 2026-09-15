@@ -14,7 +14,7 @@ _REPOSITORY_COMPONENT_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
 
 
 def normalized_mapping(mapping: ImportDestinationPlanRequest) -> dict[str, object]:
-    return {
+    normalized: dict[str, object] = {
         "container_image_project": mapping.container_image_project,
         "helm_chart_project": mapping.helm_chart_project,
         "project_mappings": {
@@ -25,6 +25,11 @@ def normalized_mapping(mapping: ImportDestinationPlanRequest) -> dict[str, objec
             for item in sorted(mapping.artifact_overrides, key=lambda item: item.index)
         ],
     }
+    # Revision zero is the pre-policy wire/storage contract. Omitting the new field keeps
+    # already-persisted READY plans hash-compatible across the upgrade.
+    if mapping.mapping_policy_revision > 0:
+        normalized["mapping_policy_revision"] = mapping.mapping_policy_revision
+    return normalized
 
 
 def canonical_plan_hash(

@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import type { AxiosResponse } from 'axios'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiClient } from '@/api/client'
 
@@ -27,6 +28,10 @@ const transferSettings = {
   operation_max_concurrent: 2,
   effective_operation_max_concurrent: 2,
   restart_required_fields: [] as string[],
+  destination_mapping_revision: 3,
+  destination_container_image_project: 'docker-default',
+  destination_helm_chart_project: 'helm-default',
+  destination_project_mappings: { 'source-a': 'target-a' },
 }
 
 function response<T>(data: T): AxiosResponse<T> {
@@ -49,6 +54,10 @@ async function mountSettings() {
   return wrapper
 }
 
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -63,6 +72,13 @@ describe('Harbor settings view', () => {
     expect(wrapper.text()).toContain('Текущее значение: настроено')
     expect(wrapper.text()).toContain('SOURCE')
     expect(wrapper.get('#transfer-concurrency').element).toHaveProperty('value', '2')
+    expect(wrapper.get('#destination-image-project').element).toHaveProperty('value', 'docker-default')
+    expect(wrapper.get('#destination-helm-project').element).toHaveProperty('value', 'helm-default')
+    expect(wrapper.get('#destination-project-mappings').element).toHaveProperty(
+      'value',
+      'source-a=target-a',
+    )
+    expect(wrapper.text()).toContain('Revision 3')
   })
 
   it('saves only non-secret Harbor settings through PATCH', async () => {
@@ -110,9 +126,62 @@ describe('Harbor settings view', () => {
       bundle_max_member_count: 100_000,
       operation_disk_reserve_bytes: 512 * MIB,
       operation_max_concurrent: 4,
+      destination_container_image_project: 'docker-default',
+      destination_helm_chart_project: 'helm-default',
+      destination_project_mappings: { 'source-a': 'target-a' },
     })
     expect(wrapper.text()).toContain('вступит в силу после перезапуска backend')
     expect(wrapper.text()).toContain('operation_max_concurrent')
+  })
+
+  it('saves normalized destination defaults and project mappings', async () => {
+    const wrapper = await mountSettings()
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(
+      response({
+        ...transferSettings,
+        destination_mapping_revision: 4,
+        destination_container_image_project: 'docker-next',
+        destination_helm_chart_project: null,
+        destination_project_mappings: {
+          'source-a': 'target-next',
+          'source-b': 'target-b',
+        },
+      }),
+    )
+
+    await wrapper.get('#destination-image-project').setValue(' docker-next ')
+    await wrapper.get('#destination-helm-project').setValue('')
+    await wrapper.get('#destination-project-mappings').setValue(
+      'source-b=target-b\nsource-a=target-next',
+    )
+    await wrapper.get('.transfer-form').trigger('submit')
+    await flushPromises()
+
+    expect(patch).toHaveBeenCalledWith(
+      '/settings/transfer',
+      expect.objectContaining({
+        destination_container_image_project: 'docker-next',
+        destination_helm_chart_project: null,
+        destination_project_mappings: {
+          'source-b': 'target-b',
+          'source-a': 'target-next',
+        },
+      }),
+    )
+    expect(wrapper.text()).toContain('Revision 4')
+    expect(wrapper.text()).toContain('Mapping policy revision: 4')
+  })
+
+  it('rejects malformed mapping text before calling the backend', async () => {
+    const wrapper = await mountSettings()
+    const patch = vi.spyOn(apiClient, 'patch')
+
+    await wrapper.get('#destination-project-mappings').setValue('source-a target-a')
+    await wrapper.get('.transfer-form').trigger('submit')
+    await flushPromises()
+
+    expect(patch).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('используйте формат source-project=target-project')
   })
 
   it('rotates credential separately and clears the input afterwards', async () => {

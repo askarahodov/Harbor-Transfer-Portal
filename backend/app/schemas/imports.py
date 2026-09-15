@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.domain.bundle import OperationStatus
+from app.domain.bundle import ArtifactStatus, OperationStatus
 from app.domain.imports import ImportIntakeMode, ImportPreviewState
 
 _TARGET_PROJECT_PATTERN = r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
@@ -51,8 +53,10 @@ class ImportReceiptArtifactResponse(BaseModel):
     target_project: str | None = None
     target_repository: str | None = None
     target_reference: str | None = None
+    final_reference: str | None = None
     artifact_kind: str | None = None
     result: str | None = None
+    status: ArtifactStatus | None = None
     error_code: str | None = None
     error_message: str | None = None
     size_bytes: int | None = None
@@ -92,6 +96,10 @@ class ImportArtifactDestinationOverride(BaseModel):
 
 
 class ImportDestinationPlanRequest(BaseModel):
+    # Server-owned snapshot marker. Client values are overwritten by the policy-aware
+    # orchestrator before planning; the field exists so persisted mapping_request is
+    # cryptographically bound to the policy revision used for that plan.
+    mapping_policy_revision: int = Field(default=0, ge=0)
     container_image_project: str | None = Field(
         default=None,
         min_length=1,
@@ -127,21 +135,70 @@ class ImportDestinationArtifactPlanResponse(BaseModel):
     message: str | None = None
 
 
+def destination_plan_id(
+    bundle_sha256: str,
+    artifacts: list[ImportDestinationArtifactPlanResponse],
+) -> str:
+    """Stable identity of bundle + resolved mapping, excluding observed TARGET state."""
+    identity = {
+        "bundle_sha256": bundle_sha256,
+        "artifacts": [
+            {
+                "index": item.index,
+                "artifact_type": item.artifact_type,
+                "source_repository": item.source_repository,
+                "source_project": item.source_project,
+                "name": item.name,
+                "reference": item.reference,
+                "version": item.version,
+                "expected_digest": item.expected_digest,
+                "target_project": item.target_project,
+                "target_repository": item.target_repository,
+                "final_reference": item.final_reference,
+            }
+            for item in sorted(artifacts, key=lambda item: item.index)
+        ],
+    }
+    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 class ImportDestinationPlanResponse(BaseModel):
     operation_id: int
-    status: OperationStatus
-    destination_plan_id: str
-    plan_hash: str
+    source_delivery_id: str
+    actor_username: str
+    bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    plan_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    plan_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    mapping_policy_revision: int = Field(default=0, ge=0)
+    created_at: datetime
+    valid: bool
     artifacts: list[ImportDestinationArtifactPlanResponse]
+
+    @model_validator(mode="after")
+    def normalize_derived_fields(self) -> ImportDestinationPlanResponse:
+        # plan_id is deliberately stable across TARGET state drift and policy revisions
+        # when the resolved destinations remain identical. plan_hash binds the revision.
+        self.plan_id = destination_plan_id(self.bundle_sha256, self.artifacts)
+        self.valid = all(
+            item.project_exists
+            and item.write_allowed
+            and item.classification
+            in {ImportPreviewState.NEW, ImportPreviewState.SAME, ImportPreviewState.CONFLICT}
+            for item in self.artifacts
+        )
+        return self
 
 
 class ImportExecuteRequest(BaseModel):
     overwrite_conflicts: bool = False
+    destination_plan_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class ImportStartResponse(BaseModel):
     operation_id: int
     status: OperationStatus
+    delivery_id: str | None = None
     delivery_id: str | None = None
 
 

@@ -45,6 +45,16 @@ CSV_COLUMNS = (
     "error_message",
     "operation_comment",
     "bundle_sha256",
+    "source_project",
+    "source_repository",
+    "source_reference",
+    "source_version",
+    "target_project",
+    "target_repository",
+    "target_reference",
+    "destination_plan_id",
+    "destination_plan_hash",
+    "overwrite_approved",
 )
 
 _REPORT_SPOOL_LIMIT = 2 * 1024 * 1024
@@ -214,6 +224,22 @@ def _csv_row(operation: Operation, artifact: ArtifactResult | None) -> dict[str,
         "error_message": _csv_safe(artifact.error_message if artifact else operation.error_message),
         "operation_comment": _csv_safe(operation.comment),
         "bundle_sha256": _csv_safe(operation.bundle_sha256),
+        "source_project": _csv_safe(artifact.source_project if artifact else None),
+        "source_repository": _csv_safe(artifact.source_repository if artifact else None),
+        "source_reference": _csv_safe(artifact.source_reference if artifact else None),
+        "source_version": _csv_safe(artifact.source_version if artifact else None),
+        "target_project": _csv_safe(artifact.target_project if artifact else None),
+        "target_repository": _csv_safe(artifact.target_repository if artifact else None),
+        "target_reference": _csv_safe(artifact.target_reference if artifact else None),
+        "destination_plan_id": _csv_safe(artifact.destination_plan_id if artifact else None),
+        "destination_plan_hash": _csv_safe(
+            artifact.destination_plan_hash if artifact else None
+        ),
+        "overwrite_approved": (
+            ""
+            if artifact is None or artifact.overwrite_approved is None
+            else str(artifact.overwrite_approved).lower()
+        ),
     }
 
 
@@ -317,6 +343,29 @@ def _key_value_table(
     return table
 
 
+def _source_display(artifact: ArtifactResult) -> str:
+    repository = artifact.source_repository or artifact.repository
+    if artifact.artifact_type == "helm-chart" and artifact.name:
+        repository = f"{repository}/{artifact.name}"
+    reference = artifact.source_reference or artifact.source_version
+    if reference is None:
+        reference = artifact.reference or artifact.version
+    return f"{repository}:{reference}" if reference else repository
+
+
+def _target_display(artifact: ArtifactResult) -> str:
+    if artifact.target_reference:
+        return artifact.target_reference
+    if artifact.target_repository:
+        reference = artifact.reference or artifact.version
+        return (
+            f"{artifact.target_repository}:{reference}"
+            if reference
+            else artifact.target_repository
+        )
+    return "—"
+
+
 def _artifact_table(
     operation: Operation,
     header_style: ParagraphStyle,
@@ -324,30 +373,28 @@ def _artifact_table(
 ) -> LongTable:
     headers = [
         "Тип",
-        "Artifact",
-        "Reference",
+        "SOURCE",
+        "TARGET",
         "Source digest",
         "Target digest",
         "Result",
+        "Plan",
         "Error",
     ]
     data: list[list[Paragraph]] = [[_paragraph(item, header_style) for item in headers]]
     for artifact in sorted(operation.artifacts, key=lambda item: item.id):
-        artifact_name = artifact.repository
-        if artifact.name:
-            artifact_name = f"{artifact.repository}/{artifact.name}"
-        reference = artifact.reference or artifact.version or "—"
         error = " — ".join(
             part for part in (artifact.error_code, artifact.error_message) if part
         ) or "—"
         data.append(
             [
                 _paragraph(artifact.artifact_type, cell_style),
-                _paragraph(artifact_name, cell_style),
-                _paragraph(reference, cell_style),
+                _paragraph(_source_display(artifact), cell_style),
+                _paragraph(_target_display(artifact), cell_style),
                 _paragraph(artifact.source_digest or "—", cell_style),
                 _paragraph(artifact.target_digest or "—", cell_style),
                 _paragraph(artifact.status.value, cell_style),
+                _paragraph(artifact.destination_plan_id or "—", cell_style),
                 _paragraph(error, cell_style),
             ]
         )
@@ -356,14 +403,14 @@ def _artifact_table(
             [
                 _paragraph("—", cell_style),
                 _paragraph("Нет сохранённых artifact results", cell_style),
-                *[_paragraph("—", cell_style) for _ in range(5)],
+                *[_paragraph("—", cell_style) for _ in range(6)],
             ]
         )
 
     table = LongTable(
         data,
         repeatRows=1,
-        colWidths=[22 * mm, 52 * mm, 31 * mm, 48 * mm, 48 * mm, 25 * mm, 47 * mm],
+        colWidths=[18 * mm, 46 * mm, 55 * mm, 38 * mm, 38 * mm, 22 * mm, 28 * mm, 32 * mm],
         hAlign="LEFT",
     )
     table.setStyle(

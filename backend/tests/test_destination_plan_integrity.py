@@ -13,6 +13,7 @@ from app.schemas.imports import (
 from app.services.destination_plan_integrity import (
     canonical_plan_hash,
     colliding_artifact_indices,
+    normalized_mapping,
     validated_source_repository,
 )
 
@@ -113,6 +114,24 @@ def test_canonical_plan_hash_is_stable_for_equivalent_ordering() -> None:
     )
 
 
+def test_revision_zero_keeps_pre_policy_mapping_shape() -> None:
+    mapping = ImportDestinationPlanRequest(
+        container_image_project="docker-prod",
+        helm_chart_project="helm-prod",
+        project_mappings={"source-team": "docker-prod"},
+    )
+
+    normalized = normalized_mapping(mapping)
+
+    assert "mapping_policy_revision" not in normalized
+    assert normalized == {
+        "container_image_project": "docker-prod",
+        "helm_chart_project": "helm-prod",
+        "project_mappings": {"source-team": "docker-prod"},
+        "artifact_overrides": [],
+    }
+
+
 def test_canonical_plan_hash_changes_for_security_relevant_content() -> None:
     mapping = ImportDestinationPlanRequest(
         container_image_project="docker-prod",
@@ -127,6 +146,20 @@ def test_canonical_plan_hash_changes_for_security_relevant_content() -> None:
 
     assert baseline != changed_target
     assert baseline != changed_actor
+
+
+def test_policy_revision_changes_plan_hash() -> None:
+    artifacts = [_image(), _chart()]
+    revision_one = ImportDestinationPlanRequest(
+        mapping_policy_revision=1,
+        container_image_project="docker-prod",
+        helm_chart_project="helm-prod",
+    )
+    revision_two = revision_one.model_copy(update={"mapping_policy_revision": 2})
+
+    assert normalized_mapping(revision_one)["mapping_policy_revision"] == 1
+    assert normalized_mapping(revision_two)["mapping_policy_revision"] == 2
+    assert _hash(revision_one, artifacts) != _hash(revision_two, artifacts)
 
 
 def test_collision_guard_blocks_same_kind_duplicate_registry_coordinate() -> None:

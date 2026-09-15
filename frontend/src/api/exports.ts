@@ -116,6 +116,16 @@ export type OperationArtifact = {
   version: string | null
   source_digest: string | null
   target_digest: string | null
+  source_project?: string | null
+  source_repository?: string | null
+  source_reference?: string | null
+  source_version?: string | null
+  target_project?: string | null
+  target_repository?: string | null
+  target_reference?: string | null
+  destination_plan_id?: string | null
+  destination_plan_hash?: string | null
+  overwrite_approved?: boolean | null
   status: ArtifactStatus
   error_code: string | null
   error_message: string | null
