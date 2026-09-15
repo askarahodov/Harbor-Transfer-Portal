@@ -7,10 +7,6 @@ import { createHarborProject } from '@/api/harborProjects'
 import { useAuthStore } from '@/stores/auth'
 import { useImportWizardStore } from '@/stores/importWizard'
 
-const emit = defineEmits<{
-  created: [project: string]
-}>()
-
 const auth = useAuthStore()
 const wizard = useImportWizardStore()
 const confirmations = reactive<Record<string, string>>({})
@@ -47,11 +43,15 @@ async function createProject(project: string): Promise<void> {
       public: false,
       operation_id: wizard.operation.id,
     })
-    successMessage.value = result.created
-      ? `Project ${project} создан в локальном TARGET Harbor.`
-      : `Project ${project} уже существует в локальном TARGET Harbor.`
     confirmations[project] = ''
-    emit('created', project)
+    const revalidated = await wizard.validateDestinationPlan()
+    if (!revalidated) {
+      errorMessage.value = `Project ${project} создан, но destination plan всё ещё невалиден. Проверьте TARGET validation.`
+      return
+    }
+    successMessage.value = result.created
+      ? `Project ${project} создан; destination plan проверен заново.`
+      : `Project ${project} уже существовал; destination plan проверен заново.`
   } catch (error) {
     const info = apiErrorInfo(error, `Не удалось создать TARGET Harbor project ${project}.`)
     errorMessage.value = `${info.code}: ${info.message}`
