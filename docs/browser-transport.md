@@ -35,6 +35,8 @@ PORTAL_BROWSER_SCHEME=http
 
 `PORTAL_HTTP_BIND=127.0.0.1` означает, что raw HTTP listener по умолчанию недоступен с других хостов. Он предназначен для bootstrap/diagnostics и как upstream локального TLS terminator.
 
+Backend также fail-closed проверяет сочетание настроек: при `PORTAL_BROWSER_SCHEME=http` разрешён только `PORTAL_HTTP_BIND=127.0.0.1`. Попытка запустить plain HTTP на non-loopback interface отклоняется при загрузке configuration. Non-loopback bind допустим только с явным `PORTAL_BROWSER_SCHEME=https`.
+
 Перед authenticated remote browser use настройте site TLS terminator и установите:
 
 ```text
@@ -81,13 +83,13 @@ PORTAL_BROWSER_SCHEME=https
 
 Не используйте `0.0.0.0` как удобный production default. Если bind на широкий интерфейс всё же необходим по архитектуре площадки, сетевой ACL/firewall становится обязательной частью trust boundary.
 
-При этом всё равно задайте:
+При этом обязательно задайте:
 
 ```text
 PORTAL_BROWSER_SCHEME=https
 ```
 
-Backend не принимает решение о HTTPS по forwarding headers.
+Иначе backend отклонит configuration. Backend не принимает решение о HTTPS по forwarding headers.
 
 ## Local diagnostic mode
 
@@ -112,6 +114,7 @@ PORTAL_BROWSER_SCHEME=http
 4. Login проходит без mixed-content/network errors.
 5. Export download ticket через HTTPS получает cookie с `Secure; HttpOnly; SameSite=Strict`.
 6. Изменение клиентом `X-Forwarded-Proto` не меняет security behavior Portal.
+7. Non-loopback bind с `PORTAL_BROWSER_SCHEME=http` не проходит startup validation.
 
 ## Что не относится к этой настройке
 
