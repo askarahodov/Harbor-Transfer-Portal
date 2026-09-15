@@ -10,12 +10,16 @@ import {
 } from './imports'
 
 const PLAN_ID = 'e'.repeat(64)
+const PLAN_HASH = 'f'.repeat(64)
 
 function destinationPlan(): ImportDestinationPlan {
   return {
     operation_id: 42,
+    source_delivery_id: 'DELIVERY-42',
+    actor_username: 'operator',
     bundle_sha256: 'c'.repeat(64),
     plan_id: PLAN_ID,
+    plan_hash: PLAN_HASH,
     created_at: '2026-09-15T08:00:00Z',
     valid: true,
     artifacts: [],
