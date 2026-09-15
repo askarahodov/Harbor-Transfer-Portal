@@ -121,6 +121,7 @@ def _serialize_operation(operation: Operation) -> OperationResponse:
                 target_project=artifact.target_project,
                 target_repository=artifact.target_repository,
                 target_reference=artifact.target_reference,
+                target_version=artifact.target_version,
                 destination_plan_id=artifact.destination_plan_id,
                 destination_plan_hash=artifact.destination_plan_hash,
                 overwrite_approved=artifact.overwrite_approved,
