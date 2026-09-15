@@ -131,7 +131,7 @@ async function submit(): Promise<void> {
 .password-field { position: relative; }
 .password-field input { padding-right: 48px; }
 .password-toggle { position: absolute; top: 2px; right: 2px; width: 40px; height: 40px; display: grid; place-items: center; border: 0; background: transparent; color: var(--color-steel); cursor: pointer; }
-.form-error { margin: 0; color: var(--color-stop-red); }
+.form-error { margin: 0; color: var(--color-danger-text); }
 .submit-button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); margin-top: var(--space-2); border: 0; border-radius: var(--radius-md); background: var(--color-bridge-blue); color: white; font-weight: 700; cursor: pointer; }
 .submit-button:disabled, .password-toggle:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 520px) {
