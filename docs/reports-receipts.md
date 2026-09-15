@@ -46,6 +46,8 @@ CSV отдаётся как UTF-8 attachment с server-generated filename `opera
 - `destination_plan_hash`;
 - `overwrite_approved` — explicit authorization context конкретного import execution, а не утверждение, что overwrite обязательно произошёл.
 
+`artifact_results` дополнительно сохраняет nullable `target_version`, чтобы Helm version была доступна структурированно через History/API без разбора `target_reference`. Для container image version/tag остаётся частью `target_reference`/source reference и `target_version` может быть `null`.
+
 Новые fields nullable для legacy rows и export operations. Отсутствующее historical TARGET значение остаётся пустым и не восстанавливается из текущей mapping policy.
 
 Для защиты при открытии CSV в spreadsheet приложениях все текстовые значения, включая новые mapping fields, у которых первый non-whitespace символ равен `=`, `+`, `-` или `@`, получают ведущий апостроф. Это не меняет persisted source data — преобразование применяется только к downloadable CSV representation.
@@ -64,13 +66,15 @@ Authorization и terminal-state policy совпадают с CSV. PDF содер
 - для mapped import — SOURCE identity и actual TARGET reference отдельными колонками плюс destination plan id;
 - для import — доступные SOURCE metadata, signing-key fingerprint и persisted checksum/signature/schema verification flags.
 
-Длинный TARGET reference может визуально переноситься внутри PDF cell; перенос является только layout и не изменяет сохранённое значение.
+Helm identity выводится как `repository/chart:version`; chart name не теряется при отображении SOURCE. Длинный TARGET reference может визуально переноситься внутри PDF cell; перенос является только layout и не изменяет сохранённое значение.
 
 PDF строится напрямую из persisted operation/artifact data. Для больших документов используется `SpooledTemporaryFile`: малый report остаётся в памяти, после установленного порога temporary storage автоматически переносится на filesystem. Клиент получает streaming response, temporary handle закрывается после отправки.
 
 ## Immutable mapping source
 
-Destination mapping для исторической операции определяется один раз в import execution boundary и сохраняется вместе с artifact outcome. Current default image project, Helm project, source→target map и policy revision **не участвуют** в последующем построении History/CSV/PDF.
+Destination mapping для исторической операции определяется один раз в import execution boundary и сохраняется вместе с artifact outcome **до mapped TARGET preflight и до любой Harbor mutation**. Snapshot связывается с operation id, bundle SHA-256, SOURCE delivery, destination plan id/hash и source artifact identity; несовпадение блокирует worker fail-closed.
+
+Current default image project, Helm project, source→target map и policy revision **не участвуют** в последующем построении History/CSV/PDF.
 
 Правило:
 
@@ -79,11 +83,7 @@ historical report = persisted execution outcome
 historical report != current mapping defaults + old SOURCE reference
 ```
 
-Это критично после изменения admin defaults: старый report должен продолжать показывать тот TARGET project/repository/reference, который был подтверждён immutable destination plan для конкретной операции.
-
-## Offline fonts
-
-PDF не обращается к CDN или интернет-ресурсам. Backend image устанавливает Debian package `fonts-dejavu-core`; ReportLab использует локальный DejaVu Sans/DejaVu Sans Bold для Unicode и кириллицы. Если service запускается вне штатного container image и DejaVu отсутствует, renderer использует встроенный PDF fallback font, где Unicode coverage может быть ограничена.
+Это критично после изменения admin defaults: старый report должен продолжать показывать тот TARGET project/repository/reference/version, который был подтверждён immutable destination plan для конкретной операции. Snapshot сохраняется и для последующего `SKIPPED`, `FAILED` или conflict path, поэтому attempted destination не теряется, даже если mutation не состоялась.
 
 ## Canonical TARGET receipt
 
@@ -94,9 +94,19 @@ PDF не обращается к CDN или интернет-ресурсам. B
 
 Download сериализует persisted `import_receipt_json` через текущую `ImportReceiptResponse` schema и использует server-generated filename `import-receipt-{id}.json`. Пользователь не передаёт filesystem path или имя файла.
 
-Receipt сохраняет destination plan id/hash и per-artifact TARGET mapping из immutable persisted import plan/outcome. Он не должен обращаться к текущим destination defaults при чтении или download. Source→target representation в receipt и operation reports должна быть согласована для одной операции.
+Receipt сохраняет destination plan id/hash и per-artifact TARGET mapping из immutable persisted import plan/outcome. Он не обращается к текущим destination defaults при чтении или download. Existing v1-compatible fields `repository/reference/version`, `target_repository` и `final_reference` остаются backward-compatible; incompatible Bundle v1 protocol change не вводится.
 
 Receipt сохраняет существующую TARGET authorization policy: admin может читать receipt любой import operation; operator — только собственной; viewer не получает этот import-domain endpoint. History CSV/PDF при этом остаются read-only и доступны viewer так же, как operation detail.
+
+## Audit mapping
+
+`import.started`, `import.overwrite.approved` и terminal import events связываются с immutable destination plan. Audit metadata содержит plan id/hash, mapping policy revision, общее количество destinations и bounded sample максимум из 20 source→target entries. Если artifacts больше, выставляется `destinations_truncated=true`; полный manifest в audit не дублируется.
+
+Typed `ImportDestinationPlanResponse` является contract для audit metadata. Legacy revision совместимость обеспечивается schema default `mapping_policy_revision=0`, а не runtime `getattr` fallback в production code.
+
+## Offline fonts
+
+PDF не обращается к CDN или интернет-ресурсам. Backend image устанавливает Debian package `fonts-dejavu-core`; ReportLab использует локальный DejaVu Sans/DejaVu Sans Bold для Unicode и кириллицы. Если service запускается вне штатного container image и DejaVu отсутствует, renderer использует встроенный PDF fallback font, где Unicode coverage может быть ограничена.
 
 ## History UI
 
@@ -118,17 +128,18 @@ Downloads используют фиксированные server-generated filen
 
 Regression suite покрывает:
 
-- стабильные исходные CSV columns + append-only mapped outcome fields;
+- stable CSV base columns + append-only mapped outcome fields;
 - реальные persisted source→target artifact outcomes;
+- two operations одного SOURCE bundle с разными plan/destination не смешиваются;
+- `SKIPPED`/`FAILED` сохраняют attempted TARGET reference;
 - legacy rows без mapping snapshot;
 - spreadsheet formula injection prefixes, включая TARGET reference;
-- terminal failure без artifact rows;
-- PDF smoke + persisted SOURCE/TARGET mapping и operation fields;
-- отсутствие intentionally secret-looking values;
-- auth/terminal-state/missing-operation behavior;
+- PDF smoke + persisted SOURCE/TARGET mapping и Helm chart identity;
+- snapshot commit до входа в основной import worker;
+- invalid/stale snapshot fail-closed без partial row mutation;
+- bounded start/overwrite/terminal audit mapping;
 - owner/admin policy canonical receipt;
 - safe `Content-Disposition` filenames;
 - History UI mapped SOURCE/TARGET projection;
-- History UI CSV/PDF для terminal operation;
 - canonical receipt download только для разрешённой роли;
 - отсутствие receipt download у viewer при сохранении read-only reports.
