@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import axios from 'axios'
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 
 import { apiClient } from '@/api/client'
 
@@ -29,9 +29,12 @@ const loading = ref(true)
 const busy = ref(false)
 const message = ref('')
 const error = ref('')
+let loadGeneration = 0
 
 function safeError(fallback: string, value: unknown): string {
   if (axios.isAxiosError(value)) {
+    const detailMessage = value.response?.data?.detail?.message
+    if (typeof detailMessage === 'string') return detailMessage
     const apiMessage = value.response?.data?.error?.message
     if (typeof apiMessage === 'string') return apiMessage
   }
@@ -39,22 +42,39 @@ function safeError(fallback: string, value: unknown): string {
 }
 
 async function loadKeys(): Promise<void> {
+  const generation = ++loadGeneration
   loading.value = true
   error.value = ''
   try {
     const response = await apiClient.get<KeySettings>('/settings/keys')
+    if (generation !== loadGeneration) return
+    if (response.data.contour !== props.contour) {
+      keySettings.value = null
+      error.value = 'Runtime mode изменился. Key controls обновляются.'
+      return
+    }
     keySettings.value = response.data
   } catch (reason) {
+    if (generation !== loadGeneration) return
+    keySettings.value = null
     error.value = safeError('Не удалось загрузить key settings.', reason)
   } finally {
-    loading.value = false
+    if (generation === loadGeneration) loading.value = false
   }
+}
+
+function requireMode(expected: Contour): boolean {
+  if (props.contour === expected && keySettings.value?.contour === expected) return true
+  keySettings.value = null
+  error.value = 'Runtime mode изменился. Повторите действие после обновления key settings.'
+  void loadKeys()
+  return false
 }
 
 async function installSigningKey(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
+  if (!file || !requireMode('SOURCE')) return
   const rotating = keySettings.value?.signing_key?.configured === true
   const confirmed = window.confirm(
     rotating
@@ -87,7 +107,7 @@ async function installSigningKey(event: Event): Promise<void> {
 async function addTrustedKey(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
+  if (!file || !requireMode('TARGET')) return
   if (!window.confirm('Добавить этот Ed25519 public key в TARGET trust set?')) {
     input.value = ''
     return
@@ -112,7 +132,7 @@ async function addTrustedKey(event: Event): Promise<void> {
 async function replaceTrustedKey(key: TrustedKeyStatus, event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
+  if (!file || !requireMode('TARGET')) return
   if (!window.confirm(`Заменить trusted key ${key.fingerprint} новым public key?`)) {
     input.value = ''
     return
@@ -138,6 +158,7 @@ async function replaceTrustedKey(key: TrustedKeyStatus, event: Event): Promise<v
 }
 
 async function setTrustedState(key: TrustedKeyStatus, enabled: boolean): Promise<void> {
+  if (!requireMode('TARGET')) return
   const verb = enabled ? 'включить' : 'отключить'
   if (!window.confirm(`${verb[0]?.toUpperCase()}${verb.slice(1)} trust для ${key.fingerprint}?`)) return
 
@@ -159,6 +180,7 @@ async function setTrustedState(key: TrustedKeyStatus, enabled: boolean): Promise
 }
 
 async function removeTrustedKey(key: TrustedKeyStatus): Promise<void> {
+  if (!requireMode('TARGET')) return
   if (!window.confirm(`Удалить trusted key ${key.fingerprint}? Это действие нельзя отменить.`)) return
 
   busy.value = true
@@ -177,6 +199,16 @@ async function removeTrustedKey(key: TrustedKeyStatus): Promise<void> {
   }
 }
 
+watch(
+  () => props.contour,
+  () => {
+    keySettings.value = null
+    message.value = ''
+    error.value = ''
+    void loadKeys()
+  },
+)
+
 onMounted(loadKeys)
 </script>
 
@@ -189,7 +221,9 @@ onMounted(loadKeys)
 
     <p v-if="loading">Загрузка key settings…</p>
 
-    <template v-else-if="keySettings && props.contour === 'SOURCE'">
+    <template
+      v-else-if="keySettings && keySettings.contour === props.contour && props.contour === 'SOURCE'"
+    >
       <p class="status">
         Signing identity:
         <strong>{{ keySettings.signing_key?.configured ? 'настроена' : 'не настроена' }}</strong>
@@ -211,7 +245,9 @@ onMounted(loadKeys)
       </p>
     </template>
 
-    <template v-else-if="keySettings && props.contour === 'TARGET'">
+    <template
+      v-else-if="keySettings && keySettings.contour === props.contour && props.contour === 'TARGET'"
+    >
       <label for="target-trusted-key">Добавить Ed25519 public key, PEM</label>
       <input
         id="target-trusted-key"
