@@ -14,9 +14,15 @@
 
 Detail загружается через `GET /api/operations/{id}` и показывает безопасные persisted поля: actor, delivery id, timestamps, counters, bundle metadata, per-artifact status, SOURCE/TARGET digests и stable error code/message.
 
+Для mapped TARGET import `artifact_results` дополнительно содержит immutable execution snapshot: SOURCE project/repository/reference, фактический TARGET project/repository/full reference, destination plan id/hash и explicit overwrite authorization state. History показывает SOURCE и TARGET отдельными колонками.
+
+**Исторический TARGET никогда не вычисляется заново из текущих admin mapping defaults.** Изменение default image/Helm project, source→target map или policy revision после import не меняет уже сохранённую историю. Legacy rows без mapping snapshot остаются читаемыми: SOURCE использует существующие persisted identity fields, TARGET отображается как отсутствующий, а не угадывается.
+
 ## Receipt и bundle
 
 Для terminal TARGET import экран пытается получить immutable receipt через существующий `GET /api/imports/{id}/receipt` только когда текущая роль соответствует backend policy. Если receipt недоступен роли или ещё не существует, сама история операции остаётся читаемой.
+
+Receipt и History могут содержать разные представления одного immutable результата, но не должны расходиться по фактическому TARGET destination. Receipt опирается на сохранённый destination plan/outcome, а History — на persisted artifact outcome snapshot; current admin defaults не являются источником ни для одного исторического представления.
 
 Для completed SOURCE export History показывает persisted bundle filename/size/SHA-256. Авторизованный download доступен только через существующий backend download-ticket contract и только если текущая роль/владелец соответствует policy. Отсутствие archive на диске не удаляет понятную history metadata.
 
@@ -35,15 +41,17 @@ History UI:
 - не предоставляет mutation controls;
 - не расширяет backend authorization: frontend role checks используются только для UX;
 - показывает safe error fields из persisted operation/artifact state;
-- сохраняет различие между bundle metadata и фактической доступностью package-файла.
+- сохраняет различие между bundle metadata и фактической доступностью package-файла;
+- не подменяет отсутствующий persisted TARGET текущим policy/default mapping;
+- не превращает `overwrite_approved` в утверждение, что overwrite фактически произошёл: это persisted authorization context конкретного execution.
 
 ## Состояния UX
 
-Экран имеет отдельные loading, empty и safe error states. Detail открывается как keyboard-focusable button → dialog/panel и содержит per-artifact outcomes. Viewer получает тот же read-only operation detail, но не видит owner/admin-only download action и не инициирует restricted receipt request.
+Экран имеет отдельные loading, empty и safe error states. Detail открывается как keyboard-focusable button → dialog/panel и содержит per-artifact outcomes. Для mapped import detail явно показывает `SOURCE` и `TARGET`; длинный full TARGET reference допускает перенос по строкам без потери значения. Viewer получает тот же read-only operation detail, но не видит owner/admin-only download action и не инициирует restricted receipt request.
 
 ## Проверки
 
-Frontend regressions покрывают:
+Frontend/backend regressions покрывают:
 
 - projection filters/pagination в backend query;
 - сброс offset при новом фильтре;
@@ -52,6 +60,8 @@ Frontend regressions покрывают:
 - viewer read-only behavior;
 - invalid local date range;
 - operation detail и per-artifact outcomes;
+- mapped SOURCE/TARGET references из persisted snapshot;
+- legacy artifact row без mapping snapshot;
 - empty/error states.
 
-Обязательный merge gate: frontend lint, TypeScript typecheck, Vitest, production build, documentation links и общий `quality-gate`.
+Обязательный merge gate: backend lint/type/unit/API tests для persistence/API изменений, frontend lint/TypeScript/Vitest/build для UI projection, relevant integration/acceptance gates, documentation links и общий `quality-gate`.

@@ -93,6 +93,14 @@ const importDetail: Operation = {
     {
       ...detail.artifacts[0],
       id: 2,
+      repository: 'source-team/apps/api',
+      reference: '1.4.2',
+      source_repository: 'source-team/apps/api',
+      source_reference: '1.4.2',
+      target_project: 'docker-prod',
+      target_repository: 'docker-prod/apps/api',
+      target_reference: 'harbor-target.local/docker-prod/apps/api:1.4.2',
+      destination_plan_id: 'plan-123',
       status: 'IMPORTED',
       target_digest: detail.artifacts[0].source_digest,
     },
@@ -154,6 +162,26 @@ describe('HistoryView', () => {
 
     expect(reportDownload).toHaveBeenCalledWith(7, 'csv')
     expect(reportDownload).toHaveBeenCalledWith(7, 'pdf')
+  })
+
+  it('shows persisted source and target references for a mapped import', async () => {
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [importSummary], total: 1, limit: 25, offset: 0,
+    })
+    vi.spyOn(historyApi, 'getOperation').mockResolvedValue(importDetail)
+    vi.spyOn(historyApi, 'getImportReceipt').mockResolvedValue(importReceipt)
+    const auth = useAuthStore()
+    auth.initialized = true
+    auth.user = { id: 2, username: 'operator', role: 'operator', is_active: true }
+
+    const wrapper = mount(HistoryView)
+    await flushPromises()
+    await wrapper.get('.link-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('source-team/apps/api:1.4.2')
+    expect(wrapper.text()).toContain('harbor-target.local/docker-prod/apps/api:1.4.2')
+    expect(wrapper.text()).toContain('container-image')
   })
 
   it('lets the import owner download canonical receipt JSON', async () => {
