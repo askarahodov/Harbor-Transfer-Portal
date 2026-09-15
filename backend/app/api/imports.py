@@ -137,6 +137,9 @@ def _audit_import_start(
         item.classification is ImportPreviewState.CONFLICT
         for item in destination_plan.artifacts
     )
+    # Plans persisted before destination mapping policy existed have no explicit
+    # revision. Revision 0 is the defined legacy/pre-policy compatibility value.
+    mapping_policy_revision = getattr(destination_plan, "mapping_policy_revision", 0)
     metadata: dict[str, object] = {
         "operation_id": operation_id,
         "bundle_sha256": destination_plan.bundle_sha256,
@@ -144,7 +147,7 @@ def _audit_import_start(
         "conflict_count": conflict_count,
         "destination_plan_id": destination_plan.plan_id,
         "destination_plan_hash": destination_plan.plan_hash,
-        "mapping_policy_revision": destination_plan.mapping_policy_revision,
+        "mapping_policy_revision": mapping_policy_revision,
         "destinations": [
             {
                 "index": item.index,
