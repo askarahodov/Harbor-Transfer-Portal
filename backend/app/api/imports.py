@@ -277,12 +277,7 @@ async def execute_import(
             overwrite_conflicts=payload.overwrite_conflicts,
             destination_plan_id=payload.destination_plan_id,
         )
-        destination_plan = orchestrator._persisted_destination_plan(operation_id)
-        if destination_plan is None:
-            raise ImportOrchestrationError(
-                "import_destination_plan_not_ready",
-                "Destination plan отсутствует после запуска Import",
-            )
+        destination_plan = orchestrator.destination_plan(operation_id)
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc
     _audit_import_start(
