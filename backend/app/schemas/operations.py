@@ -60,6 +60,8 @@ class OperationSummaryResponse(BaseModel):
     status: OperationStatus
     actor_username: str
     comment: str | None
+    retry_of_operation_id: int | None = None
+    failure_policy: str | None = None
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
@@ -87,6 +89,8 @@ class OperationResponse(BaseModel):
     status: OperationStatus
     actor_username: str
     comment: str | None
+    retry_of_operation_id: int | None = None
+    failure_policy: str | None = None
     started_at: datetime | None
     finished_at: datetime | None
     error_code: str | None

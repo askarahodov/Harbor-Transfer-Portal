@@ -5,6 +5,7 @@ from app.api.auth import router as auth_router
 from app.api.exports import router as exports_router
 from app.api.harbor import router as harbor_router
 from app.api.health import router as health_router
+from app.api.import_retries import router as import_retries_router
 from app.api.imports import router as imports_router
 from app.api.key_settings import router as key_settings_router
 from app.api.operations import router as operations_router
@@ -26,3 +27,4 @@ api_router.include_router(audit_router)
 api_router.include_router(runtime_router)
 api_router.include_router(exports_router)
 api_router.include_router(imports_router)
+api_router.include_router(import_retries_router)

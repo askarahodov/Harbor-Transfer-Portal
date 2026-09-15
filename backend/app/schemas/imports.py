@@ -225,5 +225,7 @@ class ImportReceiptResponse(BaseModel):
     overwrite_conflicts: bool
     destination_plan_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     destination_plan_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    retry_of_operation_id: int | None = Field(default=None, gt=0)
+    failure_policy: str | None = None
     result: str
     artifacts: list[ImportReceiptArtifactResponse]

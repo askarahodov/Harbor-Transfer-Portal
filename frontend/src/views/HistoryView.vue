@@ -169,6 +169,7 @@ onMounted(() => history.load(true))
               <td>{{ formatDate(item.created_at) }}</td>
               <td>{{ item.total_artifacts }}</td>
               <td>
+                <span v-if="item.retry_of_operation_id">retry of #{{ item.retry_of_operation_id }} · </span>
                 <span v-if="item.error_code" class="safe-error">{{ item.error_code }}</span>
                 <span v-else>{{ item.successful_artifacts }} ok · {{ item.failed_artifacts }} failed · {{ item.skipped_artifacts }} skipped</span>
               </td>
@@ -209,12 +210,71 @@ onMounted(() => history.load(true))
             <div><dt>Delivery ID</dt><dd>{{ history.detail.delivery_id ?? '—' }}</dd></div>
             <div><dt>Начало</dt><dd>{{ formatDate(history.detail.started_at) }}</dd></div>
             <div><dt>Завершение</dt><dd>{{ formatDate(history.detail.finished_at) }}</dd></div>
+            <div v-if="history.detail.retry_of_operation_id"><dt>Retry of</dt><dd>#{{ history.detail.retry_of_operation_id }}</dd></div>
+            <div v-if="history.detail.failure_policy"><dt>Failure policy</dt><dd>{{ history.detail.failure_policy }}</dd></div>
           </dl>
 
           <div v-if="history.detail.error_code" class="notice notice--danger">
             <AlertCircle :size="20" aria-hidden="true" />
             <div><strong>{{ history.detail.error_code }}</strong><p>{{ history.detail.error_message ?? 'Операция завершилась с ошибкой.' }}</p></div>
           </div>
+
+          <article v-if="history.canPrepareSelectedRetry || history.retryPlan || history.retryError || history.retryStarted" class="retry-card">
+            <h3>Безопасный retry</h3>
+            <p>Создаётся новая import operation с тем же immutable destination plan. TARGET повторно проверяется до mutation; overwrite не переносится.</p>
+            <button
+              v-if="history.canPrepareSelectedRetry && !history.retryPlan"
+              class="button button--secondary"
+              type="button"
+              :disabled="history.retryPreparing"
+              @click="history.prepareSelectedRetry"
+            >
+              <RefreshCw :size="18" aria-hidden="true" />
+              {{ history.retryPreparing ? 'Проверка TARGET…' : 'Retry и revalidation' }}
+            </button>
+
+            <div v-if="history.retryError" class="notice notice--danger" role="alert">
+              <AlertCircle :size="20" aria-hidden="true" />
+              <div><strong>{{ history.retryError.code }}</strong><p>{{ history.retryError.message }}</p></div>
+            </div>
+
+            <template v-if="history.retryPlan">
+              <dl class="metadata-grid retry-meta">
+                <div><dt>Новая operation</dt><dd>#{{ history.retryOperationId }}</dd></div>
+                <div><dt>Plan ID</dt><dd :title="history.retryPlan.plan_id">{{ shortDigest(history.retryPlan.plan_id) }}</dd></div>
+              </dl>
+
+              <div v-if="history.retryHasConflicts" class="notice notice--danger" role="alert">
+                <AlertCircle :size="20" aria-hidden="true" />
+                <div><strong>Новый TARGET conflict</strong><p>Retry не будет запущен автоматически. Default deny: нужен отдельный явный разбор конфликта.</p></div>
+              </div>
+
+              <div class="table-wrap retry-plan-table">
+                <table>
+                  <thead><tr><th>Artifact</th><th>TARGET</th><th>Revalidation</th><th>Target digest</th></tr></thead>
+                  <tbody>
+                    <tr v-for="artifact in history.retryPlan.artifacts" :key="artifact.index">
+                      <td>{{ artifact.source_repository }}</td>
+                      <td>{{ artifact.final_reference ?? '—' }}</td>
+                      <td>{{ artifact.classification }}</td>
+                      <td :title="artifact.target_digest ?? undefined">{{ shortDigest(artifact.target_digest) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <button
+                v-if="!history.retryStarted"
+                class="button button--primary"
+                type="button"
+                :disabled="!history.canStartPreparedRetry"
+                @click="history.startPreparedRetry"
+              >
+                {{ history.retryStarting ? 'Запуск…' : 'Запустить retry без overwrite' }}
+              </button>
+              <p v-else class="retry-started" role="status">Retry operation #{{ history.retryOperationId }} запущена. История обновлена.</p>
+            </template>
+          </article>
 
           <article v-if="history.canDownloadSelectedReport" class="report-card">
             <h3>Отчёты операции</h3>
@@ -275,6 +335,8 @@ onMounted(() => history.load(true))
                 <div><dt>SOURCE delivery</dt><dd>{{ history.receipt.source_delivery_id }}</dd></div>
                 <div><dt>Bundle SHA-256</dt><dd :title="history.receipt.bundle_sha256">{{ shortDigest(history.receipt.bundle_sha256) }}</dd></div>
                 <div><dt>Завершение</dt><dd>{{ formatDate(history.receipt.finished_at) }}</dd></div>
+                <div v-if="history.receipt.retry_of_operation_id"><dt>Retry of</dt><dd>#{{ history.receipt.retry_of_operation_id }}</dd></div>
+                <div v-if="history.receipt.failure_policy"><dt>Failure policy</dt><dd>{{ history.receipt.failure_policy }}</dd></div>
               </dl>
               <button v-if="history.canDownloadSelectedReceipt" class="button button--secondary" type="button" @click="history.downloadSelectedReceipt">
                 <Download :size="18" aria-hidden="true" /> Скачать receipt JSON
@@ -324,11 +386,16 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .drawer-header { display: flex; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
 .icon-button { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
 .metadata-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0 0 var(--space-4); }
-.metadata-grid div, .bundle-card, .receipt-card, .report-card { padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.metadata-grid div, .bundle-card, .receipt-card, .report-card, .retry-card { padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .metadata-grid dt { color: var(--color-text-muted); font-size: 12px; }
 .metadata-grid dd { margin: 4px 0 0; overflow-wrap: anywhere; font-weight: 600; }
-.bundle-card, .receipt-card, .report-card { margin-top: var(--space-4); margin-bottom: var(--space-4); }
-.bundle-card h3, .receipt-card h3, .report-card h3 { margin-top: 0; }
+.bundle-card, .receipt-card, .report-card, .retry-card { margin-top: var(--space-4); margin-bottom: var(--space-4); }
+.bundle-card h3, .receipt-card h3, .report-card h3, .retry-card h3 { margin-top: 0; }
+.retry-card { display: grid; gap: var(--space-3); }
+.retry-card > p { margin: 0; }
+.retry-meta { margin: 0; }
+.retry-plan-table { max-height: 300px; }
+.retry-started { color: var(--color-transfer-green); font-weight: 600; }
 @media (max-width: 1000px) { .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .filter-search, .filter-actions { grid-column: span 2; } }
 @media (max-width: 640px) { .page-header, .pagination { align-items: stretch; flex-direction: column; } .filters, .metadata-grid { grid-template-columns: 1fr; } .filter-search, .filter-actions { grid-column: auto; } .filter-actions { align-items: stretch; flex-direction: column; } }
 </style>
