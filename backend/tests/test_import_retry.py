@@ -6,9 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from app.auth.security import hash_password
 from app.config import PortalContour, Settings
 from app.db.base import Base
-from app.db.models import ArtifactResult, Operation
+from app.db.models import ArtifactResult, Operation, UserRole
+from app.db.repositories import UserRepository
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.domain.imports import ImportPreviewState
@@ -144,6 +146,14 @@ def _environment(tmp_path: Path):  # type: ignore[no-untyped-def]
     )
 
     with session_factory() as session:
+        actor = UserRepository(session).create(
+            username="operator",
+            password_hash=hash_password("operator-password-123"),
+            role=UserRole.OPERATOR,
+        )
+        session.commit()
+        actor_user_id = actor.id
+
         DestinationMappingPolicyService(session).update(
             {
                 "container_image_project": "docker-old",
@@ -154,8 +164,8 @@ def _environment(tmp_path: Path):  # type: ignore[no-untyped-def]
         operation = Operation(
             type=OperationType.IMPORT,
             status=OperationStatus.READY,
-            actor_user_id=7,
-            actor_username="operator",
+            actor_user_id=actor_user_id,
+            actor_username=actor.username,
             bundle_filename="bundle.htp.tar.gz",
             bundle_sha256=BUNDLE_SHA,
             bundle_size_bytes=4096,
@@ -229,21 +239,27 @@ def _environment(tmp_path: Path):  # type: ignore[no-untyped-def]
         )
         session.commit()
 
-    return session_factory, orchestrator, skopeo, helm, operation_id, plan
+    return session_factory, orchestrator, skopeo, helm, operation_id, plan, actor_user_id
 
 
 def test_retry_reuses_frozen_mapping_and_revalidates_current_target(tmp_path: Path) -> None:
-    session_factory, orchestrator, skopeo, helm, operation_id, original_plan = _environment(
-        tmp_path
-    )
+    (
+        session_factory,
+        orchestrator,
+        skopeo,
+        helm,
+        operation_id,
+        original_plan,
+        actor_user_id,
+    ) = _environment(tmp_path)
     skopeo.state = TargetState.SAME_DIGEST
     helm.state = HelmTargetState.CONFLICTING_DIGEST
 
     prepared = asyncio.run(
         ImportRetryService(orchestrator).prepare_retry(
             operation_id,
-            actor_user_id=9,
-            actor_username="retry-operator",
+            actor_user_id=actor_user_id,
+            actor_username="operator",
             destination_plan_id=original_plan.plan_id,
         )
     )
@@ -270,7 +286,8 @@ def test_retry_reuses_frozen_mapping_and_revalidates_current_target(tmp_path: Pa
         assert original.status is OperationStatus.FAILED
         assert original.error_code == "import_partial_failure"
         assert retry.status is OperationStatus.READY
-        assert retry.actor_username == "retry-operator"
+        assert retry.actor_user_id == actor_user_id
+        assert retry.actor_username == "operator"
         assert retry.import_storage_key == STORAGE_KEY
         assert retry.bundle_sha256 == BUNDLE_SHA
         assert retry_of_operation_id(retry) == operation_id
@@ -282,7 +299,15 @@ def test_retry_reuses_frozen_mapping_and_revalidates_current_target(tmp_path: Pa
 
 
 def test_retry_rejects_wrong_plan_without_creating_operation(tmp_path: Path) -> None:
-    session_factory, orchestrator, _skopeo, _helm, operation_id, _plan = _environment(tmp_path)
+    (
+        session_factory,
+        orchestrator,
+        _skopeo,
+        _helm,
+        operation_id,
+        _plan,
+        actor_user_id,
+    ) = _environment(tmp_path)
     with session_factory() as session:
         before = session.query(Operation).count()
 
@@ -290,8 +315,8 @@ def test_retry_rejects_wrong_plan_without_creating_operation(tmp_path: Path) -> 
         asyncio.run(
             ImportRetryService(orchestrator).prepare_retry(
                 operation_id,
-                actor_user_id=9,
-                actor_username="retry-operator",
+                actor_user_id=actor_user_id,
+                actor_username="operator",
                 destination_plan_id="0" * 64,
             )
         )
@@ -302,7 +327,15 @@ def test_retry_rejects_wrong_plan_without_creating_operation(tmp_path: Path) -> 
 
 
 def test_retry_rejects_missing_immutable_artifact_snapshot(tmp_path: Path) -> None:
-    session_factory, orchestrator, _skopeo, _helm, operation_id, plan = _environment(tmp_path)
+    (
+        session_factory,
+        orchestrator,
+        _skopeo,
+        _helm,
+        operation_id,
+        plan,
+        actor_user_id,
+    ) = _environment(tmp_path)
     with session_factory() as session:
         operation = session.get(Operation, operation_id)
         assert operation is not None
@@ -313,8 +346,8 @@ def test_retry_rejects_missing_immutable_artifact_snapshot(tmp_path: Path) -> No
         asyncio.run(
             ImportRetryService(orchestrator).prepare_retry(
                 operation_id,
-                actor_user_id=9,
-                actor_username="retry-operator",
+                actor_user_id=actor_user_id,
+                actor_username="operator",
                 destination_plan_id=plan.plan_id,
             )
         )
