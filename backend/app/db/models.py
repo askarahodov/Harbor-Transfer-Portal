@@ -66,6 +66,8 @@ class Operation(TimestampMixin, Base):
         Enum(OperationStatus, native_enum=False),
         nullable=False,
     )
+    runtime_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    runtime_mode_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     actor_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
