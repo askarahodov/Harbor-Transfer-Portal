@@ -53,6 +53,7 @@ def persist_artifact_mapping_snapshot(
         row.target_project = item.target_project
         row.target_repository = item.target_repository
         row.target_reference = item.final_reference
+        row.target_version = item.version
         row.destination_plan_id = plan.plan_id
         row.destination_plan_hash = plan.plan_hash
         row.overwrite_approved = overwrite_approved
