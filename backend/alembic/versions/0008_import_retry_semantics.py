@@ -1,7 +1,7 @@
-"""add retry linkage and destination mapping fields to operations and artifact_results
+"""add retry linkage and remaining artifact mapping fields
 
 Revision ID: 0008_import_retry_semantics
-Revises: 0007_runtime_mode_operation_snapshot
+Revises: 0008_artifact_destination_snapshot
 Create Date: 2026-09-15 10:00:00.000000
 
 """
@@ -11,60 +11,37 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0008_import_retry_semantics"
-down_revision = "0007_runtime_mode_operation_snapshot"
+down_revision = "0008_artifact_destination_snapshot"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    # --- operations table ---
-    with op.batch_alter_table("operations") as batch:
-        batch.add_column(sa.Column("retry_of_operation_id", sa.Integer(), nullable=True))
-        batch.add_column(sa.Column("destination_plan_id", sa.String(96), nullable=True))
-        batch.add_column(sa.Column("destination_plan_hash", sa.String(128), nullable=True))
-        batch.add_column(
-            sa.Column("failure_policy", sa.String(16), nullable=True, server_default="continue")
-        )
+    bind = op.get_bind()
 
-    # FK constraint for retry_of_operation_id (self-referential)
-    op.create_foreign_key(
-        "fk_operations_retry_of",
-        "operations",
-        "operations",
-        ["retry_of_operation_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
+    # --- operations table ---
+    ops_cols = {row[1] for row in bind.execute(sa.text("PRAGMA table_info(operations)"))}
+    if "retry_of_operation_id" not in ops_cols:
+        op.add_column("operations", sa.Column("retry_of_operation_id", sa.Integer(), nullable=True))
+    if "destination_plan_id" not in ops_cols:
+        op.add_column("operations", sa.Column("destination_plan_id", sa.String(96), nullable=True))
+    if "destination_plan_hash" not in ops_cols:
+        op.add_column("operations", sa.Column("destination_plan_hash", sa.String(128), nullable=True))
+    if "failure_policy" not in ops_cols:
+        op.add_column("operations", sa.Column("failure_policy", sa.String(64), nullable=True))
 
     # --- artifact_results table ---
-    with op.batch_alter_table("artifact_results") as batch:
-        batch.add_column(sa.Column("source_project", sa.String(255), nullable=True))
-        batch.add_column(sa.Column("source_repository", sa.String(512), nullable=True))
-        batch.add_column(sa.Column("source_reference", sa.String(256), nullable=True))
-        batch.add_column(sa.Column("source_digest", sa.String(128), nullable=True))
-        batch.add_column(sa.Column("target_project", sa.String(255), nullable=True))
-        batch.add_column(sa.Column("target_repository", sa.String(512), nullable=True))
-        batch.add_column(sa.Column("target_reference", sa.String(256), nullable=True))
-        batch.add_column(sa.Column("target_digest", sa.String(128), nullable=True))
-        batch.add_column(sa.Column("destination_plan_id", sa.String(96), nullable=True))
+    art_cols = {row[1] for row in bind.execute(sa.text("PRAGMA table_info(artifact_results)"))}
+    if "source_digest" not in art_cols:
+        op.add_column("artifact_results", sa.Column("source_digest", sa.String(128), nullable=True))
+    if "target_digest" not in art_cols:
+        op.add_column("artifact_results", sa.Column("target_digest", sa.String(128), nullable=True))
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("artifact_results") as batch:
-        batch.drop_column("destination_plan_id")
-        batch.drop_column("target_digest")
-        batch.drop_column("target_reference")
-        batch.drop_column("target_repository")
-        batch.drop_column("target_project")
-        batch.drop_column("source_digest")
-        batch.drop_column("source_reference")
-        batch.drop_column("source_repository")
-        batch.drop_column("source_project")
-
-    op.drop_constraint("fk_operations_retry_of", "operations", type_="foreignkey")
-
-    with op.batch_alter_table("operations") as batch:
-        batch.drop_column("failure_policy")
-        batch.drop_column("destination_plan_hash")
-        batch.drop_column("destination_plan_id")
-        batch.drop_column("retry_of_operation_id")
+    op.drop_column("artifact_results", "target_digest")
+    op.drop_column("artifact_results", "source_digest")
+    op.drop_column("operations", "failure_policy")
+    op.drop_column("operations", "destination_plan_hash")
+    op.drop_column("operations", "destination_plan_id")
+    op.drop_column("operations", "retry_of_operation_id")
