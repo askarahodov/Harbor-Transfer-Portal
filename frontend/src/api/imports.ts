@@ -99,8 +99,11 @@ export type ImportDestinationArtifactPlan = {
 
 export type ImportDestinationPlan = {
   operation_id: number
+  source_delivery_id: string
+  actor_username: string
   bundle_sha256: string
   plan_id: string
+  plan_hash: string
   created_at: string
   valid: boolean
   artifacts: ImportDestinationArtifactPlan[]
@@ -131,6 +134,7 @@ export type ImportReceipt = {
   finished_at: string
   overwrite_conflicts: boolean
   destination_plan_id: string | null
+  destination_plan_hash: string | null
   result: string
   artifacts: ImportReceiptArtifact[]
 }
@@ -175,7 +179,7 @@ export async function buildImportDestinationPlan(
 export async function executeImport(
   operationId: number,
   overwriteConflicts: boolean,
-  destinationPlanId: string | null,
+  destinationPlanId: string,
 ): Promise<{ operation_id: number; status: OperationStatus }> {
   const response = await apiClient.post<{ operation_id: number; status: OperationStatus }>(
     `/imports/${operationId}/execute`,
