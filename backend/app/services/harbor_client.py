@@ -70,6 +70,12 @@ class HarborSystemInfo(BaseModel):
     auth_mode: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class HarborPage[T]:
+    items: tuple[T, ...]
+    total: int
+
+
 @dataclass(slots=True)
 class HarborClientError(Exception):
     code: str
@@ -91,6 +97,17 @@ def _is_tls_error(exc: BaseException) -> bool:
             return True
         current = current.__cause__ or current.__context__
     return False
+
+
+def _fuzzy_query(field: str, needle: str | None) -> str | None:
+    if not needle:
+        return None
+    value = needle.strip()
+    if not value:
+        return None
+    if any(character in value for character in (",", "=", "\n", "\r", "\x00")):
+        raise ValueError("Harbor search needle contains unsupported query delimiters")
+    return f"{field}=~{value}"
 
 
 class HarborClient:
@@ -167,10 +184,47 @@ class HarborClient:
             for item in self._paginate("/api/v2.0/projects")
         ]
 
+    def list_projects_page(
+        self,
+        page: int,
+        page_size: int,
+        *,
+        search_needle: str | None = None,
+    ) -> HarborPage[HarborProject]:
+        params: dict[str, str] = {"sort": "name"}
+        query = _fuzzy_query("name", search_needle)
+        if query:
+            params["q"] = query
+        payload, total = self._fetch_page("/api/v2.0/projects", page, page_size, params=params)
+        return HarborPage(
+            items=tuple(HarborProject.model_validate(item) for item in payload),
+            total=total,
+        )
+
     def list_repositories(self, project: str) -> list[HarborRepository]:
         encoded_project = quote(project, safe="")
         path = f"/api/v2.0/projects/{encoded_project}/repositories"
         return [HarborRepository.model_validate(item) for item in self._paginate(path)]
+
+    def list_repositories_page(
+        self,
+        project: str,
+        page: int,
+        page_size: int,
+        *,
+        search_needle: str | None = None,
+    ) -> HarborPage[HarborRepository]:
+        encoded_project = quote(project, safe="")
+        path = f"/api/v2.0/projects/{encoded_project}/repositories"
+        params: dict[str, str] = {"sort": "name"}
+        query = _fuzzy_query("name", search_needle)
+        if query:
+            params["q"] = query
+        payload, total = self._fetch_page(path, page, page_size, params=params)
+        return HarborPage(
+            items=tuple(HarborRepository.model_validate(item) for item in payload),
+            total=total,
+        )
 
     def list_artifacts(self, project: str, repository: str) -> list[HarborArtifact]:
         encoded_project = quote(project, safe="")
@@ -180,6 +234,29 @@ class HarborClient:
             HarborArtifact.model_validate(item)
             for item in self._paginate(path, params={"with_tag": "true"})
         ]
+
+    def list_artifacts_page(
+        self,
+        project: str,
+        repository: str,
+        page: int,
+        page_size: int,
+        *,
+        search_needle: str | None = None,
+        search_digest: bool = False,
+    ) -> HarborPage[HarborArtifact]:
+        encoded_project = quote(project, safe="")
+        encoded_repo = quote(repository, safe="")
+        path = f"/api/v2.0/projects/{encoded_project}/repositories/{encoded_repo}/artifacts"
+        params: dict[str, str] = {"with_tag": "true", "sort": "-push_time"}
+        query = _fuzzy_query("digest" if search_digest else "tags", search_needle)
+        if query:
+            params["q"] = query
+        payload, total = self._fetch_page(path, page, page_size, params=params)
+        return HarborPage(
+            items=tuple(HarborArtifact.model_validate(item) for item in payload),
+            total=total,
+        )
 
     def get_artifact(self, project: str, repository: str, reference: str) -> HarborArtifact:
         encoded_project = quote(project, safe="")
@@ -199,6 +276,30 @@ class HarborClient:
             if exc.code == "not_found":
                 return None
             raise
+
+    def _fetch_page(
+        self,
+        path: str,
+        page: int,
+        page_size: int,
+        *,
+        params: dict[str, str] | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        if page < 1:
+            raise ValueError("page must be >= 1")
+        if page_size < 1 or page_size > 100:
+            raise ValueError("page_size must be between 1 and 100")
+        query: dict[str, str | int] = dict(params or {})
+        query.update({"page": page, "page_size": page_size})
+        response = self._request("GET", path, params=query)
+        payload = self._json_list(response)
+        total_header = response.headers.get("X-Total-Count")
+        if total_header is None or not total_header.isdigit():
+            raise HarborClientError(
+                "invalid_response",
+                "Harbor pagination response is missing a valid X-Total-Count",
+            )
+        return payload, int(total_header)
 
     def _paginate(
         self,
