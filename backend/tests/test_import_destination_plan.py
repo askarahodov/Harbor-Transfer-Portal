@@ -14,10 +14,10 @@ from alembic import command
 from app.auth.security import hash_password
 from app.config import PortalContour, Settings
 from app.db.base import Base
-from app.db.models import Operation, UserRole
+from app.db.models import ArtifactResult, Operation, UserRole
 from app.db.repositories import UserRepository
 from app.db.session import create_db_engine, create_session_factory
-from app.domain.bundle import OperationStatus, OperationType
+from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.domain.imports import ImportPreviewState
 from app.main import create_app
 from app.schemas.imports import (
@@ -224,8 +224,77 @@ def test_mixed_bundle_resolves_separate_image_and_helm_projects(tmp_path: Path) 
         persisted = operation.import_policy_json.lower()
         assert "password" not in persisted
         assert "credential" not in persisted
+        assert "secret" not in persisted
         policy = json.loads(operation.import_policy_json)
         assert policy["destination_plan"]["plan_id"] == first.plan_id
+
+
+def test_receipt_persists_actual_destination_references(tmp_path: Path) -> None:
+    settings, session_factory, *_rest, orchestrator, operation_id = _environment(tmp_path)
+    plan = asyncio.run(
+        orchestrator.build_destination_plan(
+            operation_id,
+            ImportDestinationPlanRequest(
+                container_image_project="docker-prod",
+                helm_chart_project="helm-prod",
+            ),
+        )
+    )
+    with session_factory() as session:
+        session.add_all(
+            [
+                ArtifactResult(
+                    operation_id=operation_id,
+                    artifact_type="container-image",
+                    repository="source-team/app/api",
+                    reference="1.4.2",
+                    source_digest=IMAGE_DIGEST,
+                    target_digest=IMAGE_DIGEST,
+                    status=ArtifactStatus.VERIFIED,
+                    size_bytes=1024,
+                ),
+                ArtifactResult(
+                    operation_id=operation_id,
+                    artifact_type="helm-chart",
+                    repository="source-charts/platform",
+                    name="mis",
+                    version="4.88.6",
+                    source_digest=CHART_DIGEST,
+                    target_digest=CHART_DIGEST,
+                    status=ArtifactStatus.VERIFIED,
+                    size_bytes=2048,
+                ),
+            ]
+        )
+        session.commit()
+
+    requested_at = datetime(2026, 9, 15, 7, 5, tzinfo=UTC)
+    orchestrator._write_receipt(
+        operation_id,
+        _preview(operation_id),
+        False,
+        requested_at,
+        0,
+    )
+
+    receipt = orchestrator.receipt(operation_id)
+    assert receipt.destination_plan_id == plan.plan_id
+    assert receipt.artifacts[0].repository == "source-team/app/api"
+    assert receipt.artifacts[0].target_repository == "docker-prod/app/api"
+    assert receipt.artifacts[0].final_reference == (
+        "harbor.target.local/docker-prod/app/api:1.4.2"
+    )
+    assert receipt.artifacts[1].repository == "source-charts/platform"
+    assert receipt.artifacts[1].target_repository == "helm-prod/platform"
+    assert receipt.artifacts[1].final_reference == (
+        "oci://harbor.target.local/helm-prod/platform/mis:4.88.6"
+    )
+    persisted = (settings.import_receipt_root / f"import-{operation_id}.json").read_text(
+        encoding="utf-8"
+    )
+    assert plan.plan_id in persisted
+    assert "docker-prod/app/api" in persisted
+    assert "helm-prod/platform" in persisted
 
 
 def test_mapping_precedence_is_override_then_source_mapping_then_kind_default(
