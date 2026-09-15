@@ -13,6 +13,7 @@ from app.main import create_app
 from app.services.harbor_client import (
     HarborArtifact,
     HarborClientError,
+    HarborPage,
     HarborProject,
     HarborRepository,
     HarborSystemInfo,
@@ -26,6 +27,9 @@ class FakeHarborClient:
     def __init__(self, *, error: HarborClientError | None = None) -> None:
         self.error = error
         self.last_repository: str | None = None
+        self.project_page_calls: list[tuple[int, int, str | None]] = []
+        self.repository_page_calls: list[tuple[int, int, str | None]] = []
+        self.artifact_page_calls: list[tuple[int, int, str | None, bool]] = []
 
     def _raise(self) -> None:
         if self.error is not None:
@@ -35,30 +39,55 @@ class FakeHarborClient:
         self._raise()
         return HarborSystemInfo(harbor_version="2.13.0", auth_mode="db_auth")
 
-    def list_projects(self) -> list[HarborProject]:
-        self._raise()
+    def _projects(self) -> list[HarborProject]:
         return [
             HarborProject(project_id=2, name="beta", public=True),
+            HarborProject(project_id=3, name="softrust-report-api", public=False),
             HarborProject(project_id=1, name="alpha", public=False),
         ]
 
-    def list_repositories(self, project: str) -> list[HarborRepository]:
+    def list_projects_page(
+        self,
+        page: int,
+        page_size: int,
+        *,
+        search_needle: str | None = None,
+    ) -> HarborPage[HarborProject]:
         self._raise()
+        self.project_page_calls.append((page, page_size, search_needle))
+        items = sorted(self._projects(), key=lambda item: item.name.casefold())
+        if search_needle:
+            needle = search_needle.casefold()
+            items = [item for item in items if needle in item.name.casefold()]
+        start = (page - 1) * page_size
+        return HarborPage(items=tuple(items[start : start + page_size]), total=len(items))
+
+    def _repositories(self, project: str) -> list[HarborRepository]:
         return [
             HarborRepository(id=2, name=f"{project}/worker", artifact_count=1),
+            HarborRepository(id=3, name=f"{project}/softrust-report-api", artifact_count=4),
             HarborRepository(id=1, name=f"{project}/nested/app", artifact_count=2),
         ]
 
-    def list_artifacts(self, project: str, repository: str) -> list[HarborArtifact]:
+    def list_repositories_page(
+        self,
+        project: str,
+        page: int,
+        page_size: int,
+        *,
+        search_needle: str | None = None,
+    ) -> HarborPage[HarborRepository]:
         self._raise()
-        self.last_repository = repository
+        self.repository_page_calls.append((page, page_size, search_needle))
+        items = sorted(self._repositories(project), key=lambda item: item.name.casefold())
+        if search_needle:
+            needle = search_needle.casefold()
+            items = [item for item in items if needle in item.name.casefold()]
+        start = (page - 1) * page_size
+        return HarborPage(items=tuple(items[start : start + page_size]), total=len(items))
+
+    def _artifacts(self) -> list[HarborArtifact]:
         return [
-            HarborArtifact(
-                digest="sha256:" + "b" * 64,
-                type="CHART",
-                media_type="application/vnd.cncf.helm.chart.content.v1.tar+gzip",
-                tags=[HarborTag(name="2.0.0")],
-            ),
             HarborArtifact(
                 digest="sha256:" + "a" * 64,
                 type="IMAGE",
@@ -67,11 +96,51 @@ class FakeHarborClient:
                 tags=[HarborTag(name="latest"), HarborTag(name="1.0.0")],
             ),
             HarborArtifact(
+                digest="sha256:" + "b" * 64,
+                type="CHART",
+                media_type="application/vnd.cncf.helm.chart.content.v1.tar+gzip",
+                tags=[HarborTag(name="2.0.0")],
+            ),
+            HarborArtifact(
                 digest="sha256:" + "c" * 64,
                 type="ACCESSORY",
                 media_type="application/example.unknown",
             ),
         ]
+
+    def list_artifacts_page(
+        self,
+        project: str,
+        repository: str,
+        page: int,
+        page_size: int,
+        *,
+        search_needle: str | None = None,
+        search_digest: bool = False,
+    ) -> HarborPage[HarborArtifact]:
+        self._raise()
+        self.last_repository = repository
+        self.artifact_page_calls.append((page, page_size, search_needle, search_digest))
+        items = self._artifacts()
+        if search_needle:
+            needle = search_needle.casefold()
+            if search_digest:
+                items = [item for item in items if needle in item.digest.casefold()]
+            else:
+                items = [
+                    item
+                    for item in items
+                    if any(needle in tag.name.casefold() for tag in item.tags)
+                ]
+        items.sort(
+            key=lambda item: (
+                not item.tags,
+                min((tag.name.casefold() for tag in item.tags), default=""),
+                item.digest,
+            )
+        )
+        start = (page - 1) * page_size
+        return HarborPage(items=tuple(items[start : start + page_size]), total=len(items))
 
 
 def _client(
@@ -117,17 +186,19 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_viewer_can_browse_projects_with_deterministic_pagination(tmp_path: Path) -> None:
-    client, token = _client(tmp_path, FakeHarborClient())
+def test_viewer_can_browse_projects_with_upstream_pagination(tmp_path: Path) -> None:
+    harbor = FakeHarborClient()
+    client, token = _client(tmp_path, harbor)
     response = client.get(
         "/api/harbor/projects?page=1&page_size=1",
         headers=_auth(token),
     )
     assert response.status_code == 200
     assert response.json() == {
-        "pagination": {"page": 1, "page_size": 1, "total": 2},
+        "pagination": {"page": 1, "page_size": 1, "total": 3},
         "items": [{"name": "alpha", "public": False}],
     }
+    assert harbor.project_page_calls == [(1, 1, None)]
 
     searched = client.get(
         "/api/harbor/projects?search=BET",
@@ -135,6 +206,22 @@ def test_viewer_can_browse_projects_with_deterministic_pagination(tmp_path: Path
     )
     assert searched.status_code == 200
     assert searched.json()["items"] == [{"name": "beta", "public": True}]
+    assert harbor.project_page_calls[-1] == (1, 50, "BET")
+
+
+def test_token_search_matches_across_repository_separators(tmp_path: Path) -> None:
+    harbor = FakeHarborClient()
+    client, token = _client(tmp_path, harbor)
+    response = client.get(
+        "/api/harbor/projects/team/repositories",
+        params={"search": "report api"},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    assert response.json()["items"] == [
+        {"name": "softrust-report-api", "artifact_count": 4, "pull_count": None}
+    ]
+    assert harbor.repository_page_calls == [(1, 100, "report")]
 
 
 def test_repositories_use_project_relative_names_and_search(tmp_path: Path) -> None:
@@ -160,6 +247,7 @@ def test_nested_repository_and_artifact_classification(tmp_path: Path) -> None:
     )
     assert response.status_code == 200
     assert harbor.last_repository == "nested/app"
+    assert harbor.artifact_page_calls == [(1, 50, None, False)]
 
     payload = response.json()["items"]
     assert [item["kind"] for item in payload] == [
@@ -172,8 +260,9 @@ def test_nested_repository_and_artifact_classification(tmp_path: Path) -> None:
     assert all("password" not in item for item in payload)
 
 
-def test_artifact_search_matches_digest_or_reference(tmp_path: Path) -> None:
-    client, token = _client(tmp_path, FakeHarborClient())
+def test_artifact_search_uses_upstream_tag_or_digest_filter(tmp_path: Path) -> None:
+    harbor = FakeHarborClient()
+    client, token = _client(tmp_path, harbor)
     by_tag = client.get(
         "/api/harbor/projects/team/artifacts",
         params={"repository": "nested/app", "search": "LATEST"},
@@ -181,6 +270,7 @@ def test_artifact_search_matches_digest_or_reference(tmp_path: Path) -> None:
     )
     assert by_tag.status_code == 200
     assert [item["kind"] for item in by_tag.json()["items"]] == ["container-image"]
+    assert harbor.artifact_page_calls[-1] == (1, 50, "LATEST", False)
 
     by_digest = client.get(
         "/api/harbor/projects/team/artifacts",
@@ -189,6 +279,7 @@ def test_artifact_search_matches_digest_or_reference(tmp_path: Path) -> None:
     )
     assert by_digest.status_code == 200
     assert [item["kind"] for item in by_digest.json()["items"]] == ["helm-chart"]
+    assert harbor.artifact_page_calls[-1] == (1, 50, "bbbb", True)
 
 
 def test_connection_response_is_safe_and_contains_no_credentials(tmp_path: Path) -> None:
