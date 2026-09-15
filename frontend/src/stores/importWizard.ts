@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 
 import {
   apiErrorInfo,
+  buildImportDestinationPlan,
   cancelOperation,
   discoverImportBundles,
   executeImport,
@@ -11,6 +12,8 @@ import {
   getOperation,
   uploadImportBundle,
   type ApiErrorInfo,
+  type ImportDestinationPlan,
+  type ImportDestinationPlanRequest,
   type ImportIntake,
   type ImportPreview,
   type ImportReceipt,
@@ -41,6 +44,15 @@ export type DiscoveredImport = {
   operation: Operation
 }
 
+function emptyMappingRequest(): ImportDestinationPlanRequest {
+  return {
+    container_image_project: null,
+    helm_chart_project: null,
+    project_mappings: {},
+    artifact_overrides: [],
+  }
+}
+
 function storageOrNull(): Storage | null {
   return typeof window === 'undefined' ? null : window.sessionStorage
 }
@@ -67,6 +79,9 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
   const discovered = ref<DiscoveredImport[]>([])
   const operation = ref<Operation | null>(null)
   const preview = ref<ImportPreview | null>(null)
+  const destinationPlan = ref<ImportDestinationPlan | null>(null)
+  const mappingDraft = ref<ImportDestinationPlanRequest>(emptyMappingRequest())
+  const mappingDirty = ref(true)
   const receipt = ref<ImportReceipt | null>(null)
   const overwriteConfirmed = ref(false)
   const busy = ref<string | null>(null)
@@ -74,20 +89,56 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let pollRequestActive = false
 
+  const sourceProjects = computed(() => {
+    const projects = new Set<string>()
+    for (const artifact of preview.value?.artifacts ?? []) {
+      const [project] = artifact.repository.split('/', 1)
+      if (project) projects.add(project)
+    }
+    return [...projects].sort((left, right) => left.localeCompare(right))
+  })
+
+  const effectiveArtifacts = computed(() => {
+    if (!destinationPlan.value || !preview.value) return []
+    const plannedByIndex = new Map(
+      destinationPlan.value.artifacts.map((artifact) => [artifact.index, artifact]),
+    )
+    return preview.value.artifacts.map((artifact) => {
+      const planned = plannedByIndex.get(artifact.index)
+      if (!planned) return artifact
+      return {
+        ...artifact,
+        classification: planned.classification,
+        target_digest: planned.target_digest,
+        error_code: planned.error_code,
+        message: planned.message,
+        target_project: planned.target_project,
+        target_repository: planned.target_repository,
+        final_reference: planned.final_reference,
+        project_exists: planned.project_exists,
+        write_allowed: planned.write_allowed,
+      }
+    })
+  })
+
   const conflicts = computed(
-    () => preview.value?.artifacts.filter((item) => item.classification === 'CONFLICT') ?? [],
+    () => effectiveArtifacts.value.filter((item) => item.classification === 'CONFLICT'),
   )
   const unresolved = computed(
     () =>
-      preview.value?.artifacts.filter(
+      effectiveArtifacts.value.filter(
         (item) => item.classification === 'UNKNOWN' || item.classification === 'ERROR',
-      ) ?? [],
+      ),
+  )
+  const confirmedPlanReady = computed(
+    () => destinationPlan.value !== null && destinationPlan.value.valid && !mappingDirty.value,
   )
   const canExecuteDefault = computed(
-    () => preview.value !== null && conflicts.value.length === 0 && unresolved.value.length === 0,
+    () => confirmedPlanReady.value && conflicts.value.length === 0 && unresolved.value.length === 0,
   )
   const canExecuteOverwrite = computed(
     () =>
+      confirmedPlanReady.value &&
       preview.value !== null &&
       preview.value.overwrite_allowed &&
       conflicts.value.length > 0 &&
@@ -119,9 +170,74 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     }, POLL_INTERVAL_MS)
   }
 
+  function resetMapping(): void {
+    mappingDraft.value = emptyMappingRequest()
+    destinationPlan.value = null
+    mappingDirty.value = true
+    overwriteConfirmed.value = false
+  }
+
+  function markMappingDirty(): void {
+    mappingDirty.value = true
+    overwriteConfirmed.value = false
+  }
+
+  function setDefaultProject(
+    kind: 'container-image' | 'helm-chart',
+    targetProject: string | null,
+  ): void {
+    mappingDraft.value = {
+      ...mappingDraft.value,
+      [kind === 'container-image' ? 'container_image_project' : 'helm_chart_project']:
+        targetProject || null,
+    }
+    markMappingDirty()
+  }
+
+  function setSourceProjectMapping(sourceProject: string, targetProject: string | null): void {
+    const mappings = { ...mappingDraft.value.project_mappings }
+    if (targetProject) mappings[sourceProject] = targetProject
+    else delete mappings[sourceProject]
+    mappingDraft.value = { ...mappingDraft.value, project_mappings: mappings }
+    markMappingDirty()
+  }
+
+  function setArtifactOverride(index: number, targetProject: string | null): void {
+    const overrides = mappingDraft.value.artifact_overrides.filter((item) => item.index !== index)
+    if (targetProject) overrides.push({ index, target_project: targetProject })
+    overrides.sort((left, right) => left.index - right.index)
+    mappingDraft.value = { ...mappingDraft.value, artifact_overrides: overrides }
+    markMappingDirty()
+  }
+
+  async function validateDestinationPlan(): Promise<boolean> {
+    if (!operation.value || !preview.value || operation.value.status !== 'READY') return false
+    busy.value = 'destination-plan'
+    clearError()
+    try {
+      const plan = await buildImportDestinationPlan(operation.value.id, mappingDraft.value)
+      destinationPlan.value = plan
+      mappingDirty.value = false
+      overwriteConfirmed.value = false
+      return plan.valid
+    } catch (requestError) {
+      error.value = apiErrorInfo(
+        requestError,
+        'Не удалось проверить destination mapping в TARGET Harbor.',
+      )
+      return false
+    } finally {
+      busy.value = null
+    }
+  }
+
   async function loadPreview(operationId: number): Promise<void> {
     try {
-      preview.value = await getImportPreview(operationId)
+      const loaded = await getImportPreview(operationId)
+      if (preview.value?.operation_id !== loaded.operation_id) {
+        resetMapping()
+      }
+      preview.value = loaded
       overwriteConfirmed.value = false
       step.value = 2
     } catch (requestError) {
@@ -198,6 +314,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     saveOperationId(operationId)
     preview.value = null
     receipt.value = null
+    resetMapping()
     clearError()
     await refreshOperation(operationId)
     if (
@@ -215,6 +332,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     clearError()
     preview.value = null
     receipt.value = null
+    resetMapping()
     try {
       const intake = await uploadImportBundle(file, (loaded, total) => {
         uploadProgress.value = { loaded, total: total ?? file.size }
@@ -256,6 +374,13 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
 
   async function execute(overwriteConflicts: boolean): Promise<boolean> {
     if (!preview.value || !operation.value) return false
+    if (!destinationPlan.value || mappingDirty.value || !destinationPlan.value.valid) {
+      error.value = {
+        code: 'import_destination_plan_required',
+        message: 'Сначала подтвердите актуальный destination mapping для TARGET Harbor.',
+      }
+      return false
+    }
     if (unresolved.value.length > 0) {
       error.value = {
         code: 'import_preview_unresolved',
@@ -284,7 +409,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     busy.value = 'execute'
     clearError()
     try {
-      await executeImport(operation.value.id, overwriteConflicts)
+      await executeImport(operation.value.id, overwriteConflicts, destinationPlan.value.plan_id)
       step.value = 3
       await refreshOperation(operation.value.id)
       if (operation.value && IMPORTING_STATES.has(operation.value.status)) {
@@ -335,7 +460,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     operation.value = null
     preview.value = null
     receipt.value = null
-    overwriteConfirmed.value = false
+    resetMapping()
     busy.value = null
     error.value = null
   }
@@ -347,18 +472,28 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     discovered,
     operation,
     preview,
+    destinationPlan,
+    mappingDraft,
+    mappingDirty,
     receipt,
     overwriteConfirmed,
     busy,
     error,
+    sourceProjects,
+    effectiveArtifacts,
     conflicts,
     unresolved,
+    confirmedPlanReady,
     canExecuteDefault,
     canExecuteOverwrite,
     canCancel,
     upload,
     discover,
     selectOperation,
+    validateDestinationPlan,
+    setDefaultProject,
+    setSourceProjectMapping,
+    setArtifactOverride,
     execute,
     cancel,
     refreshOperation,
