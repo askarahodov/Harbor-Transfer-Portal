@@ -64,6 +64,48 @@ export type ImportPreview = {
   artifacts: ImportArtifactPreview[]
 }
 
+export type ImportArtifactDestinationOverride = {
+  index: number
+  target_project: string
+}
+
+export type ImportDestinationPlanRequest = {
+  container_image_project: string | null
+  helm_chart_project: string | null
+  project_mappings: Record<string, string>
+  artifact_overrides: ImportArtifactDestinationOverride[]
+}
+
+export type ImportDestinationArtifactPlan = {
+  index: number
+  artifact_type: string
+  source_repository: string
+  source_project: string
+  name: string | null
+  reference: string | null
+  version: string | null
+  expected_digest: string | null
+  payload_size: number
+  target_project: string | null
+  target_repository: string | null
+  final_reference: string | null
+  project_exists: boolean
+  write_allowed: boolean
+  target_digest: string | null
+  classification: ImportPreviewState
+  error_code: string | null
+  message: string | null
+}
+
+export type ImportDestinationPlan = {
+  operation_id: number
+  bundle_sha256: string
+  plan_id: string
+  created_at: string
+  valid: boolean
+  artifacts: ImportDestinationArtifactPlan[]
+}
+
 export type ImportReceiptArtifact = {
   index: number
   artifact_type: string
@@ -73,6 +115,8 @@ export type ImportReceiptArtifact = {
   version: string | null
   expected_digest: string | null
   target_digest: string | null
+  target_repository: string | null
+  final_reference: string | null
   status: ArtifactStatus
   error_code: string | null
   error_message: string | null
@@ -86,6 +130,7 @@ export type ImportReceipt = {
   started_at: string
   finished_at: string
   overwrite_conflicts: boolean
+  destination_plan_id: string | null
   result: string
   artifacts: ImportReceiptArtifact[]
 }
@@ -116,13 +161,28 @@ export async function getImportPreview(operationId: number): Promise<ImportPrevi
   return response.data
 }
 
+export async function buildImportDestinationPlan(
+  operationId: number,
+  mapping: ImportDestinationPlanRequest,
+): Promise<ImportDestinationPlan> {
+  const response = await apiClient.put<ImportDestinationPlan>(
+    `/imports/${operationId}/destination-plan`,
+    mapping,
+  )
+  return response.data
+}
+
 export async function executeImport(
   operationId: number,
   overwriteConflicts: boolean,
+  destinationPlanId: string | null,
 ): Promise<{ operation_id: number; status: OperationStatus }> {
   const response = await apiClient.post<{ operation_id: number; status: OperationStatus }>(
     `/imports/${operationId}/execute`,
-    { overwrite_conflicts: overwriteConflicts },
+    {
+      overwrite_conflicts: overwriteConflicts,
+      destination_plan_id: destinationPlanId,
+    },
   )
   return response.data
 }
