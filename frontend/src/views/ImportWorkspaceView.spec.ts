@@ -47,7 +47,7 @@ afterEach(() => {
 })
 
 describe('ImportWorkspaceView', () => {
-  it('teleports destination mapping into the verified preview before decision blocks', async () => {
+  it('teleports destination mapping into preview and hides stale identity classification', async () => {
     const auth = useAuthStore()
     auth.user = { id: 1, username: 'operator', role: 'operator', is_active: true }
     auth.initialized = true
@@ -64,6 +64,7 @@ describe('ImportWorkspaceView', () => {
               <section class="panel" aria-labelledby="preview-title">
                 <div class="preview-metadata">metadata</div>
                 <div class="classification-summary">summary</div>
+                <div class="table-wrap">legacy table</div>
                 <div class="actions">actions</div>
               </section>
             `,
@@ -76,12 +77,14 @@ describe('ImportWorkspaceView', () => {
     const panel = document.body.querySelector(".panel[aria-labelledby='preview-title']")
     const mapping = panel?.querySelector('.import-destination-mapping-slot') as HTMLElement | null
     const summary = panel?.querySelector('.classification-summary') as HTMLElement | null
+    const legacyTable = panel?.querySelector('.table-wrap') as HTMLElement | null
     const actions = panel?.querySelector('.actions') as HTMLElement | null
 
     expect(mapping).not.toBeNull()
     expect(mapping?.closest('.panel')).toBe(panel)
     expect(getComputedStyle(mapping!).order).toBe('1')
-    expect(getComputedStyle(summary!).order).toBe('2')
+    expect(getComputedStyle(summary!).display).toBe('none')
+    expect(getComputedStyle(legacyTable!).display).toBe('none')
     expect(getComputedStyle(actions!).order).toBe('2')
 
     wrapper.unmount()
