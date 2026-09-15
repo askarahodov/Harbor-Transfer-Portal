@@ -87,6 +87,11 @@ case "$browser_scheme" in
   http|https) ;;
   *) fail 'PORTAL_BROWSER_SCHEME must be http or https' ;;
 esac
+http_bind=$(sed -n 's/^PORTAL_HTTP_BIND=//p' .env | head -n 1)
+[ -n "$http_bind" ] || http_bind=127.0.0.1
+if [ "$browser_scheme" = http ] && [ "$http_bind" != 127.0.0.1 ]; then
+  fail 'PORTAL_BROWSER_SCHEME=https is required when PORTAL_HTTP_BIND is non-loopback'
+fi
 
 printf 'Loading prebuilt images...\n'
 docker load -i images/backend.tar
@@ -94,7 +99,7 @@ docker load -i images/frontend.tar
 
 backend_image="harbor-transfer-portal-backend:$version"
 frontend_image="harbor-transfer-portal-frontend:$version"
-for image in "$backend_image" "$frontend_image"; do
+for image in "$backend_image" "$FRONTEND_IMAGE"; do
   docker image inspect "$image" >/dev/null 2>&1 || fail "expected local image missing after docker load: $image"
   image_arch=$(docker image inspect --format '{{.Architecture}}' "$image")
   [ "$image_arch" = "$release_arch" ] || fail "local image architecture mismatch for $image: $image_arch"
@@ -110,8 +115,6 @@ esac
 printf 'Starting Harbor Transfer Portal %s...\n' "$version"
 docker compose --env-file .env -f compose.yaml up -d --no-build --pull never --wait --wait-timeout "$timeout"
 
-http_bind=$(sed -n 's/^PORTAL_HTTP_BIND=//p' .env | head -n 1)
-[ -n "$http_bind" ] || http_bind=127.0.0.1
 http_port=$(sed -n 's/^PORTAL_HTTP_PORT=//p' .env | head -n 1)
 [ -n "$http_port" ] || http_port=8080
 contour=$(sed -n 's/^PORTAL_CONTOUR=//p' .env | head -n 1)
