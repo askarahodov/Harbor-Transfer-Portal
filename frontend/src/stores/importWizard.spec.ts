@@ -9,6 +9,7 @@ import { useImportWizardStore } from './importWizard'
 const SOURCE_DIGEST = `sha256:${'a'.repeat(64)}`
 const TARGET_DIGEST = `sha256:${'b'.repeat(64)}`
 const PLAN_ID = 'e'.repeat(64)
+const PLAN_HASH = 'f'.repeat(64)
 
 function operation(status: Operation['status'], id = 51): Operation {
   return {
@@ -109,8 +110,11 @@ function destinationPlan(
 ): ImportDestinationPlan {
   return {
     operation_id: 51,
+    source_delivery_id: 'DELIVERY-20260914-IMPORT01',
+    actor_username: 'operator',
     bundle_sha256: 'c'.repeat(64),
     plan_id: planId,
+    plan_hash: PLAN_HASH,
     created_at: '2026-09-14T05:02:30Z',
     valid: ['NEW', 'SAME', 'CONFLICT'].includes(classification),
     artifacts: [
@@ -209,6 +213,7 @@ describe('import wizard store', () => {
     expect(await store.validateDestinationPlan()).toBe(true)
     expect(store.confirmedPlanReady).toBe(true)
     expect(store.destinationPlan?.plan_id).toBe(PLAN_ID)
+    expect(store.destinationPlan?.plan_hash).toBe(PLAN_HASH)
 
     store.setSourceProjectMapping('project', 'other-target')
     expect(store.mappingDirty).toBe(true)
@@ -268,6 +273,7 @@ describe('import wizard store', () => {
       finished_at: '2026-09-14T05:05:00Z',
       overwrite_conflicts: false,
       destination_plan_id: PLAN_ID,
+      destination_plan_hash: PLAN_HASH,
       result: 'FAILED',
       artifacts: [],
     })
@@ -283,5 +289,6 @@ describe('import wizard store', () => {
     expect(store.operation?.status).toBe('FAILED')
     expect(store.receipt?.result).toBe('FAILED')
     expect(store.receipt?.destination_plan_id).toBe(PLAN_ID)
+    expect(store.receipt?.destination_plan_hash).toBe(PLAN_HASH)
   })
 })
