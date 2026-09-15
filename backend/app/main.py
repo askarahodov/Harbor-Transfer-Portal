@@ -15,9 +15,13 @@ from app.db.session import create_db_engine, create_session_factory
 from app.services.correlated_operation_manager import CorrelatedOperationManager
 from app.services.export_recovery import reconcile_incomplete_export_publications
 from app.services.operation_audit import install_operation_audit_hooks
-from app.services.runtime_mode import RuntimeModeService
+from app.services.runtime_mode import RuntimeModeError, RuntimeModeService
 from app.services.transfer_policy import TransferPolicyService
-from app.utils.errors import http_exception_handler, validation_exception_handler
+from app.utils.errors import (
+    http_exception_handler,
+    runtime_mode_exception_handler,
+    validation_exception_handler,
+)
 from app.utils.logging import RequestCorrelationMiddleware, configure_application_logging
 
 ExceptionHandler = Callable[[Request, Exception], Response | Awaitable[Response]]
@@ -64,6 +68,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(
         RequestValidationError,
         cast(ExceptionHandler, validation_exception_handler),
+    )
+    app.add_exception_handler(
+        RuntimeModeError,
+        cast(ExceptionHandler, runtime_mode_exception_handler),
     )
 
     if resolved_settings.cors_origins:

@@ -277,7 +277,7 @@ def test_failed_operation_without_artifacts_still_has_report_row(tmp_path: Path)
 def test_reports_require_auth_terminal_state_and_existing_operation(tmp_path: Path) -> None:
     app, user_ids = _app_with_users(tmp_path)
     operation_id = app.state.operation_manager.create_operation(
-        operation_type=OperationType.EXPORT,
+        operation_type=OperationType.IMPORT,
         actor_user_id=user_ids["operator"],
         actor_username="operator",
     )

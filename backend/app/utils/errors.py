@@ -5,6 +5,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.services.runtime_mode import RuntimeModeError
+
 
 def _response(status_code: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(
@@ -39,3 +41,10 @@ async def validation_exception_handler(
     _request: Request, _exc: RequestValidationError
 ) -> JSONResponse:
     return _response(422, "validation_error", "Request validation failed")
+
+
+async def runtime_mode_exception_handler(
+    _request: Request, exc: RuntimeModeError
+) -> JSONResponse:
+    status_code = 500 if exc.code == "runtime_mode_invalid" else 409
+    return _response(status_code, exc.code, exc.message)

@@ -191,5 +191,6 @@ def test_runtime_mode_switch_writes_audit_event_and_noop_is_idempotent(tmp_path:
         assert events[0].actor_username == "operator"
         assert json.loads(events[0].metadata_json) == {
             "current": "TARGET",
+            "mode_version": 2,
             "previous": "SOURCE",
         }
