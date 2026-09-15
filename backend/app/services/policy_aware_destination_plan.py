@@ -43,7 +43,8 @@ class PolicyAwareImportDestinationPlanOrchestrator(ImportDestinationPlanOrchestr
             if "retry" in policy:
                 raise ImportOrchestrationError(
                     "import_retry_mapping_immutable",
-                    "Retry operation привязана к исходному destination plan; для другого mapping создайте новый Preview/import",
+                    "Retry operation привязана к исходному destination plan; "
+                    "для другого mapping создайте новый Preview/import",
                 )
         if operation is not None and operation.worker_token is not None:
             raise ImportOrchestrationError(
