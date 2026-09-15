@@ -4,14 +4,20 @@ services:
   backend:
     image: harbor-transfer-portal-backend:${PORTAL_VERSION}
     pull_policy: never
+    network_mode: host
     env_file:
       - .env
     environment:
       PORTAL_CONTOUR: ${PORTAL_CONTOUR:-SOURCE}
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8000"
     volumes:
       - portal-data:/app/data
-    expose:
-      - "8000"
     restart: unless-stopped
     logging:
       driver: json-file
@@ -32,10 +38,11 @@ services:
   frontend:
     image: harbor-transfer-portal-frontend:${PORTAL_VERSION}
     pull_policy: never
+    network_mode: host
     environment:
       PORTAL_CONTOUR: ${PORTAL_CONTOUR:-SOURCE}
-    ports:
-      - "${PORTAL_HTTP_BIND:-127.0.0.1}:${PORTAL_HTTP_PORT:-8080}:80"
+      PORTAL_HTTP_BIND: ${PORTAL_HTTP_BIND:-127.0.0.1}
+      PORTAL_HTTP_PORT: ${PORTAL_HTTP_PORT:-8080}
     depends_on:
       backend:
         condition: service_healthy
@@ -46,7 +53,9 @@ services:
         max-size: "${PORTAL_LOG_MAX_SIZE:-10m}"
         max-file: "${PORTAL_LOG_MAX_FILES:-5}"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      test:
+        - CMD-SHELL
+        - "wget -q -O /dev/null http://$${PORTAL_HTTP_BIND}:$${PORTAL_HTTP_PORT}/healthz"
       interval: 10s
       timeout: 3s
       retries: 6
