@@ -12,6 +12,10 @@ import {
 } from 'lucide-vue-next'
 
 import type { OperationArtifact, OperationStatus } from '@/api/exports'
+import {
+  formatDateTimeLocale as formatDate,
+  shortDigest as formatShortDigest,
+} from '@/presentation/format'
 import { useHistoryStore } from '@/stores/history'
 
 const history = useHistoryStore()
@@ -44,15 +48,8 @@ const hasFilters = computed(() =>
   ),
 )
 
-function formatDate(value: string | null | undefined): string {
-  if (!value) return '—'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('ru-RU')
-}
-
 function shortDigest(value: string | null | undefined): string {
-  if (!value) return '—'
-  return value.length <= 24 ? value : `${value.slice(0, 16)}…${value.slice(-8)}`
+  return formatShortDigest(value, { maxLength: 24, headLength: 16, tailLength: 8 })
 }
 
 function artifactLabel(item: OperationArtifact): string {
