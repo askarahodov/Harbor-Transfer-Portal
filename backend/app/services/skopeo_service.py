@@ -23,6 +23,7 @@ _DIGEST_PATTERN = r"sha256:[a-f0-9]{64}"
 _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
 _TAG_PATTERN = r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}"
 _OCI_REFERENCE = "image"
+_PERSISTED_DIAGNOSTIC_LIMIT = 512
 
 
 class SkopeoPhase(StrEnum):
@@ -314,7 +315,7 @@ class SkopeoService:
             if result.returncode != 0:
                 if self._is_not_found(result.stderr):
                     return TargetInspection(TargetState.ABSENT, None)
-                self._raise_command_error(result)
+                self._raise_command_error(result, security)
             inspection = self._parse_inspection(result.stdout)
             if expected_digest is None:
                 state = TargetState.PRESENT
@@ -359,7 +360,7 @@ class SkopeoService:
     ) -> CommandResult:
         result = await self._run(argv, security)
         if result.returncode != 0:
-            self._raise_command_error(result)
+            self._raise_command_error(result, security)
         return result
 
     async def _run(
@@ -505,21 +506,51 @@ class SkopeoService:
         )
 
     @staticmethod
-    def _raise_command_error(result: CommandResult) -> None:
-        lowered = result.stderr.casefold()
+    def _diagnostic(stderr: str, security: _SecurityContext) -> str:
+        redacted = _redact(stderr, security.redact_values)
+        compact = " ".join(redacted.split())
+        if len(compact) <= _PERSISTED_DIAGNOSTIC_LIMIT:
+            return compact
+        return compact[: _PERSISTED_DIAGNOSTIC_LIMIT - 3] + "..."
+
+    @staticmethod
+    def _raise_command_error(
+        result: CommandResult,
+        security: _SecurityContext,
+    ) -> None:
+        stderr = _redact(result.stderr, security.redact_values)
+        lowered = stderr.casefold()
         auth_markers = ("unauthorized", "authentication required", "denied")
+        include_diagnostic = False
         if any(marker in lowered for marker in auth_markers):
             code = "skopeo_auth_failed"
             message = "Harbor отклонил аутентификацию Skopeo"
         elif any(marker in lowered for marker in ("x509", "certificate", "tls handshake")):
             code = "skopeo_tls_failed"
             message = "Skopeo не смог проверить TLS локального Harbor"
-        elif SkopeoService._is_not_found(result.stderr):
+        elif SkopeoService._is_not_found(stderr):
             code = "skopeo_not_found"
             message = "Запрошенный OCI artifact не найден"
+        elif any(
+            marker in lowered
+            for marker in (
+                "instructed to preserve digests",
+                "cannot preserve digest",
+                "cannot preserve the digest",
+            )
+        ):
+            code = "skopeo_digest_preservation_failed"
+            message = "Skopeo не смог сохранить OCI digest при копировании"
+            include_diagnostic = True
         else:
             code = "skopeo_command_failed"
             message = "Skopeo завершился с ошибкой"
+            include_diagnostic = True
+
+        if include_diagnostic:
+            diagnostic = SkopeoService._diagnostic(stderr, security)
+            if diagnostic:
+                message = f"{message}: {diagnostic}"
         raise SkopeoServiceError(code, message)
 
     def _security_context(self, harbor: EffectiveHarborSettings):

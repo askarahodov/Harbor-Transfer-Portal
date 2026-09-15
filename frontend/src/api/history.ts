@@ -2,17 +2,21 @@ import { apiClient } from '@/api/client'
 import {
   apiErrorInfo,
   createExportDownloadTicket,
-  getOperation,
   type ApiErrorInfo,
-  type Operation,
+  type Operation as BaseOperation,
   type OperationBundle,
   type OperationStatus,
   type OperationType,
 } from '@/api/exports'
 import { getImportReceipt, type ImportReceipt } from '@/api/imports'
 
-export { apiErrorInfo, createExportDownloadTicket, getImportReceipt, getOperation }
-export type { ApiErrorInfo, ImportReceipt, Operation, OperationStatus, OperationType }
+export { apiErrorInfo, createExportDownloadTicket, getImportReceipt }
+export type { ApiErrorInfo, ImportReceipt, OperationStatus, OperationType }
+
+export type Operation = BaseOperation & {
+  retry_of_operation_id: number | null
+  failure_policy: string | null
+}
 
 export type OperationReportFormat = 'csv' | 'pdf'
 
@@ -23,6 +27,8 @@ export type OperationSummary = {
   status: OperationStatus
   actor_username: string
   comment: string | null
+  retry_of_operation_id: number | null
+  failure_policy: string | null
   created_at: string
   started_at: string | null
   finished_at: string | null
@@ -86,6 +92,11 @@ export async function listOperationHistory(
       ...(isoOrUndefined(filters.createdTo) ? { created_to: isoOrUndefined(filters.createdTo) } : {}),
     },
   })
+  return response.data
+}
+
+export async function getOperation(operationId: number): Promise<Operation> {
+  const response = await apiClient.get<Operation>(`/operations/${operationId}`)
   return response.data
 }
 

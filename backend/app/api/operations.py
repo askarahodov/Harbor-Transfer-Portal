@@ -10,6 +10,7 @@ from app.db.models import Operation, UserRole
 from app.db.repositories import AuditEventRepository, OperationRepository
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.domain.operations import TERMINAL_STATES
+from app.schemas.import_retries import retry_lineage_from_policy
 from app.schemas.operations import (
     OperationArtifactResponse,
     OperationBundleResponse,
@@ -43,6 +44,7 @@ def _serialize_bundle(operation: Operation) -> OperationBundleResponse | None:
 
 
 def _serialize_summary(operation: Operation) -> OperationSummaryResponse:
+    lineage = retry_lineage_from_policy(operation.import_policy_json)
     return OperationSummaryResponse(
         id=operation.id,
         delivery_id=operation.delivery_id,
@@ -50,6 +52,8 @@ def _serialize_summary(operation: Operation) -> OperationSummaryResponse:
         status=operation.status,
         actor_username=operation.actor_username,
         comment=operation.comment,
+        retry_of_operation_id=(lineage.retry_of_operation_id if lineage else None),
+        failure_policy=(lineage.failure_policy if lineage else None),
         created_at=operation.created_at,
         started_at=operation.started_at,
         finished_at=operation.finished_at,
@@ -78,6 +82,7 @@ def _serialize_operation(operation: Operation) -> OperationResponse:
         }
         for artifact in artifacts
     )
+    lineage = retry_lineage_from_policy(operation.import_policy_json)
     return OperationResponse(
         id=operation.id,
         delivery_id=operation.delivery_id,
@@ -85,6 +90,8 @@ def _serialize_operation(operation: Operation) -> OperationResponse:
         status=operation.status,
         actor_username=operation.actor_username,
         comment=operation.comment,
+        retry_of_operation_id=(lineage.retry_of_operation_id if lineage else None),
+        failure_policy=(lineage.failure_policy if lineage else None),
         started_at=operation.started_at,
         finished_at=operation.finished_at,
         error_code=operation.error_code,

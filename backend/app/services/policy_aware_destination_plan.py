@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import update
@@ -7,7 +9,14 @@ from sqlalchemy.engine import CursorResult
 
 from app.db.models import Operation
 from app.domain.bundle import OperationStatus, OperationType
-from app.schemas.imports import ImportDestinationPlanRequest, ImportDestinationPlanResponse
+from app.schemas.import_retries import retry_lineage_from_policy
+from app.schemas.imports import (
+    ImportDestinationPlanRequest,
+    ImportDestinationPlanResponse,
+    ImportPreviewResponse,
+    ImportReceiptArtifactResponse,
+    ImportReceiptResponse,
+)
 from app.services.artifact_mapping_snapshot import persist_artifact_mapping_snapshot
 from app.services.destination_mapping_policy import DestinationMappingPolicyService
 from app.services.import_destination_plan import (
@@ -34,6 +43,14 @@ class PolicyAwareImportDestinationPlanOrchestrator(ImportDestinationPlanOrchestr
                 "import_destination_plan_stale",
                 "Import worker уже захватил operation; destination plan больше нельзя менять",
             )
+        if operation is not None and getattr(operation, "import_policy_json", None) is not None:
+            policy = self._policy_object(operation)
+            if "retry" in policy:
+                raise ImportOrchestrationError(
+                    "import_retry_mapping_immutable",
+                    "Retry operation привязана к исходному destination plan; "
+                    "для другого mapping создайте новый Preview/import",
+                )
         with self.session_factory() as session:
             effective_mapping = DestinationMappingPolicyService(session).resolve_request(mapping)
         return await super().build_destination_plan(
@@ -107,3 +124,80 @@ class PolicyAwareImportDestinationPlanOrchestrator(ImportDestinationPlanOrchestr
                 "import_destination_plan_stale",
                 "Import execution уже начался либо bundle/delivery изменились; plan не сохранён",
             )
+
+    def _write_receipt(
+        self,
+        operation_id: int,
+        preview: ImportPreviewResponse,
+        overwrite: bool,
+        requested_at: datetime,
+        failures: int,
+    ) -> None:
+        plan = self.destination_plan(operation_id)
+        now = datetime.now(UTC)
+        with self.session_factory() as session:
+            operation = session.get(Operation, operation_id)
+            if operation is None:
+                raise OperationTaskFailure(
+                    "import_operation_not_found",
+                    "Operation отсутствует при формировании receipt",
+                )
+            rows = sorted(operation.artifacts, key=lambda item: item.id)
+            if len(rows) != len(plan.artifacts):
+                raise OperationTaskFailure(
+                    "import_destination_plan_tampered",
+                    "Destination plan не совпадает с persisted artifact rows",
+                )
+            lineage = retry_lineage_from_policy(operation.import_policy_json)
+            receipt = ImportReceiptResponse(
+                operation_id=operation.id,
+                source_delivery_id=preview.source_delivery_id,
+                bundle_sha256=preview.bundle_sha256,
+                actor_username=operation.actor_username,
+                started_at=requested_at,
+                finished_at=now,
+                overwrite_conflicts=overwrite,
+                destination_plan_id=plan.plan_id,
+                destination_plan_hash=plan.plan_hash,
+                retry_of_operation_id=(lineage.retry_of_operation_id if lineage else None),
+                failure_policy=(lineage.failure_policy if lineage else None),
+                result="FAILED" if failures else "COMPLETED",
+                artifacts=[
+                    ImportReceiptArtifactResponse(
+                        index=index,
+                        artifact_type=row.artifact_type,
+                        repository=row.repository,
+                        name=row.name,
+                        reference=row.reference,
+                        version=row.version,
+                        expected_digest=row.source_digest,
+                        target_digest=row.target_digest,
+                        target_repository=planned.target_repository,
+                        final_reference=planned.final_reference,
+                        status=row.status,
+                        error_code=row.error_code,
+                        error_message=row.error_message,
+                    )
+                    for index, (row, planned) in enumerate(
+                        zip(rows, plan.artifacts, strict=True)
+                    )
+                ],
+            )
+            payload = receipt.model_dump_json(indent=2) + "\n"
+            operation.import_receipt_json = receipt.model_dump_json()
+            session.commit()
+
+        self.receipt_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path = self.receipt_root / f"import-{operation_id}.json"
+        try:
+            with path.open("x", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(path, 0o440)
+            self._fsync_directory(self.receipt_root)
+        except FileExistsError as exc:
+            raise OperationTaskFailure(
+                "import_receipt_exists",
+                "Immutable import receipt уже существует",
+            ) from exc

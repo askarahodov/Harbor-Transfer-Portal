@@ -110,6 +110,14 @@ export type ImportDestinationPlan = {
   artifacts: ImportDestinationArtifactPlan[]
 }
 
+export type ImportRetry = {
+  operation_id: number
+  retry_of_operation_id: number
+  status: OperationStatus
+  failure_policy: 'continue-on-error'
+  destination_plan: ImportDestinationPlan
+}
+
 export type ImportReceiptArtifact = {
   index: number
   artifact_type: string
@@ -136,6 +144,8 @@ export type ImportReceipt = {
   overwrite_conflicts: boolean
   destination_plan_id: string | null
   destination_plan_hash?: string | null
+  retry_of_operation_id?: number | null
+  failure_policy?: string | null
   result: string
   artifacts: ImportReceiptArtifact[]
 }
@@ -174,6 +184,16 @@ export async function buildImportDestinationPlan(
     `/imports/${operationId}/destination-plan`,
     mapping,
   )
+  return response.data
+}
+
+export async function prepareImportRetry(
+  operationId: number,
+  destinationPlanId: string,
+): Promise<ImportRetry> {
+  const response = await apiClient.post<ImportRetry>(`/imports/${operationId}/retry`, {
+    destination_plan_id: destinationPlanId,
+  })
   return response.data
 }
 
