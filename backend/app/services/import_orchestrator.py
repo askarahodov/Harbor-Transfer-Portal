@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import PortalContour, Settings
@@ -29,7 +28,6 @@ from app.schemas.imports import (
     ImportPreviewResponse,
     ImportReceiptArtifactResponse,
     ImportReceiptResponse,
-    ImportRetryResponse,
 )
 from app.services.bundle_package_service import BundlePackageError, BundlePackageService
 from app.services.helm_oci_service import (
@@ -88,8 +86,12 @@ class ImportOrchestrator:
         self.settings = settings
         self.operation_manager = operation_manager
         self.package_factory = package_factory or (lambda: BundlePackageService(settings))
-        self.skopeo_factory = skopeo_factory or (lambda session: SkopeoService(session, settings))
-        self.helm_factory = helm_factory or (lambda session: HelmOciService(session, settings))
+        self.skopeo_factory = skopeo_factory or (
+            lambda session: SkopeoService(session, settings)
+        )
+        self.helm_factory = helm_factory or (
+            lambda session: HelmOciService(session, settings)
+        )
         self.discovery_root = settings.import_discovery_root.resolve()
         self.staging_root = settings.import_staging_root.resolve()
         self.receipt_root = settings.import_receipt_root.resolve()
@@ -306,107 +308,6 @@ class ImportOrchestrator:
         except OperationManagerError as exc:
             raise ImportOrchestrationError(exc.code, exc.message) from exc
 
-    async def retry_import(
-        self,
-        original_operation_id: int,
-        actor_username: str,
-        overwrite_conflicts: bool,
-    ) -> ImportRetryResponse:
-        self._require_target()
-        with self.session_factory() as session:
-            original = session.get(Operation, original_operation_id)
-            if original is None or original.type is not OperationType.IMPORT:
-                raise ImportOrchestrationError(
-                    "import_operation_not_found",
-                    "Исходная операция не найдена",
-                )
-            if original.status not in {
-                OperationStatus.FAILED,
-                OperationStatus.COMPLETED,
-                OperationStatus.CANCELLED,
-            }:
-                raise ImportOrchestrationError(
-                    "import_not_retryable",
-                    "Повторный запуск возможен только для терминальной операции",
-                )
-            if original.import_preview_json is None or original.bundle_sha256 is None:
-                raise ImportOrchestrationError(
-                    "import_preview_not_ready",
-                    "Verified preview отсутствует у исходной операции",
-                )
-            if original.retry_of_operation_id is not None:
-                raise ImportOrchestrationError(
-                    "import_already_retry",
-                    "Эта операция уже является retry",
-                )
-            preview = ImportPreviewResponse.model_validate_json(original.import_preview_json)
-
-        # Create new operation linked to the original
-        new_operation = Operation(
-            type=OperationType.IMPORT,
-            status=OperationStatus.READY,
-            actor_username=actor_username,
-            actor_user_id=original.actor_user_id,
-            delivery_id=original.delivery_id,
-            runtime_mode=original.runtime_mode,
-            runtime_mode_version=original.runtime_mode_version,
-            retry_of_operation_id=original_operation_id,
-            destination_plan_id=original.destination_plan_id,
-            destination_plan_hash=original.destination_plan_hash,
-            failure_policy=original.failure_policy or "continue",
-            comment=f"retry of operation {original_operation_id}",
-        )
-        with self.session_factory() as session:
-            session.add(new_operation)
-            session.flush()
-            new_operation_id = new_operation.id
-            session.commit()
-
-        # Persist preview and artifacts for the new operation
-        operation_context = OperationContext(
-            self.operation_manager, new_operation_id, secrets.token_hex(16)
-        )
-        self._persist_preview(new_operation_id, preview)
-
-        # Copy artifact source/target mapping from original artifacts
-        with self.session_factory() as session:
-            original_artifacts = session.scalars(
-                select(ArtifactResult).where(ArtifactResult.operation_id == original_operation_id)
-            ).all()
-            for orig_artifact in original_artifacts:
-                retry_artifact = ArtifactResult(
-                    operation_id=new_operation_id,
-                    artifact_type=orig_artifact.artifact_type,
-                    repository=orig_artifact.repository,
-                    name=orig_artifact.name,
-                    reference=orig_artifact.reference,
-                    version=orig_artifact.version,
-                    source_digest=orig_artifact.source_digest,
-                    source_project=orig_artifact.source_project,
-                    source_repository=orig_artifact.source_repository,
-                    source_reference=orig_artifact.source_reference,
-                    target_project=orig_artifact.target_project,
-                    target_repository=orig_artifact.target_repository,
-                    target_reference=orig_artifact.target_reference,
-                    destination_plan_id=orig_artifact.destination_plan_id,
-                    status=ArtifactStatus.PENDING,
-                )
-                session.add(retry_artifact)
-            session.commit()
-
-        operation_context.transition(OperationStatus.READY)
-        return ImportRetryResponse(
-            operation_id=new_operation_id,
-            retry_of_operation_id=original_operation_id,
-            status=OperationStatus.READY,
-            destination_plan_id=original.destination_plan_id,
-            artifact_count=len(preview.artifacts),
-            message=(
-                f"Retry создан как операция #{new_operation_id}, "
-                f"связанная с исходной #{original_operation_id}"
-            ),
-        )
-
     def _submit_preview(self, operation_id: int) -> None:
         try:
             self.operation_manager.submit(
@@ -551,14 +452,7 @@ class ImportOrchestrator:
 
     async def _import_worker(self, context: OperationContext, operation_id: int) -> None:
         context.transition(OperationStatus.IMPORTING)
-        (
-            operation,
-            preview,
-            overwrite,
-            requested_at,
-            is_retry,
-            original_operation_id,
-        ) = self._load_execution_state(operation_id)
+        operation, preview, overwrite, requested_at = self._load_execution_state(operation_id)
         archive, sidecar = self._bundle_paths(operation_id)
         observed_sha = await asyncio.to_thread(self._sha256_file, archive)
         if observed_sha != operation.bundle_sha256 or observed_sha != preview.bundle_sha256:
@@ -599,18 +493,6 @@ class ImportOrchestrator:
                 "Состав operation artifacts не совпадает с manifest",
             )
 
-        # Build original artifact results map for retry revalidation
-        original_results: dict[int, ArtifactResult] = {}
-        if is_retry and original_operation_id is not None:
-            with self.session_factory() as session:
-                original_artifacts = session.scalars(
-                    select(ArtifactResult).where(
-                        ArtifactResult.operation_id == original_operation_id
-                    )
-                ).all()
-                for orig in original_artifacts:
-                    original_results[orig.id] = orig
-
         failures = 0
         context.set_progress(current=0, total=len(artifacts))
         with self.session_factory() as session:
@@ -619,38 +501,6 @@ class ImportOrchestrator:
             pairs = zip(artifacts, verified.manifest.artifacts, strict=True)
             for index, (row, descriptor) in enumerate(pairs):
                 context.raise_if_cancelled()
-
-                # Retry revalidation: check if artifact was already imported
-                if is_retry and row.id in original_results:
-                    orig_result = original_results[row.id]
-                    if orig_result.status in {
-                        ArtifactStatus.IMPORTED,
-                        ArtifactStatus.SKIPPED,
-                    }:
-                        # Revalidate target state
-                        try:
-                            outcome = await self._preflight_target(descriptor, skopeo, helm)
-                        except (SkopeoServiceError, HelmServiceError, ValueError):
-                            outcome = (ImportPreviewState.UNKNOWN, None)
-
-                        if outcome[0] is ImportPreviewState.SAME:
-                            context.set_artifact_status(
-                                row.id,
-                                ArtifactStatus.SKIPPED,
-                                target_digest=outcome[1],
-                            )
-                            context.set_progress(current=index + 1, total=len(artifacts))
-                            continue
-                        elif outcome[0] is ImportPreviewState.CONFLICT:
-                            context.set_artifact_status(
-                                row.id,
-                                ArtifactStatus.CONFLICT,
-                                target_digest=outcome[1],
-                            )
-                            failures += 1
-                            context.set_progress(current=index + 1, total=len(artifacts))
-                            continue
-
                 try:
                     outcome = await self._preflight_target(descriptor, skopeo, helm)
                 except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
@@ -739,7 +589,7 @@ class ImportOrchestrator:
                 context.set_progress(current=index + 1, total=len(artifacts))
 
         context.transition(OperationStatus.VERIFYING_TARGET)
-        self._write_receipt(operation_id, preview, overwrite, requested_at, failures, is_retry)
+        self._write_receipt(operation_id, preview, overwrite, requested_at, failures)
         if failures:
             raise OperationTaskFailure(
                 "import_partial_failure",
@@ -780,7 +630,7 @@ class ImportOrchestrator:
     def _load_execution_state(
         self,
         operation_id: int,
-    ) -> tuple[Operation, ImportPreviewResponse, bool, datetime, bool, int | None]:
+    ) -> tuple[Operation, ImportPreviewResponse, bool, datetime]:
         with self.session_factory() as session:
             operation = session.get(Operation, operation_id)
             if (
@@ -799,12 +649,10 @@ class ImportOrchestrator:
             policy = json.loads(operation.import_policy_json)
             requested_at = datetime.fromisoformat(policy["requested_at"])
             overwrite = bool(policy.get("overwrite_conflicts", False))
-            is_retry = operation.retry_of_operation_id is not None
-            original_operation_id = operation.retry_of_operation_id
             session.expunge(operation)
             for artifact in operation.artifacts:
                 session.expunge(artifact)
-            return operation, preview, overwrite, requested_at, is_retry, original_operation_id
+            return operation, preview, overwrite, requested_at
 
     def _persist_preview(self, operation_id: int, preview: ImportPreviewResponse) -> None:
         with self.session_factory() as session:
@@ -850,7 +698,6 @@ class ImportOrchestrator:
         overwrite: bool,
         requested_at: datetime,
         failures: int,
-        is_retry: bool = False,
     ) -> None:
         now = datetime.now(UTC)
         with self.session_factory() as session:
@@ -869,10 +716,6 @@ class ImportOrchestrator:
                 started_at=requested_at,
                 finished_at=now,
                 overwrite_conflicts=overwrite,
-                destination_plan_id=operation.destination_plan_id,
-                destination_plan_hash=operation.destination_plan_hash,
-                retry_of_operation_id=operation.retry_of_operation_id,
-                failure_policy=operation.failure_policy,
                 result="FAILED" if failures else "COMPLETED",
                 artifacts=[
                     ImportReceiptArtifactResponse(
@@ -884,20 +727,9 @@ class ImportOrchestrator:
                         version=item.version,
                         expected_digest=item.source_digest,
                         target_digest=item.target_digest,
-                        source_project=item.source_project,
-                        source_repository=item.source_repository,
-                        source_reference=item.source_reference,
-                        source_digest=item.source_digest,
-                        target_project=item.target_project,
-                        target_repository=item.target_repository,
-                        target_reference=item.target_reference,
-                        artifact_kind=item.artifact_type,
-                        result=item.status.value,
+                        status=item.status,
                         error_code=item.error_code,
                         error_message=item.error_message,
-                        size_bytes=item.size_bytes,
-                        destination_plan_id=item.destination_plan_id,
-                        overwrite_decision=("overwrite" if overwrite else "deny"),
                     )
                     for index, item in enumerate(artifacts)
                 ],

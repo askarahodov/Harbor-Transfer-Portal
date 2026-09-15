@@ -98,12 +98,6 @@ class Operation(TimestampMixin, Base):
     import_preview_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     import_policy_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     import_receipt_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    retry_of_operation_id: Mapped[int | None] = mapped_column(
-        ForeignKey("operations.id", ondelete="SET NULL"), nullable=True, index=True
-    )
-    destination_plan_id: Mapped[str | None] = mapped_column(String(96), nullable=True)
-    destination_plan_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    failure_policy: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     artifacts: Mapped[list["ArtifactResult"]] = relationship(
         back_populates="operation",
@@ -145,15 +139,6 @@ class ArtifactResult(Base):
     size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    source_project: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    source_repository: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    source_reference: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    source_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    target_project: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    target_repository: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    target_reference: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    target_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    destination_plan_id: Mapped[str | None] = mapped_column(String(96), nullable=True)
 
     operation: Mapped[Operation] = relationship(back_populates="artifacts")
 

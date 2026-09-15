@@ -15,8 +15,6 @@ from app.schemas.imports import (
     ImportIntakeResponse,
     ImportPreviewResponse,
     ImportReceiptResponse,
-    ImportRetryRequest,
-    ImportRetryResponse,
     ImportStartResponse,
 )
 from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
@@ -65,8 +63,6 @@ def _import_error(exc: ImportOrchestrationError) -> HTTPException:
         "import_preview_unresolved": status.HTTP_409_CONFLICT,
         "import_conflict_blocked": status.HTTP_409_CONFLICT,
         "import_overwrite_disabled": status.HTTP_403_FORBIDDEN,
-        "import_not_retryable": status.HTTP_409_CONFLICT,
-        "import_already_retry": status.HTTP_409_CONFLICT,
         "import_destination_plan_not_ready": status.HTTP_409_CONFLICT,
         "import_destination_plan_required": status.HTTP_409_CONFLICT,
         "import_destination_plan_stale": status.HTTP_409_CONFLICT,
@@ -139,7 +135,8 @@ def _audit_import_start(
 ) -> None:
     operation = orchestrator.operation_manager.get_operation(operation_id)
     conflict_count = sum(
-        item.classification is ImportPreviewState.CONFLICT for item in destination_plan.artifacts
+        item.classification is ImportPreviewState.CONFLICT
+        for item in destination_plan.artifacts
     )
     metadata: dict[str, object] = {
         "operation_id": operation_id,
@@ -164,7 +161,9 @@ def _audit_import_start(
             event_type="import.overwrite.approved",
             result="approved",
             metadata={
-                key: value for key, value in metadata.items() if key != "overwrite_conflicts"
+                key: value
+                for key, value in metadata.items()
+                if key != "overwrite_conflicts"
             },
         )
     session.commit()
@@ -329,26 +328,3 @@ def download_import_receipt(
             "X-Content-Type-Options": "nosniff",
         },
     )
-
-
-@router.post(
-    "/{operation_id}/retry",
-    response_model=ImportRetryResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def retry_import(
-    operation_id: int,
-    payload: ImportRetryRequest,
-    actor: ImportActorDep,
-    orchestrator: ImportOrchestratorDep,
-    session: SessionDep,
-) -> ImportRetryResponse:
-    _authorize_operation(orchestrator, operation_id, actor)
-    try:
-        return await orchestrator.retry_import(
-            original_operation_id=operation_id,
-            actor_username=actor.username,
-            overwrite_conflicts=payload.overwrite_conflicts,
-        )
-    except ImportOrchestrationError as exc:
-        raise _import_error(exc) from exc
