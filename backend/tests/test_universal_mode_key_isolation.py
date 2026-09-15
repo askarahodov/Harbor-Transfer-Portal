@@ -225,7 +225,10 @@ def test_mode_specific_key_mutations_fail_closed_after_switch(tmp_path: Path) ->
             headers=headers,
         )
         assert blocked_signing.status_code == 409
-        assert blocked_signing.json()["error"]["code"] == "key_management_wrong_contour"
+        assert (
+            blocked_signing.json()["error"]["code"]
+            == "key_management_wrong_contour"
+        )
         assert signing_path.read_bytes() == signing_before
 
         added = client.post(
@@ -243,7 +246,10 @@ def test_mode_specific_key_mutations_fail_closed_after_switch(tmp_path: Path) ->
             headers=headers,
         )
         assert blocked_trust.status_code == 409
-        assert blocked_trust.json()["error"]["code"] == "key_management_wrong_contour"
+        assert (
+            blocked_trust.json()["error"]["code"]
+            == "key_management_wrong_contour"
+        )
         assert _directory_snapshot(app.state.settings.bundle_trusted_public_keys_dir) == trust_before
 
 
