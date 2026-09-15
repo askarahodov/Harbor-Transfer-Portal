@@ -129,7 +129,7 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.text()).toContain('CONFLICT — другой digest, заблокирован')
     expect(wrapper.text()).toContain('package verified')
     expect(wrapper.text()).toContain('не означает')
-    expect(wrapper.text()).toContain('Destination mapping')
+    expect(wrapper.get('#mapping-title').text()).toContain('Куда импортировать артефакты')
     expect(wrapper.text()).toContain('Проверить destination plan')
 
     const defaultImportButton = wrapper.findAll('button').find((item) =>
