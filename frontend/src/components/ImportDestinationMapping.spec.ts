@@ -103,8 +103,11 @@ function preview(): ImportPreview {
 function plan(): ImportDestinationPlan {
   return {
     operation_id: 91,
+    source_delivery_id: 'DELIVERY-20260915-MIXED01',
+    actor_username: 'operator',
     bundle_sha256: 'c'.repeat(64),
     plan_id: 'e'.repeat(64),
+    plan_hash: 'f'.repeat(64),
     created_at: '2026-09-15T08:02:00Z',
     valid: true,
     artifacts: [
