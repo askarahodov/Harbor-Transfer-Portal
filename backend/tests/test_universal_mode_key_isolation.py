@@ -176,7 +176,10 @@ def test_runtime_switch_preserves_signing_and_trust_material_byte_for_byte(tmp_p
 
         _switch(client, headers, PortalContour.TARGET)
         assert signing_path.read_bytes() == signing_before
-        assert _directory_snapshot(app.state.settings.bundle_trusted_public_keys_dir) == trust_before
+        assert (
+            _directory_snapshot(app.state.settings.bundle_trusted_public_keys_dir)
+            == trust_before
+        )
 
     with app.state.session_factory() as session:
         key_events = list(
@@ -250,7 +253,10 @@ def test_mode_specific_key_mutations_fail_closed_after_switch(tmp_path: Path) ->
             blocked_trust.json()["error"]["code"]
             == "key_management_wrong_contour"
         )
-        assert _directory_snapshot(app.state.settings.bundle_trusted_public_keys_dir) == trust_before
+        assert (
+            _directory_snapshot(app.state.settings.bundle_trusted_public_keys_dir)
+            == trust_before
+        )
 
 
 def test_target_verification_uses_only_explicit_trust_not_local_signing_key(tmp_path: Path) -> None:
