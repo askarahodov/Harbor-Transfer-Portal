@@ -32,7 +32,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/import',
     name: 'import',
-    component: () => import('@/views/ImportView.vue'),
+    component: () => import('@/views/ImportWorkspaceView.vue'),
     meta: { roles: transferRoles, contours: targetContours },
   },
   { path: '/history', name: 'history', component: () => import('@/views/HistoryView.vue') },
