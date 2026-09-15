@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 
 import {
@@ -25,6 +25,7 @@ import {
 } from '@/api/exports'
 
 const PAGE_SIZE = 25
+const SEARCH_DEBOUNCE_MS = 300
 const OPERATION_STORAGE_KEY = 'htp.export.operation-id'
 const ACTIVE_EXPORT_STATUSES = new Set<OperationStatus>([
   'CREATED',
@@ -90,6 +91,12 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   const busy = ref<string | null>(null)
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let pollRequestActive = false
+  let projectSearchTimer: ReturnType<typeof setTimeout> | null = null
+  let repositorySearchTimer: ReturnType<typeof setTimeout> | null = null
+  let artifactSearchTimer: ReturnType<typeof setTimeout> | null = null
+  let projectRequestGeneration = 0
+  let repositoryRequestGeneration = 0
+  let artifactRequestGeneration = 0
 
   const selectedArtifacts = computed(() => Object.values(selected.value))
   const selectedCount = computed(() => selectedArtifacts.value.length)
@@ -116,6 +123,68 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     error.value = null
   }
 
+  function clearProjectSearchTimer(): void {
+    if (projectSearchTimer !== null) {
+      clearTimeout(projectSearchTimer)
+      projectSearchTimer = null
+    }
+  }
+
+  function clearRepositorySearchTimer(): void {
+    if (repositorySearchTimer !== null) {
+      clearTimeout(repositorySearchTimer)
+      repositorySearchTimer = null
+    }
+  }
+
+  function clearArtifactSearchTimer(): void {
+    if (artifactSearchTimer !== null) {
+      clearTimeout(artifactSearchTimer)
+      artifactSearchTimer = null
+    }
+  }
+
+  function cancelSearchDebounces(): void {
+    clearProjectSearchTimer()
+    clearRepositorySearchTimer()
+    clearArtifactSearchTimer()
+  }
+
+  function scheduleProjectSearch(): void {
+    projectPage.value = 1
+    projectRequestGeneration += 1
+    clearProjectSearchTimer()
+    clearError()
+    projectSearchTimer = setTimeout(() => {
+      projectSearchTimer = null
+      void loadProjects(1)
+    }, SEARCH_DEBOUNCE_MS)
+  }
+
+  function scheduleRepositorySearch(): void {
+    repositoryPage.value = 1
+    repositoryRequestGeneration += 1
+    clearRepositorySearchTimer()
+    clearError()
+    if (!selectedProject.value) return
+    repositorySearchTimer = setTimeout(() => {
+      repositorySearchTimer = null
+      void loadRepositories(1)
+    }, SEARCH_DEBOUNCE_MS)
+  }
+
+  function scheduleArtifactSearch(): void {
+    artifactPage.value = 1
+    artifactRequestGeneration += 1
+    clearArtifactSearchTimer()
+    clearError()
+    if (!selectedProject.value || !selectedRepository.value) return
+    artifactSearchTimer = setTimeout(() => {
+      artifactSearchTimer = null
+      void loadArtifacts(1)
+    }, SEARCH_DEBOUNCE_MS)
+  }
+
   async function loadConnection(): Promise<void> {
     try {
       connection.value = await getHarborConnection()
@@ -128,80 +197,133 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadProjects(page = 1): Promise<void> {
+    clearProjectSearchTimer()
+    const requestGeneration = ++projectRequestGeneration
+    const search = projectSearch.value
     busy.value = 'projects'
     clearError()
     try {
-      const result = await listHarborProjects(page, PAGE_SIZE, projectSearch.value)
+      const result = await listHarborProjects(page, PAGE_SIZE, search)
+      if (requestGeneration !== projectRequestGeneration) return
       projects.value = result.items
       projectPage.value = result.pagination.page
       projectTotal.value = result.pagination.total
     } catch (requestError) {
+      if (requestGeneration !== projectRequestGeneration) return
       error.value = apiErrorInfo(requestError, 'Не удалось загрузить проекты Harbor.')
     } finally {
-      busy.value = null
+      if (requestGeneration === projectRequestGeneration && busy.value === 'projects') {
+        busy.value = null
+      }
     }
   }
 
   async function chooseProject(project: string): Promise<void> {
+    repositoryRequestGeneration += 1
+    artifactRequestGeneration += 1
     selectedProject.value = project
     selectedRepository.value = null
     repositories.value = []
     artifacts.value = []
+    repositoryTotal.value = 0
+    artifactTotal.value = 0
     repositorySearch.value = ''
     artifactSearch.value = ''
+    clearRepositorySearchTimer()
+    clearArtifactSearchTimer()
     repositoryPage.value = 1
     artifactPage.value = 1
     await loadRepositories(1)
   }
 
   async function loadRepositories(page = 1): Promise<void> {
-    if (!selectedProject.value) return
+    const project = selectedProject.value
+    if (!project) return
+    clearRepositorySearchTimer()
+    const requestGeneration = ++repositoryRequestGeneration
+    const search = repositorySearch.value
     busy.value = 'repositories'
     clearError()
     try {
-      const result = await listHarborRepositories(
-        selectedProject.value,
-        page,
-        PAGE_SIZE,
-        repositorySearch.value,
-      )
+      const result = await listHarborRepositories(project, page, PAGE_SIZE, search)
+      if (
+        requestGeneration !== repositoryRequestGeneration ||
+        selectedProject.value !== project
+      ) {
+        return
+      }
       repositories.value = result.items
       repositoryPage.value = result.pagination.page
       repositoryTotal.value = result.pagination.total
     } catch (requestError) {
+      if (
+        requestGeneration !== repositoryRequestGeneration ||
+        selectedProject.value !== project
+      ) {
+        return
+      }
       error.value = apiErrorInfo(requestError, 'Не удалось загрузить репозитории Harbor.')
     } finally {
-      busy.value = null
+      if (
+        requestGeneration === repositoryRequestGeneration &&
+        selectedProject.value === project &&
+        busy.value === 'repositories'
+      ) {
+        busy.value = null
+      }
     }
   }
 
   async function chooseRepository(repository: string): Promise<void> {
+    artifactRequestGeneration += 1
     selectedRepository.value = repository
     artifacts.value = []
+    artifactTotal.value = 0
     artifactSearch.value = ''
+    clearArtifactSearchTimer()
     artifactPage.value = 1
     await loadArtifacts(1)
   }
 
   async function loadArtifacts(page = 1): Promise<void> {
-    if (!selectedProject.value || !selectedRepository.value) return
+    const project = selectedProject.value
+    const repository = selectedRepository.value
+    if (!project || !repository) return
+    clearArtifactSearchTimer()
+    const requestGeneration = ++artifactRequestGeneration
+    const search = artifactSearch.value
     busy.value = 'artifacts'
     clearError()
     try {
-      const result = await listHarborArtifacts(
-        selectedProject.value,
-        selectedRepository.value,
-        page,
-        PAGE_SIZE,
-        artifactSearch.value,
-      )
+      const result = await listHarborArtifacts(project, repository, page, PAGE_SIZE, search)
+      if (
+        requestGeneration !== artifactRequestGeneration ||
+        selectedProject.value !== project ||
+        selectedRepository.value !== repository
+      ) {
+        return
+      }
       artifacts.value = result.items
       artifactPage.value = result.pagination.page
       artifactTotal.value = result.pagination.total
     } catch (requestError) {
+      if (
+        requestGeneration !== artifactRequestGeneration ||
+        selectedProject.value !== project ||
+        selectedRepository.value !== repository
+      ) {
+        return
+      }
       error.value = apiErrorInfo(requestError, 'Не удалось загрузить артефакты Harbor.')
     } finally {
-      busy.value = null
+      if (
+        requestGeneration === artifactRequestGeneration &&
+        selectedProject.value === project &&
+        selectedRepository.value === repository &&
+        busy.value === 'artifacts'
+      ) {
+        busy.value = null
+      }
     }
   }
 
@@ -412,6 +534,10 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   function reset(): void {
+    cancelSearchDebounces()
+    projectRequestGeneration += 1
+    repositoryRequestGeneration += 1
+    artifactRequestGeneration += 1
     stopPolling()
     saveOperationId(null)
     step.value = 1
@@ -420,8 +546,14 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     bundle.value = null
     comment.value = ''
     error.value = null
+    busy.value = null
     selected.value = {}
   }
+
+  watch(projectSearch, scheduleProjectSearch, { flush: 'sync' })
+  watch(repositorySearch, scheduleRepositorySearch, { flush: 'sync' })
+  watch(artifactSearch, scheduleArtifactSearch, { flush: 'sync' })
+  onScopeDispose(cancelSearchDebounces)
 
   return {
     step,
