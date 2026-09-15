@@ -16,6 +16,22 @@ User mapping задаёт только локальные project/path component
 
 После mapping все artifacts сравниваются по фактическим OCI registry coordinates. Если два source artifacts, включая image и Helm chart разных типов, дают один repository+tag/version, весь неоднозначный plan становится invalid до Harbor mutation.
 
+## Explicit создание отсутствующего Harbor project
+
+Отсутствующий TARGET project не создаётся автоматически ни при Preview, ни в Import executor. Если destination plan возвращает `import_destination_project_missing`, Portal показывает отдельное административное действие:
+
+- endpoint `POST /api/harbor/projects` доступен только роли `admin` и только в authoritative runtime mode `TARGET`;
+- request принимает только нормализованное имя project, флаг `public` и необязательный `operation_id` для audit correlation; дополнительные поля запрещены, поэтому request не может подменить registry URL, credentials или local Harbor authority;
+- UI требует ввести точное имя отсутствующего project перед отправкой create-запроса;
+- штатный UI создаёт private project (`public=false`);
+- существующий project возвращает idempotent `created=false`; race, когда другой actor создаёт project между exists-check и Harbor POST, также нормализуется в `created=false` после повторной exact проверки;
+- Harbor authentication/permission/availability ошибки возвращаются через существующий safe error contract, без upstream body и credentials;
+- операция Import после project creation остаётся в прежнем состоянии. Клиент обязан заново построить destination plan; только отдельный последующий Execute может начать Import.
+
+Mutation удерживает runtime-mode guard на время local Harbor action, поэтому переключение SOURCE/TARGET не может пересечься с project creation. Audit event `harbor.project.create` хранит actor, local Harbor host, project, public flag, result и optional operation correlation; raw credential material и upstream error text не сохраняются.
+
+Operator не получает create action: UI сообщает точное имя отсутствующего project и предлагает обратиться к администратору. Viewer также не получает mutation capability.
+
 ## Pre-mutation revalidation
 
 Persisted Preview не считается актуальным доказательством TARGET state на момент import. Execution worker непосредственно перед mutation каждого mapped artifact повторно вызывает target inspection:

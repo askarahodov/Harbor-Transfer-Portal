@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import * as exportsApi from '@/api/exports'
 import * as importsApi from '@/api/imports'
 import type { ImportPreview, Operation } from '@/api/imports'
 import { useAuthStore } from '@/stores/auth'
@@ -89,6 +90,13 @@ beforeEach(() => {
   sessionStorage.clear()
   pinia = createPinia()
   setActivePinia(pinia)
+  vi.spyOn(exportsApi, 'listHarborProjects').mockResolvedValue({
+    pagination: { page: 1, page_size: 100, total: 2 },
+    items: [
+      { name: 'docker-prod', public: false },
+      { name: 'helm-prod', public: false },
+    ],
+  })
 })
 
 afterEach(() => {
@@ -97,7 +105,7 @@ afterEach(() => {
 })
 
 describe('TARGET import wizard view', () => {
-  it('shows verified manifest metadata but keeps import disabled until destination plan confirmation', async () => {
+  it('mounts destination mapping and keeps import disabled until plan confirmation', async () => {
     sessionStorage.setItem('htp.import.operation-id', '51')
     vi.spyOn(importsApi, 'getOperation').mockResolvedValue(operation('READY'))
     vi.spyOn(importsApi, 'getImportPreview').mockResolvedValue(conflictPreview())
@@ -121,6 +129,12 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.text()).toContain('CONFLICT — другой digest, заблокирован')
     expect(wrapper.text()).toContain('package verified')
     expect(wrapper.text()).toContain('не означает')
+    expect(wrapper.get('#mapping-title').text()).toContain('Куда импортировать артефакты')
+
+    const confirmPlanButton = wrapper.findAll('button').find((item) =>
+      item.text().includes('Проверить и подтвердить destination plan'),
+    )
+    expect(confirmPlanButton).toBeDefined()
 
     const defaultImportButton = wrapper.findAll('button').find((item) =>
       item.text().includes('Импортировать NEW'),

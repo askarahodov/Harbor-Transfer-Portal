@@ -13,6 +13,8 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import type { ArtifactStatus, ImportPreviewState, OperationStatus } from '@/api/imports'
+import HarborProjectCreationPanel from '@/components/HarborProjectCreationPanel.vue'
+import ImportDestinationMapping from '@/components/ImportDestinationMapping.vue'
 import {
   formatBytes,
   formatDateTimeMedium as formatDate,
@@ -74,6 +76,9 @@ const activeFilename = computed(
 )
 const activeSize = computed(
   () => wizard.selectedFile?.size ?? wizard.operation?.bundle?.size_bytes ?? wizard.preview?.bundle_size_bytes ?? null,
+)
+const previewArtifacts = computed(() =>
+  wizard.destinationPlan ? wizard.effectiveArtifacts : (wizard.preview?.artifacts ?? []),
 )
 const uploadPercent = computed(() => {
   const progress = wizard.uploadProgress
@@ -354,9 +359,12 @@ onBeforeUnmount(() => {
           <p>{{ wizard.preview.source_comment }}</p>
         </div>
 
+        <ImportDestinationMapping />
+        <HarborProjectCreationPanel />
+
         <div class="classification-summary">
           <span v-for="state in (['NEW', 'SAME', 'CONFLICT', 'UNKNOWN', 'ERROR'] as ImportPreviewState[])" :key="state">
-            {{ state }}: {{ wizard.preview.artifacts.filter((item) => item.classification === state).length }}
+            {{ state }}: {{ previewArtifacts.filter((item) => item.classification === state).length }}
           </span>
         </div>
 
@@ -372,7 +380,7 @@ onBeforeUnmount(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in wizard.preview.artifacts" :key="item.index">
+              <tr v-for="item in previewArtifacts" :key="item.index">
                 <td>{{ artifactLabel(item) }}</td>
                 <td><span :class="['classification', `classification--${item.classification.toLowerCase()}`]">{{ classificationLabels[item.classification] }}</span></td>
                 <td :title="item.expected_digest ?? undefined">{{ shortDigest(item.expected_digest) }}</td>

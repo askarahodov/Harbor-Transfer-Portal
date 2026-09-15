@@ -201,6 +201,13 @@ class HarborClient:
             total=total,
         )
 
+    def create_project(self, name: str, *, public: bool = False) -> None:
+        self._request(
+            "POST",
+            "/api/v2.0/projects",
+            json={"project_name": name, "public": public},
+        )
+
     def list_repositories(self, project: str) -> list[HarborRepository]:
         encoded_project = quote(project, safe="")
         path = f"/api/v2.0/projects/{encoded_project}/repositories"
@@ -347,6 +354,7 @@ class HarborClient:
             401: ("unauthorized", "Harbor authentication failed"),
             403: ("forbidden", "Harbor denied access"),
             404: ("not_found", "Harbor resource was not found"),
+            409: ("conflict", "Harbor resource already exists"),
             429: ("rate_limited", "Harbor rate limit was reached"),
         }
         if response.status_code in mapping:

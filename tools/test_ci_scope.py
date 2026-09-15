@@ -60,7 +60,7 @@ class CiScopeTest(TestCase):
     def test_backend_only_runs_backend(self):
         root = self._root()
         self.assertEqual(
-            classify_paths(["backend/app/services/harbor_client.py"], root=root),
+            classify_paths(["backend/app/schemas/harbor.py"], root=root),
             Scope(backend=True),
         )
 
@@ -136,6 +136,20 @@ class CiScopeTest(TestCase):
         for path, expected in cases.items():
             with self.subTest(path=path):
                 self.assertEqual(classify_paths([path], root=root), expected)
+
+    def test_harbor_project_mutation_paths_run_security_regression(self):
+        root = self._root()
+        for path in (
+            "backend/app/services/harbor_client.py",
+            "backend/app/api/harbor_projects.py",
+            "backend/tests/test_harbor_client.py",
+            "backend/tests/test_harbor_project_creation.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    classify_paths([path], root=root),
+                    Scope(backend=True, security=True),
+                )
 
     def test_key_management_runs_security_regression(self):
         root = self._root()
@@ -321,5 +335,5 @@ class CiScopeTest(TestCase):
                 ],
                 root=root,
             ),
-            Scope(backend=True, frontend=True, docs=True),
+            Scope(backend=True, frontend=True, security=True, docs=True),
         )
