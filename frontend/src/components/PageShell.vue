@@ -5,9 +5,10 @@ import { useRouter } from 'vue-router'
 
 import { navigationForRole } from '@/navigation'
 import { useAuthStore } from '@/stores/auth'
-import { useRuntimeStore } from '@/stores/runtime'
+import { useRuntimeStore, type PortalContour } from '@/stores/runtime'
 
 import ContourBadge from './ContourBadge.vue'
+import ModeSwitcher from './ModeSwitcher.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -15,6 +16,29 @@ const runtime = useRuntimeStore()
 const navigation = computed(() =>
   navigationForRole(auth.user?.role, runtime.contour ?? undefined),
 )
+const canSwitchMode = computed(
+  () => auth.user?.role === 'admin' || auth.user?.role === 'operator',
+)
+
+function switchConfirmation(target: PortalContour): string {
+  const workspace = target === 'SOURCE' ? 'Отправка' : 'Приём'
+  return `Переключить Portal в режим ${target} (${workspace})? Текущие настройки Harbor и ключи не изменятся.`
+}
+
+function routeSupportsContour(target: PortalContour): boolean {
+  const contours = router.currentRoute.value.meta.contours
+  return !Array.isArray(contours) || contours.includes(target)
+}
+
+async function switchMode(target: PortalContour): Promise<void> {
+  runtime.clearSwitchError()
+  if (!window.confirm(switchConfirmation(target))) return
+  const changed = await runtime.switchMode(target)
+  if (!changed) return
+  if (!routeSupportsContour(target)) {
+    await router.replace({ name: 'dashboard' })
+  }
+}
 
 async function logout(): Promise<void> {
   auth.logout()
@@ -47,7 +71,14 @@ async function logout(): Promise<void> {
           <span v-if="auth.user" class="current-user">
             {{ auth.user.username }} · {{ auth.user.role }}
           </span>
-          <ContourBadge :contour="runtime.contour" />
+          <ModeSwitcher
+            v-if="canSwitchMode && runtime.contour"
+            :contour="runtime.contour"
+            :busy="runtime.switching"
+            :error-code="runtime.switchErrorCode"
+            @switch="switchMode"
+          />
+          <ContourBadge v-else :contour="runtime.contour" />
           <button class="logout-button" type="button" aria-label="Выйти из портала" @click="logout">
             <LogOut :size="18" aria-hidden="true" />
             <span>Выйти</span>
@@ -70,7 +101,7 @@ async function logout(): Promise<void> {
 .nav-link { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; padding: 0 var(--space-3); border-radius: var(--radius-md); color: rgba(255,255,255,.76); text-decoration: none; }
 .nav-link:hover, .nav-link:focus-visible, .nav-link.router-link-exact-active { background: rgba(37,99,235,.2); color: white; }
 .workspace { min-width: 0; }
-.topbar { min-height: var(--layout-header); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: 0 var(--space-6); border-bottom: 1px solid var(--color-mist); background: var(--color-cloud-white); }
+.topbar { min-height: var(--layout-header); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-2) var(--space-6); border-bottom: 1px solid var(--color-mist); background: var(--color-cloud-white); }
 .topbar__identity { display: flex; align-items: baseline; gap: var(--space-2); }
 .release-version { color: var(--color-steel); font-size: 12px; font-variant-numeric: tabular-nums; }
 .topbar__session { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; justify-content: flex-end; }
