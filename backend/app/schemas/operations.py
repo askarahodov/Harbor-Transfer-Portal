@@ -21,6 +21,7 @@ class OperationArtifactResponse(BaseModel):
     target_project: str | None
     target_repository: str | None
     target_reference: str | None
+    target_version: str | None
     destination_plan_id: str | None
     destination_plan_hash: str | None
     overwrite_approved: bool | None
