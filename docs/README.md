@@ -36,6 +36,7 @@
 | [project-passport.md](project-passport.md) | простое описание продукта и целевого процесса | актуальный product overview |
 | [architecture.md](architecture.md) | components, boundaries, data flows, current implementation state | актуальный |
 | [frontend.md](frontend.md) | Vue architecture, role/contour routing, SOURCE/TARGET wizard | актуальный |
+| [runtime-mode.md](runtime-mode.md) | universal SOURCE/TARGET role, bootstrap, switch, restart, migration, backup/restore | актуальный runtime/admin/offline contract |
 | [user-guide.md](user-guide.md) | пошаговый browser flow SOURCE → physical transfer → TARGET для operator/viewer | актуальный |
 | [export-orchestration.md](export-orchestration.md) | SOURCE export backend/API/publication/download contract | актуальный component doc |
 | [import-orchestration.md](import-orchestration.md) | TARGET intake/verify/preview/conflict/import/receipt contract | актуальный component doc |
@@ -69,6 +70,7 @@ Backend orchestration #17 и UI wizard #18 реализованы.
 Основные sources:
 
 - [user-guide.md](user-guide.md) — пошаговый operator/viewer browser flow;
+- [runtime-mode.md](runtime-mode.md) — authoritative runtime role и safe switch;
 - [harbor-browse-api.md](harbor-browse-api.md) — выбор metadata из local Harbor;
 - [export-orchestration.md](export-orchestration.md) — authoritative validation, OperationManager, Skopeo/Helm, publication, download;
 - [frontend.md](frontend.md) — 4-step wizard, reload/poll/cancel, browser download ticket;
@@ -82,6 +84,7 @@ Backend intake/import orchestration #19 и UI wizard #20 реализованы.
 Основные sources:
 
 - [user-guide.md](user-guide.md) — intake, verification, preview/conflict, import, receipt/history/report простым пользовательским языком;
+- [runtime-mode.md](runtime-mode.md) — authoritative runtime role и safe switch;
 - [import-orchestration.md](import-orchestration.md) — upload/discovery, verify-before-mutation, signed metadata projection, preview/conflict policy, execute, receipt;
 - [key-management.md](key-management.md) — TARGET active/disabled trusted keys и overlap rotation;
 - [offline-bundle-v1.md](offline-bundle-v1.md) — normative bundle verification contract;
@@ -96,14 +99,15 @@ Offline release workflow реализован. В контролируемой b
 Основные sources:
 
 - [../deploy/offline/README.md](../deploy/offline/README.md) — установка и lifecycle;
+- [runtime-mode.md](runtime-mode.md) — bootstrap-only `PORTAL_CONTOUR`, migration/restart/backup/restore runtime role;
 - [offline-lifecycle.md](offline-lifecycle.md) — backup/restore/upgrade/uninstall semantics;
 - [release-notes-v1.0.0.md](release-notes-v1.0.0.md) и [../CHANGELOG.md](../CHANGELOG.md) — release identity/changes;
 - [testing.md](testing.md) — clean-host и isolated transfer qualification gates.
 
 CI доказывает:
 
-- clean-host installation одного и того же archive в `SOURCE` и `TARGET`;
-- сохранение persistent state после rerun/restart;
+- clean-host installation одного и того же archive с predictable bootstrap role;
+- сохранение persistent state и authoritative runtime mode после rerun/restart/restore;
 - отсутствие runtime pull/build зависимости;
 - полный isolated SOURCE → signed bundle → physical boundary → TARGET flow с реальными Skopeo/Helm adapters;
 - image digest verification, Helm verification semantics, receipt/history/report;
@@ -126,7 +130,9 @@ P7.4/current-source documentation work завершён. Реализованн�
 - #150/#151 — backup/upgrade/uninstall и verified restore;
 - #153 — clean-host offline install qualification;
 - #156 — isolated SOURCE → TARGET acceptance;
-- #158 — v1.0.0 release identity, UI/API/bundle visibility, changelog/release notes.
+- #158 — v1.0.0 release identity, UI/API/bundle visibility, changelog/release notes;
+- #183/#184/#194/#196 — persistent universal runtime mode, live UI, operation barrier и key/trust isolation;
+- #185 — runtime migration/restart/backup-restore lifecycle qualification.
 
 ## Автоматическая проверка документации
 
