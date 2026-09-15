@@ -94,6 +94,7 @@ describe('History store', () => {
       finished_at: '2026-09-14T05:02:00Z',
       overwrite_conflicts: false,
       destination_plan_id: 'e'.repeat(64),
+      destination_plan_hash: 'f'.repeat(64),
       result: 'COMPLETED',
       artifacts: [],
     })
@@ -108,6 +109,7 @@ describe('History store', () => {
     expect(store.receiptState).toBe('ready')
     expect(store.receipt?.source_delivery_id).toBe('DELIVERY-42')
     expect(store.receipt?.destination_plan_id).toBe('e'.repeat(64))
+    expect(store.receipt?.destination_plan_hash).toBe('f'.repeat(64))
   })
 
   it('keeps viewer history read-only and does not request restricted receipt', async () => {
