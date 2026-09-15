@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: help up down logs fmt lint lint-backend typecheck-backend test test-backend test-frontend test-ci-scope dependency-locks-check test-registry-integration test-offline-kit docs-check migrate build compose-config smoke-compose check-foundation
+.PHONY: help up down logs fmt lint lint-backend typecheck-backend test test-backend test-frontend test-ci-scope dependency-locks-check design-tokens-check test-registry-integration test-offline-kit docs-check migrate build compose-config smoke-compose check-foundation
 
 help:
 	@printf '%s\n' \
@@ -8,7 +8,7 @@ help:
 	  'make down           Остановить стек, сохранив persistent volume' \
 	  'make logs           Показывать логи локального стека' \
 	  'make fmt            Форматировать backend и frontend' \
-	  'make lint           Запустить все реализованные линтеры' \
+	  'make lint           Запустить линтеры и design-token invariants' \
 	  'make lint-backend   Запустить только backend Ruff checks' \
 	  'make typecheck-backend Запустить backend Mypy static type check' \
 	  'make test           Запустить backend и frontend tests' \
@@ -16,6 +16,7 @@ help:
 	  'make test-frontend  Запустить только frontend tests' \
 	  'make test-ci-scope  Проверить regression-матрицу scoped CI selection' \
 	  'make dependency-locks-check Проверить согласованность dependency lockfiles' \
+	  'make design-tokens-check Проверить WCAG contrast design tokens и semantic color usage' \
 	  'make test-registry-integration Проверить реальные Skopeo/Helm через local OCI registry' \
 	  'make test-offline-kit Проверить packaging/install contract offline release kit' \
 	  'make docs-check     Проверить локальные Markdown-ссылки и docs checker tests' \
@@ -41,7 +42,7 @@ fmt:
 	@test -f frontend/package.json || { echo 'frontend/package.json отсутствует'; exit 2; }
 	cd frontend && npm run format
 
-lint: lint-backend
+lint: design-tokens-check lint-backend
 	@test -f frontend/package.json || { echo 'frontend/package.json отсутствует'; exit 2; }
 	cd frontend && npm run lint
 
@@ -69,6 +70,10 @@ test-ci-scope:
 dependency-locks-check:
 	python3 -m unittest tools.test_dependency_locks
 	python3 tools/check_dependency_locks.py
+
+design-tokens-check:
+	python3 -m unittest tools.test_design_tokens
+	python3 tools/check_design_tokens.py
 
 test-registry-integration:
 	sh deploy/smoke-registry-integration.sh
@@ -111,6 +116,8 @@ check-foundation:
 	@test -f tools/test_ci_scope.py
 	@test -f tools/check_dependency_locks.py
 	@test -f tools/test_dependency_locks.py
+	@test -f tools/check_design_tokens.py
+	@test -f tools/test_design_tokens.py
 	@test -f backend/requirements-runtime.lock
 	@test -f backend/requirements-dev.lock
 	@test -f frontend/package-lock.json
