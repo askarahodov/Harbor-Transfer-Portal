@@ -27,6 +27,29 @@ def test_project_pagination_collects_all_pages() -> None:
     assert [item.name for item in client.list_projects()] == ["one", "two", "three"]
 
 
+def test_create_project_uses_local_harbor_api_and_bounded_payload() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(201)
+
+    client = HarborClient(
+        base_url="https://harbor.local",
+        username="portal-user",
+        password="portal-secret",
+        transport=httpx.MockTransport(handler),
+    )
+    client.create_project("docker-prod", public=False)
+
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.method == "POST"
+    assert request.url == httpx.URL("https://harbor.local/api/v2.0/projects")
+    assert request.read() == b'{"project_name":"docker-prod","public":false}'
+    assert b"portal-secret" not in request.content
+
+
 def test_repository_and_artifact_paths_are_encoded() -> None:
     seen: list[str] = []
 
@@ -60,6 +83,7 @@ def test_repository_and_artifact_paths_are_encoded() -> None:
         (401, "unauthorized"),
         (403, "forbidden"),
         (404, "not_found"),
+        (409, "conflict"),
         (429, "rate_limited"),
         (503, "harbor_unavailable"),
     ],
