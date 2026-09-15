@@ -175,7 +175,32 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
     approval_metadata = json.loads(events[2].metadata_json)
     assert first_metadata["conflict_count"] == 0
     assert first_metadata["destination_plan_id"] == "plan-41"
+    assert first_metadata["destination_plan_hash"] == "b" * 64
+    assert first_metadata["destinations"] == [
+        {
+            "index": 0,
+            "artifact_type": "container-image",
+            "source_repository": "source/app-0",
+            "target_repository": "target/app-0",
+            "final_reference": "harbor.target.local/target/app-0:1.0",
+        },
+        {
+            "index": 1,
+            "artifact_type": "container-image",
+            "source_repository": "source/app-1",
+            "target_repository": "target/app-1",
+            "final_reference": "harbor.target.local/target/app-1:1.0",
+        },
+    ]
     assert second_metadata["conflict_count"] == 2
     assert second_metadata["destination_plan_id"] == "plan-42"
+    assert second_metadata["destination_plan_hash"] == "b" * 64
     assert approval_metadata["conflict_count"] == 2
     assert approval_metadata["source_delivery_id"] == "DELIVERY-42"
+    serialized = json.dumps(
+        [first_metadata, second_metadata, approval_metadata],
+        sort_keys=True,
+    ).lower()
+    assert "password" not in serialized
+    assert "credential" not in serialized
+    assert "private_key" not in serialized
