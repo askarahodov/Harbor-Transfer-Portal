@@ -456,7 +456,11 @@ def mapping_for_preview(
 
 
 def assert_no_sensitive_text(label: str, value: object) -> None:
-    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
+    text = (
+        value
+        if isinstance(value, str)
+        else json.dumps(value, ensure_ascii=False, sort_keys=True)
+    )
     lowered = text.lower()
     for marker in (
         "password",
@@ -473,7 +477,11 @@ def assert_bundle_has_no_private_material(archive: Path) -> None:
     with tarfile.open(archive, "r:gz") as bundle:
         for member in bundle.getmembers():
             lowered_name = member.name.lower()
-            if "private" in lowered_name or "credential" in lowered_name or "password" in lowered_name:
+            if (
+                "private" in lowered_name
+                or "credential" in lowered_name
+                or "password" in lowered_name
+            ):
                 fail(f"bundle contains sensitive-looking member name: {member.name}")
             if not member.isfile():
                 continue
@@ -514,7 +522,10 @@ def target_coordinates(
 def assert_registry_absent(coordinates: dict[str, tuple[str, str]]) -> None:
     for source_repository, (repository, reference) in coordinates.items():
         if registry_manifest_digest(repository, reference) is not None:
-            fail(f"TARGET mutated before import for {source_repository} -> {repository}:{reference}")
+            fail(
+                "TARGET mutated before import for "
+                f"{source_repository} -> {repository}:{reference}"
+            )
 
 
 def assert_plan_destinations(
@@ -558,7 +569,10 @@ def assert_plan_destinations(
 
 
 def assert_receipt_destinations(receipt, plan) -> None:  # type: ignore[no-untyped-def]
-    if receipt.destination_plan_id != plan.plan_id or receipt.destination_plan_hash != plan.plan_hash:
+    if (
+        receipt.destination_plan_id != plan.plan_id
+        or receipt.destination_plan_hash != plan.plan_hash
+    ):
         fail("receipt is not bound to the executed destination plan")
     planned = planned_by_source(plan)
     actual = receipt_by_source(receipt)
@@ -828,7 +842,7 @@ async def target_phase() -> None:
         verified_transfer = package_service.verify_bundle(
             archive,
             sidecar_path=sidecar,
-            extract_to=WORK_ROOT / "verified-transfer",
+            extract_to=settings.bundle_extract_root / "acceptance-inspection",
         )
         if len(verified_transfer.manifest.artifacts) != 3:
             fail("physical bundle is not the expected mixed three-artifact bundle")
