@@ -20,6 +20,7 @@ from app.schemas.imports import (
 from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
 from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_orchestrator import ImportOrchestrationError
+from app.services.policy_aware_destination_plan import PolicyAwareImportDestinationPlanOrchestrator
 from app.services.report_service import receipt_filename
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -29,9 +30,9 @@ ImportActorDep = Annotated[
 ]
 
 
-def get_import_orchestrator(request: Request) -> ImportDestinationPlanOrchestrator:
+def get_import_orchestrator(request: Request) -> PolicyAwareImportDestinationPlanOrchestrator:
     settings = request.app.state.settings
-    return ImportDestinationPlanOrchestrator(
+    return PolicyAwareImportDestinationPlanOrchestrator(
         request.app.state.session_factory,
         settings,
         request.app.state.operation_manager,
@@ -40,7 +41,7 @@ def get_import_orchestrator(request: Request) -> ImportDestinationPlanOrchestrat
 
 
 ImportOrchestratorDep = Annotated[
-    ImportDestinationPlanOrchestrator,
+    PolicyAwareImportDestinationPlanOrchestrator,
     Depends(get_import_orchestrator),
 ]
 
@@ -118,6 +119,12 @@ def _content_length(request: Request) -> int | None:
             status.HTTP_400_BAD_REQUEST,
             "import_content_length_invalid",
             "Content-Length не может быть отрицательным",
+        ) from exc
+    if value < 0:
+        raise _api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "import_content_length_invalid",
+            "Content-Length не может быть отрицательным",
         )
     return value
 
@@ -143,6 +150,7 @@ def _audit_import_start(
         "conflict_count": conflict_count,
         "destination_plan_id": destination_plan.plan_id,
         "destination_plan_hash": destination_plan.plan_hash,
+        "mapping_policy_revision": destination_plan.mapping_policy_revision,
         "destinations": [
             {
                 "index": item.index,
