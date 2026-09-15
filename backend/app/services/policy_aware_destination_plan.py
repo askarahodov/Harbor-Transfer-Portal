@@ -6,6 +6,7 @@ from app.schemas.imports import ImportDestinationPlanRequest, ImportDestinationP
 from app.services.artifact_mapping_snapshot import persist_artifact_mapping_snapshot
 from app.services.destination_mapping_policy import DestinationMappingPolicyService
 from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
+from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.operation_manager import OperationContext, OperationTaskFailure
 
 
@@ -19,6 +20,12 @@ class PolicyAwareImportDestinationPlanOrchestrator(ImportDestinationPlanOrchestr
         *,
         actor_username: str | None = None,
     ) -> ImportDestinationPlanResponse:
+        operation = self.operation_manager.get_operation(operation_id)
+        if operation is not None and operation.worker_token is not None:
+            raise ImportOrchestrationError(
+                "import_destination_plan_stale",
+                "Import worker уже захватил operation; destination plan больше нельзя менять",
+            )
         with self.session_factory() as session:
             effective_mapping = DestinationMappingPolicyService(session).resolve_request(mapping)
         return await super().build_destination_plan(
