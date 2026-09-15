@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AuditEvent, Operation
 from app.domain.bundle import OperationStatus, OperationType
+from app.services.import_mapping_audit import persisted_destination_plan_audit_metadata
 
 _INSTALLED = False
 _PENDING_NEW_OPERATIONS = "htp_audit_new_operations"
@@ -43,6 +44,8 @@ def _metadata(operation: Operation) -> dict[str, Any]:
         metadata["source_delivery_id"] = operation.source_delivery_id
     if operation.error_code:
         metadata["error_code"] = operation.error_code
+    if operation.type is OperationType.IMPORT:
+        metadata.update(persisted_destination_plan_audit_metadata(operation.import_policy_json))
     return metadata
 
 
