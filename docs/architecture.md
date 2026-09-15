@@ -2,22 +2,23 @@
 
 **Статус:** актуальное архитектурное описание release-qualified baseline **v1.0.0**.
 
-Этот документ описывает действующие boundaries и реализованный end-to-end flow Harbor Transfer Portal. Нормативные контракты здесь не переопределяются: формат переносимого пакета задаёт [Offline Bundle Protocol v1](offline-bundle-v1.md), принятые решения — [ADR](decisions.md), background lifecycle — [OperationManager](operation-manager.md), а feature-specific детали — [SOURCE export orchestration](export-orchestration.md), [TARGET import orchestration](import-orchestration.md) и [frontend](frontend.md).
+Этот документ описывает действующие boundaries и реализованный end-to-end flow Harbor Transfer Portal. Нормативные контракты здесь не переопределяются: формат переносимого пакета задаёт [Offline Bundle Protocol v1](offline-bundle-v1.md), принятые решения — [ADR](decisions.md), background lifecycle — [OperationManager](operation-manager.md), runtime role contract — [Runtime SOURCE/TARGET mode](runtime-mode.md), а feature-specific детали — [SOURCE export orchestration](export-orchestration.md), [TARGET import orchestration](import-orchestration.md) и [frontend](frontend.md).
 
 ## 1. Назначение и главный инвариант
 
-Harbor Transfer Portal предназначен для офлайн-передачи container images и Helm OCI charts между двумя физически и сетево изолированными Harbor-контурами.
+Harbor Transfer Portal предназначен для офлайн-передачи container images и Helm OCI charts между физически и сетево изолированными Harbor-контурами.
 
 Главный архитектурный инвариант:
 
-> между SOURCE и TARGET отсутствует прямой сетевой путь, и приложение не должно создавать такой путь неявно.
+> между физическими SOURCE и TARGET контурами отсутствует прямой сетевой путь, и приложение не должно создавать такой путь неявно.
 
-Поэтому используются две независимые установки:
+Один и тот же software/deployment может работать в runtime role `SOURCE` или `TARGET`, но role относится только к текущему Portal instance и его локальному Harbor. В production air-gap topology физически раздельные контуры обычно имеют отдельные installations Portal:
 
-- `SOURCE` взаимодействует только со своим локальным Harbor и создаёт переносимый bundle;
-- `TARGET` взаимодействует только со своим локальным Harbor и проверяет/импортирует полученный bundle;
-- SOURCE не хранит credentials TARGET;
-- TARGET не хранит credentials SOURCE;
+- в `SOURCE` role Portal взаимодействует только со своим local Harbor и создаёт переносимый bundle;
+- в `TARGET` role Portal взаимодействует только со своим local Harbor и проверяет/импортирует полученный bundle;
+- переключение runtime role не выбирает другой Harbor и не переносит credentials между контурами;
+- SOURCE-контур не хранит credentials TARGET Harbor;
+- TARGET-контур не хранит credentials SOURCE Harbor;
 - Harbor-to-Harbor replication через границу изоляции не используется;
 - физический перенос archive выполняется по организационной процедуре вне сетевой архитектуры приложения.
 
@@ -52,7 +53,7 @@ Harbor Transfer Portal предназначен для офлайн-переда
 └───────────────────────────────────────────────────────────┘
 ```
 
-Baseline v1 включает оба browser transfer wizard, history/audit/reports, signed Bundle v1, offline installation lifecycle, clean-host qualification и isolated SOURCE → physical bundle → TARGET acceptance.
+Baseline v1 включает оба browser transfer wizard, history/audit/reports, signed Bundle v1, persistent runtime SOURCE/TARGET mode, offline installation lifecycle, clean-host qualification и isolated SOURCE → physical bundle → TARGET acceptance.
 
 ## 3. Runtime deployment
 
@@ -65,7 +66,9 @@ Application runtime содержит два сервиса:
 
 Backend не публикуется напрямую на host в штатной Compose-топологии. Frontend публикует HTTP endpoint и проксирует API во внутреннюю Compose network.
 
-Обе роли используют одни и те же versioned application images. Роль установки задаётся `PORTAL_CONTOUR=SOURCE|TARGET`; Harbor configuration всегда относится только к локальному contour.
+Обе runtime roles используют одни и те же versioned application images. `PORTAL_CONTOUR=SOURCE|TARGET` используется только как bootstrap default новой базы; после первого startup authoritative mode и monotonic revision сохраняются в SQLite. `operator`/`admin` может переключить role через UI/runtime API без rebuild/restart, если нет блокирующих operations. Harbor configuration при этом всегда относится к одному local Harbor текущей installation.
+
+Полный lifecycle persistent runtime mode: [runtime-mode.md](runtime-mode.md).
 
 Baseline v1 использует один backend instance и in-process `asyncio` OperationManager без Redis/Celery. Это осознанная v1 boundary, а не гарантия horizontal multi-instance execution.
 
@@ -317,16 +320,3 @@ Isolated acceptance поднимает отдельные SOURCE/TARGET registri
 - автоматический DB downgrade при rollback release не обещается — recovery опирается на matching-version backup/restore;
 - physical media governance, malware scanning и организационный approval остаются внешними контролями;
 - production TLS termination, host hardening, backup retention и Harbor permissions зависят от конкретной площадки.
-
-Ограничения не означают отсутствие fail-closed verification: unsupported/unresolved state должен приводить к безопасному отказу, а не к неявному обходу boundary.
-
-## 15. Источники истины
-
-При конфликте документации используйте [карту документации](README.md). Ключевые sources:
-
-- Bundle contract — [offline-bundle-v1.md](offline-bundle-v1.md) + schemas/tests;
-- security — [security.md](security.md);
-- operator flow — [user-guide.md](user-guide.md);
-- offline install/lifecycle — [../deploy/offline/README.md](../deploy/offline/README.md);
-- release changes — [release-notes-v1.0.0.md](release-notes-v1.0.0.md) + [CHANGELOG.md](../CHANGELOG.md);
-- CI evidence/policy — [testing.md](testing.md).
