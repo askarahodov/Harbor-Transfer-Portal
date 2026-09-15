@@ -78,15 +78,32 @@ def canonical_plan_hash(
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _registry_coordinate(
+    item: ImportDestinationArtifactPlanResponse,
+) -> tuple[str, str] | None:
+    """Return the actual OCI registry repository/reference mutated by an artifact."""
+    if item.target_repository is None:
+        return None
+    if item.artifact_type == "container-image":
+        if item.reference is None:
+            return None
+        return item.target_repository, item.reference
+    if item.artifact_type == "helm-chart":
+        if item.name is None or item.version is None:
+            return None
+        return f"{item.target_repository}/{item.name}", item.version
+    return None
+
+
 def colliding_artifact_indices(
     artifacts: list[ImportDestinationArtifactPlanResponse],
 ) -> set[int]:
     destinations: dict[tuple[str, str], list[int]] = {}
     for item in artifacts:
-        if item.final_reference is None:
+        coordinate = _registry_coordinate(item)
+        if coordinate is None:
             continue
-        key = (item.artifact_type, item.final_reference)
-        destinations.setdefault(key, []).append(item.index)
+        destinations.setdefault(coordinate, []).append(item.index)
     return {
         index
         for indices in destinations.values()
@@ -99,7 +116,10 @@ def validated_source_repository(repository: str) -> tuple[str, str]:
     if not repository or "\\" in repository or "://" in repository:
         raise ValueError("SOURCE repository имеет недопустимый формат")
     components = repository.split("/")
-    if any(not component or fullmatch(_REPOSITORY_COMPONENT_PATTERN, component) is None for component in components):
+    if any(
+        not component or fullmatch(_REPOSITORY_COMPONENT_PATTERN, component) is None
+        for component in components
+    ):
         raise ValueError("SOURCE repository содержит недопустимый path component")
     source_project = components[0]
     suffix = "/".join(components[1:])
