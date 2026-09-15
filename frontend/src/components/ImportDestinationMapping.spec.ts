@@ -108,6 +108,7 @@ function plan(): ImportDestinationPlan {
     bundle_sha256: 'c'.repeat(64),
     plan_id: 'e'.repeat(64),
     plan_hash: 'f'.repeat(64),
+    mapping_policy_revision: 7,
     created_at: '2026-09-15T08:02:00Z',
     valid: true,
     artifacts: [
@@ -205,6 +206,7 @@ describe('ImportDestinationMapping', () => {
     })
     expect(wizard.confirmedPlanReady).toBe(true)
     expect(wrapper.text()).toContain('Destination plan подтверждён')
+    expect(wrapper.text()).toContain('mapping policy rev 7')
     expect(wrapper.text()).toContain('harbor.target.local/mapped-app/service:1.0.0')
     expect(wrapper.text()).toContain('oci://harbor.target.local/override-charts/platform/portal:2.3.4')
   })
