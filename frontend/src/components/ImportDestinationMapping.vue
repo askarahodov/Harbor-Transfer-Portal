@@ -260,7 +260,7 @@ onMounted(() => {
 .mapping-field { display: grid; gap: var(--space-2); color: var(--color-deep-harbor); font-weight: 700; }
 .mapping-field select, .mapping-table select { min-height: 40px; width: 100%; border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: 0 var(--space-3); background: white; color: var(--color-deep-harbor); font: inherit; font-weight: 400; }
 .mapping-field select:focus-visible, .mapping-table select:focus-visible { outline: 2px solid var(--color-bridge-blue); outline-offset: 1px; }
-.mapping-field select:disabled, .mapping-table select:disabled { background: var(--color-cloud); color: var(--color-steel); }
+.mapping-field select:disabled, .mapping-table select:disabled { background: var(--color-fog-gray); color: var(--color-steel); }
 .mapping-section { margin-top: var(--space-6); }
 .mapping-table-wrap { margin-top: var(--space-3); overflow-x: auto; }
 .mapping-table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -268,14 +268,14 @@ onMounted(() => {
 .mapping-table th { color: var(--color-steel); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
 .target-reference { min-width: 260px; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .plan-state { display: block; font-weight: 700; }
-.plan-state--new, .plan-state--same { color: var(--color-success); }
-.plan-state--conflict, .plan-state--unknown { color: var(--color-warning); }
+.plan-state--new, .plan-state--same { color: var(--color-transfer-green); }
+.plan-state--conflict, .plan-state--unknown { color: var(--color-alert-amber); }
 .plan-state--error { color: var(--color-danger); }
 .mapping-table small { display: block; margin-top: var(--space-1); color: var(--color-steel); }
-.mapping-message { display: flex; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-4); padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-cloud); color: var(--color-steel); }
-.mapping-message--success { background: rgba(22, 163, 74, .08); color: var(--color-success); }
-.mapping-message--warning { background: rgba(217, 119, 6, .1); color: var(--color-warning); }
-.mapping-message--danger { background: rgba(220, 38, 38, .08); color: var(--color-danger); }
+.mapping-message { display: flex; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-4); padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-fog-gray); color: var(--color-steel); }
+.mapping-message--success { background: var(--color-mint); color: var(--color-transfer-green); }
+.mapping-message--warning { background: var(--color-sand); color: var(--color-alert-amber); }
+.mapping-message--danger { background: var(--color-rose); color: var(--color-danger); }
 .mapping-actions { display: flex; justify-content: flex-end; margin-top: var(--space-5); }
 .muted { color: var(--color-steel); }
 @media (max-width: 760px) {
