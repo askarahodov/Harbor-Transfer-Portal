@@ -130,8 +130,11 @@ class ImportDestinationArtifactPlanResponse(BaseModel):
 
 class ImportDestinationPlanResponse(BaseModel):
     operation_id: int
+    source_delivery_id: str
+    actor_username: str
     bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     plan_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    plan_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     created_at: datetime
     valid: bool
     artifacts: list[ImportDestinationArtifactPlanResponse]
@@ -172,5 +175,6 @@ class ImportReceiptResponse(BaseModel):
     finished_at: datetime
     overwrite_conflicts: bool
     destination_plan_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    destination_plan_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     result: str
     artifacts: list[ImportReceiptArtifactResponse]
