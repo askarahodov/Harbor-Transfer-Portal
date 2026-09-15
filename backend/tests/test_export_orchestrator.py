@@ -34,15 +34,11 @@ class FakeHarborClient:
     def __init__(self, artifacts: dict[tuple[str, str, str], HarborArtifact]) -> None:
         self.artifacts = artifacts
         self.calls: dict[tuple[str, str, str], int] = {}
-        self.changed_after_first: set[tuple[str, str, str]] = set()
 
     def get_artifact(self, project: str, repository: str, reference: str) -> HarborArtifact:
         key = (project, repository, reference)
         self.calls[key] = self.calls.get(key, 0) + 1
-        artifact = self.artifacts[key]
-        if key in self.changed_after_first and self.calls[key] > 1:
-            return artifact.model_copy(update={"digest": CHANGED_DIGEST})
-        return artifact
+        return self.artifacts[key]
 
     def close(self) -> None:
         pass
@@ -206,7 +202,7 @@ def _outgoing_is_empty(settings: Settings) -> bool:
 
 
 def test_mixed_export_creates_one_signed_verified_bundle(tmp_path: Path) -> None:
-    settings, manager, _harbor, package_service, orchestrator = _environment(tmp_path)
+    settings, manager, harbor, package_service, orchestrator = _environment(tmp_path)
 
     async def scenario() -> int:
         await manager.startup()
@@ -230,6 +226,10 @@ def test_mixed_export_creates_one_signed_verified_bundle(tmp_path: Path) -> None
         ArtifactStatus.VERIFIED,
     ]
     assert operation.successful_artifacts == 2
+    assert harbor.calls == {
+        ("team", "app", "1.0.0"): 1,
+        ("team", "charts/sample", "1.2.3"): 1,
+    }
 
     metadata = orchestrator.bundle_metadata(operation_id)
     assert metadata.archive_size == metadata.archive_path.stat().st_size
@@ -240,11 +240,19 @@ def test_mixed_export_creates_one_signed_verified_bundle(tmp_path: Path) -> None
     assert len(verified.manifest.artifacts) == 2
 
 
-def test_digest_change_between_start_preview_and_worker_fails_without_bundle(
+def test_source_digest_change_after_start_validation_fails_without_second_harbor_lookup(
     tmp_path: Path,
 ) -> None:
-    settings, manager, harbor, _package_service, orchestrator = _environment(tmp_path)
-    harbor.changed_after_first.add(("team", "app", "1.0.0"))
+    settings, manager, harbor, package_service, _orchestrator = _environment(tmp_path)
+    orchestrator = ExportOrchestrator(
+        manager.session_factory,
+        settings,
+        manager,
+        harbor_client_factory=lambda: harbor,
+        skopeo_factory=lambda _session: FakeSkopeoService(digest=CHANGED_DIGEST),
+        helm_factory=lambda _session: FakeHelmService(),
+        package_factory=lambda: package_service,
+    )
 
     async def scenario() -> int:
         await manager.startup()
@@ -264,6 +272,7 @@ def test_digest_change_between_start_preview_and_worker_fails_without_bundle(
     assert operation.status is OperationStatus.FAILED
     assert operation.error_code == "export_source_changed"
     assert operation.artifacts[0].status is ArtifactStatus.FAILED
+    assert harbor.calls[("team", "app", "1.0.0")] == 1
     assert _outgoing_is_empty(settings)
 
 

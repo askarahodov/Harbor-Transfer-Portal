@@ -158,7 +158,7 @@ class ExportOrchestrator:
         async def worker(context: OperationContext) -> None:
             await self._run_export(
                 context,
-                selections=selection_snapshot,
+                resolved=resolved,
                 artifact_ids=artifact_ids,
                 delivery_id=delivery_id,
                 actor_username=actor_username,
@@ -233,7 +233,7 @@ class ExportOrchestrator:
         self,
         context: OperationContext,
         *,
-        selections: tuple[ExportArtifactSelection, ...],
+        resolved: tuple[ResolvedExportArtifact, ...],
         artifact_ids: tuple[int, ...],
         delivery_id: str,
         actor_username: str,
@@ -241,11 +241,7 @@ class ExportOrchestrator:
     ) -> None:
         context.transition(OperationStatus.VALIDATING)
         try:
-            resolved = await asyncio.to_thread(self.preview, selections)
             context.require_disk(sum(item.size_bytes or 0 for item in resolved))
-        except ExportOrchestrationError as exc:
-            self._fail_artifacts(context, artifact_ids, exc.code, exc.message)
-            raise OperationTaskFailure(exc.code, exc.message) from exc
         except OperationTaskFailure as exc:
             self._fail_artifacts(context, artifact_ids, exc.code, exc.message)
             raise
