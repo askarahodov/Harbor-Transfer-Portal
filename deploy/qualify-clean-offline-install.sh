@@ -44,6 +44,15 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
 
+frontend_base() {
+  env_file=$1
+  bind=$(sed -n 's/^PORTAL_HTTP_BIND=//p' "$env_file" | head -n 1)
+  port=$(sed -n 's/^PORTAL_HTTP_PORT=//p' "$env_file" | head -n 1)
+  [ -n "$bind" ] || bind=127.0.0.1
+  [ -n "$port" ] || port=8080
+  printf 'http://%s:%s\n' "$bind" "$port"
+}
+
 for command in docker tar sha256sum stat; do
   require_command "$command"
 done
@@ -87,10 +96,11 @@ assert_release_image_identity() {
 
 wait_runtime() {
   kit=$1
+  base=$(frontend_base "$kit/.env")
   attempts=0
   while [ "$attempts" -lt 30 ]; do
     if docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
-      exec -T frontend wget -q -O /dev/null http://127.0.0.1/healthz >/dev/null 2>&1 \
+      exec -T frontend wget -q -O /dev/null "$base/healthz" >/dev/null 2>&1 \
       && docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
         exec -T backend python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2).read()" >/dev/null 2>&1; then
       return 0
@@ -104,6 +114,7 @@ wait_runtime() {
 verify_install() {
   contour=$1
   kit=$2
+  base=$(frontend_base "$kit/.env")
 
   [ -f "$kit/.env" ] && [ ! -L "$kit/.env" ] || fail 'installer did not create a regular .env'
   mode=$(stat -c '%a' "$kit/.env")
@@ -125,12 +136,12 @@ verify_install() {
 
   wait_runtime "$kit"
   health=$(docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
-    exec -T frontend wget -q -O - http://127.0.0.1/api/health)
+    exec -T frontend wget -q -O - "$base/api/health")
   printf '%s' "$health" | grep -F '"status":"ok"' >/dev/null
   printf '%s' "$health" | grep -F "\"version\":\"$VERSION\"" >/dev/null \
     || fail 'installed runtime version does not match release kit'
   docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
-    exec -T frontend wget -q -O - http://127.0.0.1/runtime-config.js \
+    exec -T frontend wget -q -O - "$base/runtime-config.js" \
     | grep -F "contour: '$contour'" >/dev/null
   docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
     exec -T backend python -m alembic -c /app/alembic.ini current --check-heads >/dev/null

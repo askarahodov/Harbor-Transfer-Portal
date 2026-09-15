@@ -23,6 +23,12 @@ case "$current_contour" in
         ;;
 esac
 
+frontend_bind=$(grep '^PORTAL_HTTP_BIND=' .env | tail -n 1 | cut -d= -f2-)
+frontend_port=$(grep '^PORTAL_HTTP_PORT=' .env | tail -n 1 | cut -d= -f2-)
+frontend_bind=${frontend_bind:-127.0.0.1}
+frontend_port=${frontend_port:-8080}
+frontend_base="http://${frontend_bind}:${frontend_port}"
+
 cleanup() {
     set +e
     docker compose down >/dev/null 2>&1
@@ -45,7 +51,7 @@ wait_backend() {
 wait_frontend() {
     attempts=0
     while [ "$attempts" -lt 30 ]; do
-        if docker compose exec -T frontend wget -q -O /dev/null http://127.0.0.1/healthz >/dev/null 2>&1; then
+        if docker compose exec -T frontend wget -q -O /dev/null "${frontend_base}/healthz" >/dev/null 2>&1; then
             return 0
         fi
         attempts=$((attempts + 1))
@@ -59,18 +65,23 @@ compose_config=$(docker compose config)
 logging_driver_count=$(printf '%s\n' "$compose_config" | awk '/driver: json-file/ {count++} END {print count+0}')
 logging_max_size_count=$(printf '%s\n' "$compose_config" | awk '/max-size:/ {count++} END {print count+0}')
 logging_max_file_count=$(printf '%s\n' "$compose_config" | awk '/max-file:/ {count++} END {print count+0}')
+host_network_count=$(printf '%s\n' "$compose_config" | awk '/network_mode: host/ {count++} END {print count+0}')
 if [ "$logging_driver_count" -ne 2 ] || [ "$logging_max_size_count" -ne 2 ] || [ "$logging_max_file_count" -ne 2 ]; then
     echo 'Backend и frontend должны иметь bounded json-file logging policy.' >&2
     exit 1
 fi
-unset compose_config logging_driver_count logging_max_size_count logging_max_file_count
+if [ "$host_network_count" -ne 2 ]; then
+    echo 'Backend и frontend должны использовать host network в Linux air-gap deployment.' >&2
+    exit 1
+fi
+unset compose_config logging_driver_count logging_max_size_count logging_max_file_count host_network_count
 
 docker compose up -d --build
 wait_backend
 wait_frontend
 
-docker compose exec -T frontend wget -q -O - http://127.0.0.1/api/health | grep -F '"status":"ok"' >/dev/null
-docker compose exec -T frontend wget -q -O - http://127.0.0.1/runtime-config.js | grep -F "contour: '${current_contour}'" >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_base}/api/health" | grep -F '"status":"ok"' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_base}/runtime-config.js" | grep -F "contour: '${current_contour}'" >/dev/null
 docker compose exec -T backend sh -c 'test "$(id -u)" -eq 10001'
 docker compose exec -T backend sh -c "skopeo --version | grep -F '1.9.3' >/dev/null"
 docker compose exec -T backend sh -c "helm version --short | grep -F 'v3.22.0' >/dev/null"
@@ -85,7 +96,7 @@ docker compose exec -T backend sh -c "printf 'persistent\n' > /app/data/.compose
 docker compose restart >/dev/null
 wait_backend
 wait_frontend
-docker compose exec -T frontend wget -q -O - http://127.0.0.1/api/health | grep -F '"status":"ok"' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_base}/api/health" | grep -F '"status":"ok"' >/dev/null
 docker compose exec -T backend test -f /app/data/.compose-smoke
 
 # Acceptance #5: down/up must preserve state, and the same already-built images
@@ -95,9 +106,9 @@ export PORTAL_CONTOUR="$opposite_contour"
 docker compose up -d --no-build --pull never
 wait_backend
 wait_frontend
-docker compose exec -T frontend wget -q -O - http://127.0.0.1/runtime-config.js | grep -F "contour: '${opposite_contour}'" >/dev/null
-docker compose exec -T frontend wget -q -O - http://127.0.0.1/api/health | grep -F '"status":"ok"' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_base}/runtime-config.js" | grep -F "contour: '${opposite_contour}'" >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_base}/api/health" | grep -F '"status":"ok"' >/dev/null
 docker compose exec -T backend test -f /app/data/.compose-smoke
 docker compose exec -T backend rm /app/data/.compose-smoke
 
-printf '%s\n' 'Compose smoke test пройден: logging policy, миграции до текущего head, proxy health, SOURCE/TARGET, изоляция runtime и persistent volume проверены без повторной сборки/загрузки образов.'
+printf '%s\n' 'Compose smoke test пройден: host network, logging policy, миграции до текущего head, proxy health, SOURCE/TARGET, изоляция runtime и persistent volume проверены без повторной сборки/загрузки образов.'
