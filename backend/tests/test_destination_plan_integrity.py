@@ -9,6 +9,7 @@ from app.schemas.imports import (
     ImportArtifactDestinationOverride,
     ImportDestinationArtifactPlanResponse,
     ImportDestinationPlanRequest,
+    destination_plan_id,
 )
 from app.services.destination_plan_integrity import (
     canonical_plan_hash,
@@ -127,6 +128,19 @@ def test_canonical_plan_hash_changes_for_security_relevant_content() -> None:
 
     assert baseline != changed_target
     assert baseline != changed_actor
+
+
+def test_policy_revision_changes_plan_hash_but_not_resolved_plan_id() -> None:
+    artifacts = [_image(), _chart()]
+    revision_one = ImportDestinationPlanRequest(
+        mapping_policy_revision=1,
+        container_image_project="docker-prod",
+        helm_chart_project="helm-prod",
+    )
+    revision_two = revision_one.model_copy(update={"mapping_policy_revision": 2})
+
+    assert _hash(revision_one, artifacts) != _hash(revision_two, artifacts)
+    assert destination_plan_id(BUNDLE_SHA, artifacts) == destination_plan_id(BUNDLE_SHA, artifacts)
 
 
 def test_collision_guard_blocks_same_kind_duplicate_registry_coordinate() -> None:
