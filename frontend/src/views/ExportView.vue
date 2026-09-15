@@ -300,7 +300,17 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <div v-if="artifact.kind === 'unknown-oci'" class="unsupported">
-                Не поддерживается export v1
+                <div>Не поддерживается export v1</div>
+                <div
+                  v-if="wizard.referencesFor(artifact).length > 0"
+                  class="reference-list"
+                  aria-label="References неподдерживаемого OCI"
+                >
+                  <code v-for="reference in wizard.referencesFor(artifact)" :key="reference">
+                    {{ reference }}
+                  </code>
+                </div>
+                <div v-else>Нет явной версии/tag — доступна только диагностика</div>
               </div>
               <div v-else-if="wizard.referencesFor(artifact).length === 0" class="unsupported">
                 Нет явной версии/tag — выбрать нельзя
