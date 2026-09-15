@@ -258,12 +258,11 @@ onMounted(() => {
 .mapping-panel__header { display: flex; justify-content: space-between; gap: var(--space-4); align-items: flex-start; }
 .mapping-panel__header h3, .mapping-section h4 { margin: 0; color: var(--color-deep-harbor); }
 .mapping-panel__header p:last-child { margin-bottom: 0; color: var(--color-steel); }
-.mapping-panel__refresh { display: inline-grid; place-items: center; min-width: 40px; min-height: 40px; border: 1px solid var(--color-mist); border-radius: var(--radius-md); background: white; cursor: pointer; }
+.mapping-panel__refresh { display: inline-grid; place-items: center; min-width: 40px; min-height: 40px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: white; cursor: pointer; }
 .mapping-panel__refresh:disabled { cursor: wait; opacity: .6; }
 .mapping-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); margin-top: var(--space-5); }
 .mapping-field { display: grid; gap: var(--space-2); color: var(--color-deep-harbor); font-weight: 700; }
-.mapping-field select, .mapping-table select { min-height: 40px; width: 100%; border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: 0 var(--space-3); background: white; color: var(--color-deep-harbor); font: inherit; font-weight: 400; }
-.mapping-field select:focus-visible, .mapping-table select:focus-visible { outline: 2px solid var(--color-bridge-blue); outline-offset: 1px; }
+.mapping-field select, .mapping-table select { min-height: 40px; width: 100%; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); padding: 0 var(--space-3); background: white; color: var(--color-deep-harbor); font: inherit; font-weight: 400; }
 .mapping-field select:disabled, .mapping-table select:disabled { background: var(--color-fog-gray); color: var(--color-steel); }
 .mapping-section { margin-top: var(--space-6); }
 .mapping-table-wrap { margin-top: var(--space-3); overflow-x: auto; }
@@ -272,14 +271,14 @@ onMounted(() => {
 .mapping-table th { color: var(--color-steel); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
 .target-reference { min-width: 260px; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .plan-state { display: block; font-weight: 700; }
-.plan-state--new, .plan-state--same { color: var(--color-transfer-green); }
-.plan-state--conflict, .plan-state--unknown { color: var(--color-alert-amber); }
-.plan-state--error { color: var(--color-danger); }
+.plan-state--new, .plan-state--same { color: var(--color-success-text); }
+.plan-state--conflict, .plan-state--unknown { color: var(--color-warning-text); }
+.plan-state--error { color: var(--color-danger-text); }
 .mapping-table small { display: block; margin-top: var(--space-1); color: var(--color-steel); }
 .mapping-message { display: flex; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-4); padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-fog-gray); color: var(--color-steel); }
-.mapping-message--success { background: var(--color-mint); color: var(--color-transfer-green); }
-.mapping-message--warning { background: var(--color-sand); color: var(--color-alert-amber); }
-.mapping-message--danger { background: var(--color-rose); color: var(--color-danger); }
+.mapping-message--success { background: var(--color-success-surface); color: var(--color-success-text); }
+.mapping-message--warning { background: var(--color-warning-surface); color: var(--color-warning-text); }
+.mapping-message--danger { background: var(--color-danger-surface); color: var(--color-danger-text); }
 .mapping-actions { display: flex; justify-content: flex-end; margin-top: var(--space-5); }
 .muted { color: var(--color-steel); }
 @media (max-width: 760px) {
