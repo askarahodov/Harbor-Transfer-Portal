@@ -2,7 +2,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as exportsApi from '@/api/exports'
-import type { HarborArtifact, Operation } from '@/api/exports'
+import type { HarborArtifact, HarborProject, Operation, PageResponse } from '@/api/exports'
 
 import { useExportWizardStore } from './exportWizard'
 
@@ -20,6 +20,16 @@ function artifact(reference = '1.0.0'): HarborArtifact {
     media_type: null,
     artifact_type: null,
   }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
 }
 
 function operation(status: Operation['status']): Operation {
@@ -151,6 +161,88 @@ describe('export wizard store', () => {
       ],
       comment: null,
     })
+  })
+
+  it('debounces all Harbor search inputs and resets pagination before requesting', async () => {
+    vi.useFakeTimers()
+    const store = useExportWizardStore()
+    await store.initialize()
+    await store.chooseProject('team')
+    await store.chooseRepository('apps/demo')
+
+    const projectsSpy = vi.mocked(exportsApi.listHarborProjects)
+    const repositoriesSpy = vi.mocked(exportsApi.listHarborRepositories)
+    const artifactsSpy = vi.mocked(exportsApi.listHarborArtifacts)
+    projectsSpy.mockClear()
+    repositoriesSpy.mockClear()
+    artifactsSpy.mockClear()
+
+    store.projectPage = 4
+    store.repositoryPage = 3
+    store.artifactPage = 2
+    store.projectSearch = 'report'
+    store.repositorySearch = 'api'
+    store.artifactSearch = '1.2.3'
+
+    expect(store.projectPage).toBe(1)
+    expect(store.repositoryPage).toBe(1)
+    expect(store.artifactPage).toBe(1)
+    expect(projectsSpy).not.toHaveBeenCalled()
+    expect(repositoriesSpy).not.toHaveBeenCalled()
+    expect(artifactsSpy).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(299)
+    expect(projectsSpy).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await Promise.resolve()
+
+    expect(projectsSpy).toHaveBeenCalledTimes(1)
+    expect(projectsSpy).toHaveBeenCalledWith(1, 25, 'report')
+    expect(repositoriesSpy).toHaveBeenCalledTimes(1)
+    expect(repositoriesSpy).toHaveBeenCalledWith('team', 1, 25, 'api')
+    expect(artifactsSpy).toHaveBeenCalledTimes(1)
+    expect(artifactsSpy).toHaveBeenCalledWith('team', 'apps/demo', 1, 25, '1.2.3')
+  })
+
+  it('applies only the latest project response and ignores stale success and error', async () => {
+    const oldSuccess = deferred<PageResponse<HarborProject>>()
+    const staleFailure = deferred<PageResponse<HarborProject>>()
+    const latestSuccess = deferred<PageResponse<HarborProject>>()
+    const projectsSpy = vi.mocked(exportsApi.listHarborProjects)
+    projectsSpy.mockReset()
+    projectsSpy
+      .mockImplementationOnce(() => oldSuccess.promise)
+      .mockImplementationOnce(() => staleFailure.promise)
+      .mockImplementationOnce(() => latestSuccess.promise)
+
+    const store = useExportWizardStore()
+
+    store.projectSearch = 'old'
+    const oldRequest = store.loadProjects(1)
+    store.projectSearch = 'error'
+    const failureRequest = store.loadProjects(1)
+    store.projectSearch = 'latest'
+    const latestRequest = store.loadProjects(1)
+
+    latestSuccess.resolve({
+      pagination: { page: 1, page_size: 25, total: 1 },
+      items: [{ name: 'latest-result', public: false }],
+    })
+    await latestRequest
+
+    oldSuccess.resolve({
+      pagination: { page: 1, page_size: 25, total: 1 },
+      items: [{ name: 'stale-result', public: true }],
+    })
+    staleFailure.reject(new Error('stale request failed'))
+    await Promise.all([oldRequest, failureRequest])
+
+    expect(store.projects).toEqual([{ name: 'latest-result', public: false }])
+    expect(store.projectPage).toBe(1)
+    expect(store.projectTotal).toBe(1)
+    expect(store.error).toBeNull()
+    expect(store.busy).toBeNull()
   })
 
   it('moves from preview to completed bundle and persists operation id for reload', async () => {
