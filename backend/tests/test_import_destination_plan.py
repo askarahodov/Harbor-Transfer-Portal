@@ -7,10 +7,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 
+from alembic import command
 from app.auth.security import hash_password
 from app.config import PortalContour, Settings
 from app.db.base import Base
@@ -228,7 +228,9 @@ def test_mixed_bundle_resolves_separate_image_and_helm_projects(tmp_path: Path) 
         assert policy["destination_plan"]["plan_id"] == first.plan_id
 
 
-def test_mapping_precedence_is_override_then_source_mapping_then_kind_default(tmp_path: Path) -> None:
+def test_mapping_precedence_is_override_then_source_mapping_then_kind_default(
+    tmp_path: Path,
+) -> None:
     *_, orchestrator, operation_id = _environment(tmp_path)
 
     plan = asyncio.run(
