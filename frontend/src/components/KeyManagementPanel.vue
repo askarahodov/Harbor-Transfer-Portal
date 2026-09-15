@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import axios from 'axios'
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import { apiClient } from '@/api/client'
+import { useRuntimeStore } from '@/stores/runtime'
 
 type Contour = 'SOURCE' | 'TARGET'
 
@@ -23,6 +24,8 @@ type KeySettings = {
 }
 
 const props = defineProps<{ contour: Contour }>()
+const runtime = useRuntimeStore()
+const effectiveContour = computed<Contour>(() => runtime.contour ?? props.contour)
 
 const keySettings = ref<KeySettings | null>(null)
 const loading = ref(true)
@@ -48,7 +51,7 @@ async function loadKeys(): Promise<void> {
   try {
     const response = await apiClient.get<KeySettings>('/settings/keys')
     if (generation !== loadGeneration) return
-    if (response.data.contour !== props.contour) {
+    if (response.data.contour !== effectiveContour.value) {
       keySettings.value = null
       error.value = 'Runtime mode изменился. Key controls обновляются.'
       return
@@ -64,7 +67,7 @@ async function loadKeys(): Promise<void> {
 }
 
 function requireMode(expected: Contour): boolean {
-  if (props.contour === expected && keySettings.value?.contour === expected) return true
+  if (effectiveContour.value === expected && keySettings.value?.contour === expected) return true
   keySettings.value = null
   error.value = 'Runtime mode изменился. Повторите действие после обновления key settings.'
   void loadKeys()
@@ -199,15 +202,12 @@ async function removeTrustedKey(key: TrustedKeyStatus): Promise<void> {
   }
 }
 
-watch(
-  () => props.contour,
-  () => {
-    keySettings.value = null
-    message.value = ''
-    error.value = ''
-    void loadKeys()
-  },
-)
+watch(effectiveContour, () => {
+  keySettings.value = null
+  message.value = ''
+  error.value = ''
+  void loadKeys()
+})
 
 onMounted(loadKeys)
 </script>
@@ -222,7 +222,7 @@ onMounted(loadKeys)
     <p v-if="loading">Загрузка key settings…</p>
 
     <template
-      v-else-if="keySettings && keySettings.contour === props.contour && props.contour === 'SOURCE'"
+      v-else-if="keySettings && keySettings.contour === effectiveContour && effectiveContour === 'SOURCE'"
     >
       <p class="status">
         Signing identity:
@@ -246,7 +246,7 @@ onMounted(loadKeys)
     </template>
 
     <template
-      v-else-if="keySettings && keySettings.contour === props.contour && props.contour === 'TARGET'"
+      v-else-if="keySettings && keySettings.contour === effectiveContour && effectiveContour === 'TARGET'"
     >
       <label for="target-trusted-key">Добавить Ed25519 public key, PEM</label>
       <input
