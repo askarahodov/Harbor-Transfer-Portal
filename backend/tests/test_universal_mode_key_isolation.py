@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -286,6 +288,10 @@ def test_target_verification_uses_only_explicit_trust_not_local_signing_key(tmp_
         assert _private_pem(local_signer_after_rotation).encode() == local_signing_bytes
 
         _switch(client, headers, PortalContour.TARGET)
+        target_before_trust = client.get("/api/settings/keys", headers=headers)
+        assert target_before_trust.status_code == 200
+        assert target_before_trust.json()["trusted_keys"] == []
+
         unrelated = client.post(
             "/api/settings/keys/trusted",
             json={"pem": _public_pem(trusted_unrelated), "confirm": True},
@@ -316,3 +322,121 @@ def test_target_verification_uses_only_explicit_trust_not_local_signing_key(tmp_
         expected_local = ed25519_public_key_fingerprint(local_signer_after_rotation.public_key())
         assert second.signing_key_fingerprint == expected_local
         assert second.signing_key_fingerprint != bundle_fingerprint
+
+
+def test_disabled_and_replaced_trust_state_survives_multiple_switches(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    original = Ed25519PrivateKey.generate()
+    replacement = Ed25519PrivateKey.generate()
+    original_fingerprint = ed25519_public_key_fingerprint(original.public_key())
+    replacement_fingerprint = ed25519_public_key_fingerprint(replacement.public_key())
+
+    with TestClient(app) as client:
+        headers = _login(client)
+        _switch(client, headers, PortalContour.TARGET)
+        added = client.post(
+            "/api/settings/keys/trusted",
+            json={"pem": _public_pem(original), "confirm": True},
+            headers=headers,
+        )
+        assert added.status_code == 201
+
+        disabled = client.patch(
+            f"/api/settings/keys/trusted/{original_fingerprint}",
+            json={"enabled": False, "confirm": True},
+            headers=headers,
+        )
+        assert disabled.status_code == 200
+
+        for mode in (
+            PortalContour.SOURCE,
+            PortalContour.TARGET,
+            PortalContour.SOURCE,
+            PortalContour.TARGET,
+        ):
+            _switch(client, headers, mode)
+
+        disabled_status = client.get("/api/settings/keys", headers=headers)
+        assert disabled_status.json()["trusted_keys"] == [
+            {"fingerprint": original_fingerprint, "enabled": False}
+        ]
+
+        replaced = client.put(
+            f"/api/settings/keys/trusted/{original_fingerprint}",
+            json={"pem": _public_pem(replacement), "confirm": True},
+            headers=headers,
+        )
+        assert replaced.status_code == 200
+        assert replaced.json()["fingerprint"] == replacement_fingerprint
+
+        for mode in (
+            PortalContour.SOURCE,
+            PortalContour.TARGET,
+            PortalContour.SOURCE,
+            PortalContour.TARGET,
+        ):
+            _switch(client, headers, mode)
+
+        replaced_status = client.get("/api/settings/keys", headers=headers)
+        assert replaced_status.json()["trusted_keys"] == [
+            {"fingerprint": replacement_fingerprint, "enabled": False}
+        ]
+
+
+def test_file_level_key_restore_preserves_categories_and_permissions(tmp_path: Path) -> None:
+    live_app = _app(tmp_path / "live")
+    signing_key = Ed25519PrivateKey.generate()
+    trusted_key = Ed25519PrivateKey.generate()
+    signing_fingerprint = ed25519_public_key_fingerprint(signing_key.public_key())
+    trusted_fingerprint = ed25519_public_key_fingerprint(trusted_key.public_key())
+
+    with TestClient(live_app) as client:
+        headers = _login(client)
+        installed = client.put(
+            "/api/settings/keys/signing",
+            json={"pem": _private_pem(signing_key)},
+            headers=headers,
+        )
+        assert installed.status_code == 200
+        _switch(client, headers, PortalContour.TARGET)
+        added = client.post(
+            "/api/settings/keys/trusted",
+            json={"pem": _public_pem(trusted_key), "confirm": True},
+            headers=headers,
+        )
+        assert added.status_code == 201
+
+    live_keys = live_app.state.settings.bundle_signing_private_key_file.parent
+    backup_keys = tmp_path / "backup" / "keys"
+    shutil.copytree(live_keys, backup_keys, copy_function=shutil.copy2)
+
+    restored_app = _app(tmp_path / "restored")
+    restored_keys = restored_app.state.settings.bundle_signing_private_key_file.parent
+    shutil.copytree(
+        backup_keys,
+        restored_keys,
+        copy_function=shutil.copy2,
+        dirs_exist_ok=True,
+    )
+
+    with TestClient(restored_app) as client:
+        headers = _login(client)
+        source_status = client.get("/api/settings/keys", headers=headers)
+        assert source_status.status_code == 200
+        assert source_status.json()["signing_key"] == {
+            "configured": True,
+            "fingerprint": signing_fingerprint,
+        }
+
+        _switch(client, headers, PortalContour.TARGET)
+        target_status = client.get("/api/settings/keys", headers=headers)
+        assert target_status.status_code == 200
+        assert target_status.json()["signing_key"] is None
+        assert target_status.json()["trusted_keys"] == [
+            {"fingerprint": trusted_fingerprint, "enabled": True}
+        ]
+
+    assert _directory_snapshot(restored_keys) == _directory_snapshot(backup_keys)
+    restored_files = [path for path in restored_keys.rglob("*") if path.is_file()]
+    assert restored_files
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in restored_files)
