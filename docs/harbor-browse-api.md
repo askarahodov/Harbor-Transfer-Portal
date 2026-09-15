@@ -28,7 +28,7 @@ Query-параметры:
 
 - `page` — номер страницы, начиная с 1;
 - `page_size` — от 1 до 100, по умолчанию 50;
-- `search` — регистронезависимый поиск по имени проекта.
+- `search` — регистронезависимый partial/token поиск по имени проекта.
 
 Ответ содержит `pagination` и нормализованный список `items`.
 
@@ -47,7 +47,7 @@ Harbor может вернуть имя repository в виде `project/nested/r
 - `kind`: `container-image`, `helm-chart` или `unknown-oci`;
 - `project`;
 - project-relative `repository`;
-- `references` — теги/версии, если Harbor их сообщил;
+- `references` — все теги/версии, которые Harbor сообщил для artifact;
 - `digest`;
 - `size`, если известен;
 - `pushed_at`, если известен;
@@ -55,11 +55,24 @@ Harbor может вернуть имя repository в виде `project/nested/r
 
 Поля, которые Harbor не сообщает надёжно, остаются `null`; портал не генерирует вымышленные значения.
 
+## Поиск
+
+Portal использует штатный Harbor query API, а не скачивает весь каталог для каждого запроса:
+
+- projects/repositories передают fuzzy-фильтр `q=name=~...`;
+- поиск tag/version передаёт `q=tags=~...`;
+- digest prefix передаётся как `q=digest=~...`;
+- параметры идут через HTTP query params, а не через ручную сборку URL.
+
+Для запроса из одного фрагмента Harbor выполняет фильтрацию и пагинацию полностью на своей стороне. Для составного запроса портал рассматривает пробел и `/ - _ . :` как границы слов. Например, `report api` находит `softrust-report-api`. В этом режиме портал сначала сужает кандидатов upstream fuzzy-фильтром по наиболее информативному токену, затем выполняет bounded token-filter. Поисковый fallback ограничен числом Harbor pages и не превращается в неограниченный full-crawl.
+
+Выбор для export после поиска остаётся строгим: frontend отправляет конкретный tag/version и digest, а backend повторно проверяет exact reference перед операцией.
+
 ## Классификация OCI
 
-Классификация выполняется только по данным Harbor (`type`, `media_type`, annotations). Явный chart/Helm тип классифицируется как `helm-chart`, image/container — как `container-image`, всё остальное остаётся `unknown-oci`. Неизвестный OCI artifact не считается ошибкой и не должен ломать UI.
+Классификация выполняется только по данным Harbor (`type`, `media_type`, `manifest_media_type`, `artifact_type`, annotations/extra attributes). Явный chart/Helm тип классифицируется как `helm-chart`, image/container — как `container-image`, всё остальное остаётся `unknown-oci`. Неизвестный OCI artifact не считается ошибкой и не должен ломать UI.
 
-## Пагинация и порядок
+## Пагинация и производительность
 
 Portal API возвращает единый объект:
 
@@ -74,7 +87,9 @@ Portal API возвращает единый объект:
 }
 ```
 
-Frontend не должен читать Harbor-specific `X-Total-Count` или другие upstream headers. Для детерминированного поведения portal API сортирует проекты/repositories по имени, а artifacts — по reference/digest перед разбиением на страницы.
+Frontend не читает Harbor-specific `X-Total-Count`. Backend запрашивает у Harbor только нужную upstream page и преобразует `X-Total-Count` в portal-owned `pagination.total`. Поэтому открытие page 1 больше не требует чтения page 2..N даже при тысячах проектов, repositories или artifacts.
+
+Для projects/repositories backend просит Harbor сортировать по имени; artifacts запрашиваются в стабильном upstream порядке по времени публикации. Portal продолжает нормализовывать DTO и project-relative repository names, но не материализует весь каталог перед выдачей обычной страницы.
 
 ## Ошибки
 
@@ -86,7 +101,7 @@ Harbor-ошибки не проксируются как raw upstream body. Port
 - `harbor_forbidden` — Harbor запретил доступ сервисной учётной записи;
 - `harbor_not_found` — проект/repository/artifact отсутствует;
 - `harbor_rate_limited` — Harbor временно ограничил запросы;
-- `harbor_invalid_response` — upstream вернул некорректный ответ;
+- `harbor_invalid_response` — upstream вернул некорректный ответ, включая отсутствие корректного `X-Total-Count` у paged browse;
 - `harbor_error` — прочая нормализованная ошибка Harbor.
 
 Raw Harbor response, пароль и другие секреты в сообщении ошибки не включаются.
