@@ -1,17 +1,19 @@
 # Руководство администратора Harbor Transfer Portal
 
-**Статус:** актуальная эксплуатационная инструкция baseline **v1.0.0** для `SOURCE` и `TARGET`, включая shipped offline installation kit.
+**Статус:** актуальная эксплуатационная инструкция baseline **v1.0.0** для универсального runtime `SOURCE`/`TARGET`, включая shipped offline installation kit.
 
-Этот документ описывает администрирование одной установки Harbor Transfer Portal: offline install, local Harbor, users/RBAC, credentials/CA, signing/trust keys, transfer policies, persistent data и lifecycle. Пошаговый operator flow SOURCE → physical transfer → TARGET описан в [user-guide.md](user-guide.md). Нормативный переносимый формат задаёт [Offline Bundle Protocol v1](offline-bundle-v1.md), security model — [security.md](security.md).
+Этот документ описывает администрирование одной установки Harbor Transfer Portal: offline install, runtime role, local Harbor, users/RBAC, credentials/CA, signing/trust keys, transfer policies, persistent data и lifecycle. Пошаговый operator flow SOURCE → physical transfer → TARGET описан в [user-guide.md](user-guide.md). Полный contract переключения роли — [runtime-mode.md](runtime-mode.md). Нормативный переносимый формат задаёт [Offline Bundle Protocol v1](offline-bundle-v1.md), security model — [security.md](security.md).
 
-## 1. Две независимые установки
+## 1. Один deployment, runtime role SOURCE/TARGET
 
-Harbor Transfer Portal разворачивается отдельно:
+Один и тот же Harbor Transfer Portal deployment поддерживает обе runtime-роли:
 
-- `SOURCE` — только в исходном контуре и только со своим local Harbor;
-- `TARGET` — только в целевом контуре и только со своим local Harbor.
+- `SOURCE` — export workspace и SOURCE signing semantics;
+- `TARGET` — import workspace и TARGET trust semantics.
 
-Одна installation не хранит credentials противоположного Harbor и не создаёт сетевой путь между контурами. Role фиксируется:
+Role **не выбирает удалённый Harbor**. Одна installation знает только настроенный локальный Harbor, не хранит credentials противоположного Harbor и не создаёт сетевой путь между физически изолированными контурами. В реальном air-gap процессе на разных площадках обычно остаются отдельные installations, но software/deployment больше не фиксируется навсегда как SOURCE или TARGET.
+
+`PORTAL_CONTOUR` — только bootstrap default новой базы:
 
 ```text
 PORTAL_CONTOUR=SOURCE
@@ -23,7 +25,9 @@ PORTAL_CONTOUR=SOURCE
 PORTAL_CONTOUR=TARGET
 ```
 
-Не переключайте рабочую installation SOURCE ↔ TARGET как обычную операционную процедуру: contours должны иметь отдельные state, secrets, keys и persistent data.
+При первом startup backend сохраняет authoritative runtime mode и monotonic revision в SQLite. После этого restart, upgrade или изменение `PORTAL_CONTOUR` не должны переопределять сохранённый mode. Operator/Admin переключает SOURCE ↔ TARGET через UI без rebuild/restart; viewer видит role read-only. Незавершённые mode-bound operations блокируют unsafe switch.
+
+Подробный lifecycle, race/recovery и backup/restore semantics: [runtime-mode.md](runtime-mode.md).
 
 ## 2. Production/offline installation v1.0.0
 
@@ -41,7 +45,7 @@ harbor-transfer-portal-v1.0.0-offline-install.tar.gz
 harbor-transfer-portal-v1.0.0-offline-install.tar.gz.sha256
 ```
 
-После проверки внешнего checksum и распаковки:
+После проверки внешнего checksum и распаковки задайте **начальный** bootstrap mode новой установки, например:
 
 ```bash
 PORTAL_CONTOUR=SOURCE ./install.sh
@@ -52,6 +56,8 @@ PORTAL_CONTOUR=SOURCE ./install.sh
 ```bash
 PORTAL_CONTOUR=TARGET ./install.sh
 ```
+
+Это не создаёт разные SOURCE/TARGET builds. Один и тот же kit используется в обеих ролях. После первого успешного startup переключайте role через UI; не редактируйте `PORTAL_CONTOUR` как штатный способ runtime switch.
 
 Installer проверяет internal checksums, Docker Engine/Compose, architecture и disk capacity, выполняет `docker load`, проверяет exact local image identity и запускает Compose только с bundled images (`--no-build --pull never`). `.env` создаётся локально, JWT secret генерируется на площадке; существующий regular `.env` не перезаписывается молча.
 
@@ -67,11 +73,13 @@ Release kit **не содержит** Harbor credentials, JWT secret, SOURCE pri
 - Docker Compose v2;
 - поддерживаемая architecture release image (`amd64`/`arm64` согласно конкретному kit);
 - достаточный disk capacity;
-- local Harbor текущего contour;
+- local Harbor текущей установки;
 - отдельный Harbor service account;
-- для SOURCE — Ed25519 signing private key;
-- для TARGET — trusted SOURCE public key(s);
+- для SOURCE role — Ed25519 signing private key;
+- для TARGET role — trusted SOURCE public key(s);
 - утверждённый physical transfer process/media.
+
+В universal installation обе категории key material могут физически присутствовать в persistent storage, но backend никогда не смешивает их semantics: SOURCE signing использует только private signing key, TARGET verification — только explicit trusted public keys. Подробнее: [universal-mode-key-isolation.md](universal-mode-key-isolation.md).
 
 Runtime закрытого контура не должен зависеть от internet/CDN. Не выполняйте `docker compose build`, `npm install`, `pip install` или image pull как часть штатной offline установки.
 
@@ -298,9 +306,9 @@ Backend работает под UID/GID `10001`. Не используйте `do
 
 Backup включает `.env` и persistent `/app/data`, следовательно содержит:
 
-- SQLite/history/audit state;
+- SQLite/history/audit state, включая authoritative runtime mode и `runtime.portal_mode_version`;
 - Harbor managed secret/CA;
-- SOURCE private key либо TARGET trust set;
+- SOURCE private key и/или TARGET trust set, если они настроены на universal instance;
 - receipts и другую retained metadata.
 
 Такой archive является sensitive secret backup. Храните его отдельно от release kit и публичного trust material.
@@ -315,9 +323,11 @@ Restore выполняется matching-version kit и требует explicit c
 ./restore.sh /secure/backups/harbor-transfer-portal-backup-v1.0.0-....tar.gz --confirm-restore
 ```
 
-До destructive mutation script проверяет external/internal checksums, allowlist backup members, product/version/contour/volume identity и unsafe archive paths/types.
+До destructive mutation script проверяет external/internal checksums, allowlist backup members, product/version/bootstrap-contour metadata/volume identity и unsafe archive paths/types.
 
-Restore не является автоматическим Alembic downgrade. Для recovery сначала восстановите matching version, подтвердите health, затем выполняйте штатный upgrade.
+После восстановления SQLite authoritative runtime mode и revision берутся из restored persistent state. Значение `PORTAL_CONTOUR` в восстановленном `.env` остаётся bootstrap fallback и не должно переключать уже инициализированный runtime state. После restore проверьте `GET /api/runtime` или mode indicator в UI.
+
+Restore не является автоматическим Alembic downgrade. Для recovery сначала восстановите matching version, подтвердите health и runtime mode, затем выполняйте штатный upgrade.
 
 ## 15. Upgrade
 
@@ -329,7 +339,7 @@ Restore не является автоматическим Alembic downgrade. Д
 
 Upgrade сначала создаёт обязательный pre-upgrade backup, затем загружает bundled images, переносит прежний `.env`, меняя только `PORTAL_VERSION`, и запускает `--no-build --pull never --wait`.
 
-При startup failure configuration возвращается к предыдущей версии, но уже применённая DB migration может требовать restore pre-upgrade backup. Автоматический database rollback не обещается.
+При startup failure configuration возвращается к предыдущей версии, но уже применённая DB migration может требовать restore pre-upgrade backup. Автоматический database rollback не обещается. Persistent runtime mode переживает штатный upgrade; installation без runtime metadata bootstrap-ит его один раз из `PORTAL_CONTOUR` при первом startup новой версии.
 
 ## 16. Uninstall
 
@@ -351,28 +361,29 @@ PORTAL_CONFIRM_PURGE=DELETE_PORTAL_DATA ./uninstall.sh --purge-data
 
 ## 17. SOURCE → TARGET штатный workflow
 
-После admin configuration operator работает через browser:
+После admin configuration operator работает через browser. На universal instance текущая role выбирается runtime switcher; при физически раздельных контурах каждая installation всё равно взаимодействует только со своим local Harbor.
 
-1. SOURCE `/export`: выбирает точные image/chart versions из local Harbor;
+1. в `SOURCE` role `/export`: выбирает точные image/chart versions из local Harbor;
 2. проверяет preview/digests;
 3. запускает export и ждёт `COMPLETED`;
 4. скачивает `.htp.tar.gz` и `.sha256`;
 5. физически переносит файлы по утверждённой процедуре;
-6. TARGET `/import`: upload archive или discovery готовой archive+sidecar пары;
-7. TARGET проверяет archive/schema/signature/checksums до mutation;
-8. operator анализирует `NEW/SAME/CONFLICT/UNKNOWN/ERROR`;
-9. запускает допустимый import;
-10. проверяет receipt/history/CSV/PDF reports.
+6. переключает принимающий Portal в `TARGET` role (если это universal single-instance scenario) и открывает `/import`;
+7. TARGET выполняет upload archive или discovery готовой archive+sidecar пары;
+8. TARGET проверяет archive/schema/signature/checksums до mutation;
+9. operator анализирует `NEW/SAME/CONFLICT/UNKNOWN/ERROR`;
+10. запускает допустимый import;
+11. проверяет receipt/history/CSV/PDF reports.
 
 `SAME` — idempotent skip. `CONFLICT` блокируется по умолчанию. `UNKNOWN/ERROR` не трактуются как `NEW`.
 
-Подробности: [user-guide.md](user-guide.md).
+Подробности: [user-guide.md](user-guide.md) и [runtime-mode.md](runtime-mode.md).
 
 ## 18. Restart и interrupted operations
 
 Resume середины Skopeo/Helm subprocess после restart baseline v1 не поддерживает. Active interrupted operations reconciles в safe terminal state; SOURCE cleanup не должен оставлять ready-looking partial publication. TARGET `READY` может сохраняться, пока mutation не началась.
 
-Не определяйте operation state по text logs — источник истины persisted DB state/API.
+Выбранный runtime mode и monotonic revision сохраняются в SQLite и переживают restart. Не определяйте operation state по text logs — источник истины persisted DB state/API.
 
 ## 19. Release identity v1.0.0
 
@@ -390,7 +401,8 @@ Release-critical behavior автоматически проверяется CI:
 - protocol/security gates по scope;
 - real Skopeo/Helm local-registry integration;
 - Compose smoke;
-- clean-host offline install одного archive в SOURCE и TARGET;
+- clean-host offline install одного archive с predictable bootstrap role;
+- runtime migration/restart/backup-restore SOURCE↔TARGET lifecycle;
 - isolated SOURCE → physical bundle → TARGET flow с separate registries;
 - digest/Helm verification, receipt/history/report;
 - replay skip, conflict default-deny, tamper rejection;
@@ -408,7 +420,7 @@ docker compose --env-file .env -f compose.yaml logs backend
 docker compose --env-file .env -f compose.yaml logs frontend
 ```
 
-Проверяйте health/readiness, local Harbor connection test, key status и operation error code. Не публикуйте raw secret-bearing logs.
+Проверяйте health/readiness, `/api/runtime`, local Harbor connection test, key status и operation error code. Не публикуйте raw secret-bearing logs.
 
 Пошаговые сценарии: [troubleshooting.md](troubleshooting.md).
 

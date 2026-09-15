@@ -88,6 +88,27 @@ describe('runtime store', () => {
     expect(store.switching).toBe(false)
   })
 
+  it('cycles SOURCE to TARGET to SOURCE without recreating the store', async () => {
+    vi.spyOn(apiClient, 'put')
+      .mockResolvedValueOnce({
+        data: { previous: 'SOURCE', current: 'TARGET', changed: true },
+      } as unknown as AxiosResponse)
+      .mockResolvedValueOnce({
+        data: { previous: 'TARGET', current: 'SOURCE', changed: true },
+      } as unknown as AxiosResponse)
+    setActivePinia(createPinia())
+    const store = useRuntimeStore()
+    store.setContour('SOURCE')
+
+    expect(await store.switchMode('TARGET')).toBe(true)
+    expect(store.contour).toBe('TARGET')
+
+    expect(await store.switchMode('SOURCE')).toBe(true)
+    expect(store.contour).toBe('SOURCE')
+    expect(apiClient.put).toHaveBeenNthCalledWith(1, '/runtime/mode', { mode: 'TARGET' })
+    expect(apiClient.put).toHaveBeenNthCalledWith(2, '/runtime/mode', { mode: 'SOURCE' })
+  })
+
   it('preserves old contour and exposes runtime_mode_busy from FastAPI detail', async () => {
     vi.spyOn(apiClient, 'put').mockRejectedValue({
       isAxiosError: true,
