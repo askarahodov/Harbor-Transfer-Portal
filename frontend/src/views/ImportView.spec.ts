@@ -58,7 +58,7 @@ function conflictPreview(): ImportPreview {
     bundle_filename: 'delivery.htp.tar.gz',
     intake_mode: 'incoming',
     source_harbor: 'harbor.source.local',
-    source_portal_version: '0.1.0',
+    source_portal_version: '1.0.0',
     source_created_at: '2026-09-14T04:00:00Z',
     source_created_by: 'source-operator',
     source_comment: 'critical offline delivery',
@@ -97,7 +97,7 @@ afterEach(() => {
 })
 
 describe('TARGET import wizard view', () => {
-  it('shows verified manifest metadata and requires explicit confirmation for exact conflicts', async () => {
+  it('shows verified manifest metadata but keeps import disabled until destination plan confirmation', async () => {
     sessionStorage.setItem('htp.import.operation-id', '51')
     vi.spyOn(importsApi, 'getOperation').mockResolvedValue(operation('READY'))
     vi.spyOn(importsApi, 'getImportPreview').mockResolvedValue(conflictPreview())
@@ -122,15 +122,12 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.text()).toContain('package verified')
     expect(wrapper.text()).toContain('не означает')
 
-    const checkbox = wrapper.get('.overwrite-confirmation input[type="checkbox"]')
-    const overwriteButton = wrapper.findAll('button').find((item) =>
-      item.text().includes('подтверждённым overwrite'),
+    const defaultImportButton = wrapper.findAll('button').find((item) =>
+      item.text().includes('Импортировать NEW'),
     )
-    expect(overwriteButton).toBeDefined()
-    expect(overwriteButton?.attributes('disabled')).toBeDefined()
-
-    await checkbox.setValue(true)
-    expect(overwriteButton?.attributes('disabled')).toBeUndefined()
+    expect(defaultImportButton).toBeDefined()
+    expect(defaultImportButton?.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.overwrite-confirmation').exists()).toBe(false)
   })
 
   it('keeps a standard keyboard-accessible file input alongside drag and drop', async () => {
