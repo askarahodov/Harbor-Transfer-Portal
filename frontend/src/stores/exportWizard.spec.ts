@@ -163,6 +163,29 @@ describe('export wizard store', () => {
     })
   })
 
+  it('keeps unknown OCI references visible while selection remains fail-closed', () => {
+    const store = useExportWizardStore()
+    const unknown: HarborArtifact = {
+      kind: 'unknown-oci',
+      project: 'team',
+      repository: 'apps/opaque',
+      references: ['release-2026.09', 'latest'],
+      digest: DIGEST,
+      size: 1024,
+      pushed_at: null,
+      media_type: 'application/vnd.example.unknown',
+      artifact_type: 'application/vnd.example.unknown',
+    }
+
+    expect(store.referencesFor(unknown)).toEqual(['release-2026.09', 'latest'])
+    expect(store.isSelected(unknown, 'release-2026.09')).toBe(false)
+
+    store.toggleArtifact(unknown, 'release-2026.09')
+
+    expect(store.selectedCount).toBe(0)
+    expect(store.selectedArtifacts).toEqual([])
+  })
+
   it('debounces all Harbor search inputs and resets pagination before requesting', async () => {
     vi.useFakeTimers()
     const store = useExportWizardStore()
