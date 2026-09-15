@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.db.models import Operation
-from app.domain.bundle import OperationType
+from app.domain.bundle import OperationStatus, OperationType
 from app.schemas.imports import ImportDestinationPlanRequest, ImportDestinationPlanResponse
 from app.services.artifact_mapping_snapshot import persist_artifact_mapping_snapshot
 from app.services.destination_mapping_policy import DestinationMappingPolicyService
@@ -64,4 +64,32 @@ class PolicyAwareImportDestinationPlanOrchestrator(ImportDestinationPlanOrchestr
         # canonical_plan_hash already includes mapping.mapping_policy_revision. Stamp the
         # same server-owned snapshot onto the response before the immutable plan is stored.
         plan.mapping_policy_revision = mapping.mapping_policy_revision
-        super()._persist_destination_plan(operation_id, mapping, plan)
+        with self.session_factory() as session:
+            operation = session.get(Operation, operation_id)
+            if operation is None or operation.type is not OperationType.IMPORT:
+                raise ImportOrchestrationError(
+                    "import_operation_not_found",
+                    "Import-операция не найдена",
+                )
+            if operation.status is not OperationStatus.READY or operation.worker_token is not None:
+                raise ImportOrchestrationError(
+                    "import_destination_plan_stale",
+                    "Import execution уже начался; destination plan больше нельзя менять",
+                )
+            if (
+                operation.bundle_sha256 != plan.bundle_sha256
+                or operation.source_delivery_id != plan.source_delivery_id
+                or operation.id != plan.operation_id
+            ):
+                raise ImportOrchestrationError(
+                    "import_destination_plan_stale",
+                    "Bundle или delivery изменились во время построения destination plan",
+                )
+            operation.import_policy_json = self._dump_policy(
+                {
+                    "version": 2,
+                    "mapping_request": mapping.model_dump(mode="json"),
+                    "destination_plan": plan.model_dump(mode="json"),
+                }
+            )
+            session.commit()
