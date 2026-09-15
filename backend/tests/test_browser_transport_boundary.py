@@ -7,11 +7,22 @@ def _read(relative_path: str) -> str:
     return (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
 
 
-def test_compose_browser_listener_is_loopback_only_by_default() -> None:
-    expected = "${PORTAL_HTTP_BIND:-127.0.0.1}:${PORTAL_HTTP_PORT:-8080}:80"
-
+def test_compose_uses_host_network_with_loopback_backend() -> None:
     for relative_path in ("compose.yaml", "deploy/offline/compose.yaml"):
-        assert expected in _read(relative_path)
+        compose = _read(relative_path)
+        assert compose.count("network_mode: host") == 2
+        assert "- --host\n      - 127.0.0.1" in compose
+        assert "- --port\n      - \"8000\"" in compose
+        assert "PORTAL_HTTP_BIND: ${PORTAL_HTTP_BIND:-127.0.0.1}" in compose
+        assert "PORTAL_HTTP_PORT: ${PORTAL_HTTP_PORT:-8080}" in compose
+        assert "${PORTAL_HTTP_BIND:-127.0.0.1}:${PORTAL_HTTP_PORT:-8080}:80" not in compose
+
+
+def test_frontend_listener_and_api_proxy_stay_on_configured_host_boundary() -> None:
+    nginx = _read("frontend/nginx.conf")
+
+    assert "listen ${PORTAL_HTTP_BIND}:${PORTAL_HTTP_PORT};" in nginx
+    assert "proxy_pass http://127.0.0.1:8000;" in nginx
 
 
 def test_frontend_proxy_drops_untrusted_forwarding_headers() -> None:
