@@ -15,6 +15,7 @@ _REPOSITORY_COMPONENT_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
 
 def normalized_mapping(mapping: ImportDestinationPlanRequest) -> dict[str, object]:
     return {
+        "mapping_policy_revision": mapping.mapping_policy_revision,
         "container_image_project": mapping.container_image_project,
         "helm_chart_project": mapping.helm_chart_project,
         "project_mappings": {
