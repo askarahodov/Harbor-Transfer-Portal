@@ -250,6 +250,7 @@ class ExportOrchestrator:
         workspace = context.workspace()
         helm_root = self._prepare_helm_root(context.operation_id)
         package_inputs: list[PackageArtifactInput] = []
+        materialized_artifact_ids: list[int] = []
         completed = False
         try:
             for index, (artifact_id, item) in enumerate(
@@ -273,12 +274,13 @@ class ExportOrchestrator:
                     )
                     self._fail_artifacts(
                         context,
-                        artifact_ids[index + 1 :],
+                        (*materialized_artifact_ids, *artifact_ids[index + 1 :]),
                         "export_aborted",
-                        "Export остановлен после ошибки другого артефакта",
+                        "Export bundle прерван после ошибки другого артефакта",
                     )
                     raise OperationTaskFailure(exc.code, exc.message) from exc
                 package_inputs.append(package_input)
+                materialized_artifact_ids.append(artifact_id)
                 context.set_progress(current=index + 1, total=len(artifact_ids))
 
             context.transition(OperationStatus.PACKAGING)
