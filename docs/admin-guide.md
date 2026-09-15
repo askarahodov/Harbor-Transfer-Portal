@@ -75,11 +75,37 @@ Release kit **не содержит** Harbor credentials, JWT secret, SOURCE pri
 
 Runtime закрытого контура не должен зависеть от internet/CDN. Не выполняйте `docker compose build`, `npm install`, `pip install` или image pull как часть штатной offline установки.
 
-## 4. Первый запуск и bootstrap admin
+## 4. Первый запуск, browser HTTPS и bootstrap admin
 
-После `install.sh` Portal доступен через frontend HTTP endpoint, по умолчанию на `PORTAL_HTTP_PORT=8080`.
+После `install.sh` raw frontend HTTP listener по умолчанию доступен только на loopback:
 
-Проверки:
+```text
+PORTAL_HTTP_BIND=127.0.0.1
+PORTAL_HTTP_PORT=8080
+PORTAL_BROWSER_SCHEME=http
+```
+
+`http://127.0.0.1:8080` предназначен для bootstrap/diagnostics и как upstream локального TLS terminator. **Authenticated remote browser use должен идти через HTTPS.**
+
+Поддерживаемая production topology:
+
+```text
+Browser --HTTPS--> site-managed TLS terminator --HTTP--> 127.0.0.1:8080 --> Portal
+```
+
+TLS certificate/private key остаются инфраструктурой площадки и не входят в release kit. После настройки TLS terminator задайте в `.env`:
+
+```text
+PORTAL_BROWSER_SCHEME=https
+```
+
+и перезапустите Compose. Backend использует эту trusted deployment-настройку для security-sensitive browser attributes; пользовательский `X-Forwarded-Proto` не является trust source.
+
+Если approved TLS terminator находится на отдельном хосте, задайте `PORTAL_HTTP_BIND` адресом выделенного внутреннего интерфейса Portal и ограничьте firewall доступом только с terminator. Не публикуйте raw HTTP listener на всю сеть без такого ограничения и не публикуйте backend `:8000` на host network.
+
+Полная схема и проверка: [browser-transport.md](browser-transport.md).
+
+Проверки runtime:
 
 ```text
 GET /api/health
@@ -99,7 +125,7 @@ docker compose --env-file .env -f compose.yaml exec -T \
 unset BOOTSTRAP_ADMIN_PASSWORD
 ```
 
-После этого войдите через web UI.
+После этого входите через web UI по настроенному HTTPS endpoint. Local HTTP используйте только как явный bootstrap/diagnostic mode.
 
 ## 5. Local users и RBAC
 
@@ -185,7 +211,7 @@ Managed CA:
 HARBOR_MANAGED_CA_FILE=./data/secrets/harbor-ca.pem
 ```
 
-`HARBOR_VERIFY_TLS=false` не является штатным исправлением x509/private-CA ошибки.
+`HARBOR_VERIFY_TLS=false` не является штатным исправлением x509/private-CA ошибки. Harbor TLS и Browser ↔ Portal HTTPS — независимые trust boundaries; `PORTAL_BROWSER_SCHEME` не изменяет Harbor verification.
 
 ## 9. SOURCE signing key
 
@@ -391,7 +417,7 @@ docker compose --env-file .env -f compose.yaml logs frontend
 Portal не заменяет:
 
 - host/OS hardening;
-- production TLS termination/network policy;
+- site TLS certificate/private-key lifecycle и network policy вокруг Browser ↔ Portal boundary;
 - Harbor account governance;
 - physical media custody/malware controls;
 - backup retention/escrow;
