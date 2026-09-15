@@ -6,6 +6,14 @@ import { apiClient } from '@/api/client'
 
 import { useRuntimeStore } from './runtime'
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve
+  })
+  return { promise, resolve }
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   delete window.__HTP_CONFIG__
@@ -62,5 +70,72 @@ describe('runtime store', () => {
     expect(store.contour).toBe('SOURCE')
     expect(store.version).toBeNull()
     expect(store.errorCode).toBeNull()
+  })
+
+  it('changes contour only after backend confirms the requested mode', async () => {
+    vi.spyOn(apiClient, 'put').mockResolvedValue({
+      data: { previous: 'SOURCE', current: 'TARGET', changed: true },
+    } as unknown as AxiosResponse)
+    setActivePinia(createPinia())
+    const store = useRuntimeStore()
+    store.setContour('SOURCE')
+
+    expect(await store.switchMode('TARGET')).toBe(true)
+
+    expect(apiClient.put).toHaveBeenCalledWith('/runtime/mode', { mode: 'TARGET' })
+    expect(store.contour).toBe('TARGET')
+    expect(store.switchErrorCode).toBeNull()
+    expect(store.switching).toBe(false)
+  })
+
+  it('preserves old contour and exposes runtime_mode_busy from FastAPI detail', async () => {
+    vi.spyOn(apiClient, 'put').mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { detail: { code: 'runtime_mode_busy', message: 'busy' } } },
+    })
+    setActivePinia(createPinia())
+    const store = useRuntimeStore()
+    store.setContour('SOURCE')
+
+    expect(await store.switchMode('TARGET')).toBe(false)
+
+    expect(store.contour).toBe('SOURCE')
+    expect(store.switchErrorCode).toBe('runtime_mode_busy')
+    expect(store.switching).toBe(false)
+  })
+
+  it('rejects a response that does not confirm the requested contour', async () => {
+    vi.spyOn(apiClient, 'put').mockResolvedValue({
+      data: { previous: 'SOURCE', current: 'SOURCE', changed: false },
+    } as unknown as AxiosResponse)
+    setActivePinia(createPinia())
+    const store = useRuntimeStore()
+    store.setContour('SOURCE')
+
+    expect(await store.switchMode('TARGET')).toBe(false)
+
+    expect(store.contour).toBe('SOURCE')
+    expect(store.switchErrorCode).toBe('runtime_mode_invalid_response')
+  })
+
+  it('ignores an older out-of-order switch response', async () => {
+    const older = deferred<AxiosResponse>()
+    const latest = deferred<AxiosResponse>()
+    vi.spyOn(apiClient, 'put')
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => latest.promise)
+    setActivePinia(createPinia())
+    const store = useRuntimeStore()
+    store.setContour('SOURCE')
+
+    const first = store.switchMode('TARGET')
+    const second = store.switchMode('TARGET')
+    latest.resolve({ data: { previous: 'SOURCE', current: 'TARGET', changed: true } } as AxiosResponse)
+    expect(await second).toBe(true)
+    expect(store.contour).toBe('TARGET')
+
+    older.resolve({ data: { previous: 'SOURCE', current: 'TARGET', changed: true } } as AxiosResponse)
+    expect(await first).toBe(false)
+    expect(store.contour).toBe('TARGET')
   })
 })
