@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.config import Settings
 
@@ -37,10 +37,32 @@ class HarborArtifact(BaseModel):
     digest: str
     type: str | None = None
     media_type: str | None = None
+    manifest_media_type: str | None = None
+    artifact_type: str | None = None
     size: int | None = None
     push_time: datetime | None = None
     tags: list[HarborTag] = Field(default_factory=list)
     extra_attrs: dict[str, Any] = Field(default_factory=dict)
+    annotations: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def normalize_null_tags(cls, value: Any) -> Any:
+        return [] if value is None else value
+
+    @model_validator(mode="after")
+    def normalize_missing_type(self) -> HarborArtifact:
+        if self.type:
+            return self
+        media_signal = (self.media_type or "").casefold()
+        artifact_signal = (self.artifact_type or "").casefold()
+        annotations_signal = " ".join(str(value) for value in self.annotations.values()).casefold()
+        signal = " ".join((media_signal, artifact_signal, annotations_signal))
+        if "helm" in signal:
+            self.type = "CHART"
+        elif "image" in media_signal or "container" in media_signal:
+            self.type = "IMAGE"
+        return self
 
 
 class HarborSystemInfo(BaseModel):

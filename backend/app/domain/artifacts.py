@@ -14,10 +14,19 @@ def classify_artifact_kind(
     extra_attrs: dict[str, Any] | None = None,
 ) -> ArtifactKind:
     normalized_type = (artifact_type or "").upper()
-    haystack = " ".join(filter(None, [artifact_type, media_type])).casefold()
-    annotations = (extra_attrs or {}).get("annotations")
+    attrs = extra_attrs or {}
+    signals = [artifact_type, media_type]
+
+    for key in ("artifact_type", "manifest_media_type"):
+        value = attrs.get(key)
+        if isinstance(value, str):
+            signals.append(value)
+
+    annotations = attrs.get("annotations")
     if isinstance(annotations, dict):
-        haystack += " " + " ".join(str(value).casefold() for value in annotations.values())
+        signals.extend(str(value) for value in annotations.values())
+
+    haystack = " ".join(value for value in signals if value).casefold()
 
     if normalized_type in {"CHART", "HELM", "HELM_CHART"} or "helm" in haystack:
         return ArtifactKind.HELM_CHART

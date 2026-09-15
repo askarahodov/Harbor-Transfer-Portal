@@ -37,7 +37,7 @@ function mockHappyPath(): void {
         kind: 'container-image',
         project: 'team',
         repository: 'apps/demo',
-        references: ['1.0.0'],
+        references: ['1.0.0', '1.0.1', 'latest'],
         digest: DIGEST,
         size: 4096,
         pushed_at: null,
@@ -135,7 +135,7 @@ afterEach(() => {
 })
 
 describe('SOURCE export wizard view', () => {
-  it('completes selection, preview and ready UI with exact digest and download actions', async () => {
+  it('renders all exact Harbor references and completes export with selected version', async () => {
     mockHappyPath()
     const runtime = useRuntimeStore(pinia)
     runtime.setContour('SOURCE')
@@ -155,9 +155,13 @@ describe('SOURCE export wizard view', () => {
     await button(wrapper, 'apps/demo').trigger('click')
     await flushPromises()
 
-    const exactReference = wrapper.get('input[type="checkbox"]')
-    expect(exactReference.element).toHaveProperty('checked', false)
-    await exactReference.setValue(true)
+    expect(wrapper.text()).toContain('1.0.0')
+    expect(wrapper.text()).toContain('1.0.1')
+    expect(wrapper.text()).toContain('latest')
+    const exactReferences = wrapper.findAll('input[type="checkbox"]')
+    expect(exactReferences).toHaveLength(3)
+    expect(exactReferences[0]!.element).toHaveProperty('checked', false)
+    await exactReferences[0]!.setValue(true)
     expect(wrapper.text()).toContain('1 выбрано')
 
     await button(wrapper, 'Проверить выбранное').trigger('click')
