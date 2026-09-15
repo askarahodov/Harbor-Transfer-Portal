@@ -99,7 +99,7 @@ docker load -i images/frontend.tar
 
 backend_image="harbor-transfer-portal-backend:$version"
 frontend_image="harbor-transfer-portal-frontend:$version"
-for image in "$backend_image" "$FRONTEND_IMAGE"; do
+for image in "$backend_image" "$frontend_image"; do
   docker image inspect "$image" >/dev/null 2>&1 || fail "expected local image missing after docker load: $image"
   image_arch=$(docker image inspect --format '{{.Architecture}}' "$image")
   [ "$image_arch" = "$release_arch" ] || fail "local image architecture mismatch for $image: $image_arch"
