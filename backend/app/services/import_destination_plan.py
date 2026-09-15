@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import hashlib
 import json
+import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from pathlib import PurePosixPath
 from re import fullmatch
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -33,6 +35,11 @@ from app.schemas.imports import (
     ImportReceiptArtifactResponse,
     ImportReceiptResponse,
 )
+from app.services.bundle_package_service import (
+    BundlePackageError,
+    BundlePackageService,
+    BundleVerificationResult,
+)
 from app.services.harbor_client import HarborClientError
 from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 from app.services.helm_oci_service import (
@@ -43,11 +50,7 @@ from app.services.helm_oci_service import (
 )
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
-from app.services.operation_manager import (
-    OperationContext,
-    OperationManagerError,
-    OperationTaskFailure,
-)
+from app.services.operation_manager import OperationContext, OperationManagerError, OperationTaskFailure
 from app.services.skopeo_service import (
     ImageReference,
     SkopeoService,
@@ -75,13 +78,7 @@ class DestinationValidator(Protocol):
 
 
 class HarborDestinationValidator:
-    """Non-mutating TARGET project/write capability validator.
-
-    Project existence is checked through Harbor v2 API. Push capability is checked
-    through Harbor's registry token service with a repository pull,push scope. The
-    returned JWT is only decoded as an authorization result received over the
-    configured Harbor transport; it is not used as an authentication credential.
-    """
+    """Validate TARGET project existence and real repository push capability without mutation."""
 
     def __init__(self, session: Session, settings: Settings) -> None:
         self.settings = settings
@@ -90,7 +87,8 @@ class HarborDestinationValidator:
         if not resolved.url:
             raise HarborSettingsError("harbor_not_configured", "Локальный Harbor не настроен")
         self._resolved = resolved
-        self._registry_host = urlsplit(resolved.url).netloc
+        self._base_url = resolved.url
+        self._registry_host = urlsplit(self._base_url).netloc
         if not self._registry_host:
             raise HarborSettingsError(
                 "harbor_configuration_invalid",
@@ -153,7 +151,7 @@ class HarborDestinationValidator:
             else None
         )
         with httpx.Client(
-            base_url=self._resolved.url,
+            base_url=self._base_url,
             auth=auth,
             verify=verify,
             timeout=httpx.Timeout(
@@ -188,11 +186,10 @@ class HarborDestinationValidator:
         parts = token.split(".")
         if len(parts) != 3:
             raise ValueError("Harbor registry token is not a JWT")
-        encoded = parts[1]
-        encoded += "=" * (-len(encoded) % 4)
+        encoded = parts[1] + "=" * (-len(parts[1]) % 4)
         try:
             payload = json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
-        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
             raise ValueError("Harbor registry token payload is invalid") from exc
         access = payload.get("access") if isinstance(payload, dict) else None
         if not isinstance(access, list):
@@ -214,14 +211,32 @@ class HarborDestinationValidator:
 DestinationValidatorFactory = Callable[[Session], DestinationValidator]
 
 
-@dataclass(frozen=True, slots=True)
-class _ResolvedTarget:
-    project: str
-    repository: str
+class _DestinationProjectedPackageService:
+    """Project a verified signed manifest onto an already-persisted destination plan."""
+
+    def __init__(
+        self,
+        delegate: BundlePackageService,
+        operation_id: ContextVar[int | None],
+        projector: Callable[[int, BundleVerificationResult], BundleVerificationResult],
+    ) -> None:
+        self._delegate = delegate
+        self._operation_id = operation_id
+        self._projector = projector
+
+    def verify_bundle(self, *args: Any, **kwargs: Any) -> BundleVerificationResult:
+        verified = self._delegate.verify_bundle(*args, **kwargs)
+        operation_id = self._operation_id.get()
+        if operation_id is None:
+            return verified
+        return self._projector(operation_id, verified)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._delegate, name)
 
 
 class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
-    """Adds immutable TARGET destination planning to the verified import workflow."""
+    """Add immutable TARGET destination planning without duplicating the import worker."""
 
     def __init__(
         self,
@@ -233,6 +248,21 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         self.destination_validator_factory = destination_validator_factory or (
             lambda session: HarborDestinationValidator(session, self.settings)
         )
+        self._execution_operation_id: ContextVar[int | None] = ContextVar(
+            "import_destination_operation_id",
+            default=None,
+        )
+        base_factory = self.package_factory
+
+        def destination_factory() -> BundlePackageService:
+            service = _DestinationProjectedPackageService(
+                base_factory(),
+                self._execution_operation_id,
+                self._project_verified_bundle,
+            )
+            return cast(BundlePackageService, service)
+
+        self.package_factory = destination_factory
 
     async def build_destination_plan(
         self,
@@ -244,6 +274,15 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             mapping,
             identity_fallback=False,
         )
+
+    def destination_plan(self, operation_id: int) -> ImportDestinationPlanResponse:
+        plan = self._persisted_destination_plan(operation_id)
+        if plan is None:
+            raise ImportOrchestrationError(
+                "import_destination_plan_not_ready",
+                "Destination plan ещё не сохранён",
+            )
+        return plan
 
     async def _build_destination_plan(
         self,
@@ -279,25 +318,23 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 ) from exc
             skopeo = self.skopeo_factory(session)
             helm = self.helm_factory(session)
-            planned: list[ImportDestinationArtifactPlanResponse] = []
-            for item in preview.artifacts:
-                planned.append(
-                    await self._plan_artifact(
-                        item,
-                        mapping,
-                        overrides,
-                        validator,
-                        skopeo,
-                        helm,
-                        identity_fallback=identity_fallback,
-                    )
+            planned = [
+                await self._plan_artifact(
+                    item,
+                    mapping,
+                    overrides,
+                    validator,
+                    skopeo,
+                    helm,
+                    identity_fallback=identity_fallback,
                 )
+                for item in preview.artifacts
+            ]
 
-        plan_id = self._plan_id(preview.bundle_sha256, planned)
         plan = ImportDestinationPlanResponse(
             operation_id=operation_id,
             bundle_sha256=preview.bundle_sha256,
-            plan_id=plan_id,
+            plan_id=self._plan_id(preview.bundle_sha256, planned),
             created_at=datetime.now(UTC),
             valid=all(
                 item.project_exists
@@ -332,17 +369,17 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         if target_project is None and identity_fallback:
             target_project = source_project
 
-        base = dict(
-            index=item.index,
-            artifact_type=item.artifact_type,
-            source_repository=item.repository,
-            source_project=source_project,
-            name=item.name,
-            reference=item.reference,
-            version=item.version,
-            expected_digest=item.expected_digest,
-            payload_size=item.payload_size,
-        )
+        base = {
+            "index": item.index,
+            "artifact_type": item.artifact_type,
+            "source_repository": item.repository,
+            "source_project": source_project,
+            "name": item.name,
+            "reference": item.reference,
+            "version": item.version,
+            "expected_digest": item.expected_digest,
+            "payload_size": item.payload_size,
+        }
         if target_project is None:
             return ImportDestinationArtifactPlanResponse(
                 **base,
@@ -360,74 +397,75 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             )
 
         target_repository = target_project + (f"/{suffix}" if suffix else "")
+        if item.artifact_type == "container-image":
+            return await self._plan_image(
+                base,
+                target_project,
+                target_repository,
+                item.reference,
+                item.expected_digest,
+                validator,
+                skopeo,
+            )
+        if item.artifact_type == "helm-chart":
+            return await self._plan_chart(
+                base,
+                target_project,
+                target_repository,
+                item.name,
+                item.version,
+                item.expected_digest,
+                validator,
+                helm,
+            )
+        return ImportDestinationArtifactPlanResponse(
+            **base,
+            target_project=target_project,
+            target_repository=target_repository,
+            classification=ImportPreviewState.ERROR,
+            error_code="import_destination_reference_invalid",
+            message="Unsupported bundle artifact type",
+        )
+
+    async def _plan_image(
+        self,
+        base: dict[str, Any],
+        target_project: str,
+        target_repository: str,
+        reference: str | None,
+        expected_digest: str | None,
+        validator: DestinationValidator,
+        skopeo: SkopeoService,
+    ) -> ImportDestinationArtifactPlanResponse:
         try:
-            if item.artifact_type == "container-image":
-                if not item.reference:
-                    raise ValueError("Container image reference отсутствует")
-                target = ImageReference(target_repository, item.reference)
-                capability_repository = target.repository
-                final_reference = self._image_display_reference(
-                    validator.registry_host,
-                    target.repository,
-                    target.reference,
-                )
-            elif item.artifact_type == "helm-chart":
-                if not item.name or not item.version:
-                    raise ValueError("Helm chart name/version отсутствуют")
-                target = HelmChartReference(target_repository, item.name, item.version)
-                capability_repository = target.harbor_repository
-                final_reference = (
-                    f"oci://{validator.registry_host}/{target.harbor_repository}:{target.version}"
-                )
-            else:
-                raise ValueError("Unsupported bundle artifact type")
+            if reference is None:
+                raise ValueError("Container image reference отсутствует")
+            target = ImageReference(target_repository, reference)
         except ValueError as exc:
-            return ImportDestinationArtifactPlanResponse(
-                **base,
-                target_project=target_project,
-                target_repository=target_repository,
-                classification=ImportPreviewState.ERROR,
-                error_code="import_destination_reference_invalid",
-                message=str(exc),
-            )
-
-        capability = await validator.validate(target_project, capability_repository)
-        if not capability.project_exists or not capability.write_allowed:
-            return ImportDestinationArtifactPlanResponse(
-                **base,
-                target_project=target_project,
-                target_repository=target_repository,
-                final_reference=final_reference,
-                project_exists=capability.project_exists,
-                write_allowed=capability.write_allowed,
-                classification=ImportPreviewState.ERROR,
-                error_code=capability.error_code or "import_destination_validation_failed",
-                message=capability.message or "TARGET destination validation failed",
-            )
-
+            return self._invalid_reference(base, target_project, target_repository, str(exc))
+        final_reference = self._image_display_reference(
+            validator.registry_host,
+            target.repository,
+            target.reference,
+        )
+        capability = await validator.validate(target_project, target.repository)
+        denied = self._capability_error(
+            base,
+            target_project,
+            target_repository,
+            final_reference,
+            capability,
+        )
+        if denied is not None:
+            return denied
         try:
-            if item.artifact_type == "container-image":
-                inspected = await skopeo.inspect_target(
-                    target,
-                    expected_digest=item.expected_digest,
-                )
-                classification = {
-                    TargetState.ABSENT: ImportPreviewState.NEW,
-                    TargetState.SAME_DIGEST: ImportPreviewState.SAME,
-                    TargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
-                    TargetState.PRESENT: ImportPreviewState.UNKNOWN,
-                }[inspected.state]
-            else:
-                inspected = await helm.inspect_target(
-                    target,
-                    expected_digest=item.expected_digest,
-                )
-                classification = {
-                    HelmTargetState.ABSENT: ImportPreviewState.NEW,
-                    HelmTargetState.SAME_DIGEST: ImportPreviewState.SAME,
-                    HelmTargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
-                    HelmTargetState.PRESENT: ImportPreviewState.UNKNOWN,
-                }[inspected.state]
+            inspected = await skopeo.inspect_target(target, expected_digest=expected_digest)
+            classification = {
+                TargetState.ABSENT: ImportPreviewState.NEW,
+                TargetState.SAME_DIGEST: ImportPreviewState.SAME,
+                TargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
+                TargetState.PRESENT: ImportPreviewState.UNKNOWN,
+            }[inspected.state]
             return ImportDestinationArtifactPlanResponse(
                 **base,
                 target_project=target_project,
@@ -438,7 +476,53 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 target_digest=inspected.digest,
                 classification=classification,
             )
-        except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
+        except (SkopeoServiceError, ValueError) as exc:
+            return self._inspection_error(
+                base,
+                target_project,
+                target_repository,
+                final_reference,
+                exc,
+            )
+
+    async def _plan_chart(
+        self,
+        base: dict[str, Any],
+        target_project: str,
+        target_repository: str,
+        name: str | None,
+        version: str | None,
+        expected_digest: str | None,
+        validator: DestinationValidator,
+        helm: HelmOciService,
+    ) -> ImportDestinationArtifactPlanResponse:
+        try:
+            if name is None or version is None:
+                raise ValueError("Helm chart name/version отсутствуют")
+            target = HelmChartReference(target_repository, name, version)
+        except ValueError as exc:
+            return self._invalid_reference(base, target_project, target_repository, str(exc))
+        final_reference = (
+            f"oci://{validator.registry_host}/{target.harbor_repository}:{target.version}"
+        )
+        capability = await validator.validate(target_project, target.harbor_repository)
+        denied = self._capability_error(
+            base,
+            target_project,
+            target_repository,
+            final_reference,
+            capability,
+        )
+        if denied is not None:
+            return denied
+        try:
+            inspected = await helm.inspect_target(target, expected_digest=expected_digest)
+            classification = {
+                HelmTargetState.ABSENT: ImportPreviewState.NEW,
+                HelmTargetState.SAME_DIGEST: ImportPreviewState.SAME,
+                HelmTargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
+                HelmTargetState.PRESENT: ImportPreviewState.UNKNOWN,
+            }[inspected.state]
             return ImportDestinationArtifactPlanResponse(
                 **base,
                 target_project=target_project,
@@ -446,10 +530,75 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 final_reference=final_reference,
                 project_exists=True,
                 write_allowed=True,
-                classification=ImportPreviewState.ERROR,
-                error_code=getattr(exc, "code", "import_target_inspection_failed"),
-                message=str(exc),
+                target_digest=inspected.digest,
+                classification=classification,
             )
+        except (HelmServiceError, ValueError) as exc:
+            return self._inspection_error(
+                base,
+                target_project,
+                target_repository,
+                final_reference,
+                exc,
+            )
+
+    @staticmethod
+    def _invalid_reference(
+        base: dict[str, Any],
+        target_project: str,
+        target_repository: str,
+        message: str,
+    ) -> ImportDestinationArtifactPlanResponse:
+        return ImportDestinationArtifactPlanResponse(
+            **base,
+            target_project=target_project,
+            target_repository=target_repository,
+            classification=ImportPreviewState.ERROR,
+            error_code="import_destination_reference_invalid",
+            message=message,
+        )
+
+    @staticmethod
+    def _capability_error(
+        base: dict[str, Any],
+        target_project: str,
+        target_repository: str,
+        final_reference: str,
+        capability: DestinationCapability,
+    ) -> ImportDestinationArtifactPlanResponse | None:
+        if capability.project_exists and capability.write_allowed:
+            return None
+        return ImportDestinationArtifactPlanResponse(
+            **base,
+            target_project=target_project,
+            target_repository=target_repository,
+            final_reference=final_reference,
+            project_exists=capability.project_exists,
+            write_allowed=capability.write_allowed,
+            classification=ImportPreviewState.ERROR,
+            error_code=capability.error_code or "import_destination_validation_failed",
+            message=capability.message or "TARGET destination validation failed",
+        )
+
+    @staticmethod
+    def _inspection_error(
+        base: dict[str, Any],
+        target_project: str,
+        target_repository: str,
+        final_reference: str,
+        exc: Exception,
+    ) -> ImportDestinationArtifactPlanResponse:
+        return ImportDestinationArtifactPlanResponse(
+            **base,
+            target_project=target_project,
+            target_repository=target_repository,
+            final_reference=final_reference,
+            project_exists=True,
+            write_allowed=True,
+            classification=ImportPreviewState.ERROR,
+            error_code=getattr(exc, "code", "import_target_inspection_failed"),
+            message=str(exc),
+        )
 
     async def start_import(
         self,
@@ -467,8 +616,6 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     "import_destination_plan_not_ready",
                     "Указанный destination plan не найден",
                 )
-            # Compatibility until #191 makes mapping explicit in the UI. Even
-            # identity routing is persisted and validated before Harbor mutation.
             plan = await self._build_destination_plan(
                 operation_id,
                 ImportDestinationPlanRequest(),
@@ -518,11 +665,14 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     "import_destination_plan_stale",
                     "Persisted destination plan изменился перед запуском Import",
                 )
-            policy["execution"] = {
-                "overwrite_conflicts": overwrite_conflicts,
-                "requested_by": actor_username,
-                "requested_at": requested_at.isoformat(),
-            }
+            policy.update(
+                {
+                    "bundle_sha256": operation.bundle_sha256,
+                    "overwrite_conflicts": overwrite_conflicts,
+                    "requested_by": actor_username,
+                    "requested_at": requested_at.isoformat(),
+                }
+            )
             operation.import_policy_json = self._dump_policy(policy)
             session.commit()
         try:
@@ -534,212 +684,70 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             raise ImportOrchestrationError(exc.code, exc.message) from exc
 
     async def _import_worker(self, context: OperationContext, operation_id: int) -> None:
-        context.transition(OperationStatus.IMPORTING)
-        operation, preview, plan, overwrite, requested_at = self._load_destination_execution_state(
-            operation_id
-        )
-        archive, sidecar = self._bundle_paths(operation_id)
-        observed_sha = await asyncio.to_thread(self._sha256_file, archive)
-        if (
-            observed_sha != operation.bundle_sha256
-            or observed_sha != preview.bundle_sha256
-            or observed_sha != plan.bundle_sha256
-        ):
-            raise OperationTaskFailure(
-                "import_bundle_changed",
-                "Bundle изменился после destination preview; import отменён до mutation Harbor",
-            )
-
-        extraction = self.extract_root / f"import-{operation_id}"
-        self._remove_path(extraction)
+        token = self._execution_operation_id.set(operation_id)
         try:
-            verified = await asyncio.to_thread(
-                self.package_factory().verify_bundle,
-                archive,
-                sidecar_path=sidecar,
-                extract_to=extraction,
-            )
-        except Exception as exc:
-            code = getattr(exc, "code", "import_bundle_verification_failed")
-            raise OperationTaskFailure(code, str(exc)) from exc
-        if (
-            verified.archive_sha256 != plan.bundle_sha256
-            or verified.manifest.delivery_id != preview.source_delivery_id
-            or verified.extracted_root is None
-        ):
-            raise OperationTaskFailure(
-                "import_bundle_changed",
-                "Bundle identity не совпадает с persisted destination plan",
-            )
+            await super()._import_worker(context, operation_id)
+        finally:
+            self._execution_operation_id.reset(token)
 
-        rows = sorted(operation.artifacts, key=lambda item: item.id)
-        descriptors = verified.manifest.artifacts
-        if len(rows) != len(descriptors) or len(plan.artifacts) != len(descriptors):
-            raise OperationTaskFailure(
-                "import_preview_artifacts_changed",
-                "Состав destination plan не совпадает с signed manifest",
-            )
-
-        failures = 0
-        context.set_progress(current=0, total=len(rows))
-        with self.session_factory() as session:
-            skopeo = self.skopeo_factory(session)
-            helm = self.helm_factory(session)
-            for index, (row, descriptor, planned) in enumerate(
-                zip(rows, descriptors, plan.artifacts, strict=True)
-            ):
-                context.raise_if_cancelled()
-                self._assert_plan_matches_descriptor(index, descriptor, planned)
-                try:
-                    outcome = await self._preflight_planned_target(planned, skopeo, helm)
-                except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.FAILED,
-                        error_code=getattr(exc, "code", "import_target_inspection_failed"),
-                        error_message=str(exc),
-                    )
-                    failures += 1
-                    context.set_progress(current=index + 1, total=len(rows))
-                    continue
-
-                if outcome[0] is ImportPreviewState.SAME:
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.SKIPPED,
-                        target_digest=outcome[1],
-                    )
-                    context.set_progress(current=index + 1, total=len(rows))
-                    continue
-                if outcome[0] is ImportPreviewState.CONFLICT and not overwrite:
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.CONFLICT,
-                        target_digest=outcome[1],
-                    )
-                    failures += 1
-                    context.set_progress(current=index + 1, total=len(rows))
-                    continue
-                if outcome[0] in {ImportPreviewState.UNKNOWN, ImportPreviewState.ERROR}:
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.FAILED,
-                        error_code="import_target_state_unresolved",
-                        error_message="TARGET state нельзя безопасно разрешить перед mutation",
-                    )
-                    failures += 1
-                    context.set_progress(current=index + 1, total=len(rows))
-                    continue
-
-                context.set_artifact_status(row.id, ArtifactStatus.RUNNING)
-                payload = verified.extracted_root.joinpath(
-                    *PurePosixPath(descriptor.payload_path).parts
-                )
-                try:
-                    if isinstance(descriptor, ContainerImageArtifact):
-                        if planned.target_repository is None or planned.reference is None:
-                            raise ValueError("Persisted image destination incomplete")
-                        imported = await skopeo.import_image(
-                            payload,
-                            ImageReference(planned.target_repository, planned.reference),
-                            expected_digest=descriptor.source_digest,
-                        )
-                        target_digest = imported.target_digest
-                    else:
-                        if (
-                            planned.target_repository is None
-                            or planned.name is None
-                            or planned.version is None
-                        ):
-                            raise ValueError("Persisted Helm destination incomplete")
-                        pushed = await helm.push_chart(
-                            payload,
-                            HelmChartReference(
-                                planned.target_repository,
-                                planned.name,
-                                planned.version,
-                            ),
-                            source_digest=descriptor.source_digest,
-                            allow_existing=(
-                                overwrite and outcome[0] is ImportPreviewState.CONFLICT
-                            ),
-                        )
-                        if pushed.package.sha256 != descriptor.payload_sha256:
-                            raise HelmServiceError(
-                                "helm_payload_digest_mismatch",
-                                "Helm package SHA-256 не совпадает с signed bundle payload",
-                            )
-                        target_digest = pushed.target_digest
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.VERIFIED,
-                        target_digest=target_digest,
-                    )
-                except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.FAILED,
-                        error_code=getattr(exc, "code", "import_artifact_failed"),
-                        error_message=str(exc),
-                    )
-                    failures += 1
-                context.set_progress(current=index + 1, total=len(rows))
-
-        context.transition(OperationStatus.VERIFYING_TARGET)
-        self._write_destination_receipt(
-            operation_id,
-            preview,
-            plan,
-            overwrite,
-            requested_at,
-            failures,
-        )
-        if failures:
-            raise OperationTaskFailure(
-                "import_partial_failure",
-                "Import завершён с ошибками отдельных артефактов; rollback не выполнялся",
-            )
-        context.transition(OperationStatus.COMPLETED)
-
-    async def _preflight_planned_target(
+    def _project_verified_bundle(
         self,
-        planned: ImportDestinationArtifactPlanResponse,
-        skopeo: SkopeoService,
-        helm: HelmOciService,
-    ) -> tuple[ImportPreviewState, str | None]:
-        if planned.target_repository is None:
-            raise ValueError("Persisted destination repository missing")
-        if planned.artifact_type == "container-image":
-            if planned.reference is None:
-                raise ValueError("Persisted image reference missing")
-            inspected = await skopeo.inspect_target(
-                ImageReference(planned.target_repository, planned.reference),
-                expected_digest=planned.expected_digest,
+        operation_id: int,
+        verified: BundleVerificationResult,
+    ) -> BundleVerificationResult:
+        plan = self.destination_plan(operation_id)
+        if plan.operation_id != operation_id or plan.bundle_sha256 != verified.archive_sha256:
+            raise BundlePackageError(
+                "import_destination_plan_stale",
+                "Persisted destination plan не соответствует verified bundle",
             )
-            return (
-                {
-                    TargetState.ABSENT: ImportPreviewState.NEW,
-                    TargetState.SAME_DIGEST: ImportPreviewState.SAME,
-                    TargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
-                    TargetState.PRESENT: ImportPreviewState.UNKNOWN,
-                }[inspected.state],
-                inspected.digest,
+        if len(plan.artifacts) != len(verified.manifest.artifacts):
+            raise BundlePackageError(
+                "import_destination_plan_tampered",
+                "Состав persisted destination plan не совпадает с signed manifest",
             )
-        if planned.name is None or planned.version is None:
-            raise ValueError("Persisted Helm identity missing")
-        inspected = await helm.inspect_target(
-            HelmChartReference(planned.target_repository, planned.name, planned.version),
-            expected_digest=planned.expected_digest,
-        )
-        return (
-            {
-                HelmTargetState.ABSENT: ImportPreviewState.NEW,
-                HelmTargetState.SAME_DIGEST: ImportPreviewState.SAME,
-                HelmTargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
-                HelmTargetState.PRESENT: ImportPreviewState.UNKNOWN,
-            }[inspected.state],
-            inspected.digest,
-        )
+
+        mapped: list[ContainerImageArtifact | HelmChartArtifact] = []
+        for index, (descriptor, planned) in enumerate(
+            zip(verified.manifest.artifacts, plan.artifacts, strict=True)
+        ):
+            self._assert_plan_matches_descriptor(index, descriptor, planned)
+            if planned.target_repository is None:
+                raise BundlePackageError(
+                    "import_destination_plan_tampered",
+                    "Persisted destination repository отсутствует",
+                )
+            if isinstance(descriptor, ContainerImageArtifact):
+                if planned.reference is None:
+                    raise BundlePackageError(
+                        "import_destination_plan_tampered",
+                        "Persisted image reference отсутствует",
+                    )
+                mapped.append(
+                    descriptor.model_copy(
+                        update={
+                            "repository": planned.target_repository,
+                            "reference": planned.reference,
+                        }
+                    )
+                )
+            else:
+                if planned.name is None or planned.version is None:
+                    raise BundlePackageError(
+                        "import_destination_plan_tampered",
+                        "Persisted Helm identity отсутствует",
+                    )
+                mapped.append(
+                    descriptor.model_copy(
+                        update={
+                            "repository": planned.target_repository,
+                            "name": planned.name,
+                            "version": planned.version,
+                        }
+                    )
+                )
+        manifest = verified.manifest.model_copy(update={"artifacts": mapped})
+        return replace(verified, manifest=manifest)
 
     @staticmethod
     def _assert_plan_matches_descriptor(
@@ -753,7 +761,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             or planned.source_repository != descriptor.repository
             or planned.expected_digest != descriptor.source_digest
         ):
-            raise OperationTaskFailure(
+            raise BundlePackageError(
                 "import_destination_plan_tampered",
                 "Persisted destination plan не совпадает с signed manifest",
             )
@@ -766,50 +774,10 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 and planned.reference is None
             )
         if not matches:
-            raise OperationTaskFailure(
+            raise BundlePackageError(
                 "import_destination_plan_tampered",
                 "Persisted destination artifact identity не совпадает с signed manifest",
             )
-
-    def _load_destination_execution_state(
-        self,
-        operation_id: int,
-    ) -> tuple[Operation, ImportPreviewResponse, ImportDestinationPlanResponse, bool, datetime]:
-        with self.session_factory() as session:
-            operation = session.get(Operation, operation_id)
-            if (
-                operation is None
-                or operation.type is not OperationType.IMPORT
-                or operation.import_preview_json is None
-                or operation.import_policy_json is None
-                or operation.bundle_sha256 is None
-            ):
-                raise OperationTaskFailure(
-                    "import_execution_state_invalid",
-                    "Persisted import execution state неполон",
-                )
-            _ = operation.artifacts
-            preview = ImportPreviewResponse.model_validate_json(operation.import_preview_json)
-            policy = self._policy_object(operation)
-            plan = self._plan_from_policy(policy)
-            execution = policy.get("execution")
-            if plan is None or not isinstance(execution, dict):
-                raise OperationTaskFailure(
-                    "import_execution_state_invalid",
-                    "Destination plan/execution policy отсутствует",
-                )
-            requested_at_raw = execution.get("requested_at")
-            if not isinstance(requested_at_raw, str):
-                raise OperationTaskFailure(
-                    "import_execution_state_invalid",
-                    "Import requested_at отсутствует",
-                )
-            requested_at = datetime.fromisoformat(requested_at_raw)
-            overwrite = bool(execution.get("overwrite_conflicts", False))
-            session.expunge(operation)
-            for artifact in operation.artifacts:
-                session.expunge(artifact)
-            return operation, preview, plan, overwrite, requested_at
 
     def _persist_destination_plan(
         self,
@@ -852,18 +820,24 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             return None
         return self._plan_from_policy(self._policy_object(operation))
 
-    @staticmethod
-    def _plan_from_policy(policy: dict[str, Any]) -> ImportDestinationPlanResponse | None:
+    def _plan_from_policy(self, policy: dict[str, Any]) -> ImportDestinationPlanResponse | None:
         raw = policy.get("destination_plan")
         if raw is None:
             return None
         try:
-            return ImportDestinationPlanResponse.model_validate(raw)
+            plan = ImportDestinationPlanResponse.model_validate(raw)
         except ValueError as exc:
             raise ImportOrchestrationError(
                 "import_destination_plan_invalid",
                 "Persisted destination plan повреждён",
             ) from exc
+        expected_id = self._plan_id(plan.bundle_sha256, plan.artifacts)
+        if plan.plan_id != expected_id:
+            raise ImportOrchestrationError(
+                "import_destination_plan_invalid",
+                "Persisted destination plan id не соответствует его содержимому",
+            )
+        return plan
 
     @staticmethod
     def _policy_object(operation: Operation) -> dict[str, Any]:
@@ -919,15 +893,15 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         separator = "@" if reference.startswith("sha256:") else ":"
         return f"{host}/{repository}{separator}{reference}"
 
-    def _write_destination_receipt(
+    def _write_receipt(
         self,
         operation_id: int,
         preview: ImportPreviewResponse,
-        plan: ImportDestinationPlanResponse,
         overwrite: bool,
         requested_at: datetime,
         failures: int,
     ) -> None:
+        plan = self.destination_plan(operation_id)
         now = datetime.now(UTC)
         with self.session_factory() as session:
             operation = session.get(Operation, operation_id)
@@ -937,6 +911,11 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     "Operation отсутствует при формировании receipt",
                 )
             rows = sorted(operation.artifacts, key=lambda item: item.id)
+            if len(rows) != len(plan.artifacts):
+                raise OperationTaskFailure(
+                    "import_destination_plan_tampered",
+                    "Destination plan не совпадает с persisted artifact rows",
+                )
             receipt = ImportReceiptResponse(
                 operation_id=operation.id,
                 source_delivery_id=preview.source_delivery_id,
@@ -978,8 +957,6 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             with path.open("x", encoding="utf-8") as handle:
                 handle.write(payload)
                 handle.flush()
-                import os
-
                 os.fsync(handle.fileno())
             os.chmod(path, 0o440)
             self._fsync_directory(self.receipt_root)
