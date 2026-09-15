@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as historyApi from '@/api/history'
 import type { ImportReceipt, Operation, OperationSummary } from '@/api/history'
+import * as importsApi from '@/api/imports'
+import type { ImportDestinationPlan } from '@/api/imports'
 import { useAuthStore } from '@/stores/auth'
 import HistoryView from '@/views/HistoryView.vue'
 
@@ -14,6 +16,8 @@ const summary: OperationSummary = {
   status: 'COMPLETED',
   actor_username: 'operator',
   comment: null,
+  retry_of_operation_id: null,
+  failure_policy: null,
   created_at: '2026-09-14T05:00:00Z',
   started_at: '2026-09-14T05:01:00Z',
   finished_at: '2026-09-14T05:02:00Z',
@@ -34,6 +38,8 @@ const detail: Operation = {
   status: 'COMPLETED',
   actor_username: 'operator',
   comment: null,
+  retry_of_operation_id: null,
+  failure_policy: null,
   started_at: '2026-09-14T05:01:00Z',
   finished_at: '2026-09-14T05:02:00Z',
   error_code: null,
@@ -100,7 +106,7 @@ const importDetail: Operation = {
       target_project: 'docker-prod',
       target_repository: 'docker-prod/apps/api',
       target_reference: 'harbor-target.local/docker-prod/apps/api:1.4.2',
-      destination_plan_id: 'plan-123',
+      destination_plan_id: 'e'.repeat(64),
       status: 'IMPORTED',
       target_digest: detail.artifacts[0].source_digest,
     },
@@ -118,6 +124,70 @@ const importReceipt: ImportReceipt = {
   destination_plan_id: 'e'.repeat(64),
   result: 'COMPLETED',
   artifacts: [],
+}
+
+const failedImportSummary: OperationSummary = {
+  ...importSummary,
+  status: 'FAILED',
+  error_code: 'import_partial_failure',
+  error_message: 'Import завершён с ошибками отдельных артефактов; rollback не выполнялся',
+  successful_artifacts: 1,
+  failed_artifacts: 1,
+}
+
+const failedImportDetail: Operation = {
+  ...importDetail,
+  status: 'FAILED',
+  error_code: 'import_partial_failure',
+  error_message: 'Import завершён с ошибками отдельных артефактов; rollback не выполнялся',
+  progress: {
+    ...importDetail.progress,
+    successful_artifacts: 1,
+    failed_artifacts: 1,
+    current_phase: 'FAILED',
+  },
+}
+
+const failedReceipt: ImportReceipt = {
+  ...importReceipt,
+  result: 'FAILED',
+}
+
+function retryPlan(classifications: Array<'SAME' | 'NEW' | 'CONFLICT'>): ImportDestinationPlan {
+  return {
+    operation_id: 10,
+    source_delivery_id: 'SOURCE-DELIVERY-9',
+    actor_username: 'operator',
+    bundle_sha256: 'c'.repeat(64),
+    plan_id: 'e'.repeat(64),
+    plan_hash: 'f'.repeat(64),
+    mapping_policy_revision: 3,
+    created_at: '2026-09-15T10:00:00Z',
+    valid: true,
+    artifacts: classifications.map((classification, index) => ({
+      index,
+      artifact_type: index === 0 ? 'container-image' : 'helm-chart',
+      source_repository: index === 0 ? 'source-team/apps/api' : 'source-charts/platform',
+      source_project: index === 0 ? 'source-team' : 'source-charts',
+      name: index === 0 ? null : 'mis',
+      reference: index === 0 ? '1.4.2' : null,
+      version: index === 0 ? null : '4.88.6',
+      expected_digest: `sha256:${String(index + 1).repeat(64)}`,
+      payload_size: 100,
+      target_project: index === 0 ? 'docker-prod' : 'helm-prod',
+      target_repository: index === 0 ? 'docker-prod/apps/api' : 'helm-prod/platform',
+      final_reference:
+        index === 0
+          ? 'harbor-target.local/docker-prod/apps/api:1.4.2'
+          : 'oci://harbor-target.local/helm-prod/platform/mis:4.88.6',
+      project_exists: true,
+      write_allowed: true,
+      target_digest: classification === 'NEW' ? null : `sha256:${'a'.repeat(64)}`,
+      classification,
+      error_code: null,
+      message: null,
+    })),
+  }
 }
 
 function buttonByText(wrapper: ReturnType<typeof mount>, text: string) {
@@ -210,11 +280,11 @@ describe('HistoryView', () => {
     expect(receiptDownload).toHaveBeenCalledWith(9)
   })
 
-  it('does not expose canonical receipt download to viewer', async () => {
+  it('does not expose canonical receipt download or retry to viewer', async () => {
     vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
-      items: [importSummary], total: 1, limit: 25, offset: 0,
+      items: [failedImportSummary], total: 1, limit: 25, offset: 0,
     })
-    vi.spyOn(historyApi, 'getOperation').mockResolvedValue(importDetail)
+    vi.spyOn(historyApi, 'getOperation').mockResolvedValue(failedImportDetail)
     const auth = useAuthStore()
     auth.initialized = true
     auth.user = { id: 3, username: 'viewer', role: 'viewer', is_active: true }
@@ -226,8 +296,83 @@ describe('HistoryView', () => {
 
     expect(wrapper.text()).toContain('Import receipt')
     expect(wrapper.text()).not.toContain('Скачать receipt JSON')
+    expect(wrapper.text()).not.toContain('Retry и revalidation')
     expect(wrapper.text()).toContain('Скачать CSV')
     expect(wrapper.text()).toContain('Скачать PDF')
+  })
+
+  it('shows fresh retry conflicts and keeps execution default-denied', async () => {
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [failedImportSummary], total: 1, limit: 25, offset: 0,
+    })
+    vi.spyOn(historyApi, 'getOperation').mockResolvedValue(failedImportDetail)
+    vi.spyOn(historyApi, 'getImportReceipt').mockResolvedValue(failedReceipt)
+    const plan = retryPlan(['SAME', 'CONFLICT'])
+    const prepare = vi.spyOn(importsApi, 'prepareImportRetry').mockResolvedValue({
+      operation_id: 10,
+      retry_of_operation_id: 9,
+      status: 'READY',
+      failure_policy: 'continue-on-error',
+      destination_plan: plan,
+    })
+    const execute = vi.spyOn(importsApi, 'executeImport').mockResolvedValue({
+      operation_id: 10,
+      status: 'READY',
+    })
+    const auth = useAuthStore()
+    auth.initialized = true
+    auth.user = { id: 2, username: 'operator', role: 'operator', is_active: true }
+
+    const wrapper = mount(HistoryView)
+    await flushPromises()
+    await wrapper.get('.link-button').trigger('click')
+    await flushPromises()
+    await buttonByText(wrapper, 'Retry и revalidation')!.trigger('click')
+    await flushPromises()
+
+    expect(prepare).toHaveBeenCalledWith(9, 'e'.repeat(64))
+    expect(wrapper.text()).toContain('Новый TARGET conflict')
+    expect(wrapper.text()).toContain('SAME')
+    expect(wrapper.text()).toContain('CONFLICT')
+    expect(wrapper.text()).not.toContain('rollback completed')
+    const start = buttonByText(wrapper, 'Запустить retry без overwrite')
+    expect(start?.attributes('disabled')).toBeDefined()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('starts a revalidated retry without carrying overwrite approval', async () => {
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [failedImportSummary], total: 1, limit: 25, offset: 0,
+    })
+    vi.spyOn(historyApi, 'getOperation').mockResolvedValue(failedImportDetail)
+    vi.spyOn(historyApi, 'getImportReceipt').mockResolvedValue(failedReceipt)
+    const plan = retryPlan(['SAME', 'NEW'])
+    vi.spyOn(importsApi, 'prepareImportRetry').mockResolvedValue({
+      operation_id: 10,
+      retry_of_operation_id: 9,
+      status: 'READY',
+      failure_policy: 'continue-on-error',
+      destination_plan: plan,
+    })
+    const execute = vi.spyOn(importsApi, 'executeImport').mockResolvedValue({
+      operation_id: 10,
+      status: 'IMPORTING',
+    })
+    const auth = useAuthStore()
+    auth.initialized = true
+    auth.user = { id: 2, username: 'operator', role: 'operator', is_active: true }
+
+    const wrapper = mount(HistoryView)
+    await flushPromises()
+    await wrapper.get('.link-button').trigger('click')
+    await flushPromises()
+    await buttonByText(wrapper, 'Retry и revalidation')!.trigger('click')
+    await flushPromises()
+    await buttonByText(wrapper, 'Запустить retry без overwrite')!.trigger('click')
+    await flushPromises()
+
+    expect(execute).toHaveBeenCalledWith(10, false, plan.plan_id)
+    expect(wrapper.text()).toContain('Retry operation #10 запущена')
   })
 
   it('shows a useful empty state', async () => {
