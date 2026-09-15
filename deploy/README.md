@@ -18,9 +18,11 @@ Production/offline процедура: [deploy/offline/README.md](offline/README
 
 Хостовый HTTP-порт публикует только frontend. Браузер обращается к API same-origin через Nginx.
 
-Каждый backend получает настройки и credentials **только своего локального Harbor**. SOURCE и TARGET — две независимые установки. Одна installation не должна хранить credentials противоположного Harbor или создавать прямой сетевой путь между контурами.
+Каждая installation знает только свой настроенный local Harbor и не хранит credentials противоположного Harbor. Один и тот же deployment в каждый момент работает в runtime role `SOURCE` или `TARGET`; переключение роли не создаёт сетевой путь между физически изолированными контурами и не переключает Harbor configuration.
 
-Роль задаётся:
+В production air-gap процессе физически раздельные контуры обычно имеют собственные installations Portal. Universal runtime mode нужен для единого software/deployment contract и поддерживаемого переключения роли конкретного instance, а не для объединения сетево изолированных Harbor.
+
+`PORTAL_CONTOUR` задаёт только bootstrap default **новой базы**, например:
 
 ```text
 PORTAL_CONTOUR=SOURCE
@@ -31,6 +33,8 @@ PORTAL_CONTOUR=SOURCE
 ```text
 PORTAL_CONTOUR=TARGET
 ```
+
+После первого startup authoritative runtime mode сохраняется в SQLite. Последующее изменение `PORTAL_CONTOUR` или restart не должны переопределять сохранённую роль; `operator`/`admin` переключает `SOURCE ↔ TARGET` через UI/runtime API при отсутствии блокирующих operations. Полный contract: [runtime-mode.md](../docs/runtime-mode.md).
 
 ## 2. Development Compose и offline release
 
@@ -108,6 +112,8 @@ HARBOR_USER=<local-service-account>
 HARBOR_VERIFY_TLS=true
 JWT_SECRET=<unique-random-secret-at-least-32-chars>
 ```
+
+`PORTAL_CONTOUR` в `.env` нужен для bootstrap новой DB; после инициализации текущий mode берётся из persisted runtime state.
 
 `.env` исключён из Git и build context. Не коммитьте реальные passwords, tokens, `JWT_SECRET`, private signing keys, backup archives или private certificates.
 
