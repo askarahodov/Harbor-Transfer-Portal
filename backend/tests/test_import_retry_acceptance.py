@@ -356,7 +356,12 @@ def _environment(tmp_path: Path):  # type: ignore[no-untyped-def]
     )
 
 
-def _prepare_retry(tmp_path: Path, *, helm_state: HelmTargetState):  # type: ignore[no-untyped-def]
+def _prepare_retry(
+    tmp_path: Path,
+    *,
+    helm_state: HelmTargetState,
+    image_state: TargetState = TargetState.SAME_DIGEST,
+):  # type: ignore[no-untyped-def]
     (
         settings,
         session_factory,
@@ -368,7 +373,7 @@ def _prepare_retry(tmp_path: Path, *, helm_state: HelmTargetState):  # type: ign
         plan,
         actor_user_id,
     ) = _environment(tmp_path)
-    skopeo.state = TargetState.SAME_DIGEST
+    skopeo.state = image_state
     helm.state = helm_state
     prepared = asyncio.run(
         ImportRetryService(orchestrator).prepare_retry(
@@ -391,7 +396,9 @@ def _prepare_retry(tmp_path: Path, *, helm_state: HelmTargetState):  # type: ign
     )
 
 
-def test_retry_conflict_is_default_deny_and_mapping_cannot_be_replaced(tmp_path: Path) -> None:
+def test_successful_artifact_target_drift_is_default_deny_and_mapping_cannot_be_replaced(
+    tmp_path: Path,
+) -> None:
     (
         _settings_value,
         _session_factory,
@@ -402,11 +409,15 @@ def test_retry_conflict_is_default_deny_and_mapping_cannot_be_replaced(tmp_path:
         operation_id,
         _plan,
         prepared,
-    ) = _prepare_retry(tmp_path, helm_state=HelmTargetState.CONFLICTING_DIGEST)
+    ) = _prepare_retry(
+        tmp_path,
+        helm_state=HelmTargetState.ABSENT,
+        image_state=TargetState.CONFLICTING_DIGEST,
+    )
 
     assert [item.classification for item in prepared.destination_plan.artifacts] == [
-        ImportPreviewState.SAME,
         ImportPreviewState.CONFLICT,
+        ImportPreviewState.NEW,
     ]
     with pytest.raises(ImportOrchestrationError) as conflict:
         asyncio.run(
