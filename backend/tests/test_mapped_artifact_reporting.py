@@ -118,6 +118,7 @@ def test_migration_adds_nullable_mapping_snapshot_columns(tmp_path: Path) -> Non
         "target_project",
         "target_repository",
         "target_reference",
+        "target_version",
         "destination_plan_id",
         "destination_plan_hash",
         "overwrite_approved",
@@ -139,10 +140,12 @@ def test_history_api_exposes_persisted_mapping_and_legacy_nulls(tmp_path: Path) 
     assert mapped["target_project"] == "docker-prod"
     assert mapped["target_repository"] == "docker-prod/apps/api"
     assert mapped["target_reference"] == "harbor-target.local/docker-prod/apps/api:1.4.2"
+    assert mapped["target_version"] is None
     assert mapped["destination_plan_hash"] == "d" * 64
     assert mapped["overwrite_approved"] is False
     assert legacy["source_repository"] is None
     assert legacy["target_reference"] is None
+    assert legacy["target_version"] is None
     assert legacy["destination_plan_id"] is None
 
 
