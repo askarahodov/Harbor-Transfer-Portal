@@ -102,7 +102,10 @@ class DestinationMappingPolicyService:
             snapshot=self.resolve(),
         )
 
-    def resolve_request(self, request: ImportDestinationPlanRequest) -> ImportDestinationPlanRequest:
+    def resolve_request(
+        self,
+        request: ImportDestinationPlanRequest,
+    ) -> ImportDestinationPlanRequest:
         snapshot = self.resolve()
         merged_mappings = {**snapshot.project_mappings, **request.project_mappings}
         return request.model_copy(
