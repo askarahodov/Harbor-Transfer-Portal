@@ -102,6 +102,8 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
                 assert operation_id == self.operation_manager.operation_id
                 return SimpleNamespace(
                     plan_id=f"plan-{operation_id}",
+                    plan_hash="b" * 64,
+                    bundle_sha256="a" * 64,
                     artifacts=[
                         SimpleNamespace(
                             index=index,
