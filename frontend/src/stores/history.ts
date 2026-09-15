@@ -16,6 +16,11 @@ import {
   type OperationReportFormat,
   type OperationSummary,
 } from '@/api/history'
+import {
+  executeImport,
+  prepareImportRetry,
+  type ImportDestinationPlan,
+} from '@/api/imports'
 import { useAuthStore } from '@/stores/auth'
 
 const PAGE_SIZE = 25
@@ -49,6 +54,13 @@ export const useHistoryStore = defineStore('history', () => {
   const receiptState = ref<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   const downloadError = ref<string | null>(null)
 
+  const retryPlan = ref<ImportDestinationPlan | null>(null)
+  const retryOperationId = ref<number | null>(null)
+  const retryPreparing = ref(false)
+  const retryStarting = ref(false)
+  const retryStarted = ref(false)
+  const retryError = ref<ApiErrorInfo | null>(null)
+
   const currentPage = computed(() => Math.floor(offset.value / PAGE_SIZE) + 1)
   const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
   const hasPrevious = computed(() => offset.value > 0)
@@ -78,6 +90,64 @@ export const useHistoryStore = defineStore('history', () => {
     if (auth.user?.role === 'admin') return true
     return auth.user?.role === 'operator' && auth.user.username === detail.value.actor_username
   })
+
+  const selectedDestinationPlanId = computed(() => {
+    if (receipt.value?.destination_plan_id) return receipt.value.destination_plan_id
+    if (!detail.value) return null
+    const ids = new Set(
+      detail.value.artifacts
+        .map((artifact) => artifact.destination_plan_id)
+        .filter((value): value is string => Boolean(value)),
+    )
+    return ids.size === 1 ? [...ids][0] : null
+  })
+
+  const canPrepareSelectedRetry = computed(() => {
+    const operation = detail.value
+    if (
+      !operation ||
+      operation.type !== 'IMPORT' ||
+      operation.status !== 'FAILED' ||
+      operation.error_code !== 'import_partial_failure' ||
+      !selectedDestinationPlanId.value
+    ) {
+      return false
+    }
+    if (auth.user?.role === 'admin') return true
+    return auth.user?.role === 'operator' && auth.user.username === operation.actor_username
+  })
+
+  const retryHasConflicts = computed(
+    () => retryPlan.value?.artifacts.some((item) => item.classification === 'CONFLICT') ?? false,
+  )
+
+  const retryHasUnresolved = computed(
+    () =>
+      retryPlan.value?.artifacts.some((item) =>
+        ['CONFLICT', 'UNKNOWN', 'ERROR'].includes(item.classification),
+      ) ?? false,
+  )
+
+  const canStartPreparedRetry = computed(
+    () =>
+      Boolean(
+        retryPlan.value?.valid &&
+          retryOperationId.value &&
+          !retryHasUnresolved.value &&
+          !retryPreparing.value &&
+          !retryStarting.value &&
+          !retryStarted.value,
+      ),
+  )
+
+  function resetRetryState(): void {
+    retryPlan.value = null
+    retryOperationId.value = null
+    retryPreparing.value = false
+    retryStarting.value = false
+    retryStarted.value = false
+    retryError.value = null
+  }
 
   function dateRangeInvalid(): boolean {
     if (!filters.createdFrom || !filters.createdTo) return false
@@ -154,6 +224,7 @@ export const useHistoryStore = defineStore('history', () => {
     receiptState.value = 'idle'
     detailError.value = null
     downloadError.value = null
+    resetRetryState()
     detailLoading.value = true
     try {
       detail.value = await getOperation(summary.id)
@@ -172,6 +243,46 @@ export const useHistoryStore = defineStore('history', () => {
     receipt.value = null
     receiptState.value = 'idle'
     downloadError.value = null
+    resetRetryState()
+  }
+
+  async function prepareSelectedRetry(): Promise<void> {
+    const operation = detail.value
+    const planId = selectedDestinationPlanId.value
+    if (!operation || !planId || !canPrepareSelectedRetry.value || retryPreparing.value) return
+    resetRetryState()
+    retryPreparing.value = true
+    try {
+      const prepared = await prepareImportRetry(operation.id, planId)
+      retryOperationId.value = prepared.operation_id
+      retryPlan.value = prepared.destination_plan
+    } catch (requestError) {
+      retryError.value = apiErrorInfo(requestError, 'Не удалось подготовить безопасный retry.')
+    } finally {
+      retryPreparing.value = false
+    }
+  }
+
+  async function startPreparedRetry(): Promise<void> {
+    if (
+      !retryOperationId.value ||
+      !retryPlan.value ||
+      !canStartPreparedRetry.value ||
+      retryStarting.value
+    ) {
+      return
+    }
+    retryStarting.value = true
+    retryError.value = null
+    try {
+      await executeImport(retryOperationId.value, false, retryPlan.value.plan_id)
+      retryStarted.value = true
+      await load(true)
+    } catch (requestError) {
+      retryError.value = apiErrorInfo(requestError, 'Не удалось запустить retry import.')
+    } finally {
+      retryStarting.value = false
+    }
   }
 
   async function downloadSelectedReport(format: OperationReportFormat): Promise<void> {
@@ -228,6 +339,12 @@ export const useHistoryStore = defineStore('history', () => {
     receipt,
     receiptState,
     downloadError,
+    retryPlan,
+    retryOperationId,
+    retryPreparing,
+    retryStarting,
+    retryStarted,
+    retryError,
     currentPage,
     pageCount,
     hasPrevious,
@@ -236,6 +353,11 @@ export const useHistoryStore = defineStore('history', () => {
     canDownloadSelectedReport,
     canDownloadSelectedReceipt,
     canDownloadSelectedExport,
+    selectedDestinationPlanId,
+    canPrepareSelectedRetry,
+    retryHasConflicts,
+    retryHasUnresolved,
+    canStartPreparedRetry,
     load,
     applyFilters,
     clearFilters,
@@ -243,6 +365,8 @@ export const useHistoryStore = defineStore('history', () => {
     nextPage,
     openDetail,
     closeDetail,
+    prepareSelectedRetry,
+    startPreparedRetry,
     downloadSelectedReport,
     downloadSelectedReceipt,
     downloadSelectedExport,
