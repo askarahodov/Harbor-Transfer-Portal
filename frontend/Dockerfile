@@ -17,10 +17,11 @@ LABEL org.opencontainers.image.title="Harbor Transfer Portal frontend" \
       org.opencontainers.image.version="${RELEASE_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}"
 
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 COPY frontend/docker-entrypoint.d/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
 COPY --from=build /app/dist /usr/share/nginx/html
 
 RUN chmod 0755 /docker-entrypoint.d/40-runtime-config.sh
 
-EXPOSE 80
+EXPOSE 8080
