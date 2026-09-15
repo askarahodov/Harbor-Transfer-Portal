@@ -4,7 +4,11 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from app.domain.imports import ImportIntakeMode
-from app.schemas.imports import ImportPreviewResponse
+from app.schemas.imports import (
+    ImportDestinationArtifactPlanResponse,
+    ImportPreviewResponse,
+    destination_plan_id,
+)
 from app.services.bundle_package_service import (
     BundlePackageService,
     BundleVerificationResult,
@@ -35,6 +39,15 @@ class _CapturingBundlePackageService:
 
 class ImportPreviewProjectionOrchestrator(ImportOrchestrator):
     """Adds verifier-derived UI fields without replacing the authoritative preview worker."""
+
+    @staticmethod
+    def _plan_id(
+        bundle_sha256: str,
+        artifacts: list[ImportDestinationArtifactPlanResponse],
+    ) -> str:
+        # Kept on the orchestrator contract for callers/tests that build destination
+        # plans directly; the schema uses the same primitive when normalizing plan_id.
+        return destination_plan_id(bundle_sha256, artifacts)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
