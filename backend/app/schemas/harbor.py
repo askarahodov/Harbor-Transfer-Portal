@@ -1,13 +1,29 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.artifacts import ArtifactKind
+
+_TARGET_PROJECT_PATTERN = r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
 
 
 class HarborProjectResponse(BaseModel):
     name: str
     public: bool
+
+
+class HarborProjectCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255, pattern=_TARGET_PROJECT_PATTERN)
+    public: bool = False
+    operation_id: int | None = Field(default=None, ge=1)
+
+
+class HarborProjectCreateResponse(BaseModel):
+    name: str
+    public: bool
+    created: bool
 
 
 class HarborRepositoryResponse(BaseModel):
