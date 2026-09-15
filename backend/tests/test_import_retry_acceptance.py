@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import io
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -233,7 +232,10 @@ def _environment(tmp_path: Path):  # type: ignore[no-untyped-def]
     skopeo = FakeSkopeoService()
     helm = FakeHelmService()
     package_service = FakePackageService()
-    package_factory = lambda: package_service
+
+    def package_factory() -> FakePackageService:
+        return package_service
+
     orchestrator = PolicyAwareImportDestinationPlanOrchestrator(
         session_factory,
         settings,
