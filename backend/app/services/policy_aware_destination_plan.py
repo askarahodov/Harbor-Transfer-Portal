@@ -38,6 +38,13 @@ class PolicyAwareImportDestinationPlanOrchestrator(ImportDestinationPlanOrchestr
         actor_username: str | None = None,
     ) -> ImportDestinationPlanResponse:
         operation = self.operation_manager.get_operation(operation_id)
+        if operation is not None and operation.import_policy_json is not None:
+            policy = self._policy_object(operation)
+            if "retry" in policy:
+                raise ImportOrchestrationError(
+                    "import_retry_mapping_immutable",
+                    "Retry operation привязана к исходному destination plan; для другого mapping создайте новый Preview/import",
+                )
         if operation is not None and operation.worker_token is not None:
             raise ImportOrchestrationError(
                 "import_destination_plan_stale",
