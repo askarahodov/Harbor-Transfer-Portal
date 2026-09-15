@@ -150,15 +150,15 @@ def test_only_admin_can_create_project_and_import_stays_ready(tmp_path: Path) ->
 
 def test_existing_and_concurrent_duplicate_create_are_idempotent(tmp_path: Path) -> None:
     _app, client, harbor, tokens, operation_id = _environment(tmp_path)
-    harbor.projects["helm-prod"] = False
+    harbor.projects["helm-prod"] = True
 
     existing = client.post(
         "/api/harbor/projects",
-        json={"name": "helm-prod", "operation_id": operation_id},
+        json={"name": "helm-prod", "public": False, "operation_id": operation_id},
         headers=_auth(tokens["admin"]),
     )
     assert existing.status_code == 200
-    assert existing.json()["created"] is False
+    assert existing.json() == {"name": "helm-prod", "public": True, "created": False}
     assert harbor.create_calls == []
 
     harbor.conflict_after_create = True
