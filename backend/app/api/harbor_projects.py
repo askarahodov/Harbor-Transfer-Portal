@@ -12,7 +12,7 @@ from app.db.models import Operation, User, UserRole
 from app.db.repositories import AuditEventRepository
 from app.domain.bundle import OperationType
 from app.schemas.harbor import HarborProjectCreateRequest, HarborProjectCreateResponse
-from app.services.harbor_client import HarborClient, HarborClientError
+from app.services.harbor_client import HarborClient, HarborClientError, HarborProject
 from app.services.runtime_mode import RuntimeModeService
 
 router = APIRouter(prefix="/harbor", tags=["harbor"])
@@ -23,9 +23,9 @@ def _api_error(status_code: int, code: str, message: str) -> HTTPException:
     return HTTPException(status_code=status_code, detail={"code": code, "message": message})
 
 
-def _project_exists(client: HarborClient, project: str) -> bool:
+def _find_project(client: HarborClient, project: str) -> HarborProject | None:
     page = client.list_projects_page(1, 100, search_needle=project)
-    return any(item.name == project for item in page.items)
+    return next((item for item in page.items if item.name == project), None)
 
 
 def _correlated_import(session: SessionDep, operation_id: int | None) -> None:
@@ -47,12 +47,13 @@ def _audit_project_create(
     client: HarborClient,
     payload: HarborProjectCreateRequest,
     result: str,
+    actual_public: bool | None = None,
     error_code: str | None = None,
 ) -> None:
     metadata: dict[str, object] = {
         "local_harbor": urlsplit(client.base_url).netloc,
         "project": payload.name,
-        "public": payload.public,
+        "public": payload.public if actual_public is None else actual_public,
     }
     if payload.operation_id is not None:
         metadata["operation_id"] = payload.operation_id
@@ -84,36 +85,41 @@ def create_project(
     runtime = RuntimeModeService(session, request.app.state.settings)
     with runtime.mode_guard(PortalContour.TARGET):
         try:
-            if _project_exists(client, payload.name):
+            existing = _find_project(client, payload.name)
+            if existing is not None:
                 _audit_project_create(
                     session,
                     actor,
                     client=client,
                     payload=payload,
                     result="exists",
+                    actual_public=existing.public,
                 )
                 return HarborProjectCreateResponse(
-                    name=payload.name,
-                    public=payload.public,
+                    name=existing.name,
+                    public=existing.public,
                     created=False,
                 )
 
             try:
                 client.create_project(payload.name, public=payload.public)
             except HarborClientError as exc:
-                if exc.code == "conflict" and _project_exists(client, payload.name):
-                    _audit_project_create(
-                        session,
-                        actor,
-                        client=client,
-                        payload=payload,
-                        result="exists",
-                    )
-                    return HarborProjectCreateResponse(
-                        name=payload.name,
-                        public=payload.public,
-                        created=False,
-                    )
+                if exc.code == "conflict":
+                    raced = _find_project(client, payload.name)
+                    if raced is not None:
+                        _audit_project_create(
+                            session,
+                            actor,
+                            client=client,
+                            payload=payload,
+                            result="exists",
+                            actual_public=raced.public,
+                        )
+                        return HarborProjectCreateResponse(
+                            name=raced.name,
+                            public=raced.public,
+                            created=False,
+                        )
                 raise
         except HarborClientError as exc:
             _audit_project_create(
@@ -132,6 +138,7 @@ def create_project(
             client=client,
             payload=payload,
             result="created",
+            actual_public=payload.public,
         )
         return HarborProjectCreateResponse(
             name=payload.name,
