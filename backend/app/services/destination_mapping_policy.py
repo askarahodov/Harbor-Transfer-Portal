@@ -74,14 +74,14 @@ class DestinationMappingPolicyService:
                 f"Неподдерживаемые поля destination mapping policy: {', '.join(unknown)}",
             )
         current = self.resolve()
-        candidate = {
+        candidate: dict[str, object] = {
             "container_image_project": current.container_image_project,
             "helm_chart_project": current.helm_chart_project,
             "project_mappings": current.project_mappings,
             **values,
         }
         normalized = self._normalize_candidate(candidate)
-        before_values = {
+        before_values: dict[str, object] = {
             "container_image_project": current.container_image_project,
             "helm_chart_project": current.helm_chart_project,
             "project_mappings": current.project_mappings,
@@ -89,8 +89,8 @@ class DestinationMappingPolicyService:
         changed = tuple(
             sorted(field for field in values if normalized[field] != before_values[field])
         )
-        before = {field: before_values[field] for field in changed}
-        after = {field: normalized[field] for field in changed}
+        before: dict[str, object] = {field: before_values[field] for field in changed}
+        after: dict[str, object] = {field: normalized[field] for field in changed}
         if changed:
             for field in changed:
                 self.metadata.set_value(_KEYS[field], self._serialize(field, normalized[field]))
@@ -139,13 +139,13 @@ class DestinationMappingPolicyService:
 
     def _optional_project(self, key: str) -> str | None:
         raw = self.metadata.get_value(key)
-        if raw in {None, ""}:
+        if raw is None or raw == "":
             return None
         return self._validate_project(raw)
 
     def _project_mappings(self) -> dict[str, str]:
         raw = self.metadata.get_value(_KEYS["project_mappings"])
-        if raw in {None, ""}:
+        if raw is None or raw == "":
             return {}
         try:
             value = json.loads(raw)
