@@ -110,6 +110,10 @@ verify_install() {
   [ "$mode" = 600 ] || fail "installer created .env with unexpected mode: $mode"
   grep -Fx "PORTAL_CONTOUR=$contour" "$kit/.env" >/dev/null || fail "installed contour is not $contour"
   grep -Fx "PORTAL_VERSION=$VERSION" "$kit/.env" >/dev/null || fail 'installed version does not match release kit'
+  grep -Fx 'PORTAL_HTTP_BIND=127.0.0.1' "$kit/.env" >/dev/null \
+    || fail 'installed browser listener is not loopback-only by default'
+  grep -Fx 'PORTAL_BROWSER_SCHEME=http' "$kit/.env" >/dev/null \
+    || fail 'installed browser scheme is not explicit HTTP diagnostic default'
   grep -Eq '^JWT_SECRET=[0-9a-f]{64,}$' "$kit/.env" || fail 'installer did not generate a strong JWT secret'
   grep -Fx "$VERSION" "$kit/release-version.txt" >/dev/null || fail 'release-version.txt mismatch'
   grep -F "\"version\": \"$VERSION\"" "$kit/release-manifest.json" >/dev/null \

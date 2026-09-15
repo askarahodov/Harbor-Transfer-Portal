@@ -9,6 +9,7 @@ from app.auth.security import (
     decode_access_token,
     decode_export_download_token,
 )
+from app.config import BrowserScheme
 from app.db.models import User, UserRole
 from app.db.repositories import UserRepository
 from app.domain.bundle import OperationStatus, OperationType
@@ -270,7 +271,9 @@ def create_download_ticket(
         value=token,
         max_age=_EXPORT_DOWNLOAD_TTL_SECONDS,
         httponly=True,
-        secure=request.url.scheme == "https",
+        secure=(
+            request.app.state.settings.portal_browser_scheme is BrowserScheme.HTTPS
+        ),
         samesite="strict",
         path=download_path,
     )

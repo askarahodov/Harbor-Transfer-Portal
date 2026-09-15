@@ -1,7 +1,8 @@
 from enum import StrEnum
 from pathlib import Path
+from typing import Self
 
-from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
+from pydantic import AnyHttpUrl, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app import __version__
@@ -14,6 +15,11 @@ _ALLOWED_LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
 class PortalContour(StrEnum):
     SOURCE = "SOURCE"
     TARGET = "TARGET"
+
+
+class BrowserScheme(StrEnum):
+    HTTP = "http"
+    HTTPS = "https"
 
 
 def validate_harbor_base_url(value: AnyHttpUrl | None) -> AnyHttpUrl | None:
@@ -39,6 +45,8 @@ class Settings(BaseSettings):
     app_name: str = "Harbor Transfer Portal"
     app_version: str = __version__
     portal_contour: PortalContour = PortalContour.SOURCE
+    portal_http_bind: str = "127.0.0.1"
+    portal_browser_scheme: BrowserScheme = BrowserScheme.HTTP
     database_url: str = "sqlite:///./data/harbor-transfer-portal.db"
     log_level: str = "INFO"
     log_json: bool = False
@@ -114,6 +122,17 @@ class Settings(BaseSettings):
     login_rate_limit_lockout_seconds: int = Field(default=900, ge=1, le=86400)
 
     cors_origins: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_browser_transport(self) -> Self:
+        if (
+            self.portal_browser_scheme is BrowserScheme.HTTP
+            and self.portal_http_bind != "127.0.0.1"
+        ):
+            raise ValueError(
+                "PORTAL_BROWSER_SCHEME=https is required when PORTAL_HTTP_BIND is non-loopback"
+            )
+        return self
 
     @field_validator("harbor_url")
     @classmethod

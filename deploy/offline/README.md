@@ -50,6 +50,28 @@ Installer:
 
 Release Compose использует стабильное имя проекта `harbor-transfer-portal`. Поэтому named volume `portal-data` имеет одну и ту же Compose identity независимо от versioned каталога, в который распакован kit. Это важно для безопасного lifecycle.
 
+### Browser transport после установки
+
+Raw HTTP listener Portal по умолчанию публикуется только на loopback:
+
+```text
+PORTAL_HTTP_BIND=127.0.0.1
+PORTAL_HTTP_PORT=8080
+PORTAL_BROWSER_SCHEME=http
+```
+
+`http://127.0.0.1:8080` предназначен для bootstrap/diagnostics и как локальный upstream site-managed TLS terminator. Для authenticated remote browser use настройте HTTPS reverse proxy на площадке и затем задайте в `.env`:
+
+```text
+PORTAL_BROWSER_SCHEME=https
+```
+
+После изменения перезапустите Compose. TLS certificate/private key остаются вне release kit и управляются площадкой. Backend не доверяет client-supplied `X-Forwarded-Proto` как доказательству HTTPS; security-sensitive browser attributes определяются только trusted deployment setting.
+
+Если TLS terminator расположен не на host Portal, задайте `PORTAL_HTTP_BIND` адресом выделенного доверенного интерфейса и ограничьте firewall так, чтобы raw HTTP listener был доступен только terminator. Не используйте широкую HTTP-публикацию как замену HTTPS.
+
+Полная модель: `docs/browser-transport.md` внутри release kit.
+
 После первого запуска настройте через admin UI **только локальный Harbor этого контура**, CA/credentials, а также SOURCE signing key или TARGET trusted SOURCE public keys.
 
 Полный штатный пользовательский перенос выполняется через browser: SOURCE выбирает артефакты и скачивает bundle + `.sha256`, файлы физически переносятся в TARGET, затем TARGET выполняет verify/preview/import через UI. Пошаговая процедура находится прямо в release kit: `docs/user-guide.md`.
