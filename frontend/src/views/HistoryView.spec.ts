@@ -107,6 +107,7 @@ const importReceipt: ImportReceipt = {
   started_at: '2026-09-14T05:01:00Z',
   finished_at: '2026-09-14T05:02:00Z',
   overwrite_conflicts: false,
+  destination_plan_id: 'e'.repeat(64),
   result: 'COMPLETED',
   artifacts: [],
 }
