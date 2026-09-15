@@ -443,20 +443,20 @@ onMounted(loadSettings)
 .card { display: grid; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--color-mist); border-radius: var(--radius-lg); background: white; }
 .card--wide { grid-column: 1 / -1; }
 .card h2, .card h3 { margin: 0; }
-.card input[type='text'], .card input[type='url'], .card input[type='password'], .card input[type='number'], .card textarea { min-height: 42px; border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; }
+.card input[type='text'], .card input[type='url'], .card input[type='password'], .card input[type='number'], .card textarea { min-height: 42px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; }
 .card textarea { width: 100%; min-height: 120px; padding-block: var(--space-3); resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .card button { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-bridge-blue); color: white; font: inherit; cursor: pointer; }
 .card button:disabled { opacity: .6; cursor: wait; }
-.card button.secondary { background: white; color: var(--color-deep-harbor); border: 1px solid var(--color-mist); }
+.card button.secondary { background: white; color: var(--color-deep-harbor); border: 1px solid var(--color-border-control); }
 .checkbox-row { display: flex; gap: var(--space-2); align-items: center; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 .policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
 .mapping-policy { display: grid; gap: var(--space-3); margin-top: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-mist); }
 .mapping-policy label { display: grid; gap: var(--space-2); }
 .status { margin: 0; color: var(--color-steel); }
-.warning { margin: 0; padding: var(--space-3); border: 1px solid #b45309; border-radius: var(--radius-md); }
+.warning { margin: 0; padding: var(--space-3); border: 1px solid var(--color-warning-text); border-radius: var(--radius-md); color: var(--color-warning-text); }
 .success, .error { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); }
-.success { border: 1px solid #15803d; }
-.error { border: 1px solid #b91c1c; }
+.success { border: 1px solid var(--color-success-text); color: var(--color-success-text); }
+.error { border: 1px solid var(--color-danger-text); color: var(--color-danger-text); }
 @media (max-width: 640px) { .settings__header { flex-direction: column; } }
 </style>
