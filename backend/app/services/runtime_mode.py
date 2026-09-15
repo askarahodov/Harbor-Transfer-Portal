@@ -59,11 +59,12 @@ class RuntimeModeSwitchResult:
 
 
 class RuntimeModeService:
-    """Persistent authoritative runtime mode and its operation-start barrier.
+    """Persistent authoritative runtime mode and its process-local serialization barrier.
 
     PORTAL_CONTOUR remains the bootstrap default only. Once the persistent setting exists,
     it wins on every application startup. The same process-wide lock serializes mode
-    switches with mode-bound operation creation for the v1 single-backend-instance model.
+    switches with mode-bound operation starts and short security-sensitive mutations for
+    the v1 single-backend-instance model.
     """
 
     def __init__(self, session: Session, settings: Settings) -> None:
@@ -120,25 +121,39 @@ class RuntimeModeService:
         return RuntimeModeSnapshot(mode=mode, version=mode_version)
 
     @contextmanager
+    def mode_guard(
+        self,
+        required_mode: PortalContour | None = None,
+    ) -> Iterator[RuntimeModeSnapshot]:
+        """Hold the runtime-mode lock across a short mode-sensitive critical section.
+
+        The guard is intentionally process-local because the v1 deployment runs one
+        backend instance against SQLite. A concurrent switch either completes first and
+        the guarded action sees the new mode, or waits until the guarded action exits.
+        """
+
+        with _MODE_LOCK:
+            snapshot = self.current_snapshot()
+            if required_mode is not None and snapshot.mode is not required_mode:
+                message = (
+                    f"Операция требует режим {required_mode.value}, "
+                    f"текущий режим {snapshot.mode.value}"
+                )
+                raise RuntimeModeError("runtime_mode_mismatch", message)
+            # End the read transaction while keeping the process-wide barrier. This lets
+            # the guarded caller safely commit through the same or another SQLAlchemy
+            # Session without retaining a SQLite shared read lock.
+            self.session.rollback()
+            yield snapshot
+
+    @contextmanager
     def operation_start_guard(
         self,
         required_mode: PortalContour,
     ) -> Iterator[RuntimeModeSnapshot]:
         """Serialize a mode-bound operation start with runtime mode switching."""
 
-        with _MODE_LOCK:
-            snapshot = self.current_snapshot()
-            if snapshot.mode is not required_mode:
-                message = (
-                    f"Операция требует режим {required_mode.value}, "
-                    f"текущий режим {snapshot.mode.value}"
-                )
-                raise RuntimeModeError("runtime_mode_mismatch", message)
-            # The guard may be used while the caller writes the operation through a
-            # separate SQLAlchemy Session. End this read transaction first so SQLite
-            # does not keep a shared lock that can block that writer's commit. The
-            # process-wide RLock remains held for the entire operation creation.
-            self.session.rollback()
+        with self.mode_guard(required_mode) as snapshot:
             yield snapshot
 
     def switch(self, target: PortalContour, *, actor: User) -> RuntimeModeSwitchResult:
