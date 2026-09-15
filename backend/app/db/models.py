@@ -126,6 +126,7 @@ class ArtifactResult(Base):
     target_project: Mapped[str | None] = mapped_column(String(256), nullable=True)
     target_repository: Mapped[str | None] = mapped_column(String(512), nullable=True)
     target_reference: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    target_version: Mapped[str | None] = mapped_column(String(256), nullable=True)
     destination_plan_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     destination_plan_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     overwrite_approved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
