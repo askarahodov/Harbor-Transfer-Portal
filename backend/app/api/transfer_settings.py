@@ -91,8 +91,8 @@ def update_transfer_policy(
         f"destination_{field}" for field in mapping_change.changed_fields
     ]
     if changed_fields:
-        before = {**change.before}
-        after = {**change.after}
+        before: dict[str, object] = dict(change.before)
+        after: dict[str, object] = dict(change.after)
         before.update(
             {f"destination_{key}": value for key, value in mapping_change.before.items()}
         )
