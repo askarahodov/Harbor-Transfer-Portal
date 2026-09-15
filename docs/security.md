@@ -37,7 +37,13 @@ Harbor Transfer Portal работает в двух независимых се�
 
 ### 3.1. Browser ↔ Portal API
 
-Граница аутентификации и RBAC. Frontend помогает пользователю не видеть недоступные действия, но окончательное решение принимает backend.
+Граница аутентификации, RBAC и transport confidentiality. Frontend помогает пользователю не видеть недоступные действия, но окончательное authorization решение принимает backend.
+
+Authenticated remote browser use должен идти через HTTPS. Shipped Compose публикует raw HTTP listener только на loopback по умолчанию (`PORTAL_HTTP_BIND=127.0.0.1`). Поддерживаемая production схема использует site-managed TLS terminator перед этим listener; certificate/private key не входят в release kit.
+
+Backend не доверяет client-supplied `X-Forwarded-Proto` как доказательству HTTPS. Security-sensitive browser behavior определяется explicit trusted deployment setting `PORTAL_BROWSER_SCHEME=http|https`. Frontend Nginx удаляет `X-Forwarded-Proto` перед backend и перезаписывает `X-Forwarded-For` непосредственным peer address.
+
+Полная модель: [browser-transport.md](browser-transport.md).
 
 ### 3.2. Portal ↔ Local Harbor
 
@@ -82,6 +88,10 @@ Frontend хранит token только в `sessionStorage` активной br
 
 `sessionStorage` доступен JavaScript, поэтому успешная XSS-атака в активной вкладке потенциально может прочитать token. Нельзя добавлять недоверенный runtime HTML/script, небезопасный `v-html`, CDN script injection или аналогичные источники XSS surface без отдельного security review.
 
+Пароль login и bearer token также требуют transport confidentiality. HTTP на `127.0.0.1` является только bootstrap/diagnostic/upstream режимом; удалённый authenticated browser path должен использовать site HTTPS. `PORTAL_BROWSER_SCHEME=https` следует задавать только тогда, когда browser действительно приходит через HTTPS terminator.
+
+Краткоживущий export download cookie имеет `HttpOnly; SameSite=Strict`; атрибут `Secure` определяется trusted `PORTAL_BROWSER_SCHEME`, а не request URL или forwarding header. Поэтому spoofed `X-Forwarded-Proto` не может включить или выключить `Secure`.
+
 Текущая bearer-header модель не создаёт cookie-based CSRF surface: Authorization header не прикрепляется браузером автоматически как cookie. Если в будущем auth будет переведён на HttpOnly cookie, потребуется отдельное решение для CSRF lifecycle.
 
 ## 5. Защита локального входа
@@ -101,7 +111,7 @@ Backend ограничивает неуспешные попытки входа 
 
 Заблокированная и обычная неверная попытка возвращают одинаковую ошибку `invalid credentials`, чтобы throttling нельзя было использовать для account enumeration.
 
-Приложение не доверяет произвольному пользовательскому `X-Forwarded-For` как доказательству реального адреса клиента.
+Приложение не доверяет произвольному пользовательскому `X-Forwarded-For` как доказательству реального адреса клиента. Frontend proxy перезаписывает forwarded address непосредственным peer вместо продолжения присланной клиентом цепочки.
 
 ## 6. Local Harbor credentials
 
@@ -148,7 +158,7 @@ Harbor TLS verification включена по умолчанию.
 
 Skopeo и Helm получают effective TLS policy из тех же локальных Harbor settings. Они не должны самостоятельно принимать решение «если сертификат невалиден — повторить insecure».
 
-Отключение TLS verification допустимо только как осознанное диагностическое/исключительное действие, а не штатное решение x509-проблемы.
+Отключение TLS verification допустимо только как осознанное диагностическое/исключительное действие, а не штатное решение x509-проблемы. Browser ↔ Portal HTTPS и Portal ↔ Harbor TLS — независимые trust boundaries.
 
 ## 8. Skopeo subprocess boundary
 
@@ -373,7 +383,7 @@ SQLite backup не является полным backup security state.
 
 Backup/restore должен сохранять необходимые trust/secret files с их permissions и не складывать секреты в публичный release archive.
 
-Current Compose procedure закреплена в [admin-guide.md](admin-guide.md). Финальная clean-VM/offline release и restore/rollback qualification остаётся задачей #28.
+Shipped offline lifecycle выполняет checksummed backup/restore/upgrade qualification и использует matching-version release kit. Подробности закреплены в [admin-guide.md](admin-guide.md) и [offline-lifecycle.md](offline-lifecycle.md).
 
 ## 18. Offline/network security
 
@@ -415,7 +425,7 @@ Security properties:
 - CSV защищается от formula injection для опасных leading values;
 - PDF runtime не должен обращаться к internet/CDN за fonts/assets.
 
-Финальная offline/release qualification этих возможностей остаётся частью #28, но application audit/history/report capabilities уже реализованы.
+Offline/release qualification этих возможностей реализована в release gates: clean-host SOURCE/TARGET install и isolated SOURCE → TARGET acceptance входят в CI release boundary.
 
 ## 21. Реализовано и ещё требуется
 
@@ -423,6 +433,7 @@ Security properties:
 |---|---|
 | Local users / JWT / RBAC foundation | реализовано |
 | Frontend session guards | реализовано |
+| Browser ↔ Portal transport boundary | реализовано: loopback HTTP default + обязательный site HTTPS для remote auth + trusted scheme |
 | Login rate limiting | реализовано |
 | Managed Harbor credential/CA + TLS policy | реализовано |
 | Skopeo argv/authfile/TLS/path/redaction boundary | реализовано |
@@ -435,15 +446,15 @@ Security properties:
 | CSV/PDF reports + TARGET receipt UX | реализовано |
 | Admin user/policy/key management | реализовано |
 | Automatic product retention/cleanup | не реализовано; требуется отдельный tested lifecycle при необходимости |
-| Final offline install/release hardening | запланировано в #28 |
+| Offline install/release qualification | реализовано: clean-host SOURCE/TARGET + isolated transfer acceptance |
 
 ## 22. Known v1 limitations / non-goals
 
 - Портал не защищает от администратора/host operator, который имеет полный root-доступ к backend persistent volume и key/secret files. Это deployment trust boundary.
 - Физическая защита USB/HDD и организационный процесс допуска носителя находятся вне приложения; приложение проверяет цифровое содержимое после поступления.
 - `sessionStorage` bearer token остаётся доступен JavaScript при успешной XSS-атаке активной вкладки.
+- TLS certificate/private-key lifecycle и доступность site HTTPS terminator находятся в ответственности площадки; release kit не хранит TLS private key.
 - Автоматическая retention/cleanup не реализована и не должна подразумеваться существующими policy settings.
-- Финальный offline-install/clean-VM/cross-contour release security acceptance ещё не выполнен до #28.
 - Портал не создаёт сетевой DLP/antivirus pipeline для произвольных файлов: Bundle Protocol разрешает только ожидаемую структуру и типы payload.
 - Отключение TLS verification не является исправлением PKI; это явное исключение с ухудшением защиты.
 
@@ -457,6 +468,7 @@ Security properties:
 - не допускается ли archive extraction до verifier checks;
 - не ослаблены ли signature/checksum/schema tests;
 - не появился ли silent TLS disable/fallback;
+- не начал ли backend доверять произвольным client-supplied forwarding headers;
 - не превратился ли frontend role guard в единственный authorization control;
 - не допускается ли conflict overwrite без явной policy;
 - documentation impact обновлён вместе с поведением.
@@ -466,6 +478,7 @@ Security properties:
 - [Архитектура](architecture.md)
 - [User Guide](user-guide.md)
 - [Admin Guide](admin-guide.md)
+- [Browser transport](browser-transport.md)
 - [Troubleshooting](troubleshooting.md)
 - [Offline Bundle Protocol v1](offline-bundle-v1.md)
 - [Package service](package-service.md)
