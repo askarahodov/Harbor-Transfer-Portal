@@ -14,6 +14,17 @@ class OperationArtifactResponse(BaseModel):
     version: str | None
     source_digest: str | None
     target_digest: str | None
+    source_project: str | None
+    source_repository: str | None
+    source_reference: str | None
+    source_version: str | None
+    target_project: str | None
+    target_repository: str | None
+    target_reference: str | None
+    target_version: str | None
+    destination_plan_id: str | None
+    destination_plan_hash: str | None
+    overwrite_approved: bool | None
     status: ArtifactStatus
     error_code: str | None
     error_message: str | None
