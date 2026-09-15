@@ -331,7 +331,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 classification=classification,
             )
         except (SkopeoServiceError, ValueError) as exc:
-            return self._inspection_error(
+            return self._destination_inspection_error(
                 base,
                 target_project,
                 target_repository,
@@ -388,7 +388,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 classification=classification,
             )
         except (HelmServiceError, ValueError) as exc:
-            return self._inspection_error(
+            return self._destination_inspection_error(
                 base,
                 target_project,
                 target_repository,
@@ -435,7 +435,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         )
 
     @staticmethod
-    def _inspection_error(
+    def _destination_inspection_error(
         base: dict[str, Any],
         target_project: str,
         target_repository: str,
