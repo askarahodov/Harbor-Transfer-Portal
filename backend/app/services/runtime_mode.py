@@ -129,10 +129,11 @@ class RuntimeModeService:
         with _MODE_LOCK:
             snapshot = self.current_snapshot()
             if snapshot.mode is not required_mode:
-                raise RuntimeModeError(
-                    "runtime_mode_mismatch",
-                    f"Операция требует режим {required_mode.value}, текущий режим {snapshot.mode.value}",
+                message = (
+                    f"Операция требует режим {required_mode.value}, "
+                    f"текущий режим {snapshot.mode.value}"
                 )
+                raise RuntimeModeError("runtime_mode_mismatch", message)
             # The guard may be used while the caller writes the operation through a
             # separate SQLAlchemy Session. End this read transaction first so SQLite
             # does not keep a shared lock that can block that writer's commit. The
