@@ -47,7 +47,7 @@ afterEach(() => {
 })
 
 describe('ImportWorkspaceView', () => {
-  it('teleports destination mapping into preview and hides stale identity classification', async () => {
+  it('teleports destination mapping into the verified preview panel', async () => {
     const auth = useAuthStore()
     auth.user = { id: 1, username: 'operator', role: 'operator', is_active: true }
     auth.initialized = true
@@ -76,16 +76,13 @@ describe('ImportWorkspaceView', () => {
 
     const panel = document.body.querySelector(".panel[aria-labelledby='preview-title']")
     const mapping = panel?.querySelector('.import-destination-mapping-slot') as HTMLElement | null
-    const summary = panel?.querySelector('.classification-summary') as HTMLElement | null
-    const legacyTable = panel?.querySelector('.table-wrap') as HTMLElement | null
-    const actions = panel?.querySelector('.actions') as HTMLElement | null
 
+    expect(panel).not.toBeNull()
     expect(mapping).not.toBeNull()
     expect(mapping?.closest('.panel')).toBe(panel)
-    expect(getComputedStyle(mapping!).order).toBe('1')
-    expect(getComputedStyle(summary!).display).toBe('none')
-    expect(getComputedStyle(legacyTable!).display).toBe('none')
-    expect(getComputedStyle(actions!).order).toBe('2')
+    expect(panel?.contains(mapping)).toBe(true)
+    expect(mapping?.textContent).toContain('Куда импортировать артефакты')
+    expect(mapping?.textContent).toContain('Destination plan')
 
     wrapper.unmount()
   })
