@@ -149,6 +149,7 @@ for required in \
   release-manifest.json \
   docs/release-notes-v1.0.0.md \
   docs/user-guide.md \
+  docs/browser-transport.md \
   images/backend.tar \
   images/frontend.tar; do
   [ -f "$KIT/$required" ] || fail "missing release payload file: $required"
@@ -166,6 +167,8 @@ grep -Fx 'name: harbor-transfer-portal' "$KIT/compose.yaml" >/dev/null || \
   fail 'offline compose must disable pulling for both services'
 grep -Eq '^[0-9a-f]{64}  docs/user-guide\.md$' "$KIT/CHECKSUMS.sha256" || \
   fail 'operator user guide must be covered by CHECKSUMS.sha256'
+grep -Eq '^[0-9a-f]{64}  docs/browser-transport\.md$' "$KIT/CHECKSUMS.sha256" || \
+  fail 'browser transport guide must be covered by CHECKSUMS.sha256'
 (
   cd "$KIT"
   sha256sum -c CHECKSUMS.sha256
@@ -188,6 +191,10 @@ fi
 [ -f "$KIT/.env" ] || fail 'installer did not create .env'
 grep -Fx 'PORTAL_VERSION=1.0.0' "$KIT/.env" >/dev/null
 grep -Fx 'PORTAL_CONTOUR=TARGET' "$KIT/.env" >/dev/null
+grep -Fx 'PORTAL_HTTP_BIND=127.0.0.1' "$KIT/.env" >/dev/null \
+  || fail 'installer did not preserve loopback browser listener default'
+grep -Fx 'PORTAL_BROWSER_SCHEME=http' "$KIT/.env" >/dev/null \
+  || fail 'installer did not preserve explicit HTTP diagnostic scheme default'
 grep -Eq '^JWT_SECRET=[0-9a-f]{64,}$' "$KIT/.env" || fail 'installer did not generate a strong JWT secret'
 [ "$(grep -c '^load ' "$FAKE_LOG")" -eq 2 ] || fail 'installer must load exactly two images'
 grep -F 'compose --env-file .env -f compose.yaml up -d --no-build --pull never --wait --wait-timeout 180' "$FAKE_LOG" >/dev/null || \
@@ -200,6 +207,20 @@ env_before=$(sha256sum "$KIT/.env" | awk '{print $1}')
 )
 env_after=$(sha256sum "$KIT/.env" | awk '{print $1}')
 [ "$env_before" = "$env_after" ] || fail 'rerun overwrote existing .env'
+
+# Plain HTTP must never be published on a non-loopback interface. Reject this
+# before image load or Compose startup so a bad edit fails closed immediately.
+cp "$KIT/.env" "$KIT/.env.safe-browser-transport"
+sed 's/^PORTAL_HTTP_BIND=.*/PORTAL_HTTP_BIND=0.0.0.0/' "$KIT/.env.safe-browser-transport" > "$KIT/.env"
+: > "$FAKE_LOG"
+if (
+  cd "$KIT"
+  sh ./install.sh >/dev/null 2>&1
+); then
+  fail 'non-loopback plain HTTP browser listener was accepted'
+fi
+[ ! -s "$FAKE_LOG" ] || fail 'unsafe browser transport reached Docker activity'
+mv "$KIT/.env.safe-browser-transport" "$KIT/.env"
 
 # Existing config must not be trusted through a symlink.
 mv "$KIT/.env" "$KIT/.env.real"
