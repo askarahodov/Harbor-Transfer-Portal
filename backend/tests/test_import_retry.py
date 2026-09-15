@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from app.api.operations import _serialize_operation, _serialize_summary
 from app.auth.security import hash_password
 from app.config import PortalContour, Settings
 from app.db.base import Base
@@ -291,6 +292,12 @@ def test_retry_reuses_frozen_mapping_and_revalidates_current_target(tmp_path: Pa
         assert retry.import_storage_key == STORAGE_KEY
         assert retry.bundle_sha256 == BUNDLE_SHA
         assert retry_of_operation_id(retry) == operation_id
+        summary = _serialize_summary(retry)
+        detail = _serialize_operation(retry)
+        assert summary.retry_of_operation_id == operation_id
+        assert summary.failure_policy == "continue-on-error"
+        assert detail.retry_of_operation_id == operation_id
+        assert detail.failure_policy == "continue-on-error"
         policy = orchestrator._policy_object(retry)
         assert policy["mapping_request"]["container_image_project"] == "docker-old"
         assert policy["mapping_request"]["helm_chart_project"] == "helm-old"
