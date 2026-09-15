@@ -22,7 +22,7 @@ class ImportRetryResponse(BaseModel):
 
 
 class ImportRetryLineage(BaseModel):
-    retry_of_operation_id: int = Field(gt=0)
+    retry_of_operation_id: int = Field(gt=0, alias="of_operation_id")
     source_plan_id: str = Field(pattern=r"^[a-f0-9]{64}$")
     source_plan_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     failure_policy: Literal["continue-on-error"]
