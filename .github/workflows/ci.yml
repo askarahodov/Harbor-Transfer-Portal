@@ -41,6 +41,9 @@ jobs:
           python3 -m unittest tools.test_dependency_locks
           python3 tools/check_dependency_locks.py
 
+      - name: Проверить design-token invariants
+        run: make design-tokens-check
+
       - name: Определить затронутые области
         id: scope
         shell: bash
