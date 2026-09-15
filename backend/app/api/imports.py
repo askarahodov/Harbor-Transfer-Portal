@@ -119,12 +119,6 @@ def _content_length(request: Request) -> int | None:
             status.HTTP_400_BAD_REQUEST,
             "import_content_length_invalid",
             "Content-Length не может быть отрицательным",
-        ) from exc
-    if value < 0:
-        raise _api_error(
-            status.HTTP_400_BAD_REQUEST,
-            "import_content_length_invalid",
-            "Content-Length не может быть отрицательным",
         )
     return value
 
