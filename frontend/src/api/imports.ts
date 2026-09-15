@@ -134,7 +134,7 @@ export type ImportReceipt = {
   finished_at: string
   overwrite_conflicts: boolean
   destination_plan_id: string | null
-  destination_plan_hash: string | null
+  destination_plan_hash?: string | null
   result: string
   artifacts: ImportReceiptArtifact[]
 }
