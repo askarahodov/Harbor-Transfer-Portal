@@ -16,6 +16,11 @@ class PortalContour(StrEnum):
     TARGET = "TARGET"
 
 
+class BrowserScheme(StrEnum):
+    HTTP = "http"
+    HTTPS = "https"
+
+
 def validate_harbor_base_url(value: AnyHttpUrl | None) -> AnyHttpUrl | None:
     if value is None:
         return None
@@ -39,6 +44,7 @@ class Settings(BaseSettings):
     app_name: str = "Harbor Transfer Portal"
     app_version: str = __version__
     portal_contour: PortalContour = PortalContour.SOURCE
+    portal_browser_scheme: BrowserScheme = BrowserScheme.HTTP
     database_url: str = "sqlite:///./data/harbor-transfer-portal.db"
     log_level: str = "INFO"
     log_json: bool = False
