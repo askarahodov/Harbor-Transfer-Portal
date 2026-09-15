@@ -57,6 +57,20 @@ def _login(client: TestClient, username: str, password: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
+def _export_selection() -> dict[str, object]:
+    return {
+        "artifacts": [
+            {
+                "kind": "container-image",
+                "project": "team",
+                "repository": "apps/demo",
+                "reference": "1.0.0",
+                "digest": "sha256:" + "a" * 64,
+            }
+        ]
+    }
+
+
 def test_runtime_mode_switch_is_immediate_and_persists_across_restart(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'runtime-mode.db'}"
     _migrate(database_url)
@@ -82,6 +96,14 @@ def test_runtime_mode_switch_is_immediate_and_persists_across_restart(tmp_path: 
             "changed": True,
         }
         assert client.get("/api/health").json()["contour"] == "TARGET"
+
+        export_preview = client.post(
+            "/api/exports/preview",
+            headers=operator,
+            json=_export_selection(),
+        )
+        assert export_preview.status_code == 409
+        assert export_preview.json()["error"]["code"] == "export_wrong_contour"
 
     restarted = create_app(_settings(database_url, PortalContour.SOURCE))
     with TestClient(restarted) as client:
