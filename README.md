@@ -4,108 +4,137 @@
 
 [![CI](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/workflows/ci.yml/badge.svg)](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/workflows/ci.yml)
 
-Harbor Transfer Portal — локальный веб-портал для безопасной офлайн-передачи container images и Helm OCI charts между двумя физически и сетево изолированными Harbor-контурами.
+**Harbor Transfer Portal** — локальный веб-портал для безопасной офлайн-передачи container images и Helm OCI charts между физически и сетево изолированными Harbor-контурами.
 
-> **Статус:** функциональный объём **v1.0.0** реализован и прошёл release qualification: SOURCE/TARGET browser workflows, history/audit/reports, offline installation kit, clean-host install и isolated SOURCE → physical bundle → TARGET acceptance входят в обязательные CI gates. Production rollout всё равно требует организационного change/release approval и проверки локальной инфраструктуры конкретного контура.
+Портал нужен там, где SOURCE и TARGET не имеют прямого сетевого соединения: оператор подготавливает подписанный пакет на SOURCE, переносит его разрешённым физическим способом и проверяет перед импортом на TARGET.
 
-## За 30 секунд
+> **Статус:** функциональный объём **v1.0.0** реализован и прошёл release qualification, включая clean-host offline install и isolated SOURCE → physical bundle → TARGET acceptance. Production rollout по-прежнему требует локального change/release approval и проверки инфраструктуры конкретного контура.
 
-Портал устанавливается отдельно в двух контурах:
+## Начните здесь
+
+| Если вы… | Основной документ |
+|---|---|
+| выполняете перенос как оператор | [Пользовательское руководство](docs/user-guide.md) |
+| хотите только просматривать историю и результаты | [Пользовательское руководство](docs/user-guide.md) |
+| администрируете Portal, Harbor, пользователей, CA или ключи | [Руководство администратора](docs/admin-guide.md) |
+| устанавливаете Portal в закрытом контуре | [Offline installation kit](deploy/offline/README.md) |
+| устраняете ошибку или отказ | [Troubleshooting](docs/troubleshooting.md) |
+| хотите понять продукт без технических деталей | [Паспорт проекта](docs/project-passport.md) |
+| разрабатываете или сопровождаете код | [Карта документации](docs/README.md) и [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+Для штатного пользовательского переноса не нужно вручную работать с `skopeo`, `helm`, `tar`, `sha256sum` или Harbor CLI.
+
+## Как работает перенос
 
 ```text
 Harbor SOURCE
     ↓
-Portal SOURCE
+Portal в SOURCE role
     ↓
 подписанный Offline Bundle v1
 (.htp.tar.gz + .sha256)
     ↓
 разрешённый физический носитель
     ↓
-Portal TARGET
+Portal в TARGET role
     ↓
-проверка подписи / checksum / структуры / policy
+проверка checksum / schema / signature / conflict policy
     ↓
 Harbor TARGET
 ```
 
-Между SOURCE и TARGET **нет прямого сетевого соединения**. Каждая установка знает только свой локальный Harbor; credentials противоположного контура не хранятся.
+Между SOURCE и TARGET **нет прямого сетевого соединения**. Каждая установка работает только со своим локальным Harbor и не хранит credentials противоположного контура.
 
-## Что уже есть
+Один и тот же software/deployment поддерживает runtime roles `SOURCE` и `TARGET`. В production air-gap сценарии физически раздельные контуры обычно имеют собственные установки Portal.
 
-| Область | Текущий статус |
+## Операторский сценарий
+
+### 1. SOURCE — подготовить поставку
+
+1. Войти в Portal и убедиться, что текущая runtime role — `SOURCE`.
+2. Выбрать точные container images и/или Helm OCI charts из локального Harbor.
+3. Проверить preview: repository, tag/version, digest и состав поставки.
+4. Запустить export и дождаться terminal state `COMPLETED`.
+5. Скачать **оба** файла: `*.htp.tar.gz` и соответствующий `.sha256`.
+
+### 2. Физически перенести пакет
+
+Перенесите archive и `.sha256` вместе на разрешённом носителе по принятой в организации процедуре. Не распаковывайте и не редактируйте bundle вручную.
+
+### 3. TARGET — проверить и импортировать
+
+1. Войти в Portal и убедиться, что текущая runtime role — `TARGET`.
+2. Передать Portal полученный archive через browser upload либо configured incoming directory/transfer media workflow.
+3. Дождаться backend verification checksum, Bundle v1 schema/canonical manifest и Ed25519 signature.
+4. Просмотреть preview состояний `NEW`, `SAME`, `CONFLICT`, `UNKNOWN`, `ERROR`.
+5. Запустить разрешённый import.
+6. Проверить результат, receipt, History и при необходимости скачать отчёт.
+
+Полная пошаговая инструкция с ролями, состояниями и пользовательскими ошибками: [docs/user-guide.md](docs/user-guide.md).
+
+## Что важно для безопасности
+
+- SOURCE и TARGET не соединяются portal-to-portal или Harbor-to-Harbor.
+- Runtime закрытого контура не зависит от internet/CDN.
+- Bundle v1 содержит canonical `manifest.json`, Ed25519 `manifest.sig` и SHA-256 integrity metadata.
+- SHA-256 проверяет целостность, но **не заменяет** цифровую подпись.
+- TARGET считает полученный bundle недоверенным до успешного verifier flow.
+- `CONFLICT` не приводит к неявной перезаписи target artifact.
+- `UNKNOWN` и `ERROR` блокируют mutation, а не трактуются как `NEW`.
+- Harbor credentials, JWT secrets и signing private keys не хранятся в Git и не включаются в bundle.
+- TLS verification включена по умолчанию; private CA настраивается явно.
+- SOURCE download считается готовым только после verified publication и terminal `COMPLETED`.
+- TARGET UI показывает trust status только как projection backend verification; браузер не является источником криптографического решения.
+
+Полная модель угроз и доверия: [docs/security.md](docs/security.md). Нормативный формат пакета: [docs/offline-bundle-v1.md](docs/offline-bundle-v1.md).
+
+## Что входит в v1.0.0
+
+| Возможность | Статус |
 |---|---|
-| FastAPI foundation, health/readiness | реализовано |
 | Local users, JWT, RBAC | реализовано |
-| Harbor settings, managed credential и custom CA | реализовано |
-| Harbor REST browse/integration foundation | реализовано |
-| Skopeo container transfer service | реализовано и проверяется local-registry integration gate |
-| Helm OCI service | реализовано и проверяется local-registry integration gate |
-| Offline Bundle Protocol v1 + JSON Schema | реализовано |
-| Bundle build/sign/verify/safe extraction | реализовано |
-| Persistent `OperationManager`, progress/cancel/restart reconciliation | реализовано |
-| SOURCE export feature-specific backend orchestration/API | реализовано |
-| SOURCE export wizard/UI | реализовано |
-| SOURCE bundle metadata и disk-backed browser download | реализовано |
-| TARGET intake/preview/import backend orchestration/API | реализовано |
-| TARGET import wizard/UI | реализовано |
-| Vue shell/login/settings foundation | реализовано |
-| History/audit/report UX и immutable import receipt | реализовано |
-| Offline installation kit + backup/restore/upgrade/uninstall | реализовано |
-| Clean-host SOURCE/TARGET installation qualification | реализовано и входит в CI |
-| Isolated SOURCE → physical bundle → TARGET acceptance E2E | реализовано и входит в CI |
-| Release identity v1.0.0, OCI labels, UI/API/bundle metadata, changelog/release notes | реализовано |
+| SOURCE/TARGET runtime roles | реализовано |
+| Harbor settings, managed credential, custom CA | реализовано |
+| Harbor browser и выбор exact image/chart versions | реализовано |
+| Skopeo container transfer | реализовано и проверяется integration gate |
+| Helm OCI transfer | реализовано и проверяется integration gate |
+| Offline Bundle Protocol v1, signing и verification | реализовано |
+| Persistent operation state, progress, cancel, restart reconciliation | реализовано |
+| SOURCE export wizard и disk-backed download | реализовано |
+| TARGET intake, preview, conflict handling и import wizard | реализовано |
+| History, audit, CSV/PDF reports, immutable import receipt | реализовано |
+| Offline installation kit, backup/restore/upgrade/uninstall | реализовано |
+| Clean-host SOURCE/TARGET qualification | обязательный CI gate |
+| Isolated SOURCE → physical bundle → TARGET acceptance | обязательный CI gate |
+| Release identity v1.0.0 в images/UI/API/bundle metadata | реализовано |
 
-Подробная и более точная таблица current state поддерживается в [архитектурной документации](docs/architecture.md).
+Текущий архитектурный статус и component boundaries: [docs/architecture.md](docs/architecture.md).
 
-## Ключевые инварианты
+## Установка в закрытом контуре
 
-- SOURCE и TARGET работают независимо и не соединяются portal-to-portal или Harbor-to-Harbor.
-- Runtime закрытого контура не должен зависеть от internet/CDN.
-- Offline Bundle v1 содержит canonical `manifest.json`, Ed25519 `manifest.sig` и SHA-256 integrity metadata.
-- SHA-256 проверяет целостность, но не заменяет цифровую подпись.
-- Полученный TARGET bundle считается недоверенным до успешного verifier flow.
-- TLS verification включена по умолчанию; private CA поддерживается явно.
-- Harbor credentials и signing private keys не хранятся в Git и не включаются в bundle.
-- Skopeo/Helm запускаются через структурированный subprocess argv без shell-конкатенации пользовательского ввода.
-- Conflict не должен приводить к неявной перезаписи target artifact.
-- `UNKNOWN/ERROR` на TARGET блокируют mutation, а не трактуются как `NEW`.
-- Operation status — persisted domain state, а не вывод из текста логов.
-- SOURCE delivery считается готовым только после verified publication и terminal `COMPLETED`; incomplete/cancelled/restarted export не должен оставлять ready-looking `.sha256`.
-- Большой SOURCE archive отдаётся браузеру через disk-backed `FileResponse`, а не буферизуется целиком в frontend memory.
-- TARGET wizard показывает checksum/schema/signature success только из backend verifier-derived preview; browser не является источником trust decision.
-- Partial TARGET failure не означает rollback уже успешно импортированных независимых artifacts.
-- Offline kit загружает только заранее собранные release images и запускает Compose с `--no-build --pull never`.
-- Release archive, image OCI labels и runtime `/api/health` должны сообщать одну и ту же product version.
+Для production/offline installation используйте **versioned offline kit**, а не development Compose build. Release archive содержит заранее собранные images и запускается без online build/pull.
 
-Полная модель угроз и доверия: [docs/security.md](docs/security.md).
+Основная инструкция: [deploy/offline/README.md](deploy/offline/README.md).
 
-## Кому куда идти
+Администратору также нужны:
 
-| Если вы… | Начните здесь |
-|---|---|
-| хотите понять, что это за продукт | [Паспорт проекта](docs/project-passport.md) |
-| хотите увидеть всю карту документации | [docs/README.md](docs/README.md) |
-| выполняете штатный SOURCE → physical transfer → TARGET через browser | [User Guide](docs/user-guide.md) |
-| устанавливаете v1 в закрытом контуре | [Offline install kit](deploy/offline/README.md) |
-| администрируете установку, Harbor credentials/CA, keys или backup | [Admin Guide](docs/admin-guide.md) |
-| устраняете ошибку или отказ | [Troubleshooting](docs/troubleshooting.md) |
-| настраиваете development/runtime Compose | [Deployment](deploy/README.md) |
-| проектируете/разрабатываете backend или интеграции | [Архитектура](docs/architecture.md) |
-| работаете с SOURCE export API/orchestration | [SOURCE export orchestration](docs/export-orchestration.md) |
-| работаете с TARGET import API/orchestration | [TARGET import orchestration](docs/import-orchestration.md) |
-| работаете с transfer wizard UI | [Frontend](docs/frontend.md) |
-| реализуете совместимость SOURCE/TARGET | [Offline Bundle Protocol v1](docs/offline-bundle-v1.md) |
-| разбираете security/trust boundaries | [Security](docs/security.md) |
-| меняете background execution | [OperationManager](docs/operation-manager.md) |
-| работаете с Skopeo/Helm | [Skopeo](docs/skopeo-service.md) / [Helm OCI](docs/helm-oci-service.md) |
-| меняете CI/tests | [Testing/CI](docs/testing.md) |
-| принимаете архитектурное решение | [ADR registry](docs/decisions.md) |
-| собираетесь внести изменение | [CONTRIBUTING.md](CONTRIBUTING.md) |
+- [docs/admin-guide.md](docs/admin-guide.md) — bootstrap, Harbor, users, policies, keys, backup/restore и эксплуатация;
+- [docs/runtime-mode.md](docs/runtime-mode.md) — persistent SOURCE/TARGET role и безопасное переключение;
+- [docs/key-management.md](docs/key-management.md) — SOURCE signing identity и TARGET trusted keys;
+- [docs/troubleshooting.md](docs/troubleshooting.md) — диагностика и безопасные способы восстановления.
 
-`docs/harbor-transfer-portal.md` сохранён как **исторический product/design reference**. Он не является текущим нормативным source для protocol/runtime/security решений.
+Release images и kit формируются в разрешённой build/release среде:
 
-## Архитектура и стек
+```bash
+./deploy/build-release-images.sh 1.0.0
+./deploy/build-offline-kit.sh 1.0.0
+```
+
+В закрытом контуре используются уже собранные release artifacts согласно offline guide.
+
+## Для разработчиков
+
+### Архитектура и стек
 
 | Уровень | Технологии / роль |
 |---|---|
@@ -124,15 +153,15 @@ Harbor TARGET
 ```text
 backend/    FastAPI, domain, DB, services, tests
 frontend/   Vue 3 SPA
-docs/       architecture, protocol, security, component и project docs
-deploy/     Compose/runtime deployment, offline kit tooling и qualification gates
+docs/       user/admin/architecture/protocol/security/component docs
+deploy/     runtime deployment, offline kit tooling и qualification gates
 data/       локальная runtime directory; generated content не коммитится
 tools/      repository tooling, включая documentation checker
 ```
 
-## Быстрый старт разработки
+### Быстрый старт разработки
 
-Базовые требования:
+Требования:
 
 - GNU Make;
 - Python 3.12;
@@ -145,9 +174,9 @@ tools/      repository tooling, включая documentation checker
 cp .env.example .env
 ```
 
-Замените placeholders безопасными локальными значениями, прежде всего `JWT_SECRET`, contour и local Harbor configuration. Реальные secrets не коммитьте.
+Замените placeholders безопасными локальными значениями, прежде всего `JWT_SECRET`, runtime contour и local Harbor configuration. Реальные secrets не коммитьте.
 
-### Backend
+Backend:
 
 ```bash
 python3.12 -m venv .venv
@@ -164,7 +193,7 @@ make lint-backend
 make test-backend
 ```
 
-### Frontend
+Frontend:
 
 ```bash
 cd frontend
@@ -172,7 +201,7 @@ npm install
 npm run dev
 ```
 
-Проверки:
+Проверки frontend:
 
 ```bash
 npm run lint
@@ -181,46 +210,18 @@ npm test
 npm run build
 ```
 
-### Docker Compose
+Docker Compose для development/runtime:
 
 ```bash
 make compose-config
 make up
 ```
 
-Portal по умолчанию публикуется через frontend на `http://localhost:${PORTAL_HTTP_PORT:-8080}`. Подробности bootstrap admin, Harbor credential/CA, keys, persistent volume и smoke checks находятся в [Admin Guide](docs/admin-guide.md) и [deploy/README.md](deploy/README.md).
-
-### Offline release v1.0.0
-
-Release images собираются в разрешённой build/release среде, затем из них формируется offline kit:
-
-```bash
-./deploy/build-release-images.sh 1.0.0
-./deploy/build-offline-kit.sh 1.0.0
-```
-
-В закрытом контуре установка выполняется из готового archive без online build/pull. Подробности: [deploy/offline/README.md](deploy/offline/README.md).
-
-## SOURCE и TARGET configuration
-
-`PORTAL_CONTOUR` принимает только:
-
-```text
-SOURCE
-TARGET
-```
-
-Один экземпляр не является одновременно SOURCE и TARGET.
-
-Каждая установка использует нейтральный набор `HARBOR_*` только для собственного локального Harbor. Предпочтительное постоянное хранение Harbor credential — managed/file-backed flow; `HARBOR_PASSWORD` остаётся bootstrap fallback, а не рекомендуемым постоянным production storage.
-
-SOURCE хранит private Ed25519 signing key. TARGET хранит только trusted SOURCE public keys.
-
-Для больших TARGET deliveries browser upload не является обязательным: archive + `.sha256` можно положить в configured incoming directory/transfer media workflow и claim-ить через discovery.
+Portal по умолчанию публикуется через frontend на `http://localhost:${PORTAL_HTTP_PORT:-8080}`. Development/runtime Compose подробно описан в [deploy/README.md](deploy/README.md); он не заменяет offline release installation procedure.
 
 ## Проверки и CI
 
-Локально запускайте минимально достаточный gate для затронутого поведения:
+Запускайте минимально достаточный gate для затронутого поведения:
 
 ```bash
 make docs-check
@@ -230,33 +231,29 @@ make test-frontend
 make smoke-compose
 ```
 
-GitHub Actions использует path-aware selection и единый `quality-gate`. Изменение самого workflow включает все реализованные области; обычный docs-only PR не должен запускать несвязанные тяжёлые runtime jobs.
-
-Release-sensitive изменения дополнительно проверяются real-Docker clean-host qualification и isolated SOURCE → TARGET acceptance согласно их CI scope.
+GitHub Actions использует path-aware selection и единый `quality-gate`. Docs-only change должен запускать documentation gate без несвязанных тяжёлых runtime jobs. Release-sensitive изменения дополнительно проходят clean-host и isolated SOURCE → TARGET qualification согласно CI scope.
 
 Documentation gate проверяет repository-relative Markdown links без network crawling внешних сайтов.
 
-Полная policy: [docs/testing.md](docs/testing.md).
+Полная test policy: [docs/testing.md](docs/testing.md).
 
-## Разработка и документация
+## Документация для разработки и сопровождения
 
-Человекоориентированная документация проекта ведётся на русском языке. API fields, environment variables, enum, paths, CLI и другие технические identifiers сохраняются в исходном виде.
+- [docs/README.md](docs/README.md) — карта документов и приоритет источников;
+- [docs/architecture.md](docs/architecture.md) — архитектура и current implementation state;
+- [docs/frontend.md](docs/frontend.md) — frontend architecture и transfer UI;
+- [docs/export-orchestration.md](docs/export-orchestration.md) — SOURCE export contract;
+- [docs/import-orchestration.md](docs/import-orchestration.md) — TARGET import contract;
+- [docs/operation-manager.md](docs/operation-manager.md) — background execution;
+- [docs/testing.md](docs/testing.md) — scoped tests и CI;
+- [docs/decisions.md](docs/decisions.md) — ADR registry;
+- [CONTRIBUTING.md](CONTRIBUTING.md) — правила изменений.
 
-При изменении поведения documentation impact обновляется в той же итерации. Нельзя описывать planned/scaffold функцию как уже доступную пользователю.
+`docs/harbor-transfer-portal.md` сохранён только как **исторический product/design reference** и не определяет current runtime, protocol или security behavior.
 
-Правила для разработчиков и ИИ-агентов: [CONTRIBUTING.md](CONTRIBUTING.md).
+Документация проекта ведётся на русском языке; API fields, environment variables, enum, paths, CLI и другие технические identifiers сохраняются в исходном виде. При изменении поведения documentation impact обновляется в той же итерации.
 
-## Release qualification v1
-
-Для v1 реализованы и включены в CI отдельные gates:
-
-1. backend/frontend static/unit/build проверки;
-2. Bundle Protocol и targeted security regressions по scope;
-3. Skopeo/Helm integration через disposable local registry;
-4. Compose smoke;
-5. clean-host offline install одним и тем же archive в SOURCE и TARGET;
-6. isolated SOURCE → signed physical bundle → TARGET acceptance с replay/conflict/tamper assertions;
-7. documentation link gate и единый `quality-gate`.
+## Release
 
 Release notes: [docs/release-notes-v1.0.0.md](docs/release-notes-v1.0.0.md). Changelog: [CHANGELOG.md](CHANGELOG.md).
 
