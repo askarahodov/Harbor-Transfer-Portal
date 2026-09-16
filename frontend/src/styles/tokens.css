@@ -64,8 +64,7 @@
 
   /*
    * ADR-008 keeps Element Plus as the universal UI-kit. Its semantic knobs
-   * therefore inherit the same project tokens as custom controls instead of
-   * introducing a second focus/color/radius system.
+   * inherit the same project tokens as custom controls.
    */
   --el-color-primary: var(--color-bridge-blue);
   --el-color-success: var(--color-success-text);
@@ -82,4 +81,32 @@
   --el-border-radius-small: var(--radius-sm);
   --el-border-radius-round: var(--radius-full);
   --el-button-outline-color: var(--color-focus-ring);
+}
+
+/*
+ * Palette tokens above are immutable brand/palette primitives. Dark mode only
+ * rebinds semantic roles, so components never have to know which theme is active.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #0F172A;
+    --color-surface: #111827;
+    --color-surface-subtle: #1E293B;
+    --color-border: #475569;
+    --color-border-control: #94A3B8;
+    --color-text: #F8FAFC;
+    --color-text-muted: #CBD5E1;
+
+    --color-success-text: #A7F3D0;
+    --color-success-surface: #064E3B;
+    --color-warning-text: #FDE68A;
+    --color-warning-surface: #78350F;
+    --color-danger-text: #FECACA;
+    --color-danger-surface: #7F1D1D;
+    --color-info-text: #BFDBFE;
+    --color-info-surface: #1E3A8A;
+    --color-danger: var(--color-danger-text);
+
+    --color-focus-ring: #60A5FA;
+  }
 }
