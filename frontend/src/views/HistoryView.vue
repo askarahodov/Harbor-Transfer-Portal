@@ -164,6 +164,11 @@ onMounted(() => history.load(true))
     </div>
 
     <section class="history-list" aria-label="Список операций">
+      <span class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+        <template v-if="!history.loading">
+          Показано {{ history.items.length }} из {{ history.total }} операций. Страница {{ history.currentPage }} из {{ history.pageCount }}.
+        </template>
+      </span>
       <StatePlaceholder
         v-if="history.loading"
         compact
