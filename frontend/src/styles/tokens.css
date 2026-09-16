@@ -36,6 +36,8 @@
   --color-warning-surface: var(--color-sand);
   --color-danger-text: #991B1B;
   --color-danger-surface: var(--color-rose);
+  --color-danger-action-surface: #B91C1C;
+  --color-on-danger-action: #FFFFFF;
   --color-info-text: #1E40AF;
   --color-info-surface: var(--color-sky);
   --color-danger: var(--color-danger-text);
@@ -112,9 +114,10 @@
     --color-success-surface: #064E3B;
     --color-warning-text: #FEF3C7;
     --color-warning-surface: #78350F;
-    /* Danger text also serves as the existing filled danger-action background. */
-    --color-danger-text: #7F1D1D;
-    --color-danger-surface: #FDA4AF;
+    --color-danger-text: #FEE2E2;
+    --color-danger-surface: #7F1D1D;
+    --color-danger-action-surface: #991B1B;
+    --color-on-danger-action: #FFFFFF;
     --color-info-text: #DBEAFE;
     --color-info-surface: #1E3A8A;
     --color-focus-ring: #60A5FA;
