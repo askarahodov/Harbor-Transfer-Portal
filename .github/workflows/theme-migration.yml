@@ -1,0 +1,41 @@
+name: One-shot semantic theme migration
+
+on:
+  push:
+    branches:
+      - feat/237-semantic-dark-mode
+    paths:
+      - .github/workflows/theme-migration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/237-semantic-dark-mode
+          fetch-depth: 0
+
+      - name: Apply semantic theme migration
+        run: python3 tools/_theme_migration_once.py
+
+      - name: Validate design-token policy
+        run: |
+          python3 -m unittest tools.test_design_tokens tools.test_frontend_system_ui
+          python3 tools/check_design_tokens.py
+
+      - name: Remove one-shot migration machinery
+        run: rm tools/_theme_migration_once.py .github/workflows/theme-migration.yml
+
+      - name: Commit migrated source
+        run: |
+          git config user.name "harbor-transfer-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat(frontend): semantic theme tokens and dark mode (#237)"
+          git push origin HEAD:feat/237-semantic-dark-mode
