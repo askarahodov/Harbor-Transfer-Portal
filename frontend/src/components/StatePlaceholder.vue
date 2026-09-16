@@ -41,10 +41,10 @@ const icons = {
   justify-items: center;
   gap: var(--space-3);
   padding: var(--space-8);
-  border: 1px dashed var(--color-mist);
+  border: 1px dashed var(--color-border);
   border-radius: var(--radius-lg);
-  background: var(--color-cloud-white);
-  color: var(--color-steel);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
   text-align: center;
 }
 .state-placeholder--compact {
@@ -52,7 +52,7 @@ const icons = {
   padding: var(--space-4);
   border-radius: var(--radius-md);
 }
-.state-placeholder strong { color: var(--color-deep-harbor); }
+.state-placeholder strong { color: var(--color-text); }
 .state-placeholder p { max-width: 52ch; margin: 0; }
 .is-spinning { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
