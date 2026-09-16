@@ -34,19 +34,22 @@
 
 ## Локальные системные решения UI
 
-### Theme policy — light-only
+### Theme policy — light + dark
 
-На 2026-09-16 портал поддерживает **только светлую цветовую схему** и явно объявляет `color-scheme: light`.
+На 2026-09-16 портал поддерживает системные **light и dark color schemes** через `prefers-color-scheme` и объявляет `color-scheme: light dark`.
 
-Это осознанное временное решение:
+Решение построено вокруг разделения palette и semantic tokens:
 
-- часть актуального UI уже использует semantic aliases (`--color-surface`, `--color-text`, `--color-border`), но несколько крупных legacy-представлений всё ещё обращаются напрямую к palette tokens (`--color-cloud-white`, `--color-fog-gray`, `--color-deep-harbor`, `--color-steel`, `--color-mist`);
-- добавление только `@media (prefers-color-scheme: dark)` для semantic aliases сейчас создало бы смешанный светло-тёмный интерфейс и ложное ощущение полной поддержки dark mode;
-- palette tokens не переопределяются под dark mode: их смысл должен оставаться стабильным.
+- palette tokens (`--color-deep-harbor`, `--color-cloud-white`, `--color-fog-gray`, `--color-steel`, `--color-mist` и другие базовые цвета) остаются стабильными и **не переопределяются** между темами;
+- поверхности, основной/вторичный текст, borders, focus и status states в UI используют semantic aliases (`--color-background`, `--color-surface`, `--color-surface-subtle`, `--color-text`, `--color-text-muted`, `--color-border`, status pairs и т. д.);
+- dark mode переопределяет только semantic aliases внутри `@media (prefers-color-scheme: dark)`;
+- прямое использование neutral palette tokens в `views`/`components` блокируется design-token guard. Осознанный brand-use должен быть явно отмечен `palette-ok: brand`, чтобы исключение было видно в code review;
+- Element Plus получает цвета, radii и focus contract через те же semantic/project tokens, поэтому не образует отдельную theme-system;
+- `tools/check_design_tokens.py` проверяет WCAG contrast matrix независимо для light и dark режимов, включая text/muted/status pairs, control borders и focus ring.
 
-Dark mode можно включать только отдельным изменением после миграции оставшихся UI-стилей на semantic aliases и проверки контраста нового режима. До этого `prefers-color-scheme: dark` намеренно не поддерживается.
+Светлая тема сохраняет прежние semantic значения, поэтому миграция не меняет её визуальный baseline. Dark mode следует системной настройке браузера/ОС и не требует отдельного состояния приложения.
 
-Системная настройка `prefers-reduced-motion` при этом поддерживается независимо от цветовой темы: глобальные переходы и анимации сокращаются для пользователей, запросивших уменьшение движения.
+Системная настройка `prefers-reduced-motion` поддерживается независимо от цветовой темы: глобальные переходы и анимации сокращаются для пользователей, запросивших уменьшение движения.
 
 ## Значение статусов
 
