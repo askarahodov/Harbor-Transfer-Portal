@@ -26,6 +26,8 @@
   --color-action-surface: var(--color-bridge-blue);
   --color-on-accent: var(--color-cloud-white);
   --color-brand-surface: var(--color-deep-harbor);
+  --color-brand-text-muted: #C4C9D0;
+  --color-brand-hover-surface: #102C5D;
   --color-positive-accent: var(--color-transfer-green);
   --color-warning-accent: var(--color-alert-amber);
   --color-negative-accent: var(--color-stop-red);
@@ -106,6 +108,8 @@
     --color-action-surface: #1D4ED8;
     --color-on-accent: #FFFFFF;
     --color-brand-surface: #0B1E3A;
+    --color-brand-text-muted: #C4C9D0;
+    --color-brand-hover-surface: #102C5D;
     --color-positive-accent: #34D399;
     --color-warning-accent: #FBBF24;
     --color-negative-accent: #F87171;
