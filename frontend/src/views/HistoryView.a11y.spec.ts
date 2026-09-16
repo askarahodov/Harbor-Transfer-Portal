@@ -73,7 +73,7 @@ afterEach(() => {
 })
 
 describe('HistoryView accessibility', () => {
-  it('renders the shared accessible empty state', async () => {
+  it('renders the shared accessible empty state and announces loaded result totals', async () => {
     vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
       items: [], total: 0, limit: 25, offset: 0,
     })
@@ -85,6 +85,24 @@ describe('HistoryView accessibility', () => {
     expect(state.attributes('role')).toBe('status')
     expect(state.attributes('aria-live')).toBe('polite')
     expect(state.text()).toContain('Операции не найдены')
+
+    const resultStatus = wrapper.get('.history-list > .visually-hidden')
+    expect(resultStatus.attributes('role')).toBe('status')
+    expect(resultStatus.attributes('aria-live')).toBe('polite')
+    expect(resultStatus.text()).toContain('Показано 0 из 0 операций')
+  })
+
+  it('announces successful non-empty result updates', async () => {
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [summary], total: 1, limit: 25, offset: 0,
+    })
+
+    const wrapper = mount(HistoryView)
+    await flushPromises()
+
+    const resultStatus = wrapper.get('.history-list > .visually-hidden')
+    expect(resultStatus.text()).toContain('Показано 1 из 1 операций')
+    expect(resultStatus.text()).toContain('Страница 1 из 1')
   })
 
   it('moves focus into the detail dialog and restores it to the opener', async () => {
