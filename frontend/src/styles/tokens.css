@@ -112,8 +112,9 @@
     --color-success-surface: #064E3B;
     --color-warning-text: #FEF3C7;
     --color-warning-surface: #78350F;
-    --color-danger-text: #FEE2E2;
-    --color-danger-surface: #7F1D1D;
+    /* Danger text also serves as the existing filled danger-action background. */
+    --color-danger-text: #7F1D1D;
+    --color-danger-surface: #FDA4AF;
     --color-info-text: #DBEAFE;
     --color-info-surface: #1E3A8A;
     --color-focus-ring: #60A5FA;
