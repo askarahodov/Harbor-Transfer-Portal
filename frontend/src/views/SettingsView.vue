@@ -437,23 +437,23 @@ onMounted(loadSettings)
 .settings { display: grid; gap: var(--space-6); }
 .settings__header { display: flex; justify-content: space-between; gap: var(--space-4); align-items: flex-start; }
 .settings__header h1 { margin: 0 0 var(--space-2); }
-.settings__header p { margin: 0; color: var(--color-steel); }
-.contour { border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+.settings__header p { margin: 0; color: var(--color-text-muted); }
+.contour { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
 .settings__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-5); align-items: start; }
-.card { display: grid; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--color-mist); border-radius: var(--radius-lg); background: white; }
+.card { display: grid; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 .card--wide { grid-column: 1 / -1; }
 .card h2, .card h3 { margin: 0; }
-.card input[type='text'], .card input[type='url'], .card input[type='password'], .card input[type='number'], .card textarea { min-height: 42px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; }
+.card input[type='text'], .card input[type='url'], .card input[type='password'], .card input[type='number'], .card textarea { min-height: 42px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--color-surface); color: var(--color-text); font: inherit; }
 .card textarea { width: 100%; min-height: 120px; padding-block: var(--space-3); resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .card button { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-bridge-blue); color: white; font: inherit; cursor: pointer; }
 .card button:disabled { opacity: .6; cursor: wait; }
-.card button.secondary { background: white; color: var(--color-deep-harbor); border: 1px solid var(--color-border-control); }
+.card button.secondary { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-control); }
 .checkbox-row { display: flex; gap: var(--space-2); align-items: center; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 .policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
-.mapping-policy { display: grid; gap: var(--space-3); margin-top: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-mist); }
+.mapping-policy { display: grid; gap: var(--space-3); margin-top: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
 .mapping-policy label { display: grid; gap: var(--space-2); }
-.status { margin: 0; color: var(--color-steel); }
+.status { margin: 0; color: var(--color-text-muted); }
 .warning { margin: 0; padding: var(--space-3); border: 1px solid var(--color-warning-text); border-radius: var(--radius-md); color: var(--color-warning-text); }
 .success, .error { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); }
 .success { border: 1px solid var(--color-success-text); color: var(--color-success-text); }
