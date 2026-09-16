@@ -121,19 +121,19 @@ async function createProject(project: string): Promise<void> {
 </template>
 
 <style scoped>
-.project-create { margin-top: var(--space-4); padding: var(--space-4); border: 1px solid var(--color-alert-amber); border-radius: var(--radius-md); background: var(--color-sand); }
-.project-create__heading { display: flex; gap: var(--space-2); align-items: flex-start; color: var(--color-alert-amber); }
+.project-create { margin-top: var(--space-4); padding: var(--space-4); border: 1px solid var(--color-warning-accent); border-radius: var(--radius-md); background: var(--color-warning-surface); }
+.project-create__heading { display: flex; gap: var(--space-2); align-items: flex-start; color: var(--color-warning-text); }
 .project-create__heading h4, .project-create__heading p { margin: 0; }
-.project-create__heading p { margin-top: var(--space-1); color: var(--color-steel); }
+.project-create__heading p { margin-top: var(--space-1); color: var(--color-text-muted); }
 .project-create__list { display: grid; gap: var(--space-3); margin-top: var(--space-4); }
-.project-create__item { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(240px, 1.3fr) auto; gap: var(--space-3); align-items: end; padding: var(--space-3); border-radius: var(--radius-md); background: white; }
-.project-create__item small, .project-create__item label span { display: block; color: var(--color-steel); font-size: 12px; }
+.project-create__item { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(240px, 1.3fr) auto; gap: var(--space-3); align-items: end; padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface); }
+.project-create__item small, .project-create__item label span { display: block; color: var(--color-text-muted); font-size: 12px; }
 .project-create__item label { display: grid; gap: var(--space-1); }
-.project-create__item input { min-height: 40px; border: 1px solid var(--color-mist); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; }
-.project-create__operator-note { margin-top: var(--space-3); color: var(--color-deep-harbor); }
+.project-create__item input { min-height: 40px; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; }
+.project-create__operator-note { margin-top: var(--space-3); color: var(--color-text); }
 .project-create__operator-note p { margin: 0; }
 .project-create__error { margin: var(--space-3) 0 0; color: var(--color-danger); }
-.project-create__success { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0 0; color: var(--color-transfer-green); }
+.project-create__success { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0 0; color: var(--color-success-text); }
 @media (max-width: 900px) {
   .project-create__item { grid-template-columns: 1fr; align-items: stretch; }
 }
