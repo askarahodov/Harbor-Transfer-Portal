@@ -19,10 +19,10 @@ defineProps<{
   align-items: center;
   gap: var(--space-2);
   padding: 6px 12px;
-  border: 1px solid var(--color-mist);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
-  background: var(--color-cloud-white);
-  color: var(--color-deep-harbor);
+  background: var(--color-surface);
+  color: var(--color-text);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -32,9 +32,9 @@ defineProps<{
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--color-steel);
+  background: var(--color-text-muted);
 }
 
-.contour-badge--source .contour-badge__dot { background: var(--color-transfer-green); }
-.contour-badge--target .contour-badge__dot { background: var(--color-bridge-blue); }
+.contour-badge--source .contour-badge__dot { background: var(--color-positive-accent); }
+.contour-badge--target .contour-badge__dot { background: var(--color-action-surface); }
 </style>

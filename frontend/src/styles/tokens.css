@@ -1,4 +1,5 @@
 :root {
+  /* Immutable palette primitives. Components consume semantic aliases below. */
   --color-deep-harbor: #0B1E3A;
   --color-bridge-blue: #2563EB;
   --color-transfer-green: #10B981;
@@ -13,7 +14,7 @@
   --color-sand: #FEF3C7;
   --color-rose: #FEE2E2;
 
-  /* Semantic aliases keep component styling independent from palette names. */
+  /* Semantic theme aliases — light mode. */
   --color-background: var(--color-fog-gray);
   --color-surface: var(--color-cloud-white);
   --color-surface-subtle: var(--color-fog-gray);
@@ -21,11 +22,14 @@
   --color-border-control: #64748B;
   --color-text: var(--color-deep-harbor);
   --color-text-muted: var(--color-steel);
+  --color-action: var(--color-bridge-blue);
+  --color-action-surface: var(--color-bridge-blue);
+  --color-on-accent: var(--color-cloud-white);
+  --color-brand-surface: var(--color-deep-harbor);
+  --color-positive-accent: var(--color-transfer-green);
+  --color-warning-accent: var(--color-alert-amber);
+  --color-negative-accent: var(--color-stop-red);
 
-  /*
-   * Status text must only be paired with the matching status surface.
-   * These combinations meet WCAG AA for normal text (>= 4.5:1).
-   */
   --color-success-text: #065F46;
   --color-success-surface: var(--color-mint);
   --color-warning-text: #92400E;
@@ -36,7 +40,7 @@
   --color-info-surface: var(--color-sky);
   --color-danger: var(--color-danger-text);
 
-  --color-focus-ring: var(--color-bridge-blue);
+  --color-focus-ring: var(--color-action);
   --focus-ring-width: 3px;
   --focus-ring-offset: 2px;
 
@@ -44,6 +48,7 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
   --space-12: 48px;
@@ -62,24 +67,59 @@
   --layout-header: 64px;
   --layout-content-max: 1200px;
 
-  /*
-   * ADR-008 keeps Element Plus as the universal UI-kit. Its semantic knobs
-   * therefore inherit the same project tokens as custom controls instead of
-   * introducing a second focus/color/radius system.
-   */
-  --el-color-primary: var(--color-bridge-blue);
+  /* Element Plus follows the same semantic theme as custom controls. */
+  --el-color-primary: var(--color-action);
   --el-color-success: var(--color-success-text);
   --el-color-warning: var(--color-warning-text);
   --el-color-danger: var(--color-danger-text);
   --el-color-info: var(--color-info-text);
   --el-text-color-primary: var(--color-text);
   --el-text-color-regular: var(--color-text-muted);
+  --el-text-color-secondary: var(--color-text-muted);
   --el-bg-color: var(--color-surface);
+  --el-bg-color-overlay: var(--color-surface);
+  --el-fill-color: var(--color-surface-subtle);
+  --el-fill-color-light: var(--color-surface-subtle);
   --el-fill-color-blank: var(--color-surface);
   --el-border-color: var(--color-border-control);
   --el-border-color-light: var(--color-border);
+  --el-border-color-lighter: var(--color-border);
   --el-border-radius-base: var(--radius-md);
   --el-border-radius-small: var(--radius-sm);
   --el-border-radius-round: var(--radius-full);
   --el-button-outline-color: var(--color-focus-ring);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Palette primitives never change; only semantic aliases switch theme. */
+    --color-background: #0F172A;
+    --color-surface: #111827;
+    --color-surface-subtle: #1E293B;
+    --color-border: #334155;
+    --color-border-control: #94A3B8;
+    --color-text: #F8FAFC;
+    --color-text-muted: #CBD5E1;
+    --color-action: #60A5FA;
+    --color-action-surface: #1D4ED8;
+    --color-on-accent: #FFFFFF;
+    --color-brand-surface: #0B1E3A;
+    --color-positive-accent: #34D399;
+    --color-warning-accent: #FBBF24;
+    --color-negative-accent: #F87171;
+
+    --color-success-text: #D1FAE5;
+    --color-success-surface: #064E3B;
+    --color-warning-text: #FEF3C7;
+    --color-warning-surface: #78350F;
+    --color-danger-text: #FEE2E2;
+    --color-danger-surface: #7F1D1D;
+    --color-info-text: #DBEAFE;
+    --color-info-surface: #1E3A8A;
+    --color-focus-ring: #60A5FA;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.32);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.38);
+  }
 }

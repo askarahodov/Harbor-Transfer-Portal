@@ -34,20 +34,20 @@
 
 ## Локальные системные решения UI
 
-### Theme policy — light-only
+### Theme policy — system light/dark
 
-На 2026-09-16 портал поддерживает **только светлую цветовую схему** и явно объявляет `color-scheme: light`.
+На 2026-09-16 портал поддерживает **системную светлую и тёмную цветовые схемы** через `prefers-color-scheme`; отдельный пользовательский переключатель темы и собственное хранилище preference не вводятся.
 
-Это осознанное временное решение:
+Правила реализации:
 
-- часть актуального UI уже использует semantic aliases (`--color-surface`, `--color-text`, `--color-border`), но несколько крупных legacy-представлений всё ещё обращаются напрямую к palette tokens (`--color-cloud-white`, `--color-fog-gray`, `--color-deep-harbor`, `--color-steel`, `--color-mist`);
-- добавление только `@media (prefers-color-scheme: dark)` для semantic aliases сейчас создало бы смешанный светло-тёмный интерфейс и ложное ощущение полной поддержки dark mode;
-- palette tokens не переопределяются под dark mode: их смысл должен оставаться стабильным.
+- palette primitives (`--color-deep-harbor`, `--color-cloud-white` и другие) остаются неизменяемыми исходными цветами и используются только внутри `tokens.css`;
+- views/components используют semantic aliases (`--color-surface`, `--color-text`, `--color-border`, `--color-action`, status aliases и другие), поэтому смена режима не меняет смысл palette tokens;
+- dark mode переопределяет только semantic aliases внутри `@media (prefers-color-scheme: dark)`;
+- Element Plus получает те же semantic aliases, чтобы custom controls и UI-kit не расходились по теме;
+- `tools/check_design_tokens.py` автоматически проверяет WCAG-контраст text/status/control/focus пар **отдельно для light и dark**, запрещает raw/named color hardcodes, прямые palette references и неизвестные color tokens в Vue-файлах;
+- `prefers-reduced-motion` поддерживается независимо от цветовой схемы и продолжает глобально сокращать переходы и анимации.
 
-Dark mode можно включать только отдельным изменением после миграции оставшихся UI-стилей на semantic aliases и проверки контраста нового режима. До этого `prefers-color-scheme: dark` намеренно не поддерживается.
-
-Системная настройка `prefers-reduced-motion` при этом поддерживается независимо от цветовой темы: глобальные переходы и анимации сокращаются для пользователей, запросивших уменьшение движения.
-
+Brand surface (sidebar) подключён через semantic `--color-brand-surface`; это явно отделяет постоянную идентичность продукта от общего surface/background режима.
 ## Значение статусов
 
 ### Принято
