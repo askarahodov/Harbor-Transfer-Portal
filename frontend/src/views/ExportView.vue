@@ -21,6 +21,7 @@ import {
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
+import StatePlaceholder from '@/components/StatePlaceholder.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
 import { useExportWizardStore } from '@/stores/exportWizard'
 import { useRuntimeStore } from '@/stores/runtime'
@@ -219,8 +220,18 @@ onBeforeUnmount(() => {
                 <Search :size="18" aria-hidden="true" />
               </button>
             </form>
-            <div v-if="wizard.busy === 'projects'" class="muted">Загрузка…</div>
-            <div v-else-if="wizard.projects.length === 0" class="empty-inline">Проекты не найдены.</div>
+            <StatePlaceholder
+              v-if="wizard.busy === 'projects'"
+              compact
+              kind="loading"
+              title="Загрузка проектов"
+            />
+            <StatePlaceholder
+              v-else-if="wizard.projects.length === 0"
+              compact
+              kind="empty"
+              title="Проекты не найдены"
+            />
             <button
               v-for="project in wizard.projects"
               :key="project.name"
@@ -247,9 +258,24 @@ onBeforeUnmount(() => {
                 <Search :size="18" aria-hidden="true" />
               </button>
             </form>
-            <div v-if="!wizard.selectedProject" class="empty-inline">Сначала выберите проект.</div>
-            <div v-else-if="wizard.busy === 'repositories'" class="muted">Загрузка…</div>
-            <div v-else-if="wizard.repositories.length === 0" class="empty-inline">Репозитории не найдены.</div>
+            <StatePlaceholder
+              v-if="!wizard.selectedProject"
+              compact
+              kind="empty"
+              title="Сначала выберите проект"
+            />
+            <StatePlaceholder
+              v-else-if="wizard.busy === 'repositories'"
+              compact
+              kind="loading"
+              title="Загрузка репозиториев"
+            />
+            <StatePlaceholder
+              v-else-if="wizard.repositories.length === 0"
+              compact
+              kind="empty"
+              title="Репозитории не найдены"
+            />
             <button
               v-for="repository in wizard.repositories"
               :key="repository.name"
@@ -283,9 +309,26 @@ onBeforeUnmount(() => {
             </form>
           </div>
 
-          <div v-if="!wizard.selectedRepository" class="empty-state">Выберите проект и репозиторий, чтобы увидеть версии.</div>
-          <div v-else-if="wizard.busy === 'artifacts'" class="empty-state">Загрузка артефактов…</div>
-          <div v-else-if="wizard.artifacts.length === 0" class="empty-state">По этому фильтру артефакты не найдены.</div>
+          <StatePlaceholder
+            v-if="!wizard.selectedRepository"
+            compact
+            kind="empty"
+            title="Выберите проект и репозиторий"
+            description="После выбора здесь появятся доступные версии."
+          />
+          <StatePlaceholder
+            v-else-if="wizard.busy === 'artifacts'"
+            compact
+            kind="loading"
+            title="Загрузка артефактов"
+          />
+          <StatePlaceholder
+            v-else-if="wizard.artifacts.length === 0"
+            compact
+            kind="empty"
+            title="Артефакты не найдены"
+            description="По текущему фильтру нет доступных tag/version."
+          />
           <div v-else class="artifact-list">
             <article v-for="artifact in wizard.artifacts" :key="artifact.digest" class="artifact-card">
               <div class="artifact-card__main">
@@ -440,7 +483,13 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div v-if="wizard.operation && progressPercent !== null" class="progress-block">
+        <div
+          v-if="wizard.operation && progressPercent !== null"
+          class="progress-block"
+          role="status"
+          aria-live="polite"
+          aria-label="Прогресс экспорта"
+        >
           <div class="progress-label"><span>Грубый прогресс по обработанным artifacts</span><strong>{{ progressPercent }}%</strong></div>
           <progress :value="wizard.operation.progress.progress_current" :max="wizard.operation.progress.progress_total">
             {{ progressPercent }}%
@@ -563,7 +612,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .browser-item { min-height: 44px; display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .browser-item:hover, .browser-item:focus-visible { background: white; }
 .browser-item--selected { border-color: var(--color-bridge-blue); background: var(--color-info-surface); }
-.empty-inline, .empty-state { padding: var(--space-4); color: var(--color-steel); text-align: center; }
 .artifact-list, .operation-artifacts { display: grid; gap: var(--space-3); }
 .artifact-card, .operation-artifact { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); padding: var(--space-4); border: 1px solid var(--color-mist); border-radius: var(--radius-md); background: white; }
 .artifact-card__main { display: flex; align-items: flex-start; gap: var(--space-3); min-width: 0; }

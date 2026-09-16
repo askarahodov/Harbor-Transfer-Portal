@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
   Download,
-  FileSearch,
   RefreshCw,
   Search,
   X,
 } from 'lucide-vue-next'
 
 import type { OperationArtifact, OperationStatus } from '@/api/exports'
+import StatePlaceholder from '@/components/StatePlaceholder.vue'
 import {
   formatDateTimeLocale as formatDate,
   shortDigest as formatShortDigest,
@@ -19,6 +19,8 @@ import {
 import { useHistoryStore } from '@/stores/history'
 
 const history = useHistoryStore()
+const detailCloseButton = ref<HTMLButtonElement | null>(null)
+let detailTrigger: HTMLElement | null = null
 
 const statuses: OperationStatus[] = [
   'CREATED',
@@ -76,6 +78,21 @@ function statusClass(status: OperationStatus): string {
     return 'status status--active'
   }
   return 'status'
+}
+
+async function openDetail(item: Parameters<typeof history.openDetail>[0]): Promise<void> {
+  detailTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  const loading = history.openDetail(item)
+  await nextTick()
+  detailCloseButton.value?.focus()
+  await loading
+}
+
+async function closeDetail(): Promise<void> {
+  history.closeDetail()
+  await nextTick()
+  detailTrigger?.focus()
+  detailTrigger = null
 }
 
 onMounted(() => history.load(true))
@@ -146,13 +163,20 @@ onMounted(() => history.load(true))
       <div><strong>{{ history.error.code }}</strong><p>{{ history.error.message }}</p></div>
     </div>
 
-    <section class="history-list" aria-live="polite">
-      <div v-if="history.loading" class="state-card">Загрузка истории…</div>
-      <div v-else-if="history.items.length === 0" class="state-card">
-        <FileSearch :size="30" aria-hidden="true" />
-        <strong>Операции не найдены</strong>
-        <span>Измените фильтры или дождитесь первой export/import операции.</span>
-      </div>
+    <section class="history-list" aria-label="Список операций">
+      <StatePlaceholder
+        v-if="history.loading"
+        compact
+        kind="loading"
+        title="Загрузка истории"
+      />
+      <StatePlaceholder
+        v-else-if="history.items.length === 0"
+        compact
+        kind="empty"
+        title="Операции не найдены"
+        description="Измените фильтры или дождитесь первой export/import операции."
+      />
       <div v-else class="table-wrap">
         <table>
           <thead>
@@ -162,7 +186,7 @@ onMounted(() => history.load(true))
           </thead>
           <tbody>
             <tr v-for="item in history.items" :key="item.id">
-              <td><button class="link-button" type="button" @click="history.openDetail(item)">#{{ item.id }}</button></td>
+              <td><button class="link-button" type="button" @click="openDetail(item)">#{{ item.id }}</button></td>
               <td><strong>{{ item.type }}</strong><br><span :class="statusClass(item.status)">{{ item.status }}</span></td>
               <td>{{ item.delivery_id ?? '—' }}</td>
               <td>{{ item.actor_username }}</td>
@@ -189,17 +213,22 @@ onMounted(() => history.load(true))
       </button>
     </nav>
 
-    <div v-if="history.selectedSummary" class="drawer-backdrop" @click.self="history.closeDetail">
+    <div v-if="history.selectedSummary" class="drawer-backdrop" @click.self="closeDetail">
       <aside class="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="history-detail-title">
         <header class="drawer-header">
           <div>
             <p class="eyebrow">Operation #{{ history.selectedSummary.id }}</p>
             <h2 id="history-detail-title">{{ history.selectedSummary.type }} · {{ history.selectedSummary.status }}</h2>
           </div>
-          <button class="icon-button" type="button" aria-label="Закрыть детали" @click="history.closeDetail"><X :size="20" aria-hidden="true" /></button>
+          <button ref="detailCloseButton" class="icon-button" type="button" aria-label="Закрыть детали" @click="closeDetail"><X :size="20" aria-hidden="true" /></button>
         </header>
 
-        <div v-if="history.detailLoading" class="state-card">Загрузка деталей…</div>
+        <StatePlaceholder
+          v-if="history.detailLoading"
+          compact
+          kind="loading"
+          title="Загрузка деталей"
+        />
         <div v-else-if="history.detailError" class="notice notice--danger" role="alert">
           <AlertCircle :size="20" aria-hidden="true" />
           <div><strong>{{ history.detailError.code }}</strong><p>{{ history.detailError.message }}</p></div>
@@ -327,7 +356,12 @@ onMounted(() => history.load(true))
 
           <article v-if="history.detail.type === 'IMPORT'" class="receipt-card">
             <h3>Import receipt</h3>
-            <p v-if="history.receiptState === 'loading'">Загрузка receipt…</p>
+            <StatePlaceholder
+              v-if="history.receiptState === 'loading'"
+              compact
+              kind="loading"
+              title="Загрузка receipt"
+            />
             <template v-else-if="history.receipt">
               <dl class="metadata-grid">
                 <div><dt>Результат</dt><dd>{{ history.receipt.result }}</dd></div>
@@ -342,7 +376,13 @@ onMounted(() => history.load(true))
                 <Download :size="18" aria-hidden="true" /> Скачать receipt JSON
               </button>
             </template>
-            <p v-else-if="history.receiptState === 'unavailable'">Receipt недоступен текущей роли либо ещё не существует. История операции остаётся доступной.</p>
+            <StatePlaceholder
+              v-else-if="history.receiptState === 'unavailable'"
+              compact
+              kind="empty"
+              title="Receipt недоступен"
+              description="Receipt недоступен текущей роли либо ещё не существует. История операции остаётся доступной."
+            />
           </article>
         </template>
       </aside>
@@ -358,25 +398,24 @@ onMounted(() => history.load(true))
 .eyebrow { margin: 0 0 var(--space-1); color: var(--color-bridge-blue); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
 .filters { display: grid; grid-template-columns: repeat(6, minmax(130px, 1fr)); gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 .filters label { display: grid; gap: var(--space-1); font-size: 13px; font-weight: 600; }
-.filters input, .filters select { min-width: 0; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
+.filters input, .filters select { min-width: 0; padding: 10px 12px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
 .filter-search { grid-column: span 2; }
 .filter-actions { display: flex; align-items: end; gap: var(--space-2); grid-column: span 2; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 40px; padding: 8px 14px; border: 1px solid transparent; border-radius: var(--radius-md); cursor: pointer; font: inherit; font-weight: 600; }
 .button:disabled { opacity: .5; cursor: not-allowed; }
 .button--primary { background: var(--color-bridge-blue); color: white; }
-.button--secondary { background: var(--color-surface); border-color: var(--color-border); color: var(--color-text); }
+.button--secondary { background: var(--color-surface); border-color: var(--color-border-control); color: var(--color-text); }
 .download-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
 table { width: 100%; border-collapse: collapse; background: var(--color-surface); }
 th, td { padding: 12px; border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: top; }
 th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--color-text-muted); }
 .link-button { padding: 0; border: 0; background: transparent; color: var(--color-bridge-blue); cursor: pointer; font: inherit; font-weight: 700; text-decoration: underline; }
-.status { display: inline-flex; margin-top: 4px; padding: 2px 8px; border-radius: 999px; background: var(--color-surface-subtle); font-size: 12px; }
-.status--success { color: var(--color-transfer-green); }
+.status { display: inline-flex; margin-top: 4px; padding: 2px 8px; border-radius: var(--radius-full); background: var(--color-surface-subtle); font-size: 12px; }
+.status--success { color: var(--color-success-text); }
 .status--danger, .safe-error { color: var(--color-danger); }
 .status--active { color: var(--color-bridge-blue); }
 .status--muted { color: var(--color-text-muted); }
-.state-card { display: grid; place-items: center; gap: var(--space-2); min-height: 180px; padding: var(--space-6); border: 1px dashed var(--color-border); border-radius: var(--radius-lg); color: var(--color-text-muted); text-align: center; }
 .notice { display: flex; gap: var(--space-3); padding: var(--space-3); border-radius: var(--radius-md); }
 .notice p { margin: 4px 0 0; }
 .notice--danger { background: color-mix(in srgb, var(--color-danger) 10%, transparent); color: var(--color-danger); }
@@ -384,7 +423,7 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .drawer-backdrop { position: fixed; inset: 0; z-index: 30; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .38); }
 .detail-drawer { width: min(900px, 96vw); height: 100%; overflow-y: auto; padding: var(--space-5); background: var(--color-background); box-shadow: -10px 0 30px rgba(0,0,0,.18); }
 .drawer-header { display: flex; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
-.icon-button { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
+.icon-button { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
 .metadata-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0 0 var(--space-4); }
 .metadata-grid div, .bundle-card, .receipt-card, .report-card, .retry-card { padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .metadata-grid dt { color: var(--color-text-muted); font-size: 12px; }
@@ -395,7 +434,7 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .retry-card > p { margin: 0; }
 .retry-meta { margin: 0; }
 .retry-plan-table { max-height: 300px; }
-.retry-started { color: var(--color-transfer-green); font-weight: 600; }
+.retry-started { color: var(--color-success-text); font-weight: 600; }
 @media (max-width: 1000px) { .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .filter-search, .filter-actions { grid-column: span 2; } }
 @media (max-width: 640px) { .page-header, .pagination { align-items: stretch; flex-direction: column; } .filters, .metadata-grid { grid-template-columns: 1fr; } .filter-search, .filter-actions { grid-column: auto; } .filter-actions { align-items: stretch; flex-direction: column; } }
 </style>
