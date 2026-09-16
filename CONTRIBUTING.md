@@ -45,7 +45,7 @@ chore: update developer tooling
 - протокол или общий контракт → затронутые backend/frontend проверки плюс contract/security tests;
 - transfer engine → scoped unit tests и соответствующая локальная integration fixture;
 - deployment/packaging → config/build/smoke checks;
-- документация → `make docs-check`; `deploy/*.md` дополнительно относится к Compose scope.
+- документация → `make docs-check`; Markdown-файлы под `deploy/` остаются docs-only scope, а Compose scope относится к runtime/non-Markdown изменениям deployment.
 
 `make docs-check` проверяет локальные Markdown-ссылки без сетевых запросов. Missing repository target или ссылка за пределы repository root являются ошибкой documentation gate.
 
