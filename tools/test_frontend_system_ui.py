@@ -36,6 +36,16 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertIn("Theme policy — system light/dark", decisions)
         self.assertNotIn("Theme policy — light-only", decisions)
 
+    def test_destructive_buttons_use_dedicated_action_pair(self) -> None:
+        base_css = (_REPOSITORY_ROOT / "frontend/src/styles/base.css").read_text(encoding="utf-8")
+        tokens_css = (_REPOSITORY_ROOT / "frontend/src/styles/tokens.css").read_text(encoding="utf-8")
+
+        self.assertIn("--color-danger-action-surface:", tokens_css)
+        self.assertIn("--color-on-danger-action:", tokens_css)
+        self.assertIn(".danger-button,\n.button--danger", base_css)
+        self.assertIn("--color-danger-text: var(--color-danger-action-surface);", base_css)
+        self.assertIn("--color-on-accent: var(--color-on-danger-action);", base_css)
+
 
 if __name__ == "__main__":
     unittest.main()
