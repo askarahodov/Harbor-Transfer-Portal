@@ -61,4 +61,25 @@
   --layout-sidebar-collapsed: 64px;
   --layout-header: 64px;
   --layout-content-max: 1200px;
+
+  /*
+   * ADR-008 keeps Element Plus as the universal UI-kit. Its semantic knobs
+   * therefore inherit the same project tokens as custom controls instead of
+   * introducing a second focus/color/radius system.
+   */
+  --el-color-primary: var(--color-bridge-blue);
+  --el-color-success: var(--color-success-text);
+  --el-color-warning: var(--color-warning-text);
+  --el-color-danger: var(--color-danger-text);
+  --el-color-info: var(--color-info-text);
+  --el-text-color-primary: var(--color-text);
+  --el-text-color-regular: var(--color-text-muted);
+  --el-bg-color: var(--color-surface);
+  --el-fill-color-blank: var(--color-surface);
+  --el-border-color: var(--color-border-control);
+  --el-border-color-light: var(--color-border);
+  --el-border-radius-base: var(--radius-md);
+  --el-border-radius-small: var(--radius-sm);
+  --el-border-radius-round: var(--radius-full);
+  --el-button-outline-color: var(--color-focus-ring);
 }

@@ -144,9 +144,10 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.find('.overwrite-confirmation').exists()).toBe(false)
   })
 
-  it('keeps a standard keyboard-accessible file input alongside drag and drop', async () => {
+  it('keeps drag-and-drop fully keyboard accessible and exposes empty discovery state', async () => {
     const runtime = useRuntimeStore(pinia)
     runtime.setContour('TARGET')
+    const inputClick = vi.spyOn(HTMLInputElement.prototype, 'click')
     const wrapper = mount(ImportView, {
       global: {
         plugins: [pinia],
@@ -156,8 +157,19 @@ describe('TARGET import wizard view', () => {
     await flushPromises()
 
     expect(wrapper.get('input[type="file"]').attributes('accept')).toContain('.htp.tar.gz')
-    expect(wrapper.get('.drop-zone').attributes('tabindex')).toBe('0')
-    expect(wrapper.get('.drop-zone').attributes('role')).toBe('button')
+    const dropZone = wrapper.get('.drop-zone')
+    expect(dropZone.attributes('tabindex')).toBe('0')
+    expect(dropZone.attributes('role')).toBe('button')
+    expect(dropZone.attributes('aria-describedby')).toBe('bundle-drop-help')
+    expect(wrapper.get('#bundle-drop-help').text()).toContain('Enter или Space')
+
+    await dropZone.trigger('keydown', { key: 'Enter' })
+    await dropZone.trigger('keydown', { key: ' ' })
+    expect(inputClick).toHaveBeenCalledTimes(2)
+
+    const emptyState = wrapper.get('.state-placeholder')
+    expect(emptyState.attributes('role')).toBe('status')
+    expect(emptyState.text()).toContain('Готовые пакеты не найдены')
     expect(wrapper.text()).toContain('Обнаружить готовые пакеты')
   })
 

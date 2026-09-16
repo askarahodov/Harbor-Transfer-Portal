@@ -16,6 +16,23 @@ a, button { -webkit-tap-highlight-color: transparent; }
   outline: var(--focus-ring-width) solid var(--color-focus-ring);
   outline-offset: var(--focus-ring-offset);
 }
+/* Element Plus remains the ADR-008 UI-kit, but focus appearance is owned by the same project contract. */
+[class^='el-']:focus-visible,
+[class*=' el-']:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus-ring) !important;
+  outline-offset: var(--focus-ring-offset) !important;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 h1 { margin: 0 0 var(--space-3); font-size: 24px; line-height: 1.25; }
 p { color: var(--color-text-muted); }
 

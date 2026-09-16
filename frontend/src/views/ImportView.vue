@@ -15,6 +15,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { ArtifactStatus, ImportPreviewState, OperationStatus } from '@/api/imports'
 import HarborProjectCreationPanel from '@/components/HarborProjectCreationPanel.vue'
 import ImportDestinationMapping from '@/components/ImportDestinationMapping.vue'
+import StatePlaceholder from '@/components/StatePlaceholder.vue'
 import {
   formatBytes,
   formatDateTimeMedium as formatDate,
@@ -215,6 +216,7 @@ onBeforeUnmount(() => {
               tabindex="0"
               role="button"
               aria-label="Выбрать Offline Bundle для загрузки"
+              aria-describedby="bundle-drop-help"
               @click="chooseFile"
               @keydown.enter.prevent="chooseFile"
               @keydown.space.prevent="chooseFile"
@@ -225,7 +227,7 @@ onBeforeUnmount(() => {
             >
               <Upload :size="28" aria-hidden="true" />
               <strong>Перетащите .htp.tar.gz сюда</strong>
-              <span>или нажмите для выбора файла</span>
+              <span id="bundle-drop-help">или нажмите, Enter или Space для выбора файла</span>
             </div>
             <input
               ref="fileInput"
@@ -241,7 +243,13 @@ onBeforeUnmount(() => {
                 <span>{{ formatBytes(wizard.selectedFile.size) }}</span>
               </div>
             </div>
-            <div v-if="wizard.busy === 'upload' && wizard.uploadProgress" class="progress-block" aria-live="polite">
+            <div
+              v-if="wizard.busy === 'upload' && wizard.uploadProgress"
+              class="progress-block"
+              role="status"
+              aria-live="polite"
+              aria-label="Прогресс загрузки bundle"
+            >
               <div>Загрузка: {{ uploadPercent === null ? formatBytes(wizard.uploadProgress.loaded) : `${uploadPercent}%` }}</div>
               <progress v-if="uploadPercent !== null" :value="uploadPercent" max="100">{{ uploadPercent }}%</progress>
             </div>
@@ -259,7 +267,19 @@ onBeforeUnmount(() => {
               <FolderSearch :size="18" aria-hidden="true" />
               Обнаружить готовые пакеты
             </button>
-            <p v-if="wizard.discovered.length === 0" class="muted">После поиска здесь появятся только пакеты, которые backend безопасно claim-нул.</p>
+            <StatePlaceholder
+              v-if="wizard.busy === 'discover'"
+              compact
+              kind="loading"
+              title="Поиск готовых пакетов"
+            />
+            <StatePlaceholder
+              v-else-if="wizard.discovered.length === 0"
+              compact
+              kind="empty"
+              title="Готовые пакеты не найдены"
+              description="После поиска здесь появятся только пакеты, которые backend безопасно claim-нул."
+            />
             <div v-else class="discovery-list">
               <button
                 v-for="item in wizard.discovered"
@@ -295,7 +315,7 @@ onBeforeUnmount(() => {
             <div><dt>Размер</dt><dd>{{ formatBytes(activeSize) }}</dd></div>
             <div><dt>Intake</dt><dd>{{ wizard.preview?.intake_mode ?? 'проверяется' }}</dd></div>
           </dl>
-          <div class="verification-list">
+          <div class="verification-list" role="status" aria-live="polite" aria-label="Результаты проверки bundle">
             <div class="verification-row">
               <CheckCircle2 v-if="wizard.preview?.checksum_verified" :size="20" aria-hidden="true" />
               <RefreshCw v-else-if="wizard.operation.status === 'VERIFYING'" :size="20" aria-hidden="true" />
@@ -456,7 +476,12 @@ onBeforeUnmount(() => {
           <XCircle v-else :size="28" aria-hidden="true" />
         </div>
 
-        <div class="progress-block" aria-live="polite">
+        <div
+          class="progress-block"
+          role="status"
+          aria-live="polite"
+          aria-label="Прогресс импорта"
+        >
           <div>
             {{ wizard.operation.progress.progress_current }} / {{ wizard.operation.progress.progress_total || wizard.operation.progress.total_artifacts }}
             · imported/verified {{ wizard.operation.progress.successful_artifacts }}
@@ -550,7 +575,6 @@ h1, h2, h3, p { margin-top: 0; }
 .intake-card, .verification-card, .receipt-card { padding: var(--space-4); border: 1px solid var(--color-mist); border-radius: var(--radius-md); background: var(--color-cloud-white); }
 .drop-zone { display: grid; place-items: center; gap: var(--space-2); min-height: 180px; margin: var(--space-4) 0; padding: var(--space-4); border: 2px dashed var(--color-border-control); border-radius: var(--radius-md); text-align: center; cursor: pointer; }
 .drop-zone:hover, .drop-zone:focus-visible, .drop-zone--active { border-color: var(--color-bridge-blue); background: var(--color-info-surface); }
-.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .file-summary { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-fog-gray); }
 .file-summary div { display: grid; gap: var(--space-1); }
 .discovery-list { display: grid; gap: var(--space-2); margin-top: var(--space-3); }

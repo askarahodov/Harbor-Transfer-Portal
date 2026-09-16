@@ -6,8 +6,9 @@ const props = withDefaults(
     kind: 'empty' | 'loading' | 'error'
     title: string
     description?: string
+    compact?: boolean
   }>(),
-  { description: '' },
+  { description: '', compact: false },
 )
 
 const icons = {
@@ -18,8 +19,17 @@ const icons = {
 </script>
 
 <template>
-  <div class="state-placeholder" role="status" :aria-live="props.kind === 'error' ? 'assertive' : 'polite'">
-    <component :is="icons[props.kind]" :class="{ 'is-spinning': props.kind === 'loading' }" :size="32" aria-hidden="true" />
+  <div
+    :class="['state-placeholder', { 'state-placeholder--compact': props.compact }]"
+    :role="props.kind === 'error' ? 'alert' : 'status'"
+    :aria-live="props.kind === 'error' ? 'assertive' : 'polite'"
+  >
+    <component
+      :is="icons[props.kind]"
+      :class="{ 'is-spinning': props.kind === 'loading' }"
+      :size="props.compact ? 24 : 32"
+      aria-hidden="true"
+    />
     <strong>{{ props.title }}</strong>
     <p v-if="props.description">{{ props.description }}</p>
   </div>
@@ -37,9 +47,13 @@ const icons = {
   color: var(--color-steel);
   text-align: center;
 }
+.state-placeholder--compact {
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+}
 .state-placeholder strong { color: var(--color-deep-harbor); }
 .state-placeholder p { max-width: 52ch; margin: 0; }
 .is-spinning { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .is-spinning { animation: none; } }
 </style>
