@@ -1,101 +1,125 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
-import {
-  AlertCircle,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  RefreshCw,
-  Search,
-  X,
-} from 'lucide-vue-next'
+import { Download, RefreshCw, RotateCcw, X } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
-import type { OperationArtifact, OperationStatus } from '@/api/exports'
+import type { ImportRetryPlanResponse } from '@/api/imports'
 import StatePlaceholder from '@/components/StatePlaceholder.vue'
-import {
-  formatDateTimeLocale as formatDate,
-  shortDigest as formatShortDigest,
-} from '@/presentation/format'
+import StatusBadge from '@/components/StatusBadge.vue'
+import { formatBytes, formatDateTimeMedium, shortDigest } from '@/presentation/format'
+import { useAuthStore } from '@/stores/auth'
 import { useHistoryStore } from '@/stores/history'
+import { useRuntimeStore } from '@/stores/runtime'
 
 const history = useHistoryStore()
-const detailCloseButton = ref<HTMLButtonElement | null>(null)
+const auth = useAuthStore()
+const runtime = useRuntimeStore()
+const closeButton = ref<HTMLButtonElement | null>(null)
 let detailTrigger: HTMLElement | null = null
 
-const statuses: OperationStatus[] = [
-  'CREATED',
-  'VALIDATING',
-  'RUNNING',
-  'PACKAGING',
-  'VERIFYING',
-  'UPLOADED',
-  'DISCOVERED',
-  'READY',
-  'IMPORTING',
-  'VERIFYING_TARGET',
-  'COMPLETED',
-  'FAILED',
-  'REJECTED',
-  'CANCELLED',
-]
+const canRetry = computed(() => auth.user?.role === 'admin' || auth.user?.role === 'operator')
+const activeRetryPlan = computed<ImportRetryPlanResponse | null>(() => history.retryPlan)
+const resultAnnouncement = computed(() => {
+  const pages = Math.max(1, Math.ceil(history.total / history.pageSize))
+  return `Показано ${history.operations.length} из ${history.total} операций. Страница ${history.page} из ${pages}.`
+})
 
-const hasFilters = computed(() =>
-  Boolean(
-    history.filters.type ||
-      history.filters.status ||
-      history.filters.actor ||
-      history.filters.search ||
-      history.filters.createdFrom ||
-      history.filters.createdTo,
-  ),
+function formatDate(value: string | null | undefined): string {
+  return formatDateTimeMedium(value)
+}
+
+function formatDigest(value: string | null | undefined): string {
+  return shortDigest(value, { maxLength: 28, headLength: 18, tailLength: 8 })
+}
+
+function statusTone(status: string): 'success' | 'danger' | 'active' | 'muted' {
+  if (status === 'COMPLETED') return 'success'
+  if (['FAILED', 'REJECTED', 'CANCELLED'].includes(status)) return 'danger'
+  if (['CREATED', 'VALIDATING', 'RUNNING', 'PACKAGING', 'VERIFYING', 'IMPORTING', 'VERIFYING_TARGET'].includes(status)) return 'active'
+  return 'muted'
+}
+
+function statusText(status: string): string {
+  const labels: Record<string, string> = {
+    CREATED: 'Создана',
+    VALIDATING: 'Проверка',
+    RUNNING: 'Выполнение',
+    PACKAGING: 'Сборка',
+    VERIFYING: 'Проверка bundle',
+    UPLOADED: 'Загружено',
+    DISCOVERED: 'Обнаружено',
+    READY: 'Готово',
+    IMPORTING: 'Импорт',
+    VERIFYING_TARGET: 'Проверка TARGET',
+    COMPLETED: 'Завершено',
+    FAILED: 'Ошибка',
+    REJECTED: 'Отклонено',
+    CANCELLED: 'Отменено',
+  }
+  return labels[status] ?? status
+}
+
+function applyFilters(): void {
+  history.applyFilters()
+}
+
+function clearFilters(): void {
+  history.resetFilters()
+}
+
+async function selectOperation(id: number, trigger?: EventTarget | null): Promise<void> {
+  detailTrigger = trigger instanceof HTMLElement ? trigger : document.activeElement instanceof HTMLElement ? document.activeElement : null
+  await history.selectOperation(id)
+  if (history.detail) {
+    await nextTick()
+    closeButton.value?.focus()
+  }
+}
+
+function closeDetail(): void {
+  history.clearDetail()
+}
+
+async function changePage(page: number): Promise<void> {
+  await history.goToPage(page)
+}
+
+async function downloadReceipt(): Promise<void> {
+  if (!history.detail?.receipt) return
+  const blob = new Blob([`${JSON.stringify(history.detail.receipt, null, 2)}\n`], {
+    type: 'application/json;charset=utf-8',
+  })
+  const href = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = href
+  anchor.download = `import-${history.detail.receipt.operation_id}-receipt.json`
+  anchor.click()
+  URL.revokeObjectURL(href)
+}
+
+async function prepareRetry(): Promise<void> {
+  if (!history.detail) return
+  await history.prepareRetry(history.detail.operation.id)
+}
+
+async function executeRetry(): Promise<void> {
+  await history.executeRetry()
+}
+
+watch(
+  () => history.detail,
+  async (detail, previous) => {
+    if (!detail && previous && detailTrigger?.isConnected) {
+      await nextTick()
+      detailTrigger.focus()
+      detailTrigger = null
+    }
+  },
 )
 
-function shortDigest(value: string | null | undefined): string {
-  return formatShortDigest(value, { maxLength: 24, headLength: 16, tailLength: 8 })
-}
-
-function sourceArtifactLabel(item: OperationArtifact): string {
-  const repository = item.source_repository ?? item.repository
-  const reference = item.source_reference ?? item.source_version ?? item.reference ?? item.version
-  if (item.artifact_type === 'helm-chart') {
-    return `${repository}/${item.name ?? 'chart'}:${reference ?? '—'}`
-  }
-  return `${repository}:${reference ?? '—'}`
-}
-
-function targetArtifactLabel(item: OperationArtifact): string {
-  if (item.target_reference) return item.target_reference
-  if (!item.target_repository) return '—'
-  const reference = item.reference ?? item.version
-  return reference ? `${item.target_repository}:${reference}` : item.target_repository
-}
-
-function statusClass(status: OperationStatus): string {
-  if (status === 'COMPLETED') return 'status status--success'
-  if (['FAILED', 'REJECTED'].includes(status)) return 'status status--danger'
-  if (status === 'CANCELLED') return 'status status--muted'
-  if (['READY', 'VERIFYING', 'IMPORTING', 'VERIFYING_TARGET', 'RUNNING'].includes(status)) {
-    return 'status status--active'
-  }
-  return 'status'
-}
-
-async function openDetail(item: Parameters<typeof history.openDetail>[0]): Promise<void> {
-  detailTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
-  const loading = history.openDetail(item)
-  await nextTick()
-  detailCloseButton.value?.focus()
-  await loading
-}
-
-async function closeDetail(): Promise<void> {
-  history.closeDetail()
-  await nextTick()
-  detailTrigger?.focus()
-  detailTrigger = null
-}
-
-onMounted(() => history.load(true))
+onMounted(async () => {
+  if (!runtime.contour) await runtime.loadRuntime()
+  await history.load()
+})
 </script>
 
 <template>
@@ -104,309 +128,288 @@ onMounted(() => history.load(true))
       <div>
         <p class="eyebrow">Operations</p>
         <h1 id="history-title">История операций</h1>
-        <p>
-          Persisted SOURCE/TARGET state из backend API. Экран не читает raw logs и не меняет
-          состояние операций.
+        <p class="lead">
+          Persisted export/import операции, per-artifact результаты и immutable receipts.
         </p>
       </div>
       <button class="button button--secondary" type="button" :disabled="history.loading" @click="history.load()">
-        <RefreshCw :size="18" aria-hidden="true" />
-        Обновить
+        <RefreshCw :size="17" aria-hidden="true" /> Обновить
       </button>
     </header>
 
-    <form class="filters" aria-label="Фильтры истории" @submit.prevent="history.applyFilters">
+    <form class="filters" aria-label="Фильтры истории" @submit.prevent="applyFilters">
       <label>
-        <span>Тип</span>
-        <select v-model="history.filters.type">
+        Тип
+        <select v-model="history.draft.type">
           <option value="">Все</option>
           <option value="EXPORT">EXPORT</option>
           <option value="IMPORT">IMPORT</option>
         </select>
       </label>
       <label>
-        <span>Статус</span>
-        <select v-model="history.filters.status">
+        Статус
+        <select v-model="history.draft.status">
           <option value="">Все</option>
-          <option v-for="status in statuses" :key="status" :value="status">{{ status }}</option>
+          <option v-for="status in history.statusOptions" :key="status" :value="status">{{ statusText(status) }}</option>
         </select>
       </label>
       <label>
-        <span>Actor</span>
-        <input v-model.trim="history.filters.actor" type="search" placeholder="operator" autocomplete="off">
+        С
+        <input v-model="history.draft.dateFrom" type="date">
+      </label>
+      <label>
+        По
+        <input v-model="history.draft.dateTo" type="date">
       </label>
       <label class="filter-search">
-        <span>Delivery / поиск</span>
-        <input v-model.trim="history.filters.search" type="search" placeholder="delivery id, comment, error" autocomplete="off">
-      </label>
-      <label>
-        <span>С даты</span>
-        <input v-model="history.filters.createdFrom" type="datetime-local">
-      </label>
-      <label>
-        <span>По дату</span>
-        <input v-model="history.filters.createdTo" type="datetime-local">
+        Поиск
+        <input v-model="history.draft.search" type="search" placeholder="Delivery ID, actor, repository…">
       </label>
       <div class="filter-actions">
-        <button class="button button--primary" type="submit" :disabled="history.loading">
-          <Search :size="18" aria-hidden="true" />
-          Применить
-        </button>
-        <button v-if="hasFilters" class="button button--secondary" type="button" @click="history.clearFilters">
-          Сбросить
-        </button>
+        <button class="button button--primary" type="submit">Применить</button>
+        <button class="button button--secondary" type="button" @click="clearFilters">Сбросить</button>
       </div>
     </form>
 
-    <div v-if="history.error" class="notice notice--danger" role="alert">
-      <AlertCircle :size="20" aria-hidden="true" />
-      <div><strong>{{ history.error.code }}</strong><p>{{ history.error.message }}</p></div>
-    </div>
+    <p class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+      {{ resultAnnouncement }}
+    </p>
 
-    <section class="history-list" aria-label="Список операций">
-      <span class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
-        <template v-if="!history.loading">
-          Показано {{ history.items.length }} из {{ history.total }} операций. Страница {{ history.currentPage }} из {{ history.pageCount }}.
-        </template>
-      </span>
-      <StatePlaceholder
-        v-if="history.loading"
-        compact
-        kind="loading"
-        title="Загрузка истории"
-      />
-      <StatePlaceholder
-        v-else-if="history.items.length === 0"
-        compact
-        kind="empty"
-        title="Операции не найдены"
-        description="Измените фильтры или дождитесь первой export/import операции."
-      />
-      <div v-else class="table-wrap">
+    <StatePlaceholder
+      v-if="history.loading"
+      kind="loading"
+      title="Загрузка истории"
+      description="Получаем persisted операции и результаты."
+    />
+    <StatePlaceholder
+      v-else-if="history.error"
+      kind="error"
+      title="Не удалось загрузить историю"
+      :description="history.error.message"
+    >
+      <template #action>
+        <button class="button button--secondary" type="button" @click="history.load()">Повторить</button>
+      </template>
+    </StatePlaceholder>
+    <StatePlaceholder
+      v-else-if="history.operations.length === 0"
+      kind="empty"
+      title="Операции не найдены"
+      description="Измените фильтры или выполните новую передачу."
+    />
+    <template v-else>
+      <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>ID</th><th>Тип / статус</th><th>Delivery</th><th>Actor</th><th>Создано</th><th>Artifacts</th><th>Результат</th>
+              <th>Дата</th>
+              <th>Тип</th>
+              <th>Delivery</th>
+              <th>Actor</th>
+              <th>Статус</th>
+              <th>Прогресс</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in history.items" :key="item.id">
-              <td><button class="link-button" type="button" @click="openDetail(item)">#{{ item.id }}</button></td>
-              <td><strong>{{ item.type }}</strong><br><span :class="statusClass(item.status)">{{ item.status }}</span></td>
-              <td>{{ item.delivery_id ?? '—' }}</td>
-              <td>{{ item.actor_username }}</td>
-              <td>{{ formatDate(item.created_at) }}</td>
-              <td>{{ item.total_artifacts }}</td>
+            <tr v-for="operation in history.operations" :key="operation.id">
+              <td>{{ formatDate(operation.created_at) }}</td>
+              <td>{{ operation.type }}</td>
+              <td>{{ operation.delivery_id ?? '—' }}</td>
+              <td>{{ operation.actor_username }}</td>
+              <td><StatusBadge :tone="statusTone(operation.status)">{{ statusText(operation.status) }}</StatusBadge></td>
+              <td>{{ operation.progress.completed_artifacts }} / {{ operation.progress.total_artifacts }}</td>
               <td>
-                <span v-if="item.retry_of_operation_id">retry of #{{ item.retry_of_operation_id }} · </span>
-                <span v-if="item.error_code" class="safe-error">{{ item.error_code }}</span>
-                <span v-else>{{ item.successful_artifacts }} ok · {{ item.failed_artifacts }} failed · {{ item.skipped_artifacts }} skipped</span>
+                <button class="link-button" type="button" @click="selectOperation(operation.id, $event.currentTarget)">
+                  Подробнее
+                </button>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-    </section>
 
-    <nav class="pagination" aria-label="Пагинация истории">
-      <button class="button button--secondary" type="button" :disabled="!history.hasPrevious || history.loading" @click="history.previousPage">
-        <ChevronLeft :size="18" aria-hidden="true" /> Предыдущая
-      </button>
-      <span>Страница {{ history.currentPage }} из {{ history.pageCount }} · всего {{ history.total }}</span>
-      <button class="button button--secondary" type="button" :disabled="!history.hasNext || history.loading" @click="history.nextPage">
-        Следующая <ChevronRight :size="18" aria-hidden="true" />
-      </button>
-    </nav>
+      <nav class="pagination" aria-label="Страницы истории">
+        <button
+          class="button button--secondary"
+          type="button"
+          :disabled="history.page <= 1"
+          @click="changePage(history.page - 1)"
+        >
+          Назад
+        </button>
+        <span>Страница {{ history.page }} / {{ Math.max(1, Math.ceil(history.total / history.pageSize)) }}</span>
+        <button
+          class="button button--secondary"
+          type="button"
+          :disabled="history.page * history.pageSize >= history.total"
+          @click="changePage(history.page + 1)"
+        >
+          Далее
+        </button>
+      </nav>
+    </template>
 
-    <div v-if="history.selectedSummary" class="drawer-backdrop" @click.self="closeDetail">
-      <aside class="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="history-detail-title">
-        <header class="drawer-header">
-          <div>
-            <p class="eyebrow">Operation #{{ history.selectedSummary.id }}</p>
-            <h2 id="history-detail-title">{{ history.selectedSummary.type }} · {{ history.selectedSummary.status }}</h2>
+    <Teleport to="body">
+      <div
+        v-if="history.detail"
+        class="drawer-backdrop"
+        role="presentation"
+        @click.self="closeDetail"
+        @keydown.esc="closeDetail"
+      >
+        <aside class="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+          <div class="drawer-header">
+            <div>
+              <p class="eyebrow">Operation #{{ history.detail.operation.id }}</p>
+              <h2 id="detail-title">{{ history.detail.operation.type }} · {{ statusText(history.detail.operation.status) }}</h2>
+            </div>
+            <button ref="closeButton" class="icon-button" type="button" aria-label="Закрыть детали операции" @click="closeDetail">
+              <X :size="18" aria-hidden="true" />
+            </button>
           </div>
-          <button ref="detailCloseButton" class="icon-button" type="button" aria-label="Закрыть детали" @click="closeDetail"><X :size="20" aria-hidden="true" /></button>
-        </header>
 
-        <StatePlaceholder
-          v-if="history.detailLoading"
-          compact
-          kind="loading"
-          title="Загрузка деталей"
-        />
-        <div v-else-if="history.detailError" class="notice notice--danger" role="alert">
-          <AlertCircle :size="20" aria-hidden="true" />
-          <div><strong>{{ history.detailError.code }}</strong><p>{{ history.detailError.message }}</p></div>
-        </div>
-        <template v-else-if="history.detail">
           <dl class="metadata-grid">
-            <div><dt>Actor</dt><dd>{{ history.detail.actor_username }}</dd></div>
-            <div><dt>Delivery ID</dt><dd>{{ history.detail.delivery_id ?? '—' }}</dd></div>
-            <div><dt>Начало</dt><dd>{{ formatDate(history.detail.started_at) }}</dd></div>
-            <div><dt>Завершение</dt><dd>{{ formatDate(history.detail.finished_at) }}</dd></div>
-            <div v-if="history.detail.retry_of_operation_id"><dt>Retry of</dt><dd>#{{ history.detail.retry_of_operation_id }}</dd></div>
-            <div v-if="history.detail.failure_policy"><dt>Failure policy</dt><dd>{{ history.detail.failure_policy }}</dd></div>
+            <div><dt>Delivery ID</dt><dd>{{ history.detail.operation.delivery_id ?? '—' }}</dd></div>
+            <div><dt>Actor</dt><dd>{{ history.detail.operation.actor_username }}</dd></div>
+            <div><dt>Создана</dt><dd>{{ formatDate(history.detail.operation.created_at) }}</dd></div>
+            <div><dt>Завершена</dt><dd>{{ formatDate(history.detail.operation.finished_at) }}</dd></div>
+            <div><dt>Комментарий</dt><dd>{{ history.detail.operation.comment ?? '—' }}</dd></div>
+            <div><dt>Ошибка</dt><dd>{{ history.detail.operation.error_code ?? '—' }}</dd></div>
           </dl>
 
-          <div v-if="history.detail.error_code" class="notice notice--danger">
-            <AlertCircle :size="20" aria-hidden="true" />
-            <div><strong>{{ history.detail.error_code }}</strong><p>{{ history.detail.error_message ?? 'Операция завершилась с ошибкой.' }}</p></div>
-          </div>
+          <p v-if="history.detail.operation.error_message" class="notice notice--danger" role="alert">
+            {{ history.detail.operation.error_message }}
+          </p>
 
-          <article v-if="history.canPrepareSelectedRetry || history.retryPlan || history.retryError || history.retryStarted" class="retry-card">
-            <h3>Безопасный retry</h3>
-            <p>Создаётся новая import operation с тем же immutable destination plan. TARGET повторно проверяется до mutation; overwrite не переносится.</p>
-            <button
-              v-if="history.canPrepareSelectedRetry && !history.retryPlan"
-              class="button button--secondary"
-              type="button"
-              :disabled="history.retryPreparing"
-              @click="history.prepareSelectedRetry"
-            >
-              <RefreshCw :size="18" aria-hidden="true" />
-              {{ history.retryPreparing ? 'Проверка TARGET…' : 'Retry и revalidation' }}
-            </button>
-
-            <div v-if="history.retryError" class="notice notice--danger" role="alert">
-              <AlertCircle :size="20" aria-hidden="true" />
-              <div><strong>{{ history.retryError.code }}</strong><p>{{ history.retryError.message }}</p></div>
-            </div>
-
-            <template v-if="history.retryPlan">
-              <dl class="metadata-grid retry-meta">
-                <div><dt>Новая operation</dt><dd>#{{ history.retryOperationId }}</dd></div>
-                <div><dt>Plan ID</dt><dd :title="history.retryPlan.plan_id">{{ shortDigest(history.retryPlan.plan_id) }}</dd></div>
-              </dl>
-
-              <div v-if="history.retryHasConflicts" class="notice notice--danger" role="alert">
-                <AlertCircle :size="20" aria-hidden="true" />
-                <div><strong>Новый TARGET conflict</strong><p>Retry не будет запущен автоматически. Default deny: нужен отдельный явный разбор конфликта.</p></div>
-              </div>
-
-              <div class="table-wrap retry-plan-table">
-                <table>
-                  <thead><tr><th>Artifact</th><th>TARGET</th><th>Revalidation</th><th>Target digest</th></tr></thead>
-                  <tbody>
-                    <tr v-for="artifact in history.retryPlan.artifacts" :key="artifact.index">
-                      <td>{{ artifact.source_repository }}</td>
-                      <td>{{ artifact.final_reference ?? '—' }}</td>
-                      <td>{{ artifact.classification }}</td>
-                      <td :title="artifact.target_digest ?? undefined">{{ shortDigest(artifact.target_digest) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <button
-                v-if="!history.retryStarted"
-                class="button button--primary"
-                type="button"
-                :disabled="!history.canStartPreparedRetry"
-                @click="history.startPreparedRetry"
-              >
-                {{ history.retryStarting ? 'Запуск…' : 'Запустить retry без overwrite' }}
-              </button>
-              <p v-else class="retry-started" role="status">Retry operation #{{ history.retryOperationId }} запущена. История обновлена.</p>
-            </template>
-          </article>
-
-          <article v-if="history.canDownloadSelectedReport" class="report-card">
-            <h3>Отчёты операции</h3>
-            <p>CSV и PDF строятся из persisted operation/artifact data и доступны для terminal state.</p>
-            <div class="download-actions">
-              <button class="button button--secondary" type="button" @click="history.downloadSelectedReport('csv')">
-                <Download :size="18" aria-hidden="true" /> Скачать CSV
-              </button>
-              <button class="button button--secondary" type="button" @click="history.downloadSelectedReport('pdf')">
-                <Download :size="18" aria-hidden="true" /> Скачать PDF
-              </button>
-            </div>
-          </article>
-
-          <p v-if="history.downloadError" class="safe-error" role="alert">{{ history.downloadError }}</p>
-
-          <article v-if="history.detail.bundle" class="bundle-card">
-            <h3>Bundle metadata</h3>
-            <dl class="metadata-grid">
-              <div><dt>Файл</dt><dd>{{ history.detail.bundle.filename }}</dd></div>
-              <div><dt>Размер</dt><dd>{{ history.detail.bundle.size_bytes.toLocaleString('ru-RU') }} B</dd></div>
-              <div><dt>SHA-256</dt><dd :title="history.detail.bundle.sha256">{{ shortDigest(history.detail.bundle.sha256) }}</dd></div>
-            </dl>
-            <p>Metadata сохраняется в истории независимо от наличия package-файла на диске.</p>
-            <button v-if="history.canDownloadSelectedExport" class="button button--secondary" type="button" @click="history.downloadSelectedExport">
-              <Download :size="18" aria-hidden="true" /> Скачать через авторизованный ticket
-            </button>
-          </article>
-
-          <div class="table-wrap">
+          <section class="table-wrap" aria-labelledby="artifact-results-title">
             <table>
               <thead>
                 <tr>
-                  <th>Тип</th><th>SOURCE</th><th>TARGET</th><th>Статус</th><th>Source digest</th><th>Target digest</th><th>Ошибка</th>
+                  <th id="artifact-results-title">Артефакт</th>
+                  <th>Статус</th>
+                  <th>SOURCE digest</th>
+                  <th>TARGET digest</th>
+                  <th>Размер</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="artifact in history.detail.artifacts" :key="artifact.id">
-                  <td>{{ artifact.artifact_type }}</td>
-                  <td>{{ sourceArtifactLabel(artifact) }}</td>
-                  <td>{{ targetArtifactLabel(artifact) }}</td>
-                  <td>{{ artifact.status }}</td>
-                  <td :title="artifact.source_digest ?? undefined">{{ shortDigest(artifact.source_digest) }}</td>
-                  <td :title="artifact.target_digest ?? undefined">{{ shortDigest(artifact.target_digest) }}</td>
-                  <td>{{ artifact.error_code ?? '—' }}</td>
+                  <td>{{ artifact.repository }}{{ artifact.reference ? `:${artifact.reference}` : artifact.version ? `:${artifact.version}` : '' }}</td>
+                  <td><StatusBadge :tone="statusTone(artifact.status)">{{ artifact.status }}</StatusBadge></td>
+                  <td :title="artifact.source_digest ?? undefined">{{ formatDigest(artifact.source_digest) }}</td>
+                  <td :title="artifact.target_digest ?? undefined">{{ formatDigest(artifact.target_digest) }}</td>
+                  <td>{{ formatBytes(artifact.size_bytes) }}</td>
                 </tr>
               </tbody>
             </table>
-          </div>
+          </section>
 
-          <article v-if="history.detail.type === 'IMPORT'" class="receipt-card">
-            <h3>Import receipt</h3>
-            <StatePlaceholder
-              v-if="history.receiptState === 'loading'"
-              compact
-              kind="loading"
-              title="Загрузка receipt"
-            />
-            <template v-else-if="history.receipt">
-              <dl class="metadata-grid">
-                <div><dt>Результат</dt><dd>{{ history.receipt.result }}</dd></div>
-                <div><dt>Actor</dt><dd>{{ history.receipt.actor_username }}</dd></div>
-                <div><dt>SOURCE delivery</dt><dd>{{ history.receipt.source_delivery_id }}</dd></div>
-                <div><dt>Bundle SHA-256</dt><dd :title="history.receipt.bundle_sha256">{{ shortDigest(history.receipt.bundle_sha256) }}</dd></div>
-                <div><dt>Завершение</dt><dd>{{ formatDate(history.receipt.finished_at) }}</dd></div>
-                <div v-if="history.receipt.retry_of_operation_id"><dt>Retry of</dt><dd>#{{ history.receipt.retry_of_operation_id }}</dd></div>
-                <div v-if="history.receipt.failure_policy"><dt>Failure policy</dt><dd>{{ history.receipt.failure_policy }}</dd></div>
-              </dl>
-              <button v-if="history.canDownloadSelectedReceipt" class="button button--secondary" type="button" @click="history.downloadSelectedReceipt">
-                <Download :size="18" aria-hidden="true" /> Скачать receipt JSON
-              </button>
-            </template>
-            <StatePlaceholder
-              v-else-if="history.receiptState === 'unavailable'"
-              compact
-              kind="empty"
-              title="Receipt недоступен"
-              description="Receipt недоступен текущей роли либо ещё не существует. История операции остаётся доступной."
-            />
+          <article v-if="history.detail.bundle" class="bundle-card">
+            <h3>Bundle</h3>
+            <dl class="metadata-grid">
+              <div><dt>Файл</dt><dd>{{ history.detail.bundle.filename }}</dd></div>
+              <div><dt>Размер</dt><dd>{{ formatBytes(history.detail.bundle.size_bytes) }}</dd></div>
+              <div><dt>SHA-256</dt><dd :title="history.detail.bundle.sha256">{{ formatDigest(history.detail.bundle.sha256) }}</dd></div>
+              <div><dt>Signing key</dt><dd :title="history.detail.bundle.signing_key_fingerprint ?? undefined">{{ formatDigest(history.detail.bundle.signing_key_fingerprint) }}</dd></div>
+            </dl>
           </article>
-        </template>
-      </aside>
-    </div>
+
+          <article v-if="history.detail.receipt" class="receipt-card">
+            <h3>Immutable receipt</h3>
+            <dl class="metadata-grid">
+              <div><dt>Результат</dt><dd>{{ history.detail.receipt.result }}</dd></div>
+              <div><dt>Actor</dt><dd>{{ history.detail.receipt.actor_username }}</dd></div>
+              <div><dt>Завершён</dt><dd>{{ formatDate(history.detail.receipt.finished_at) }}</dd></div>
+              <div><dt>Overwrite</dt><dd>{{ history.detail.receipt.overwrite_confirmed ? 'подтверждён' : 'нет' }}</dd></div>
+            </dl>
+            <button class="button button--secondary" type="button" @click="downloadReceipt">
+              <Download :size="17" aria-hidden="true" /> Скачать receipt JSON
+            </button>
+          </article>
+
+          <article v-if="history.detail.report" class="report-card">
+            <h3>Отчёт</h3>
+            <p>{{ history.detail.report.summary }}</p>
+            <div class="download-actions">
+              <a class="button button--secondary" :href="history.reportDownloadUrl(history.detail.operation.id, 'csv')">
+                <Download :size="17" aria-hidden="true" /> CSV
+              </a>
+              <a class="button button--secondary" :href="history.reportDownloadUrl(history.detail.operation.id, 'pdf')">
+                <Download :size="17" aria-hidden="true" /> PDF
+              </a>
+            </div>
+          </article>
+
+          <article v-if="history.detail.operation.type === 'IMPORT' && canRetry" class="retry-card">
+            <h3>Повторить только неуспешные артефакты</h3>
+            <p>
+              Retry не откатывает уже успешные артефакты. Перед новым import backend заново проверяет TARGET и строит fresh plan.
+            </p>
+            <button
+              v-if="!activeRetryPlan"
+              class="button button--secondary"
+              type="button"
+              :disabled="history.retryLoading"
+              @click="prepareRetry"
+            >
+              <RotateCcw :size="17" aria-hidden="true" />
+              {{ history.retryLoading ? 'Подготовка…' : 'Подготовить retry plan' }}
+            </button>
+
+            <template v-else>
+              <p class="retry-meta">
+                Parent #{{ activeRetryPlan.parent_operation_id }} · plan {{ activeRetryPlan.destination_plan.plan_id.slice(0, 12) }}…
+              </p>
+              <div class="table-wrap retry-plan-table">
+                <table>
+                  <thead><tr><th>Артефакт</th><th>Класс</th><th>TARGET</th></tr></thead>
+                  <tbody>
+                    <tr v-for="item in activeRetryPlan.destination_plan.artifacts" :key="item.index">
+                      <td>{{ item.repository }}{{ item.reference ? `:${item.reference}` : item.version ? `:${item.version}` : '' }}</td>
+                      <td><StatusBadge :tone="statusTone(item.classification)">{{ item.classification }}</StatusBadge></td>
+                      <td>{{ item.final_reference ?? '—' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p v-if="!activeRetryPlan.destination_plan.valid" class="notice notice--danger" role="alert">
+                Fresh retry plan невалиден. Исправьте TARGET state до запуска.
+              </p>
+              <p v-if="activeRetryPlan.requires_overwrite" class="notice notice--danger" role="alert">
+                Retry содержит CONFLICT и требует явного overwrite confirmation.
+              </p>
+              <button
+                class="button button--primary"
+                type="button"
+                :disabled="!activeRetryPlan.destination_plan.valid || activeRetryPlan.requires_overwrite || history.retryLoading"
+                @click="executeRetry"
+              >
+                Запустить безопасный retry
+              </button>
+              <p v-if="history.retryStartedOperationId" class="retry-started" role="status">
+                Создана retry operation #{{ history.retryStartedOperationId }}.
+              </p>
+            </template>
+          </article>
+        </aside>
+      </div>
+    </Teleport>
   </section>
 </template>
 
 <style scoped>
 .history-page { display: grid; gap: var(--space-6); }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
-.page-header h1, .drawer-header h2 { margin: 0; }
-.page-header p { max-width: 780px; }
-.eyebrow { margin: 0 0 var(--space-1); color: var(--color-action); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
-.filters { display: grid; grid-template-columns: repeat(6, minmax(130px, 1fr)); gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
-.filters label { display: grid; gap: var(--space-1); font-size: 13px; font-weight: 600; }
-.filters input, .filters select { min-width: 0; padding: 10px 12px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
+.eyebrow { margin: 0 0 var(--space-1); color: var(--color-action); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+h1, h2, h3, p { margin-top: 0; }
+.lead { max-width: 760px; margin-bottom: 0; color: var(--color-text-muted); }
+.filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.filters label { display: grid; gap: var(--space-1); font-size: 13px; font-weight: 700; }
+.filters input, .filters select { min-height: 40px; width: 100%; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); padding: 0 var(--space-3); font: inherit; font-weight: 400; }
 .filter-search { grid-column: span 2; }
-.filter-actions { display: flex; align-items: end; gap: var(--space-2); grid-column: span 2; }
-.button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 40px; padding: 8px 14px; border: 1px solid transparent; border-radius: var(--radius-md); cursor: pointer; font: inherit; font-weight: 600; }
+.filter-actions { display: flex; align-items: end; gap: var(--space-2); }
+.button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); padding: 0 var(--space-3); border: 1px solid transparent; border-radius: var(--radius-md); color: inherit; font: inherit; font-weight: 700; text-decoration: none; cursor: pointer; }
 .button:disabled { opacity: .5; cursor: not-allowed; }
 .button--primary { background: var(--color-action-surface); color: var(--color-on-accent); }
 .button--secondary { background: var(--color-surface); border-color: var(--color-border-control); color: var(--color-text); }
@@ -425,8 +428,8 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .notice p { margin: 4px 0 0; }
 .notice--danger { background: color-mix(in srgb, var(--color-danger) 10%, transparent); color: var(--color-danger); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
-.drawer-backdrop { position: fixed; inset: 0; z-index: 30; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .38); }
-.detail-drawer { width: min(900px, 96vw); height: 100%; overflow-y: auto; padding: var(--space-5); background: var(--color-background); box-shadow: -10px 0 30px rgba(0,0,0,.18); }
+.drawer-backdrop { position: fixed; inset: 0; z-index: 30; display: flex; justify-content: flex-end; background: var(--color-overlay-backdrop); }
+.detail-drawer { width: min(900px, 96vw); height: 100%; overflow-y: auto; padding: var(--space-5); background: var(--color-background); box-shadow: var(--shadow-drawer); }
 .drawer-header { display: flex; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
 .icon-button { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
 .metadata-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0 0 var(--space-4); }
