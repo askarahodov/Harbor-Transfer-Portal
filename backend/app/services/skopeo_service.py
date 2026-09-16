@@ -24,6 +24,7 @@ _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9
 _TAG_PATTERN = r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}"
 _OCI_REFERENCE = "image"
 _PERSISTED_DIAGNOSTIC_LIMIT = 512
+_SAFE_LOCALE_ENV = ("LANG", "LC_ALL", "LC_CTYPE")
 
 
 class SkopeoPhase(StrEnum):
@@ -120,6 +121,33 @@ class CommandRunner(Protocol):
 
 
 class AsyncioCommandRunner:
+    def __init__(self, temp_root: Path | None = None) -> None:
+        self.temp_root = temp_root.resolve() if temp_root is not None else None
+
+    @staticmethod
+    def _environment(root: Path) -> dict[str, str]:
+        home = root / "home"
+        config_home = root / "xdg-config"
+        cache_home = root / "xdg-cache"
+        runtime_dir = root / "xdg-runtime"
+        temp_dir = root / "tmp"
+        for directory in (home, config_home, cache_home, runtime_dir, temp_dir):
+            directory.mkdir(mode=0o700)
+
+        environment = {
+            "PATH": os.environ.get("PATH", os.defpath),
+            "HOME": str(home),
+            "XDG_CONFIG_HOME": str(config_home),
+            "XDG_CACHE_HOME": str(cache_home),
+            "XDG_RUNTIME_DIR": str(runtime_dir),
+            "TMPDIR": str(temp_dir),
+        }
+        for name in _SAFE_LOCALE_ENV:
+            value = os.environ.get(name)
+            if value:
+                environment[name] = value
+        return environment
+
     async def run(
         self,
         argv: tuple[str, ...],
@@ -128,40 +156,47 @@ class AsyncioCommandRunner:
         output_limit_bytes: int,
         redact_values: tuple[str, ...] = (),
     ) -> CommandResult:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        if process.stdout is None or process.stderr is None:
-            process.kill()
-            await process.wait()
-            raise SkopeoServiceError("skopeo_io_error", "Не удалось открыть каналы Skopeo")
+        if self.temp_root is not None:
+            self.temp_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with tempfile.TemporaryDirectory(prefix="htp-skopeo-exec-", dir=self.temp_root) as raw_root:
+            root = Path(raw_root)
+            os.chmod(root, 0o700)
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(root),
+                env=self._environment(root),
+            )
+            if process.stdout is None or process.stderr is None:
+                process.kill()
+                await process.wait()
+                raise SkopeoServiceError("skopeo_io_error", "Не удалось открыть каналы Skopeo")
 
-        stdout_task = asyncio.create_task(_drain_limited(process.stdout, output_limit_bytes))
-        stderr_task = asyncio.create_task(_drain_limited(process.stderr, output_limit_bytes))
-        try:
-            await asyncio.wait_for(process.wait(), timeout_seconds)
-        except TimeoutError as exc:
-            process.kill()
-            await process.wait()
-            await asyncio.gather(stdout_task, stderr_task)
-            raise SkopeoServiceError(
-                "skopeo_timeout",
-                "Операция Skopeo превысила допустимое время выполнения",
-            ) from exc
-        except asyncio.CancelledError:
-            process.kill()
-            await process.wait()
-            await asyncio.gather(stdout_task, stderr_task)
-            raise
+            stdout_task = asyncio.create_task(_drain_limited(process.stdout, output_limit_bytes))
+            stderr_task = asyncio.create_task(_drain_limited(process.stderr, output_limit_bytes))
+            try:
+                await asyncio.wait_for(process.wait(), timeout_seconds)
+            except TimeoutError as exc:
+                process.kill()
+                await process.wait()
+                await asyncio.gather(stdout_task, stderr_task)
+                raise SkopeoServiceError(
+                    "skopeo_timeout",
+                    "Операция Skopeo превысила допустимое время выполнения",
+                ) from exc
+            except asyncio.CancelledError:
+                process.kill()
+                await process.wait()
+                await asyncio.gather(stdout_task, stderr_task)
+                raise
 
-        stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
-        return CommandResult(
-            returncode=process.returncode or 0,
-            stdout=_redact(stdout, redact_values),
-            stderr=_redact(stderr, redact_values),
-        )
+            stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
+            return CommandResult(
+                returncode=process.returncode or 0,
+                stdout=_redact(stdout, redact_values),
+                stderr=_redact(stderr, redact_values),
+            )
 
 
 async def _drain_limited(stream: asyncio.StreamReader, limit: int) -> str:
@@ -207,7 +242,7 @@ class SkopeoService:
     ) -> None:
         self.settings = settings
         self.harbor_settings = HarborSettingsService(session, settings)
-        self.runner = runner or AsyncioCommandRunner()
+        self.runner = runner or AsyncioCommandRunner(settings.skopeo_temp_root)
         self.progress = progress
         self.payload_root = settings.skopeo_payload_root.resolve()
 

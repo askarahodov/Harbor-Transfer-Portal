@@ -12,6 +12,16 @@
 
 Subprocess запускается только через `asyncio.create_subprocess_exec(*argv)`. Shell не используется. Пользовательские значения не интерполируются в shell-строку.
 
+Каждый реальный Skopeo child запускается в отдельном краткоживущем execution workspace внутри `SKOPEO_TEMP_ROOT`:
+
+- private working directory имеет mode `0700`;
+- `HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_RUNTIME_DIR` и `TMPDIR` указывают на private каталоги этой команды;
+- child environment строится по allowlist: `PATH`, private runtime paths и безопасные locale variables;
+- backend secrets и ambient registry state (`JWT_SECRET`, `HARBOR_PASSWORD`, `REGISTRY_AUTH_FILE`, `DOCKER_CONFIG`, proxy/config overrides и аналогичные process env values) автоматически не наследуются;
+- локальный Harbor credential и custom CA передаются только через управляемые service inputs, описанные ниже.
+
+Это исключает неявное влияние `$HOME/.docker`, `$HOME/.config/containers`, process-level registry auth и portal secrets на результат `inspect/copy`. Если deployment когда-либо потребует proxy или дополнительный containers/image runtime config, такой input должен быть добавлен как отдельная явная настройка и пройти security review, а не возвращаться через наследование всего backend environment.
+
 Credential локального Harbor не передаётся через `--creds`. На время одной операции создаётся Docker-compatible `auth.json`:
 
 - во временном каталоге Skopeo;
@@ -79,7 +89,7 @@ Digest mismatch является отдельной ошибкой и не ма�
 - `SKOPEO_TIMEOUT_SECONDS` — максимальное время одной команды;
 - `SKOPEO_OUTPUT_LIMIT_BYTES` — максимальный объём сохраняемой части каждого stdout/stderr;
 - `SKOPEO_PAYLOAD_ROOT` — разрешённый root для OCI payload;
-- `SKOPEO_TEMP_ROOT` — root для краткоживущих auth/CA файлов.
+- `SKOPEO_TEMP_ROOT` — root для краткоживущих auth/CA и execution workspace.
 
 При timeout child process принудительно завершается. При отмене asyncio task child process также завершается, после чего `CancelledError` пробрасывается вызывающему task manager.
 
@@ -92,6 +102,8 @@ Unit tests используют injectable command runner и проверяют:
 - точный argv export/import/inspect;
 - отсутствие credential в argv;
 - отсутствие `shell=True`;
+- isolated subprocess environment без наследования portal/registry secrets;
+- private `HOME/XDG/TMP/cwd` для real runner;
 - authfile mode `0600`;
 - TLS/custom CA flags;
 - stdout/stderr redaction и bounded capture;
@@ -100,4 +112,4 @@ Unit tests используют injectable command runner и проверяют:
 - target absent/same/conflict states;
 - payload path confinement.
 
-Disposable OCI registry не добавлен в backend unit CI этой задачи: текущий backend job не поднимает registry. End-to-end registry verification должна быть добавлена в scoped export/import integration workflow, где одновременно доступны Skopeo, registry и orchestration lifecycle.
+Scoped CI также содержит `Integration — Skopeo/Helm local registry`, где Skopeo и Helm проверяются на disposable OCI registry, и isolated SOURCE → TARGET acceptance для сквозного lifecycle. Эти тяжёлые проверки запускаются только для затрагивающих соответствующую boundary изменений согласно `tools/ci_scope.py`.
