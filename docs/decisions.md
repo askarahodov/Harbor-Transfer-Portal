@@ -32,6 +32,22 @@
 | ADR-008 | [Element Plus + Lucide и runtime-источник идентичности контура](adr/ADR-008-frontend-ui-kit.md) | **Принято** | Frontend foundation использует принятое решение. |
 | ADR-009 | [OCI image-layout как представление payload контейнерного образа в Bundle Protocol v1](adr/ADR-009-oci-layout-payload.md) | **Принято** | Реализовано в Skopeo/Bundle boundaries; заменяет ранний ADR-003 placeholder. |
 
+## Локальные системные решения UI
+
+### Theme policy — light-only
+
+На 2026-09-16 портал поддерживает **только светлую цветовую схему** и явно объявляет `color-scheme: light`.
+
+Это осознанное временное решение:
+
+- часть актуального UI уже использует semantic aliases (`--color-surface`, `--color-text`, `--color-border`), но несколько крупных legacy-представлений всё ещё обращаются напрямую к palette tokens (`--color-cloud-white`, `--color-fog-gray`, `--color-deep-harbor`, `--color-steel`, `--color-mist`);
+- добавление только `@media (prefers-color-scheme: dark)` для semantic aliases сейчас создало бы смешанный светло-тёмный интерфейс и ложное ощущение полной поддержки dark mode;
+- palette tokens не переопределяются под dark mode: их смысл должен оставаться стабильным.
+
+Dark mode можно включать только отдельным изменением после миграции оставшихся UI-стилей на semantic aliases и проверки контраста нового режима. До этого `prefers-color-scheme: dark` намеренно не поддерживается.
+
+Системная настройка `prefers-reduced-motion` при этом поддерживается независимо от цветовой темы: глобальные переходы и анимации сокращаются для пользователей, запросивших уменьшение движения.
+
 ## Значение статусов
 
 ### Принято
