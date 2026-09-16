@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Проверка контраста design tokens и запрета semantic color hardcode."""
+"""Проверка light/dark contrast и запрета semantic UI на palette tokens."""
 
 from __future__ import annotations
 
@@ -11,8 +11,17 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _TOKEN_RE = re.compile(r"(--[A-Za-z0-9_-]+)\s*:\s*([^;]+);")
 _HEX_RE = re.compile(r"#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3})?(?:[0-9A-Fa-f]{2})?\b")
 _VAR_RE = re.compile(r"var\((--[A-Za-z0-9_-]+)\)")
+_DIRECT_PALETTE_RE = re.compile(
+    r"var\((--color-(?:cloud-white|fog-gray|deep-harbor|steel|mist))\)"
+)
+_DARK_MEDIA = "@media (prefers-color-scheme: dark)"
+_BRAND_PALETTE_MARKER = "palette-ok: brand"
 
 _TEXT_PAIRS = (
+    ("--color-text", "--color-surface", 4.5),
+    ("--color-text", "--color-background", 4.5),
+    ("--color-text-muted", "--color-surface", 4.5),
+    ("--color-text-muted", "--color-background", 4.5),
     ("--color-success-text", "--color-success-surface", 4.5),
     ("--color-warning-text", "--color-warning-surface", 4.5),
     ("--color-danger-text", "--color-danger-surface", 4.5),
@@ -53,11 +62,47 @@ def contrast_ratio(first: str, second: str) -> float:
     return (light + 0.05) / (dark + 0.05)
 
 
-def _parse_tokens(path: Path) -> dict[str, str]:
+def _block_content(css: str, opening_brace: int) -> str:
+    depth = 0
+    for index in range(opening_brace, len(css)):
+        character = css[index]
+        if character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                return css[opening_brace + 1 : index]
+    raise ValueError("unterminated CSS block")
+
+
+def _root_block(css: str, start: int = 0) -> str:
+    root = css.find(":root", start)
+    if root < 0:
+        raise ValueError("missing :root token block")
+    opening = css.find("{", root)
+    if opening < 0:
+        raise ValueError("malformed :root token block")
+    return _block_content(css, opening)
+
+
+def _parse_block(block: str) -> dict[str, str]:
     return {
         name: raw_value.strip()
-        for name, raw_value in _TOKEN_RE.findall(path.read_text(encoding="utf-8"))
+        for name, raw_value in _TOKEN_RE.findall(block)
     }
+
+
+def _theme_tokens(path: Path) -> tuple[dict[str, str], dict[str, str]]:
+    css = path.read_text(encoding="utf-8")
+    light = _parse_block(_root_block(css))
+    dark_media = css.find(_DARK_MEDIA)
+    if dark_media < 0:
+        raise ValueError(f"missing {_DARK_MEDIA} semantic override block")
+    dark_overrides = _parse_block(_root_block(css, dark_media))
+    if not dark_overrides:
+        raise ValueError("dark theme override block is empty")
+    dark = {**light, **dark_overrides}
+    return light, dark
 
 
 def _resolve_color(name: str, tokens: dict[str, str], stack: tuple[str, ...] = ()) -> str:
@@ -74,7 +119,7 @@ def _resolve_color(name: str, tokens: dict[str, str], stack: tuple[str, ...] = (
     raise ValueError(f"token {name} is not a resolvable opaque hex color: {raw}")
 
 
-def _contrast_errors(tokens: dict[str, str]) -> tuple[list[str], list[str]]:
+def _contrast_errors(theme: str, tokens: dict[str, str]) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     rows: list[str] = []
     for foreground_name, background_name, threshold in (*_TEXT_PAIRS, *_NON_TEXT_PAIRS):
@@ -82,33 +127,42 @@ def _contrast_errors(tokens: dict[str, str]) -> tuple[list[str], list[str]]:
             foreground = _resolve_color(foreground_name, tokens)
             background = _resolve_color(background_name, tokens)
         except ValueError as exc:
-            errors.append(str(exc))
+            errors.append(f"{theme}: {exc}")
             continue
         ratio = contrast_ratio(foreground, background)
         status = "PASS" if ratio >= threshold else "FAIL"
         rows.append(
-            f"{foreground_name} / {background_name}: {ratio:.2f}:1 "
+            f"{theme}: {foreground_name} / {background_name}: {ratio:.2f}:1 "
             f"(порог {threshold:.1f}:1) {status}"
         )
         if ratio < threshold:
             errors.append(
-                f"contrast {foreground_name} / {background_name} = {ratio:.2f}:1 "
+                f"{theme}: contrast {foreground_name} / {background_name} = {ratio:.2f}:1 "
                 f"below {threshold:.1f}:1"
             )
     return errors, rows
 
 
-def _hardcoded_color_errors(root: Path) -> list[str]:
+def _component_style_errors(root: Path) -> list[str]:
     errors: list[str] = []
     for directory in (root / "frontend" / "src" / "views", root / "frontend" / "src" / "components"):
         if not directory.is_dir():
             errors.append(f"missing frontend directory: {directory.relative_to(root)}")
             continue
         for path in sorted(directory.rglob("*.vue")):
+            relative = path.relative_to(root)
             for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 for color in _HEX_RE.findall(line):
                     errors.append(
-                        f"{path.relative_to(root)}:{line_number}: raw hex {color}; use a design token"
+                        f"{relative}:{line_number}: raw hex {color}; use a design token"
+                    )
+                if _BRAND_PALETTE_MARKER in line:
+                    continue
+                for token in _DIRECT_PALETTE_RE.findall(line):
+                    errors.append(
+                        f"{relative}:{line_number}: direct palette token {token}; "
+                        "use a semantic alias or mark an intentional brand use with "
+                        f"'{_BRAND_PALETTE_MARKER}'"
                     )
     return errors
 
@@ -117,21 +171,31 @@ def check_repository(root: Path = _REPOSITORY_ROOT) -> tuple[list[str], list[str
     token_path = root / "frontend" / "src" / "styles" / "tokens.css"
     if not token_path.is_file():
         return ["frontend/src/styles/tokens.css is missing"], []
-    tokens = _parse_tokens(token_path)
-    contrast_errors, rows = _contrast_errors(tokens)
-    return contrast_errors + _hardcoded_color_errors(root), rows
+    try:
+        light_tokens, dark_tokens = _theme_tokens(token_path)
+    except ValueError as exc:
+        return [str(exc)], []
+
+    errors: list[str] = []
+    rows: list[str] = []
+    for theme, tokens in (("light", light_tokens), ("dark", dark_tokens)):
+        theme_errors, theme_rows = _contrast_errors(theme, tokens)
+        errors.extend(theme_errors)
+        rows.extend(theme_rows)
+    errors.extend(_component_style_errors(root))
+    return errors, rows
 
 
 def main() -> int:
     errors, rows = check_repository()
-    print("Design token contrast matrix:")
+    print("Design token light/dark contrast matrix:")
     for row in rows:
         print(f"  {row}")
     if errors:
         for error in errors:
             print(f"design-token error: {error}", file=sys.stderr)
         return 1
-    print("Design tokens and semantic color usage satisfy repository policy.")
+    print("Light/dark tokens and semantic color usage satisfy repository policy.")
     return 0
 
 
