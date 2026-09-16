@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Harbor Transfer Portal">
+  <rect width="64" height="64" rx="14" fill="#0B1E3A"/>
+  <path d="M16 19v26M48 19v26M16 27h32" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+  <path d="M22 39h18m-6-7 7 7-7 7" fill="none" stroke="#60A5FA" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

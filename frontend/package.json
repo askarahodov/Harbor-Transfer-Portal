@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
-    "prelint": "cd .. && python3 -m unittest tools.test_design_tokens && python3 tools/check_design_tokens.py",
+    "prelint": "cd .. && python3 -m unittest tools.test_design_tokens tools.test_frontend_system_ui && python3 tools/check_design_tokens.py",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{ts,vue,css}\" \"*.{ts,json}\"",
     "test": "vitest run"
