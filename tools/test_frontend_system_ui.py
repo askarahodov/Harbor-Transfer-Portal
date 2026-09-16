@@ -26,15 +26,18 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertIn("transition-duration: 0.01ms !important;", css)
         self.assertIn("scroll-behavior: auto !important;", css)
 
-    def test_light_only_theme_policy_is_explicit(self) -> None:
+    def test_light_and_dark_theme_policy_is_explicit(self) -> None:
         base_css = (_REPOSITORY_ROOT / "frontend/src/styles/base.css").read_text(encoding="utf-8")
         tokens_css = (_REPOSITORY_ROOT / "frontend/src/styles/tokens.css").read_text(encoding="utf-8")
         decisions = (_REPOSITORY_ROOT / "docs/decisions.md").read_text(encoding="utf-8")
 
-        self.assertIn("html { color-scheme: light; }", base_css)
-        self.assertNotIn("prefers-color-scheme: dark", base_css)
-        self.assertNotIn("prefers-color-scheme: dark", tokens_css)
-        self.assertIn("Theme policy — light-only", decisions)
+        self.assertIn("html { color-scheme: light dark; }", base_css)
+        self.assertIn("@media (prefers-color-scheme: dark)", tokens_css)
+        self.assertIn("--color-background: #0F172A;", tokens_css)
+        self.assertIn("--color-surface: #111827;", tokens_css)
+        self.assertIn("--color-text: #F8FAFC;", tokens_css)
+        self.assertIn("Theme policy — light + dark", decisions)
+        self.assertNotIn("Theme policy — light-only", decisions)
 
 
 if __name__ == "__main__":
