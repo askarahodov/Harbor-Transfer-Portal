@@ -49,14 +49,14 @@ function shortDigest(value: string | null | undefined): string {
 </template>
 
 <style scoped>
-.receipt-destinations { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--color-mist); }
+.receipt-destinations { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
 .receipt-destinations__header { display: flex; justify-content: space-between; gap: var(--space-3); align-items: flex-start; }
-.receipt-destinations__header h4 { margin: 0; color: var(--color-deep-harbor); }
-.receipt-destinations__header p { margin: var(--space-1) 0 0; color: var(--color-steel); }
-.receipt-destinations__header code { color: var(--color-steel); white-space: nowrap; }
+.receipt-destinations__header h4 { margin: 0; color: var(--color-text); }
+.receipt-destinations__header p { margin: var(--space-1) 0 0; color: var(--color-text-muted); }
+.receipt-destinations__header code { color: var(--color-text-muted); white-space: nowrap; }
 .receipt-destinations__table-wrap { margin-top: var(--space-3); overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
-th, td { padding: var(--space-3); border-bottom: 1px solid var(--color-mist); text-align: left; vertical-align: top; }
-th { color: var(--color-steel); font-size: 12px; }
+th, td { padding: var(--space-3); border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: top; }
+th { color: var(--color-text-muted); font-size: 12px; }
 .receipt-destinations__reference { min-width: 260px; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 </style>
