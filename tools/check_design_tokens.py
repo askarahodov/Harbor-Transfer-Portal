@@ -10,6 +10,7 @@ from pathlib import Path
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _TOKEN_RE = re.compile(r"(--[A-Za-z0-9_-]+)\s*:\s*([^;]+);")
 _HEX_RE = re.compile(r"#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3})?(?:[0-9A-Fa-f]{2})?\b")
+_FUNCTIONAL_COLOR_RE = re.compile(r"\b(?:rgb|rgba|hsl|hsla)\s*\(", re.IGNORECASE)
 _VAR_RE = re.compile(r"var\((--[A-Za-z0-9_-]+)\)")
 _COLOR_VAR_REF_RE = re.compile(r"var\((--color-[A-Za-z0-9_-]+)(?:\s*,[^)]*)?\)")
 _NAMED_COLOR_DECL_RE = re.compile(
@@ -33,6 +34,8 @@ _TEXT_PAIRS = (
     ("--color-action", "--color-background", 4.5),
     ("--color-on-accent", "--color-action-surface", 4.5),
     ("--color-on-accent", "--color-brand-surface", 4.5),
+    ("--color-brand-text-muted", "--color-brand-surface", 4.5),
+    ("--color-on-accent", "--color-brand-hover-surface", 4.5),
     ("--color-on-danger-action", "--color-danger-action-surface", 4.5),
     ("--color-success-text", "--color-success-surface", 4.5),
     ("--color-warning-text", "--color-warning-surface", 4.5),
@@ -157,6 +160,10 @@ def _frontend_style_errors(root: Path, defined_colors: set[str]) -> list[str]:
             for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 for color in _HEX_RE.findall(line):
                     errors.append(f"{relative}:{line_number}: raw hex {color}; use a design token")
+                if _FUNCTIONAL_COLOR_RE.search(line):
+                    errors.append(
+                        f"{relative}:{line_number}: raw rgb/hsl functional color; use a semantic token"
+                    )
                 if _NAMED_COLOR_DECL_RE.search(line):
                     errors.append(
                         f"{relative}:{line_number}: named white/black color declaration; use a semantic token"

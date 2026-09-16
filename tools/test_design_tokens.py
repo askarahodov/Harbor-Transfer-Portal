@@ -25,6 +25,8 @@ VALID_TOKENS = """:root {
   --color-action-surface: var(--color-bridge-blue);
   --color-on-accent: #FFFFFF;
   --color-brand-surface: var(--color-deep-harbor);
+  --color-brand-text-muted: #C4C9D0;
+  --color-brand-hover-surface: #102C5D;
   --color-focus-ring: var(--color-bridge-blue);
   --color-success-text: #065F46;
   --color-success-surface: var(--color-mint);
@@ -49,6 +51,8 @@ VALID_TOKENS = """:root {
     --color-action-surface: #1D4ED8;
     --color-on-accent: #FFFFFF;
     --color-brand-surface: #0B1E3A;
+    --color-brand-text-muted: #C4C9D0;
+    --color-brand-hover-surface: #102C5D;
     --color-focus-ring: #60A5FA;
     --color-success-text: #D1FAE5;
     --color-success-surface: #064E3B;
@@ -88,6 +92,8 @@ class DesignTokenCheckerTests(unittest.TestCase):
         self.assertGreaterEqual(contrast_ratio("#D1FAE5", "#064E3B"), 4.5)
         self.assertGreaterEqual(contrast_ratio("#FFFFFF", "#B91C1C"), 4.5)
         self.assertGreaterEqual(contrast_ratio("#FFFFFF", "#991B1B"), 4.5)
+        self.assertGreaterEqual(contrast_ratio("#C4C9D0", "#0B1E3A"), 4.5)
+        self.assertGreaterEqual(contrast_ratio("#FFFFFF", "#102C5D"), 4.5)
 
     def test_valid_repository_checks_both_themes(self) -> None:
         temporary, root = self._repository()
@@ -100,6 +106,9 @@ class DesignTokenCheckerTests(unittest.TestCase):
         self.assertTrue(any(row.startswith("[dark]") for row in rows))
         self.assertTrue(
             any("--color-on-danger-action / --color-danger-action-surface" in row for row in rows)
+        )
+        self.assertTrue(
+            any("--color-brand-text-muted / --color-brand-surface" in row for row in rows)
         )
 
     def test_low_contrast_dark_text_fails(self) -> None:
@@ -168,6 +177,18 @@ class DesignTokenCheckerTests(unittest.TestCase):
         errors, _ = check_repository(root)
 
         self.assertTrue(any("raw hex #991B1B" in error for error in errors))
+
+    def test_raw_functional_color_in_vue_is_rejected(self) -> None:
+        temporary, root = self._repository()
+        self.addCleanup(temporary.cleanup)
+        (root / "frontend/src/views/TestView.vue").write_text(
+            "<style scoped>.x { background: rgba(37, 99, 235, .2); }</style>\n",
+            encoding="utf-8",
+        )
+
+        errors, _ = check_repository(root)
+
+        self.assertTrue(any("raw rgb/hsl functional color" in error for error in errors))
 
     def test_named_white_or_black_declaration_is_rejected(self) -> None:
         temporary, root = self._repository()

@@ -98,8 +98,8 @@ async function logout(): Promise<void> {
 .brand { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; color: var(--color-on-accent); font-weight: 700; text-decoration: none; }
 .brand__mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-md); background: var(--color-action-surface); font-size: 12px; }
 .nav-list { display: grid; gap: var(--space-2); margin-top: var(--space-8); }
-.nav-link { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; padding: 0 var(--space-3); border-radius: var(--radius-md); color: rgba(255,255,255,.76); text-decoration: none; }
-.nav-link:hover, .nav-link:focus-visible, .nav-link.router-link-exact-active { background: rgba(37,99,235,.2); color: var(--color-on-accent); }
+.nav-link { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; padding: 0 var(--space-3); border-radius: var(--radius-md); color: var(--color-brand-text-muted); text-decoration: none; }
+.nav-link:hover, .nav-link:focus-visible, .nav-link.router-link-exact-active { background: var(--color-brand-hover-surface); color: var(--color-on-accent); }
 .workspace { min-width: 0; }
 .topbar { min-height: var(--layout-header); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-2) var(--space-6); border-bottom: 1px solid var(--color-border); background: var(--color-surface); }
 .topbar__identity { display: flex; align-items: baseline; gap: var(--space-2); }
