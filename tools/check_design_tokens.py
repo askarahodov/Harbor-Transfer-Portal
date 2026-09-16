@@ -33,6 +33,7 @@ _TEXT_PAIRS = (
     ("--color-action", "--color-background", 4.5),
     ("--color-on-accent", "--color-action-surface", 4.5),
     ("--color-on-accent", "--color-brand-surface", 4.5),
+    ("--color-on-danger-action", "--color-danger-action-surface", 4.5),
     ("--color-success-text", "--color-success-surface", 4.5),
     ("--color-warning-text", "--color-warning-surface", 4.5),
     ("--color-danger-text", "--color-danger-surface", 4.5),

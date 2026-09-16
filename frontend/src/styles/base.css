@@ -22,6 +22,16 @@ a, button { -webkit-tap-highlight-color: transparent; }
   outline: var(--focus-ring-width) solid var(--color-focus-ring) !important;
   outline-offset: var(--focus-ring-offset) !important;
 }
+/*
+ * Export/Import currently expose two scoped class names for the same filled
+ * destructive action. Rebind the variables consumed by those scoped rules to
+ * a dedicated action pair, keeping status text/surface tokens independent.
+ */
+.danger-button,
+.button--danger {
+  --color-danger-text: var(--color-danger-action-surface);
+  --color-on-accent: var(--color-on-danger-action);
+}
 .visually-hidden {
   position: absolute;
   width: 1px;
