@@ -32,6 +32,8 @@ VALID_TOKENS = """:root {
   --color-warning-surface: var(--color-sand);
   --color-danger-text: #991B1B;
   --color-danger-surface: var(--color-rose);
+  --color-danger-action-surface: #B91C1C;
+  --color-on-danger-action: #FFFFFF;
   --color-info-text: #1E40AF;
   --color-info-surface: var(--color-sky);
 }
@@ -54,6 +56,8 @@ VALID_TOKENS = """:root {
     --color-warning-surface: #78350F;
     --color-danger-text: #FEE2E2;
     --color-danger-surface: #7F1D1D;
+    --color-danger-action-surface: #991B1B;
+    --color-on-danger-action: #FFFFFF;
     --color-info-text: #DBEAFE;
     --color-info-surface: #1E3A8A;
   }
@@ -82,6 +86,8 @@ class DesignTokenCheckerTests(unittest.TestCase):
         self.assertGreaterEqual(contrast_ratio("#F8FAFC", "#111827"), 4.5)
         self.assertGreaterEqual(contrast_ratio("#FFFFFF", "#1D4ED8"), 4.5)
         self.assertGreaterEqual(contrast_ratio("#D1FAE5", "#064E3B"), 4.5)
+        self.assertGreaterEqual(contrast_ratio("#FFFFFF", "#B91C1C"), 4.5)
+        self.assertGreaterEqual(contrast_ratio("#FFFFFF", "#991B1B"), 4.5)
 
     def test_valid_repository_checks_both_themes(self) -> None:
         temporary, root = self._repository()
@@ -92,6 +98,9 @@ class DesignTokenCheckerTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertTrue(any(row.startswith("[light]") for row in rows))
         self.assertTrue(any(row.startswith("[dark]") for row in rows))
+        self.assertTrue(
+            any("--color-on-danger-action / --color-danger-action-surface" in row for row in rows)
+        )
 
     def test_low_contrast_dark_text_fails(self) -> None:
         temporary, root = self._repository(
@@ -103,6 +112,25 @@ class DesignTokenCheckerTests(unittest.TestCase):
 
         self.assertTrue(
             any("[dark] contrast --color-text / --color-surface" in error for error in errors)
+        )
+
+    def test_low_contrast_dark_danger_action_fails(self) -> None:
+        temporary, root = self._repository(
+            VALID_TOKENS.replace(
+                "--color-danger-action-surface: #991B1B;",
+                "--color-danger-action-surface: #FEE2E2;",
+            )
+        )
+        self.addCleanup(temporary.cleanup)
+
+        errors, _ = check_repository(root)
+
+        self.assertTrue(
+            any(
+                "[dark] contrast --color-on-danger-action / --color-danger-action-surface"
+                in error
+                for error in errors
+            )
         )
 
     def test_palette_reference_in_vue_is_rejected(self) -> None:
