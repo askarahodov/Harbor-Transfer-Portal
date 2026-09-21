@@ -18,9 +18,9 @@ from sqlalchemy import select
 from alembic import command
 from app.auth.security import hash_password
 from app.config import PortalContour, Settings
-from app.db.models import AuditEvent, UserRole
+from app.db.models import AuditEvent, Operation, UserRole
 from app.db.repositories import UserRepository
-from app.domain.bundle import BundleSource
+from app.domain.bundle import BundleSource, OperationStatus, OperationType
 from app.main import create_app
 from app.services.bundle_package_service import (
     BundlePackageError,
@@ -636,6 +636,94 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
         new_bundle.archive_path,
         sidecar_path=new_bundle.sidecar_path,
     ).signing_key_fingerprint == new_fingerprint
+
+
+def test_target_retirement_blocks_ready_import_and_reports_historical_impact(
+    tmp_path: Path,
+) -> None:
+    app = _build_app(tmp_path, PortalContour.TARGET)
+    source_key = Ed25519PrivateKey.generate()
+    fingerprint = ed25519_public_key_fingerprint(source_key.public_key())
+
+    with TestClient(app) as client:
+        admin = _login(client, "admin")
+        headers = _auth(admin)
+        added = client.post(
+            "/api/settings/keys/trusted",
+            json=_trusted_payload(source_key),
+            headers=headers,
+        )
+        assert added.status_code == 201
+
+        with app.state.session_factory() as session:
+            completed = Operation(
+                type=OperationType.IMPORT,
+                status=OperationStatus.COMPLETED,
+                actor_username="operator",
+                bundle_signing_key_fingerprint=fingerprint,
+            )
+            ready = Operation(
+                type=OperationType.IMPORT,
+                status=OperationStatus.READY,
+                actor_username="operator",
+                bundle_signing_key_fingerprint=fingerprint,
+            )
+            session.add_all([completed, ready])
+            session.commit()
+            ready_id = ready.id
+
+        impact = client.get(
+            f"/api/settings/keys/trusted/{fingerprint}/impact",
+            headers=headers,
+        )
+        assert impact.status_code == 200
+        assert impact.json() == {
+            "fingerprint": fingerprint,
+            "enabled": True,
+            "enabled_key_count": 1,
+            "historical_import_count": 2,
+            "blocking_operation_ids": [ready_id],
+            "can_retire": False,
+        }
+
+        blocked_disable = client.patch(
+            f"/api/settings/keys/trusted/{fingerprint}",
+            json={"enabled": False, "confirm": True},
+            headers=headers,
+        )
+        assert blocked_disable.status_code == 409
+        assert blocked_disable.json()["error"]["code"] == "trusted_key_retirement_blocked"
+
+        blocked_remove = client.delete(
+            f"/api/settings/keys/trusted/{fingerprint}",
+            params={"confirm": True},
+            headers=headers,
+        )
+        assert blocked_remove.status_code == 409
+        assert blocked_remove.json()["error"]["code"] == "trusted_key_retirement_blocked"
+
+        with app.state.session_factory() as session:
+            ready = session.get(Operation, ready_id)
+            assert ready is not None
+            ready.status = OperationStatus.COMPLETED
+            session.commit()
+
+        allowed = client.patch(
+            f"/api/settings/keys/trusted/{fingerprint}",
+            json={"enabled": False, "confirm": True},
+            headers=headers,
+        )
+        assert allowed.status_code == 200
+        assert allowed.json()["action"] == "disabled"
+
+        final_impact = client.get(
+            f"/api/settings/keys/trusted/{fingerprint}/impact",
+            headers=headers,
+        )
+        assert final_impact.status_code == 200
+        assert final_impact.json()["blocking_operation_ids"] == []
+        assert final_impact.json()["historical_import_count"] == 2
+        assert final_impact.json()["can_retire"] is True
 
 
 def test_target_managed_actions_canonicalize_legacy_filename(tmp_path: Path) -> None:
