@@ -123,11 +123,14 @@ if docker ps -a --format '{{.Names}}' | grep -F "$SOURCE_PROJECT" >/dev/null; th
 fi
 
 file_count=$(find "$SOURCE_OUT" -maxdepth 1 -type f | wc -l | tr -d ' ')
-[ "$file_count" = 5 ] || fail "SOURCE exported unexpected handoff file count: $file_count"
+[ "$file_count" = 6 ] || fail "SOURCE exported unexpected handoff file count: $file_count"
 archive=$(find "$SOURCE_OUT" -maxdepth 1 -type f -name '*.htp.tar.gz' -print)
 [ -n "$archive" ] || fail 'SOURCE did not produce transfer bundle'
 archive_base=$(basename "$archive")
 [ -f "$SOURCE_OUT/$archive_base.sha256" ] || fail 'SOURCE did not produce bundle sidecar'
+delivery_id=${archive_base%.htp.tar.gz}
+handoff="$SOURCE_OUT/$delivery_id.htp-handoff.json"
+[ -f "$handoff" ] || fail 'SOURCE did not produce signed handoff'
 bootstrap_trust="$SOURCE_OUT/bootstrap.htp-trust.tar.gz"
 rotation_trust="$SOURCE_OUT/rotation.htp-trust.tar.gz"
 fingerprint_file="$SOURCE_OUT/source-fingerprint.out-of-band.txt"
@@ -148,15 +151,17 @@ docker run --rm \
   --user 0 \
   --entrypoint /bin/sh \
   -e HTP_BUNDLE_NAME="$archive_base" \
+  -e HTP_HANDOFF_NAME="$delivery_id.htp-handoff.json" \
   -v "$SOURCE_OUT:/source:ro" \
   -v "$PHYSICAL:/physical" \
   "$ACCEPTANCE_IMAGE" \
   -c 'set -eu
       cp "/source/$HTP_BUNDLE_NAME" "/physical/$HTP_BUNDLE_NAME"
       cp "/source/$HTP_BUNDLE_NAME.sha256" "/physical/$HTP_BUNDLE_NAME.sha256"
+      cp "/source/$HTP_HANDOFF_NAME" "/physical/$HTP_HANDOFF_NAME"
       cp /source/bootstrap.htp-trust.tar.gz /physical/bootstrap.htp-trust.tar.gz
       cp /source/rotation.htp-trust.tar.gz /physical/rotation.htp-trust.tar.gz
-      chmod 0444         "/physical/$HTP_BUNDLE_NAME"         "/physical/$HTP_BUNDLE_NAME.sha256"         /physical/bootstrap.htp-trust.tar.gz         /physical/rotation.htp-trust.tar.gz'
+      chmod 0444         "/physical/$HTP_BUNDLE_NAME"         "/physical/$HTP_BUNDLE_NAME.sha256"         "/physical/$HTP_HANDOFF_NAME"         /physical/bootstrap.htp-trust.tar.gz         /physical/rotation.htp-trust.tar.gz'
 
 physical_count=$(find "$PHYSICAL" -maxdepth 1 -type f | wc -l | tr -d ' ')
 [ "$physical_count" = 4 ] \
