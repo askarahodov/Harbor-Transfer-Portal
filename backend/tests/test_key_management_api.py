@@ -8,7 +8,6 @@ import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
 from alembic.config import Config
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -23,7 +22,6 @@ from app.db.repositories import UserRepository
 from app.domain.bundle import BundleSource, OperationStatus, OperationType
 from app.main import create_app
 from app.services.bundle_package_service import (
-    BundlePackageError,
     BundlePackageService,
     HelmChartPackageInput,
 )
