@@ -18,7 +18,10 @@ type RuntimeModeUpdatePayload = {
   cancelled_operation_ids?: unknown
 }
 
-type FastApiErrorEnvelope = {
+type ApiErrorEnvelope = {
+  error?: {
+    code?: unknown
+  }
   detail?: {
     code?: unknown
   }
@@ -41,13 +44,14 @@ function readInjectedContour(): PortalContour | null {
 function cancelledOperationIds(value: unknown): number[] {
   if (!Array.isArray(value)) return []
   return value.filter(
-    (item): item is number => Number.isInteger(item) && typeof item === 'number' && item > 0,
+    (item): item is number => typeof item === 'number' && Number.isInteger(item) && item > 0,
   )
 }
 
 function modeSwitchErrorCode(error: unknown): string {
-  if (!axios.isAxiosError<FastApiErrorEnvelope>(error)) return 'runtime_mode_unavailable'
-  const code = error.response?.data?.detail?.code
+  if (!axios.isAxiosError<ApiErrorEnvelope>(error)) return 'runtime_mode_unavailable'
+  const payload = error.response?.data
+  const code = payload?.error?.code ?? payload?.detail?.code
   return typeof code === 'string' && code ? code : 'runtime_mode_unavailable'
 }
 
