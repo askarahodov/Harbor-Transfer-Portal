@@ -103,35 +103,26 @@ Export выполняет signing preflight до создания операци
 SOURCE admin может создать identity прямо из export UX и повторить запуск; operator получает
 инструкцию обратиться к admin.
 
-### Установка существующего ключа / rotation
+### Установка существующего ключа
 
-Admin выбирает незашифрованный PEM Ed25519 private key. Backend:
+Ручной PEM import разрешён только для первичной настройки, когда active signing identity ещё отсутствует. После появления active identity прямой `PUT /api/settings/keys/signing` возвращает `409 signing_rotation_required`.
 
-1. проверяет contour `SOURCE`;
-2. проверяет bounded size;
-3. парсит PEM до изменения файла;
-4. отклоняет public/RSA/другой key type;
-5. нормализует key в PKCS#8 PEM;
-6. пишет temporary file в server-controlled directory;
-7. выполняет file `fsync` и mode `0600` до atomic `os.replace`;
-8. считает `os.replace` commit boundary; post-commit directory `fsync` не превращает уже committed replacement в ложный failure;
-9. возвращает только fingerprint/action;
-10. пишет audit event без key material.
+Это намеренно: уже настроенный SOURCE нельзя ротировать обходя overlap workflow.
 
-Невалидный input не заменяет существующий signing key.
+### Staged rotation
 
-### Rotation
+Rotation состоит из трёх server-side состояний: active, pending и TARGET overlap.
 
-Если signing key уже существует, тот же workflow считается rotation. После успешной atomic replacement новые bundle подписываются новым key.
+1. SOURCE admin нажимает **Подготовить rotation**.
+2. Backend создаёт новый Ed25519 private key в `BUNDLE_PENDING_SIGNING_PRIVATE_KEY_FILE` с mode `0600`; active key не меняется.
+3. SOURCE скачивает pending trust package через `GET /api/settings/keys/signing/rotation/trust-package`.
+4. TARGET admin импортирует package; старый и новый public fingerprint остаются enabled одновременно.
+5. SOURCE admin активирует pending identity, передавая **точный expected fingerprint**.
+6. Backend сверяет fingerprint pending key и только затем атомарно заменяет active key.
+7. Старый TARGET public key остаётся enabled на overlap/rollback window.
+8. После impact-check старый trust можно disable/remove.
 
-Перед rotation SOURCE сначала обеспечьте trust overlap на TARGET:
-
-1. сгенерируйте новую Ed25519 key pair в доверенной административной среде;
-2. добавьте новый public key на TARGET, не отключая старый;
-3. убедитесь, что TARGET показывает оба fingerprint как `active`;
-4. ротируйте SOURCE private key;
-5. выдержите окно доставки bundle, созданных старым ключом;
-6. после завершения окна отключите или удалите старый TARGET public key.
+Повторный prepare при уже существующем pending key возвращает `409 pending_signing_key_already_configured`. Cancel удаляет только pending key и не затрагивает active identity. Private key bytes ни на одном этапе через API не возвращаются.
 
 ## 4. TARGET trust set
 
@@ -261,8 +252,11 @@ SOURCE events:
 ```text
 signing.key.generated
 signing.key.installed
-signing.key.rotated
 signing.trust_package.exported
+signing.rotation.prepared
+signing.rotation.trust_package.exported
+signing.rotation.activated
+signing.rotation.cancelled
 ```
 
 TARGET events:
@@ -282,7 +276,7 @@ Audit metadata содержит только безопасные identifiers/ac
 
 ## 10. Backup и restore
 
-SOURCE backup, содержащий `BUNDLE_SIGNING_PRIVATE_KEY_FILE`, является secret backup и должен защищаться как credential/private key material.
+SOURCE backup, содержащий `BUNDLE_SIGNING_PRIVATE_KEY_FILE` и/или `BUNDLE_PENDING_SIGNING_PRIVATE_KEY_FILE`, является secret backup и должен защищаться как credential/private key material. Offline lifecycle qualification проверяет восстановление active key, pending key и TARGET overlap trust set с restrictive permissions.
 
 TARGET trust directory не содержит private secrets, но определяет security trust policy и также должен входить в consistent configuration backup.
 
