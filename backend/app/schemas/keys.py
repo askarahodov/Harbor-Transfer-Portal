@@ -42,6 +42,11 @@ class KeyMutationResponse(BaseModel):
     fingerprint: str
 
 
+class TrustPackageImportResponse(KeyMutationResponse):
+    verification: str
+    endorsing_fingerprint: str | None = None
+
+
 class SigningRotationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
