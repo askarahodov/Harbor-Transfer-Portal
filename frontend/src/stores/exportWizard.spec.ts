@@ -163,6 +163,19 @@ describe('export wizard store', () => {
     })
   })
 
+  it('deduplicates aliases that resolve to the same immutable digest', () => {
+    const store = useExportWizardStore()
+    const aliased = artifact('1.0.0')
+    aliased.references = ['1.0.0', 'stable']
+
+    store.toggleArtifact(aliased, '1.0.0')
+    expect(store.selectedCount).toBe(1)
+    expect(store.isSelected(aliased, 'stable')).toBe(true)
+
+    store.toggleArtifact(aliased, 'stable')
+    expect(store.selectedCount).toBe(0)
+  })
+
   it('keeps unknown OCI references visible while selection remains fail-closed', () => {
     const store = useExportWizardStore()
     const unknown: HarborArtifact = {
