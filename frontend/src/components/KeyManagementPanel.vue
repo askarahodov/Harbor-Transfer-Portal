@@ -24,6 +24,7 @@ type KeySettings = {
 }
 
 const props = defineProps<{ contour: Contour }>()
+const emit = defineEmits<{ changed: [] }>()
 const runtime = useRuntimeStore()
 const effectiveContour = computed<Contour>(() => runtime.contour ?? props.contour)
 
@@ -90,9 +91,36 @@ async function generateSigningIdentity(): Promise<void> {
   try {
     await apiClient.post('/settings/keys/signing/generate')
     await loadKeys()
-    message.value = 'SOURCE signing identity создана. Скачайте public key для TARGET trust set.'
+    emit('changed')
+    message.value = 'SOURCE signing identity создана. Скачайте trust package для TARGET.'
   } catch (reason) {
     error.value = safeError('Не удалось создать SOURCE signing identity.', reason)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function downloadTrustPackage(): Promise<void> {
+  if (!requireMode('SOURCE') || !keySettings.value?.signing_key?.configured) return
+
+  busy.value = true
+  message.value = ''
+  error.value = ''
+  try {
+    const response = await apiClient.get<Blob>('/settings/keys/signing/trust-package', {
+      responseType: 'blob',
+    })
+    const href = URL.createObjectURL(response.data)
+    const anchor = document.createElement('a')
+    anchor.href = href
+    const disposition = String(response.headers['content-disposition'] ?? '')
+    const match = disposition.match(/filename="([^"]+)"/)
+    anchor.download = match?.[1] ?? 'source-trust.htp-trust.tar.gz'
+    anchor.click()
+    URL.revokeObjectURL(href)
+    message.value = 'SOURCE trust package подготовлен для переноса на TARGET.'
+  } catch (reason) {
+    error.value = safeError('Не удалось скачать SOURCE trust package.', reason)
   } finally {
     busy.value = false
   }
@@ -144,11 +172,48 @@ async function installSigningKey(event: Event): Promise<void> {
     const pem = await file.text()
     await apiClient.put('/settings/keys/signing', { pem })
     await loadKeys()
+    emit('changed')
     message.value = rotating
       ? 'SOURCE signing key ротирован. Проверьте overlap trust на TARGET.'
       : 'SOURCE signing key установлен.'
   } catch (reason) {
     error.value = safeError('Не удалось установить SOURCE signing key.', reason)
+  } finally {
+    busy.value = false
+    input.value = ''
+  }
+}
+
+async function importTrustPackage(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || !requireMode('TARGET')) return
+  if (!window.confirm('Импортировать SOURCE trust package и добавить identity в TARGET trust set?')) {
+    input.value = ''
+    return
+  }
+
+  busy.value = true
+  message.value = ''
+  error.value = ''
+  try {
+    const payload = await file.arrayBuffer()
+    const response = await apiClient.post(
+      '/settings/keys/trusted/package',
+      payload,
+      {
+        params: { confirm: true },
+        headers: { 'Content-Type': 'application/gzip' },
+      },
+    )
+    await loadKeys()
+    emit('changed')
+    message.value =
+      response.data.action === 'unchanged'
+        ? 'SOURCE identity уже была trusted; изменений не требуется.'
+        : 'SOURCE identity импортирована и включена в TARGET trust set.'
+  } catch (reason) {
+    error.value = safeError('Не удалось импортировать SOURCE trust package.', reason)
   } finally {
     busy.value = false
     input.value = ''
@@ -171,6 +236,7 @@ async function addTrustedKey(event: Event): Promise<void> {
     const pem = await file.text()
     await apiClient.post('/settings/keys/trusted', { pem, confirm: true })
     await loadKeys()
+    emit('changed')
     message.value = 'Trusted SOURCE public key добавлен.'
   } catch (reason) {
     error.value = safeError('Не удалось добавить trusted public key.', reason)
@@ -199,6 +265,7 @@ async function replaceTrustedKey(key: TrustedKeyStatus, event: Event): Promise<v
       confirm: true,
     })
     await loadKeys()
+    emit('changed')
     message.value = 'Trusted key атомарно заменён в существующем trust slot.'
   } catch (reason) {
     error.value = safeError('Не удалось заменить trusted public key.', reason)
@@ -222,6 +289,7 @@ async function setTrustedState(key: TrustedKeyStatus, enabled: boolean): Promise
       confirm: true,
     })
     await loadKeys()
+    emit('changed')
     message.value = enabled ? 'Trusted key включён.' : 'Trusted key отключён.'
   } catch (reason) {
     error.value = safeError('Не удалось изменить состояние trusted key.', reason)
@@ -242,6 +310,7 @@ async function removeTrustedKey(key: TrustedKeyStatus): Promise<void> {
       params: { confirm: true },
     })
     await loadKeys()
+    emit('changed')
     message.value = 'Trusted key удалён.'
   } catch (reason) {
     error.value = safeError('Не удалось удалить trusted key.', reason)
@@ -279,6 +348,10 @@ onMounted(loadKeys)
       <p v-if="keySettings.signing_key?.fingerprint" class="fingerprint">
         Fingerprint: <code>{{ keySettings.signing_key.fingerprint }}</code>
       </p>
+      <p class="status">
+        SOURCE readiness:
+        <strong>{{ keySettings.signing_key?.configured ? 'identity и trust package готовы' : 'нужно создать identity' }}</strong>
+      </p>
       <div class="actions">
         <button
           v-if="!keySettings.signing_key?.configured"
@@ -288,15 +361,23 @@ onMounted(loadKeys)
         >
           Создать signing identity
         </button>
-        <button
-          v-else
-          type="button"
-          class="secondary"
-          :disabled="busy"
-          @click="downloadSigningPublicKey"
-        >
-          Скачать public key
-        </button>
+        <template v-else>
+          <button
+            type="button"
+            :disabled="busy"
+            @click="downloadTrustPackage"
+          >
+            Скачать trust package
+          </button>
+          <button
+            type="button"
+            class="secondary"
+            :disabled="busy"
+            @click="downloadSigningPublicKey"
+          >
+            Скачать public key
+          </button>
+        </template>
       </div>
       <label for="source-signing-key">
         {{ keySettings.signing_key?.configured ? 'Ротация: Ed25519 private key, PEM' : 'Или установить существующий Ed25519 private key, PEM' }}
@@ -318,7 +399,20 @@ onMounted(loadKeys)
     <template
       v-else-if="keySettings && keySettings.contour === effectiveContour && effectiveContour === 'TARGET'"
     >
-      <label for="target-trusted-key">Добавить Ed25519 public key, PEM</label>
+      <p class="status">
+        TARGET readiness:
+        <strong>{{ keySettings.trusted_keys.some((key) => key.enabled) ? 'SOURCE trust настроен' : 'SOURCE trust не настроен' }}</strong>
+      </p>
+      <label for="target-trust-package">Импортировать SOURCE trust package</label>
+      <input
+        id="target-trust-package"
+        type="file"
+        accept=".gz,.tar.gz,application/gzip"
+        :disabled="busy"
+        @change="importTrustPackage"
+      />
+      <p class="status">Или добавьте отдельный Ed25519 public key вручную.</p>
+      <label for="target-trusted-key">Ed25519 public key, PEM</label>
       <input
         id="target-trusted-key"
         type="file"

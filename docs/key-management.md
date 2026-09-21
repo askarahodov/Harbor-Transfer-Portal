@@ -19,7 +19,9 @@ Admin API:
 GET    /api/settings/keys
 POST   /api/settings/keys/signing/generate
 GET    /api/settings/keys/signing/public
+GET    /api/settings/keys/signing/trust-package
 PUT    /api/settings/keys/signing
+POST   /api/settings/keys/trusted/package?confirm=true
 POST   /api/settings/keys/trusted
 PUT    /api/settings/keys/trusted/{fingerprint}
 PATCH  /api/settings/keys/trusted/{fingerprint}
@@ -72,12 +74,29 @@ Admin в **Настройки → Signing и trust keys** нажимает **С�
 
 Повторная генерация существующей identity возвращает `409 signing_key_already_configured` и **не выполняет rotation**.
 
-После генерации admin может нажать **Скачать public key**. Endpoint
-`GET /api/settings/keys/signing/public` возвращает только Ed25519 public PEM с
-`Cache-Control: no-store`; private PEM через normal API отсутствует.
+После генерации рекомендуемый first-run flow — **Скачать trust package**.
+`GET /api/settings/keys/signing/trust-package` формирует deterministic
+`.htp-trust.tar.gz`, содержащий только:
 
-Этот public key переносится разрешённым способом на TARGET и добавляется в TARGET trust set.
-SOURCE private key никогда не переносится между контурами.
+```text
+source-signing-public.pem
+identity.json
+fingerprint.sha256
+```
+
+`identity.json` фиксирует protocol kind/schema, Ed25519 algorithm и fingerprint.
+TARGET не доверяет metadata на слово: при импорте он заново парсит public key,
+вычисляет fingerprint и сверяет его одновременно с `identity.json` и
+`fingerprint.sha256`.
+
+Private key в trust package отсутствует и через normal API не выдаётся.
+Отдельный `GET /api/settings/keys/signing/public` сохранён как advanced/manual
+вариант для rotation и совместимости.
+
+На TARGET admin выбирает **Импортировать SOURCE trust package** и явно
+подтверждает enrollment. Повторный импорт той же active identity идемпотентен
+(`action=unchanged`); если identity была disabled, повторный import включает
+существующий trust slot. SOURCE private key никогда не переносится между контурами.
 
 Export выполняет signing preflight до создания операции и до Skopeo/Helm materialization.
 Если identity отсутствует, backend возвращает `409 bundle_signing_key_not_configured`.
@@ -115,6 +134,27 @@ Admin выбирает незашифрованный PEM Ed25519 private key. B
 6. после завершения окна отключите или удалите старый TARGET public key.
 
 ## 4. TARGET trust set
+
+### Рекомендуемый first-run bootstrap
+
+Fresh install выполняется так:
+
+```text
+SOURCE admin
+  → создать signing identity
+  → скачать .htp-trust.tar.gz
+  → физически перенести package
+TARGET admin
+  → импортировать SOURCE trust package
+  → проверить fingerprint
+  → TARGET готов к verification/import
+```
+
+Trust package import доступен только роли `admin`, требует `confirm=true`,
+ограничен по размеру `BUNDLE_TRUST_PACKAGE_MAX_BYTES` и принимает ровно
+allowlist из трёх regular files. Extra entries, duplicates, symlink/hardlink,
+malformed metadata, private-key substitution и fingerprint mismatch отклоняются
+до изменения trust store.
 
 TARGET принимает только Ed25519 public PEM. Private key, malformed PEM или другой key type отклоняются до изменения trust set.
 
@@ -210,6 +250,8 @@ remove old key после окончания rollback/delivery window
 
 Это deployment/security bound и не переносится в generic runtime transfer-policy UI.
 
+Trust package целиком ограничен `BUNDLE_TRUST_PACKAGE_MAX_BYTES`; default — `131072` bytes.
+
 Количество trusted keys дополнительно ограничивает `BUNDLE_MAX_TRUSTED_KEYS`. Atomic trust-slot replace не занимает дополнительный slot; обычный add занимает.
 
 ## 9. Audit
@@ -217,13 +259,16 @@ remove old key после окончания rollback/delivery window
 SOURCE events:
 
 ```text
+signing.key.generated
 signing.key.installed
 signing.key.rotated
+signing.trust_package.exported
 ```
 
 TARGET events:
 
 ```text
+trust.source_identity.imported
 trust.key.added
 trust.key.replaced
 trust.key.enabled

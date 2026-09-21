@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pypdf import PdfReader
 
 from app.auth.security import hash_password
@@ -41,6 +43,7 @@ from app.services.helm_oci_service import (
 )
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.import_retry import ImportRetryService, retry_of_operation_id
+from app.services.key_management import KeyManagementService
 from app.services.operation_manager import OperationManager
 from app.services.policy_aware_destination_plan import PolicyAwareImportDestinationPlanOrchestrator
 from app.services.report_service import build_operation_pdf, iter_operation_csv
@@ -118,7 +121,8 @@ class FakeHelmService:
 
 
 class FakePackageService:
-    def __init__(self) -> None:
+    def __init__(self, signer_fingerprint: str) -> None:
+        self.signer_fingerprint = signer_fingerprint
         self.chart_bytes = b"retry-chart-package"
         self.chart_sha = hashlib.sha256(self.chart_bytes).hexdigest()
         self.manifest = BundleManifest(
@@ -164,7 +168,7 @@ class FakePackageService:
             manifest=self.manifest,
             archive_sha256=BUNDLE_SHA,
             archive_size=len(BUNDLE_BYTES),
-            signing_key_fingerprint="1" * 64,
+            signing_key_fingerprint=self.signer_fingerprint,
             extracted_root=root,
         )
 
@@ -185,17 +189,18 @@ def _settings(tmp_path: Path, database_url: str) -> Settings:
         import_staging_root=data / "incoming" / "staged",
         import_receipt_root=data / "receipts" / "imports",
         operation_disk_reserve_bytes=0,
+        bundle_trusted_public_keys_dir=data / "keys" / "trusted-source",
     )
 
 
-def _preview(operation_id: int) -> ImportPreviewResponse:
+def _preview(operation_id: int, signer_fingerprint: str) -> ImportPreviewResponse:
     return ImportPreviewResponse(
         operation_id=operation_id,
         status=OperationStatus.READY,
         source_delivery_id=DELIVERY_ID,
         bundle_sha256=BUNDLE_SHA,
         bundle_size_bytes=len(BUNDLE_BYTES),
-        signing_key_fingerprint="1" * 64,
+        signing_key_fingerprint=signer_fingerprint,
         verified_at=datetime(2026, 9, 15, 10, 0, tzinfo=UTC),
         overwrite_allowed=True,
         artifacts=[
@@ -229,9 +234,17 @@ def _environment(tmp_path: Path):  # type: ignore[no-untyped-def]
     Base.metadata.create_all(engine)
     session_factory = create_session_factory(engine)
     manager = OperationManager(session_factory, settings)
+    signer = Ed25519PrivateKey.generate()
+    signer_pem = signer.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode("ascii")
+    signer_fingerprint = KeyManagementService(settings).add_trusted_public_key(
+        signer_pem
+    ).fingerprint
     skopeo = FakeSkopeoService()
     helm = FakeHelmService()
-    package_service = FakePackageService()
+    package_service = FakePackageService(signer_fingerprint)
 
     def package_factory() -> FakePackageService:
         return package_service
@@ -273,13 +286,16 @@ def _environment(tmp_path: Path):  # type: ignore[no-untyped-def]
             import_storage_key=STORAGE_KEY,
             import_intake_mode="upload",
             source_delivery_id=DELIVERY_ID,
-            bundle_signing_key_fingerprint="1" * 64,
+            bundle_signing_key_fingerprint=signer_fingerprint,
             total_artifacts=2,
             progress_total=2,
         )
         session.add(operation)
         session.flush()
-        operation.import_preview_json = _preview(operation.id).model_dump_json()
+        operation.import_preview_json = _preview(
+            operation.id,
+            signer_fingerprint,
+        ).model_dump_json()
         session.add_all(
             [
                 ArtifactResult(

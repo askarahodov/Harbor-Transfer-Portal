@@ -28,6 +28,7 @@ from app.services.helm_oci_service import (
     HelmTargetState,
 )
 from app.services.import_orchestrator import ImportOrchestrationError, ImportOrchestrator
+from app.services.key_management import KeyManagementService
 from app.services.operation_manager import OperationManager
 from app.services.skopeo_service import (
     ImportResult,
@@ -321,6 +322,47 @@ def test_signed_mixed_bundle_imports_and_writes_receipt(tmp_path: Path) -> None:
     text = receipt_path.read_text(encoding="utf-8")
     assert "password" not in text.lower()
     assert "secret" not in text.lower()
+
+
+def test_import_start_rejects_signer_disabled_after_verified_preview(
+    tmp_path: Path,
+) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    settings, manager, skopeo, helm, orchestrator = _target_environment(
+        tmp_path,
+        trusted_dir,
+    )
+
+    async def scenario() -> int:
+        operation_id = await _upload_and_preview(
+            manager,
+            orchestrator,
+            bundle.archive_path.read_bytes(),
+        )
+        preview = orchestrator.preview(operation_id)
+        mutation = KeyManagementService(settings).set_trusted_key_enabled(
+            preview.signing_key_fingerprint,
+            False,
+        )
+        assert mutation.action == "disabled"
+
+        with pytest.raises(ImportOrchestrationError) as blocked:
+            await orchestrator.start_import(
+                operation_id,
+                actor_username="target-operator",
+                overwrite_conflicts=False,
+            )
+        assert blocked.value.code == "import_signing_key_untrusted"
+        assert skopeo.import_calls == 0
+        assert helm.push_calls == 0
+        await manager.shutdown()
+        return operation_id
+
+    operation_id = asyncio.run(scenario())
+    operation = manager.get_operation(operation_id)
+    assert operation is not None
+    assert operation.status is OperationStatus.READY
 
 
 def test_same_artifacts_are_skipped_idempotently(tmp_path: Path) -> None:

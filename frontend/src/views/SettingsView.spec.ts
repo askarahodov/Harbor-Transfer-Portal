@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiClient } from '@/api/client'
+import { useRuntimeStore } from '@/stores/runtime'
 
 import SettingsView from './SettingsView.vue'
 
@@ -47,6 +48,18 @@ function response<T>(data: T): AxiosResponse<T> {
 async function mountSettings() {
   vi.spyOn(apiClient, 'get').mockImplementation((url) => {
     if (url === '/settings/transfer') return Promise.resolve(response(transferSettings))
+    if (url === '/harbor/connection') {
+      return Promise.resolve(response({ connected: true, version: '2.13.0', auth_mode: 'basic' }))
+    }
+    if (url === '/settings/keys') {
+      return Promise.resolve(
+        response({
+          contour: 'SOURCE',
+          signing_key: { configured: true, fingerprint: `sha256:${'a'.repeat(64)}` },
+          trusted_keys: [],
+        }),
+      )
+    }
     return Promise.resolve(response(safeSettings))
   })
   const wrapper = mount(SettingsView)
@@ -79,6 +92,55 @@ describe('Harbor settings view', () => {
       'source-a=target-a',
     )
     expect(wrapper.text()).toContain('Revision 3')
+    expect(wrapper.text()).toContain('First-run readiness')
+    expect(wrapper.text()).toContain('Harbor: доступен')
+    expect(wrapper.text()).toContain('Signing identity: готова')
+    expect(wrapper.text()).toContain('Trust package: можно скачать')
+  })
+
+  it('switches readiness to the live runtime contour without remounting', async () => {
+    const runtime = useRuntimeStore()
+    runtime.setContour('SOURCE')
+    vi.spyOn(apiClient, 'get').mockImplementation((url) => {
+      if (url === '/settings/transfer') return Promise.resolve(response(transferSettings))
+      if (url === '/harbor/connection') {
+        return Promise.resolve(response({ connected: true, version: '2.13.0', auth_mode: 'basic' }))
+      }
+      if (url === '/settings/keys') {
+        return Promise.resolve(
+          runtime.contour === 'TARGET'
+            ? response({
+                contour: 'TARGET',
+                signing_key: null,
+                trusted_keys: [{ fingerprint: `sha256:${'b'.repeat(64)}`, enabled: true }],
+              })
+            : response({
+                contour: 'SOURCE',
+                signing_key: { configured: true, fingerprint: `sha256:${'a'.repeat(64)}` },
+                trusted_keys: [],
+              }),
+        )
+      }
+      return Promise.resolve(
+        response({
+          ...safeSettings,
+          contour: runtime.contour ?? 'SOURCE',
+        }),
+      )
+    })
+
+    const wrapper = mount(SettingsView)
+    await flushPromises()
+    expect(wrapper.text()).toContain('Signing identity: готова')
+    expect(wrapper.text()).toContain('Trust package: можно скачать')
+
+    runtime.setContour('TARGET')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('TARGET')
+    expect(wrapper.text()).toContain('SOURCE trust: 1 active key(s)')
+    expect(wrapper.text()).toContain('Import readiness: готов')
+    expect(wrapper.text()).not.toContain('Signing identity: готова')
   })
 
   it('saves only non-secret Harbor settings through PATCH', async () => {

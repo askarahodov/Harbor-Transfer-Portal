@@ -54,6 +54,7 @@ describe('KeyManagementPanel', () => {
 
     expect(wrapper.text()).toContain(fingerprint)
     expect(wrapper.text()).toContain('Private key используется только server-side')
+    expect(wrapper.text()).toContain('Скачать trust package')
     expect(wrapper.text()).toContain('Скачать public key')
     expect(wrapper.find('#target-trusted-key').exists()).toBe(false)
   })
@@ -159,6 +160,49 @@ describe('KeyManagementPanel', () => {
       { params: { confirm: true } },
     )
     expect(window.confirm).toHaveBeenCalledTimes(2)
+  })
+
+  it('imports a SOURCE trust package into TARGET under explicit confirmation', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(apiClient, 'get')
+      .mockResolvedValueOnce(
+        response({ contour: 'TARGET', signing_key: null, trusted_keys: [] }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          contour: 'TARGET',
+          signing_key: null,
+          trusted_keys: [{ fingerprint, enabled: true }],
+        }),
+      )
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue(
+      response({ action: 'added', fingerprint }, 201),
+    )
+    const payload = new Uint8Array([31, 139, 8, 0]).buffer
+
+    const wrapper = mount(KeyManagementPanel, { props: { contour: 'TARGET' } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('SOURCE trust не настроен')
+
+    const input = wrapper.get('#target-trust-package')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [{ arrayBuffer: () => Promise.resolve(payload) }],
+    })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(window.confirm).toHaveBeenCalledOnce()
+    expect(post).toHaveBeenCalledWith(
+      '/settings/keys/trusted/package',
+      payload,
+      {
+        params: { confirm: true },
+        headers: { 'Content-Type': 'application/gzip' },
+      },
+    )
+    expect(wrapper.text()).toContain('SOURCE trust настроен')
+    expect(wrapper.text()).toContain('SOURCE identity импортирована')
   })
 
   it('confirms and uploads a TARGET public key file', async () => {

@@ -225,7 +225,11 @@ HARBOR_MANAGED_CA_FILE=./data/secrets/harbor-ca.pem
 
 SOURCE создаёт Bundle v1 и хранит Ed25519 private key только локально.
 
-Создать key pair можно на доверенной административной машине:
+Для новой установки рекомендуемый путь — **Settings → Signing и trust keys → Создать signing identity**. Backend сам генерирует Ed25519 private key, сохраняет его server-side с restrictive permissions и показывает только public fingerprint.
+
+После этого admin скачивает **SOURCE trust package** (`.htp-trust.tar.gz`). В нём только public material: public PEM, identity metadata и fingerprint. Private key туда не входит.
+
+Ручная генерация через OpenSSL остаётся advanced-вариантом для controlled rotation/import существующей identity:
 
 ```bash
 umask 077
@@ -233,7 +237,7 @@ openssl genpkey -algorithm ED25519 -out source-signing-private.pem
 openssl pkey -in source-signing-private.pem -pubout -out source-signing-public.pem
 ```
 
-Нормальная установка/rotation выполняется через **Settings → Signing и trust keys**. UI показывает status/fingerprint, но не возвращает private key после сохранения. Backend валидирует Ed25519, нормализует key и хранит его с restrictive permissions.
+UI показывает status/fingerprint, но не возвращает private key после сохранения. Backend валидирует Ed25519, нормализует key и хранит его с restrictive permissions.
 
 Private key нельзя передавать:
 
@@ -253,9 +257,11 @@ TARGET хранит только public keys:
 BUNDLE_TRUSTED_PUBLIC_KEYS_DIR=./data/keys/trusted-source
 ```
 
-Через UI можно добавить/заменить, enable/disable и удалить Ed25519 public key по fingerprint. Private/malformed/oversized material отклоняется.
+Для первичной настройки admin выбирает **Импортировать SOURCE trust package** и подтверждает enrollment. TARGET проверяет allowlist archive, Ed25519 public key и совпадение fingerprint с metadata до изменения trust set. Повторный импорт той же active identity идемпотентен.
 
-Public key должен поступать по доверенному организационному каналу. Для rotation используйте overlap двух enabled keys, затем disable/remove старый после migration window.
+Через UI также можно вручную добавить/заменить, enable/disable и удалить Ed25519 public key по fingerprint. Private/malformed/oversized material отклоняется.
+
+Trust package/public key должен поступать по утверждённому организационному каналу. Для rotation используйте overlap двух enabled keys, затем disable/remove старый после migration window.
 
 Подробнее: [key-management.md](key-management.md).
 
@@ -363,6 +369,10 @@ PORTAL_CONFIRM_PURGE=DELETE_PORTAL_DATA ./uninstall.sh --purge-data
 
 После admin configuration operator работает через browser. На universal instance текущая role выбирается runtime switcher; при физически раздельных контурах каждая installation всё равно взаимодействует только со своим local Harbor.
 
+Для первого обмена admin сначала выполняет trust bootstrap: SOURCE создаёт signing identity, скачивает `.htp-trust.tar.gz`, физически переносит его на TARGET, а TARGET admin импортирует SOURCE identity. First-run readiness в Settings показывает Harbor + identity/trust state.
+
+После bootstrap штатный operator flow:
+
 1. в `SOURCE` role `/export`: выбирает точные image/chart versions из local Harbor;
 2. проверяет preview/digests;
 3. запускает export и ждёт `COMPLETED`;
@@ -371,8 +381,8 @@ PORTAL_CONFIRM_PURGE=DELETE_PORTAL_DATA ./uninstall.sh --purge-data
 6. переключает принимающий Portal в `TARGET` role (если это universal single-instance scenario) и открывает `/import`;
 7. TARGET выполняет upload archive или discovery готовой archive+sidecar пары;
 8. TARGET проверяет archive/schema/signature/checksums до mutation;
-9. operator анализирует `NEW/SAME/CONFLICT/UNKNOWN/ERROR`;
-10. запускает допустимый import;
+9. перед mutation повторно проверяются signer trust, destination-plan integrity и final TARGET state;
+10. operator анализирует `NEW/SAME/CONFLICT/UNKNOWN/ERROR` и запускает допустимый import;
 11. проверяет receipt/history/CSV/PDF reports.
 
 `SAME` — idempotent skip. `CONFLICT` блокируется по умолчанию. `UNKNOWN/ERROR` не трактуются как `NEW`.

@@ -17,6 +17,7 @@ from app.schemas.keys import (
 )
 from app.services.key_management import KeyManagementError, KeyManagementService, KeyMutation
 from app.services.runtime_mode import RuntimeModeError, RuntimeModeService, RuntimeModeSnapshot
+from app.services.source_trust_package import SourceTrustPackageService, TrustPackageError
 
 router = APIRouter(prefix="/settings/keys", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
@@ -40,6 +41,56 @@ def _api_error(exc: KeyManagementError) -> HTTPException:
         status_code=mapping.get(exc.code, status.HTTP_422_UNPROCESSABLE_CONTENT),
         detail={"code": exc.code, "message": exc.message},
     )
+
+
+def _trust_package_error(exc: TrustPackageError) -> HTTPException:
+    mapping = {
+        "trust_package_wrong_contour": status.HTTP_409_CONFLICT,
+        "trusted_key_limit_exceeded": status.HTTP_409_CONFLICT,
+        "trust_package_size_invalid": status.HTTP_413_CONTENT_TOO_LARGE,
+        "trust_package_too_large": status.HTTP_500_INTERNAL_SERVER_ERROR,
+    }
+    return HTTPException(
+        status_code=mapping.get(exc.code, status.HTTP_422_UNPROCESSABLE_CONTENT),
+        detail={"code": exc.code, "message": exc.message},
+    )
+
+
+async def _bounded_request_body(request: Request, max_bytes: int) -> bytes:
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared = int(content_length)
+        except ValueError as exc:
+            raise _trust_package_error(
+                TrustPackageError(
+                    "trust_package_size_invalid",
+                    "Content-Length trust package некорректен",
+                )
+            ) from exc
+        if declared < 1 or declared > max_bytes:
+            raise _trust_package_error(
+                TrustPackageError(
+                    "trust_package_size_invalid",
+                    "Trust package пуст или превышает допустимый размер",
+                )
+            )
+
+    payload = bytearray()
+    async for chunk in request.stream():
+        payload.extend(chunk)
+        if len(payload) > max_bytes:
+            raise _trust_package_error(
+                TrustPackageError(
+                    "trust_package_size_invalid",
+                    "Trust package превышает допустимый размер",
+                )
+            )
+    if not payload:
+        raise _trust_package_error(
+            TrustPackageError("trust_package_size_invalid", "Trust package пуст")
+        )
+    return bytes(payload)
 
 
 def _runtime_error(exc: RuntimeModeError) -> HTTPException:
@@ -175,6 +226,74 @@ def download_signing_public_key(
             "X-Signing-Key-Fingerprint": public_key.fingerprint,
         },
     )
+
+
+@router.get("/signing/trust-package")
+def download_source_trust_package(
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> Response:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE) as runtime:
+            package = SourceTrustPackageService(request.app.state.settings).build()
+            _audit(
+                session,
+                admin,
+                "signing.trust_package.exported",
+                KeyMutation(action="exported", fingerprint=package.fingerprint),
+                runtime,
+            )
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except TrustPackageError as exc:
+        raise _trust_package_error(exc) from exc
+
+    return Response(
+        content=package.payload,
+        media_type="application/gzip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{package.filename}"',
+            "Cache-Control": "no-store",
+            "X-Signing-Key-Fingerprint": package.fingerprint,
+        },
+    )
+
+
+@router.post(
+    "/trusted/package",
+    response_model=KeyMutationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_source_trust_package(
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+    confirm: bool = Query(False),
+) -> KeyMutationResponse:
+    _require_confirmation(confirm)
+    payload = await _bounded_request_body(
+        request,
+        request.app.state.settings.bundle_trust_package_max_bytes,
+    )
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
+            mutation = SourceTrustPackageService(
+                request.app.state.settings
+            ).import_package(payload)
+            _audit(
+                session,
+                admin,
+                "trust.source_identity.imported",
+                mutation,
+                runtime,
+                extra={"package_format": "htp-trust-v1"},
+            )
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except TrustPackageError as exc:
+        raise _trust_package_error(exc) from exc
+    return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
 
 
 @router.put("/signing", response_model=KeyMutationResponse)
