@@ -224,7 +224,7 @@ describe('import wizard store', () => {
     expect(planSpy).toHaveBeenCalledTimes(2)
     expect(store.destinationPlan?.plan_id).toBe(PLAN_ID)
     expect(store.mappingDirty).toBe(true)
-    expect(store.error?.message).toContain('destination mapping')
+    expect(store.error?.message).toContain('Не удалось проверить TARGET Harbor')
   })
 
   it('blocks conflict by default and executes only with confirmed exact plan id plus overwrite approval', async () => {

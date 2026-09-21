@@ -174,7 +174,34 @@ beforeEach(() => {
 })
 
 describe('ImportDestinationMapping', () => {
-  it('builds a confirmed mixed destination plan from defaults, project mapping and override', async () => {
+  it('keeps common destination selection simple and previews TARGET refs before validation', async () => {
+    mockProjects()
+    const auth = useAuthStore()
+    auth.user = { id: 1, username: 'operator', role: 'operator', is_active: true }
+    auth.initialized = true
+    const wizard = useImportWizardStore()
+    wizard.operation = operation()
+    wizard.preview = preview()
+
+    const wrapper = mount(ImportDestinationMapping)
+    await flushPromises()
+
+    expect(wrapper.get('#mapping-title').text()).toContain('Куда будут импортированы артефакты')
+    expect(wrapper.findAll('details')).toHaveLength(2)
+    expect(wrapper.findAll('details').every((item) => item.attributes('open') === undefined)).toBe(true)
+
+    const selects = wrapper.findAll('select')
+    await selects[0]!.setValue('docker-default')
+    await selects[1]!.setValue('helm-default')
+
+    expect(wrapper.text()).toContain('docker-default/service:1.0.0')
+    expect(wrapper.text()).toContain('helm-default/platform/portal:2.3.4')
+    expect(wrapper.text()).toContain('TARGET ещё не проверен')
+    expect(wrapper.get('button.button--primary').text()).toBe('Проверить TARGET')
+    expect(wrapper.text()).toContain('Import не запускается')
+  })
+
+  it('preserves advanced mapping priority and confirms the remote TARGET state', async () => {
     mockProjects()
     const planSpy = vi.spyOn(importsApi, 'buildImportDestinationPlan').mockResolvedValue(plan())
     const auth = useAuthStore()
@@ -194,7 +221,11 @@ describe('ImportDestinationMapping', () => {
     await selects[2]!.setValue('mapped-app')
     await selects[5]!.setValue('override-charts')
 
-    expect(wizard.mappingDirty).toBe(true)
+    expect(wrapper.text()).toContain('mapped-app/service:1.0.0')
+    expect(wrapper.text()).toContain('override-charts/platform/portal:2.3.4')
+    expect(wrapper.text()).toContain('Правило SOURCE project "source-app"')
+    expect(wrapper.text()).toContain('Индивидуальное исключение')
+
     await wrapper.get('button.button--primary').trigger('click')
     await flushPromises()
 
@@ -205,13 +236,36 @@ describe('ImportDestinationMapping', () => {
       artifact_overrides: [{ index: 1, target_project: 'override-charts' }],
     })
     expect(wizard.confirmedPlanReady).toBe(true)
-    expect(wrapper.text()).toContain('Destination plan подтверждён')
-    expect(wrapper.text()).toContain('mapping policy rev 7')
+    expect(wrapper.text()).toContain('TARGET проверен')
+    expect(wrapper.text()).toContain('NEW · будет импортирован')
     expect(wrapper.text()).toContain('harbor.target.local/mapped-app/service:1.0.0')
     expect(wrapper.text()).toContain('oci://harbor.target.local/override-charts/platform/portal:2.3.4')
+    expect(wrapper.text()).not.toContain('mapping policy rev')
   })
 
-  it('keeps mapping controls read-only for viewer', async () => {
+  it('explains why changed destinations require revalidation', async () => {
+    mockProjects()
+    const auth = useAuthStore()
+    auth.user = { id: 1, username: 'operator', role: 'operator', is_active: true }
+    auth.initialized = true
+    const wizard = useImportWizardStore()
+    wizard.operation = operation()
+    wizard.preview = preview()
+    wizard.destinationPlan = plan()
+    wizard.mappingDirty = false
+
+    const wrapper = mount(ImportDestinationMapping)
+    await flushPromises()
+
+    const selects = wrapper.findAll('select')
+    await selects[0]!.setValue('docker-default')
+
+    expect(wrapper.text()).toContain('Настройки назначения изменились')
+    expect(wrapper.text()).toContain('Перед Import нужно ещё раз проверить TARGET')
+    expect(wrapper.text()).toContain('ничего в нём не изменялось')
+  })
+
+  it('keeps destination controls read-only for viewer', async () => {
     mockProjects()
     const auth = useAuthStore()
     auth.user = { id: 2, username: 'viewer', role: 'viewer', is_active: true }
@@ -225,7 +279,7 @@ describe('ImportDestinationMapping', () => {
     const wrapper = mount(ImportDestinationMapping)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Viewer видит подтверждённый destination plan только для чтения')
+    expect(wrapper.text()).toContain('Режим просмотра')
     expect(wrapper.findAll('select').every((field) => field.attributes('disabled') !== undefined)).toBe(true)
     expect(wrapper.find('button.button--primary').exists()).toBe(false)
     expect(wrapper.text()).toContain('harbor.target.local/mapped-app/service:1.0.0')

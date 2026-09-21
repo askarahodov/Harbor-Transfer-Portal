@@ -141,35 +141,37 @@ CREATED → VALIDATING → RUNNING → PACKAGING → VERIFYING → COMPLETED
 
 Не считайте bundle готовым только потому, что промежуточный archive появился на диске. Пользовательский download предлагается после успешной publication boundary.
 
-## 9. Шаг 4 — скачайте два файла
+## 9. Шаг 4 — скачайте комплект физической поставки
 
-После `COMPLETED` доступны действия:
+После `COMPLETED` для физического переноса используются:
 
-- **«Скачать bundle»** — archive вида `*.htp.tar.gz`;
-- **«Скачать .sha256»** — whole-file checksum sidecar.
+- **bundle** — archive вида `*.htp.tar.gz`;
+- **whole-file checksum** — `*.htp.tar.gz.sha256`;
+- **signed handoff** — `*.htp-handoff.json`.
 
 Перед физическим переносом убедитесь, что:
 
-- скачаны **оба** файла;
-- у них одинаковое базовое имя;
-- archive не был переименован отдельно от sidecar;
-- файл не распаковывался и не редактировался вручную.
+- скачаны **все три** файла одной delivery;
+- их Delivery ID совпадает;
+- archive не был переименован отдельно от sidecar/handoff;
+- файлы не редактировались вручную.
 
-SOURCE UI прямо рекомендует переносить archive и `.sha256` вместе.
+Signed handoff связывает фактический archive и sidecar с SOURCE identity и проверяется TARGET до Bundle v1 preview.
 
 ## 10. Физический перенос
 
-Скопируйте оба файла на разрешённый физический носитель по вашей организационной процедуре:
+Скопируйте комплект одной delivery на разрешённый физический носитель по вашей организационной процедуре:
 
 ```text
 <delivery>.htp.tar.gz
 <delivery>.htp.tar.gz.sha256
+<delivery>.htp-handoff.json
 ```
 
 Правила:
 
 - не изменяйте содержимое archive;
-- не пересчитывайте и не «исправляйте» sidecar вручную;
+- не пересчитывайте и не «исправляйте» sidecar/handoff вручную;
 - не добавляйте в bundle пароли, токены или private keys;
 - не распаковывайте недоверенный archive вручную на TARGET;
 - доставьте носитель в TARGET по утверждённой процедуре контроля физического переноса.
@@ -196,15 +198,17 @@ Wizard состоит из трёх этапов:
 
 Есть два поддерживаемых пользовательских варианта.
 
-### Вариант A — загрузка archive через браузер
+### Вариант A — физическая поставка через браузер
 
-Подходит для умеренного размера пакета.
+Это основной операторский путь. Перенесите в TARGET-контур **три файла одной delivery**:
 
-1. Перенесите bundle и `.sha256` в TARGET по физической процедуре.
-2. В `/import` перетащите **`.htp.tar.gz` archive** в область загрузки или выберите его через file picker.
-3. Дождитесь окончания upload и backend verification.
+- `<delivery>.htp.tar.gz`;
+- `<delivery>.htp.tar.gz.sha256`;
+- `<delivery>.htp-handoff.json`.
 
-Browser upload отправляет archive как stream; пользователь не должен использовать multipart-обходы, CLI или ручную распаковку.
+В `/import` выберите или перетащите все три файла одновременно. Portal проверит, что имена относятся к одному Delivery ID, затем передаст большой archive как raw stream и привяжет к нему signed handoff и checksum sidecar.
+
+Оператору не нужны `docker cp`, доступ к filesystem контейнера, CLI или ручная распаковка.
 
 ### Вариант B — большой пакет / transfer media
 
@@ -250,10 +254,35 @@ TARGET сначала проверяет bundle и только потом ра�
 | `UNKNOWN` | TARGET state нельзя надёжно доказать | не импортировать |
 | `ERROR` | проверка TARGET завершилась ошибкой | не импортировать |
 
+### Куда будут импортированы артефакты
+
+Сначала выберите TARGET projects по типу:
+
+- **Container images → TARGET project**;
+- **Helm charts → TARGET project**.
+
+Для обычной поставки этого достаточно. Portal сохраняет имя repository/chart и tag/version, меняя только project назначения. До обращения к Harbor экран сразу показывает ожидаемый маршрут **SOURCE → TARGET**.
+
+Кнопка **«Проверить TARGET»** ничего не импортирует. Она только подтверждает:
+
+- существует ли TARGET project;
+- разрешена ли запись;
+- существует ли уже итоговая reference;
+- является ли она `NEW`, `SAME`, `CONFLICT`, `UNKNOWN` или `ERROR`.
+
+Расширенные правила по умолчанию свёрнуты:
+
+- правило **SOURCE project → TARGET project** нужно, если целый исходный project должен идти не в общий project по типу;
+- индивидуальное исключение нужно, если только один конкретный artifact должен попасть в другой project;
+- приоритет: индивидуальное исключение → правило SOURCE project → project по умолчанию.
+
+Если назначение изменено после проверки, Import блокируется до повторного **«Проверить TARGET»**. Это не означает изменение Harbor — новая настройка только ещё раз проходит read-only validation.
+
 Перед нажатием import проверьте:
 
 - SOURCE delivery metadata;
 - комментарий SOURCE, если есть;
+- итоговые TARGET references;
 - ожидаемые digests;
 - классификацию каждого image/chart;
 - список конфликтов;
@@ -420,7 +449,7 @@ Import должен оставаться заблокированным. Сна�
 
 ### Недостаточно места / слишком большой browser upload
 
-Для большого пакета используйте documented incoming directory/transfer-media flow с парой archive + `.sha256` и действие **«Обнаружить готовые пакеты»**.
+Если пакет превышает configured browser upload policy или носитель смонтирован непосредственно на TARGET server, используйте incoming/transfer-media flow с archive + `.sha256` + signed `.htp-handoff.json` и действие **«Обнаружить готовые пакеты»**.
 
 ### Operation прервалась после restart
 
@@ -456,6 +485,7 @@ Portal не обещает прозрачное продолжение сере�
 
 - `.htp.tar.gz`;
 - соответствующий `.sha256`;
+- signed `.htp-handoff.json`;
 - при отдельной организационной процедуре — публичный trust material или receipt, если это требуется эксплуатации.
 
 В bundle не должны попадать Harbor credentials, JWT secret или private signing key.
@@ -473,7 +503,7 @@ Portal не обещает прозрачное продолжение сере�
 - SOURCE Harbor browse и 4-step export wizard;
 - подписанный Offline Bundle v1;
 - archive + `.sha256` download;
-- TARGET browser upload и incoming ready-pair discovery;
+- TARGET browser intake полного физического triplet (bundle + `.sha256` + signed handoff) и incoming discovery;
 - schema/signature/checksum verification до Harbor mutation;
 - NEW/SAME/CONFLICT/UNKNOWN/ERROR preview;
 - safe default no-overwrite;
