@@ -897,6 +897,24 @@ async def target_phase() -> None:
 
     incoming = settings.import_discovery_root
     incoming.mkdir(parents=True, exist_ok=True)
+
+    # A signed handoff must detect media tamper before any import operation or
+    # registry mutation occurs.
+    for physical_file in (archive, sidecar, bootstrap_package, rotation_package):
+        shutil.copy2(physical_file, incoming / physical_file.name)
+    (incoming / archive.name).write_bytes(b"tampered-physical-media\n")
+    try:
+        MediaHandoffService(settings).verify_from_discovery(handoff.read_bytes())
+    except MediaHandoffError as exc:
+        if exc.code != "handoff_file_mismatch":
+            raise
+    else:
+        fail("tampered physical media unexpectedly passed signed handoff verification")
+    if registry_manifest_digest(f"{IMAGE_TARGET_PROJECT}/images/app", IMAGE_TAG) is not None:
+        fail("handoff tamper verification mutated TARGET registry")
+    for physical_file in (archive, sidecar, bootstrap_package, rotation_package):
+        (incoming / physical_file.name).unlink(missing_ok=True)
+
     for physical_file in (archive, sidecar, bootstrap_package, rotation_package):
         shutil.copy2(physical_file, incoming / physical_file.name)
     handoff_verified = MediaHandoffService(settings).verify_from_discovery(
