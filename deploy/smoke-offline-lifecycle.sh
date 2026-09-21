@@ -276,6 +276,28 @@ grep -F "harbor-transfer-portal-backend:$OLD_VERSION" "$FAKE_LOG" >/dev/null || 
   fail 'backup did not use the currently configured backend image'
 grep -F 'compose --env-file' "$FAKE_LOG" | grep -F ' up -d --no-build --pull never --wait --wait-timeout 180' >/dev/null || \
   fail 'upgrade must start Compose with explicit no-build/no-pull semantics'
+grep -F ' compose ' "$FAKE_LOG" >/dev/null 2>&1 || :
+if grep -F ' unpause' "$FAKE_LOG" >/dev/null; then
+  fail 'transactional failed-upgrade path unpaused old workload between snapshot and rollback'
+fi
+
+# A pre-start validation failure after snapshot must release the quiesced old workload.
+KIT_EARLY_FAIL=$(extract_kit "$TMP/early-fail")
+: > "$FAKE_LOG"
+if PORTAL_BACKUP_DIR="$TMP/backups-early-fail" PORTAL_INSTALL_TIMEOUT_SECONDS=invalid \
+  sh "$KIT_EARLY_FAIL/upgrade.sh" "$PREVIOUS" \
+  >"$TMP/early-fail.out" 2>"$TMP/early-fail.err"; then
+  fail 'upgrade unexpectedly accepted invalid timeout'
+fi
+grep -F ' pause' "$FAKE_LOG" >/dev/null || \
+  fail 'early-fail upgrade did not quiesce old workload for snapshot'
+grep -F ' unpause' "$FAKE_LOG" >/dev/null || \
+  fail 'early-fail upgrade did not release old workload from quiescence'
+if grep -F ' up -d --no-build --pull never --wait' "$FAKE_LOG" >/dev/null; then
+  fail 'early-fail upgrade reached new-version startup'
+fi
+[ ! -e "$KIT_EARLY_FAIL/.env" ] || \
+  fail 'early-fail new kit retained activation .env'
 
 # If both new startup and matching-version restore startup fail, stop with ROLLBACK_FAILED.
 KIT_ROLLBACK_FAIL=$(extract_kit "$TMP/rollback-fail")
