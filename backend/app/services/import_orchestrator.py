@@ -37,7 +37,11 @@ from app.services.helm_oci_service import (
     HelmTargetState,
 )
 from app.services.key_management import KeyManagementError, KeyManagementService
-from app.services.media_handoff import MediaHandoffError, MediaHandoffService
+from app.services.media_handoff import (
+    HandoffVerificationResult,
+    MediaHandoffError,
+    MediaHandoffService,
+)
 from app.services.operation_manager import (
     OperationContext,
     OperationManager,
@@ -66,6 +70,7 @@ class ImportIntakeResult:
     operation_id: int
     status: OperationStatus
     intake_mode: ImportIntakeMode
+    handoff_verification: HandoffVerificationResult | None = None
 
 
 PackageFactory = Callable[[], BundlePackageService]
@@ -106,8 +111,41 @@ class ImportOrchestrator:
         content_length: int | None,
         actor_user_id: int,
         actor_username: str,
+        filename: str | None = None,
+        sidecar: bytes | None = None,
+        handoff: bytes | None = None,
     ) -> ImportIntakeResult:
         self._require_target()
+        browser_handoff = any(value is not None for value in (filename, sidecar, handoff))
+        if browser_handoff and (filename is None or sidecar is None or handoff is None):
+            raise ImportOrchestrationError(
+                "browser_handoff_required",
+                "Browser physical transfer требует bundle, .sha256 и signed handoff вместе",
+            )
+        archive_name = "bundle.htp.tar.gz"
+        if browser_handoff:
+            assert filename is not None and sidecar is not None and handoff is not None
+            if (
+                Path(filename).name != filename
+                or len(filename) > 240
+                or not filename.endswith(".htp.tar.gz")
+            ):
+                raise ImportOrchestrationError(
+                    "browser_bundle_filename_invalid",
+                    "Имя browser bundle некорректно",
+                )
+            if (
+                not sidecar
+                or len(sidecar) > self.settings.bundle_max_metadata_bytes
+                or not handoff
+                or len(handoff) > self.settings.bundle_max_metadata_bytes
+            ):
+                raise ImportOrchestrationError(
+                    "browser_handoff_invalid",
+                    "Browser companion metadata пусты или превышают допустимый лимит",
+                )
+            archive_name = filename
+
         if content_length is not None:
             if content_length < 1:
                 raise ImportOrchestrationError("import_upload_empty", "Upload не содержит bundle")
@@ -120,10 +158,11 @@ class ImportOrchestrator:
 
         storage_key = secrets.token_hex(24)
         storage_dir = self._prepare_storage_dir(storage_key)
-        temporary = storage_dir / "bundle.htp.tar.gz.part"
-        archive = storage_dir / "bundle.htp.tar.gz"
+        archive = storage_dir / archive_name
+        temporary = archive.with_name(archive.name + ".part")
         digest = hashlib.sha256()
         total = 0
+        verification: HandoffVerificationResult | None = None
         try:
             with temporary.open("xb") as handle:
                 os.chmod(temporary, 0o600)
@@ -143,6 +182,26 @@ class ImportOrchestrator:
             if total == 0:
                 raise ImportOrchestrationError("import_upload_empty", "Upload не содержит bundle")
             os.replace(temporary, archive)
+
+            if browser_handoff:
+                assert sidecar is not None and handoff is not None
+                delivery_id = archive.name.removesuffix(".htp.tar.gz")
+                sidecar_path = storage_dir / f"{archive.name}.sha256"
+                handoff_path = storage_dir / f"{delivery_id}.htp-handoff.json"
+                sidecar_path.write_bytes(sidecar)
+                handoff_path.write_bytes(handoff)
+                os.chmod(sidecar_path, 0o600)
+                os.chmod(handoff_path, 0o600)
+                verification = MediaHandoffService(self.settings).verify_from_directory(
+                    handoff,
+                    storage_dir,
+                )
+                if verification.delivery_id != delivery_id:
+                    raise ImportOrchestrationError(
+                        "handoff_delivery_mismatch",
+                        "Signed handoff относится к другому Delivery ID",
+                    )
+
             self._fsync_directory(storage_dir)
             operation_id = self._create_intake_operation(
                 actor_user_id=actor_user_id,
@@ -154,12 +213,20 @@ class ImportOrchestrator:
                 sha256=digest.hexdigest(),
                 size_bytes=total,
             )
+        except MediaHandoffError as exc:
+            shutil.rmtree(storage_dir, ignore_errors=True)
+            raise ImportOrchestrationError(exc.code, exc.message) from exc
         except Exception:
             shutil.rmtree(storage_dir, ignore_errors=True)
             raise
 
         self._submit_preview(operation_id)
-        return ImportIntakeResult(operation_id, OperationStatus.UPLOADED, ImportIntakeMode.UPLOAD)
+        return ImportIntakeResult(
+            operation_id,
+            OperationStatus.UPLOADED,
+            ImportIntakeMode.UPLOAD,
+            verification,
+        )
 
     async def discover_ready(
         self,
