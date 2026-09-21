@@ -332,8 +332,7 @@ def test_target_verification_uses_only_explicit_trust_not_local_signing_key(tmp_
         _switch(client, headers, PortalContour.SOURCE)
         # TARGET trust material remains present but cannot influence SOURCE signing.
         second = _build_bundle(app.state.settings, "DELIVERY-20260915-KEYISO2")
-        expected_local = ed25519_public_key_fingerprint(local_signer_after_rotation.public_key())
-        assert second.signing_key_fingerprint == expected_local
+        assert second.signing_key_fingerprint == local_fingerprint_after_rotation
         assert second.signing_key_fingerprint != bundle_fingerprint
 
 
