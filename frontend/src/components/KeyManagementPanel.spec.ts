@@ -54,7 +54,7 @@ describe('KeyManagementPanel', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain(fingerprint)
-    expect(wrapper.text()).toContain('Private key используется только server-side')
+    expect(wrapper.text()).toContain('Private key остаётся только server-side')
     expect(wrapper.text()).toContain('Скачать active trust package')
     expect(wrapper.text()).toContain('Скачать public key')
     expect(wrapper.text()).toContain('Подготовить rotation')
