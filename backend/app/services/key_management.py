@@ -589,7 +589,25 @@ class KeyManagementService:
                 path.unlink(missing_ok=True)
 
     def _atomic_create_signing_key(self, payload: bytes) -> None:
-        parent = self.signing_path.parent
+        self._atomic_create_private_key(
+            self.signing_path,
+            payload,
+            conflict_code="signing_key_already_configured",
+            conflict_message=(
+                "SOURCE signing identity уже настроена; используйте rotation "
+                "вместо повторной генерации"
+            ),
+        )
+
+    def _atomic_create_private_key(
+        self,
+        path: Path,
+        payload: bytes,
+        *,
+        conflict_code: str,
+        conflict_message: str,
+    ) -> None:
+        parent = path.parent
         parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if parent.is_symlink() or not parent.is_dir():
             raise KeyManagementError(
@@ -598,7 +616,7 @@ class KeyManagementService:
             )
 
         fd, temporary_name = tempfile.mkstemp(
-            prefix=f".{self.signing_path.name}-",
+            prefix=f".{path.name}-",
             dir=parent,
         )
         temporary = Path(temporary_name)
@@ -609,26 +627,22 @@ class KeyManagementService:
                 os.fsync(handle.fileno())
             os.chmod(temporary, 0o600)
             try:
-                os.link(temporary, self.signing_path, follow_symlinks=False)
+                os.link(temporary, path, follow_symlinks=False)
             except FileExistsError as exc:
                 raise KeyManagementError(
-                    "signing_key_already_configured",
-                    "SOURCE signing identity уже настроена; используйте rotation "
-                "вместо повторной генерации",
+                    conflict_code,
+                    conflict_message,
                 ) from exc
             try:
                 self._fsync_directory(parent)
             except OSError:
-                # The hard link is the commit boundary. A post-commit directory
-                # fsync failure must not report that generation failed after the
-                # signing identity has already become authoritative.
                 pass
         except KeyManagementError:
             raise
         except OSError as exc:
             raise KeyManagementError(
                 "key_store_write_failed",
-                "Не удалось атомарно создать SOURCE signing identity",
+                "Не удалось атомарно создать private key material",
             ) from exc
         finally:
             temporary.unlink(missing_ok=True)
