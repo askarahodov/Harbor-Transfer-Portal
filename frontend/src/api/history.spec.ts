@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { apiClient } from '@/api/client'
 import { listOperationHistory } from '@/api/history'
 
 describe('history API', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('projects bounded pagination and filters to backend query parameters', async () => {
     const get = vi.spyOn(apiClient, 'get').mockResolvedValue({
       data: { items: [], total: 0, limit: 25, offset: 25 },
