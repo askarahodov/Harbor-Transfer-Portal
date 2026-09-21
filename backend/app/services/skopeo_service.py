@@ -148,6 +148,13 @@ class AsyncioCommandRunner:
                 environment[name] = value
         return environment
 
+    @staticmethod
+    def _argv_for_isolated_cwd(argv: tuple[str, ...]) -> tuple[str, ...]:
+        executable = Path(argv[0])
+        if executable.is_absolute() or len(executable.parts) == 1:
+            return argv
+        return (os.path.abspath(argv[0]), *argv[1:])
+
     async def run(
         self,
         argv: tuple[str, ...],
@@ -156,13 +163,14 @@ class AsyncioCommandRunner:
         output_limit_bytes: int,
         redact_values: tuple[str, ...] = (),
     ) -> CommandResult:
+        isolated_argv = self._argv_for_isolated_cwd(argv)
         if self.temp_root is not None:
             self.temp_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         with tempfile.TemporaryDirectory(prefix="htp-skopeo-exec-", dir=self.temp_root) as raw_root:
             root = Path(raw_root)
             os.chmod(root, 0o700)
             process = await asyncio.create_subprocess_exec(
-                *argv,
+                *isolated_argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(root),
