@@ -156,6 +156,71 @@ def test_key_settings_and_mutations_are_admin_only(tmp_path: Path) -> None:
             assert denied.status_code == 403
 
 
+def test_admin_can_generate_identity_and_export_only_public_key(tmp_path: Path) -> None:
+    app = _build_app(tmp_path, PortalContour.SOURCE)
+
+    with TestClient(app) as client:
+        admin = _login(client, "admin")
+        operator = _login(client, "operator")
+        headers = _auth(admin)
+
+        denied_generate = client.post(
+            "/api/settings/keys/signing/generate",
+            headers=_auth(operator),
+        )
+        assert denied_generate.status_code == 403
+
+        generated = client.post("/api/settings/keys/signing/generate", headers=headers)
+        assert generated.status_code == 201
+        payload = generated.json()
+        assert payload["action"] == "generated"
+        fingerprint = payload["fingerprint"]
+        assert fingerprint.startswith("sha256:")
+
+        key_path = app.state.settings.bundle_signing_private_key_file
+        private_bytes = key_path.read_bytes()
+        assert b"PRIVATE KEY" in private_bytes
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+        assert private_bytes not in generated.content
+
+        public_response = client.get("/api/settings/keys/signing/public", headers=headers)
+        assert public_response.status_code == 200
+        assert public_response.headers["cache-control"] == "no-store"
+        assert public_response.headers["x-signing-key-fingerprint"] == fingerprint
+        assert "source-signing-public.pem" in public_response.headers["content-disposition"]
+        assert b"PUBLIC KEY" in public_response.content
+        assert b"PRIVATE KEY" not in public_response.content
+
+        public_key = serialization.load_pem_public_key(public_response.content)
+        assert ed25519_public_key_fingerprint(public_key) == fingerprint
+
+        denied_public = client.get(
+            "/api/settings/keys/signing/public",
+            headers=_auth(operator),
+        )
+        assert denied_public.status_code == 403
+
+        duplicate = client.post("/api/settings/keys/signing/generate", headers=headers)
+        assert duplicate.status_code == 409
+        assert duplicate.json()["error"]["code"] == "signing_key_already_configured"
+        assert key_path.read_bytes() == private_bytes
+
+    with app.state.session_factory() as session:
+        events = list(
+            session.scalars(
+                select(AuditEvent)
+                .where(AuditEvent.event_type == "signing.key.generated")
+                .order_by(AuditEvent.id)
+            )
+        )
+    assert len(events) == 1
+    assert events[0].actor_username == "admin"
+    metadata = json.loads(events[0].metadata_json)
+    assert metadata["action"] == "generated"
+    assert metadata["fingerprint"] == fingerprint
+    assert "PRIVATE KEY" not in events[0].metadata_json
+
+
 def test_source_private_key_is_atomic_private_and_never_disclosed(tmp_path: Path) -> None:
     app = _build_app(tmp_path, PortalContour.SOURCE)
     old_key = Ed25519PrivateKey.generate()
