@@ -11,7 +11,7 @@ from app.auth.security import (
 )
 from app.config import BrowserScheme
 from app.db.models import User, UserRole
-from app.db.repositories import UserRepository
+from app.db.repositories import AuditEventRepository, UserRepository
 from app.domain.bundle import OperationStatus, OperationType
 from app.schemas.exports import (
     ExportBundleResponse,
@@ -76,6 +76,10 @@ def _export_error(exc: ExportOrchestrationError) -> HTTPException:
         "export_bundle_missing": status.HTTP_500_INTERNAL_SERVER_ERROR,
         "export_bundle_metadata_invalid": status.HTTP_500_INTERNAL_SERVER_ERROR,
         "export_bundle_path_invalid": status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "export_handoff_not_available": status.HTTP_409_CONFLICT,
+        "export_handoff_missing": status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "export_handoff_metadata_invalid": status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "export_handoff_path_invalid": status.HTTP_500_INTERNAL_SERVER_ERROR,
         "export_operation_create_failed": status.HTTP_500_INTERNAL_SERVER_ERROR,
     }
     return _api_error(
@@ -285,6 +289,44 @@ def create_download_ticket(
     return ExportDownloadTicketResponse(
         download_url=download_path,
         expires_in_seconds=_EXPORT_DOWNLOAD_TTL_SECONDS,
+    )
+
+
+@router.get("/{operation_id}/handoff", response_class=FileResponse)
+def download_export_handoff(
+    operation_id: int,
+    actor: ExportActorDep,
+    session: SessionDep,
+    orchestrator: ExportOrchestratorDep,
+) -> FileResponse:
+    _authorize_operation(orchestrator, operation_id, actor)
+    try:
+        metadata = orchestrator.handoff_metadata(operation_id)
+    except ExportOrchestrationError as exc:
+        raise _export_error(exc) from exc
+
+    AuditEventRepository(session).create(
+        actor=actor,
+        event_type="physical.handoff.downloaded",
+        result="downloaded",
+        metadata={
+            "operation_id": operation_id,
+            "delivery_id": metadata.delivery_id,
+            "handoff_sha256": metadata.sha256,
+            "signing_key_fingerprint": metadata.signing_key_fingerprint,
+        },
+    )
+    session.commit()
+    return FileResponse(
+        path=metadata.handoff_path,
+        filename=metadata.handoff_path.name,
+        media_type="application/json",
+        headers={
+            "X-Checksum-SHA256": metadata.sha256,
+            "X-Signing-Key-Fingerprint": metadata.signing_key_fingerprint,
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

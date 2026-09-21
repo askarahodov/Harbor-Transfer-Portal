@@ -33,6 +33,7 @@ from app.domain.bundle import (
 )
 from app.domain.protocol import canonical_manifest_bytes, validate_archive_members
 from app.services.key_material import ed25519_public_key_fingerprint
+from app.services.media_handoff import MediaHandoffError, MediaHandoffService
 
 _CRITICAL_FILES = ("manifest.json", "manifest.sig", "checksums.sha256")
 _ALLOWED_PAYLOAD_ROOTS = {"images", "charts"}
@@ -77,8 +78,11 @@ class BundleBuildResult:
     manifest: BundleManifest
     archive_path: Path
     sidecar_path: Path
+    handoff_path: Path
     archive_sha256: str
     archive_size: int
+    handoff_sha256: str
+    handoff_size: int
     signing_key_fingerprint: str
 
 
@@ -160,7 +164,8 @@ class BundlePackageService:
         archive_name = f"{identifier}.htp.tar.gz"
         final_archive = self.outgoing_root / archive_name
         final_sidecar = self.outgoing_root / f"{archive_name}.sha256"
-        if final_archive.exists() or final_sidecar.exists():
+        final_handoff = self.outgoing_root / f"{identifier}.htp-handoff.json"
+        if final_archive.exists() or final_sidecar.exists() or final_handoff.exists():
             raise BundlePackageError(
                 "bundle_delivery_exists",
                 "Bundle с таким delivery_id уже опубликован",
@@ -222,6 +227,24 @@ class BundlePackageService:
                     final_sidecar,
                     archive_sha,
                 )
+                try:
+                    handoff = MediaHandoffService(self.settings).build(
+                        manifest=manifest,
+                        bundle_path=final_archive,
+                        sidecar_path=final_sidecar,
+                        private_key=private_key,
+                    )
+                    self._atomic_publish_metadata(final_handoff, handoff.payload)
+                except MediaHandoffError as exc:
+                    final_handoff.unlink(missing_ok=True)
+                    final_sidecar.unlink(missing_ok=True)
+                    final_archive.unlink(missing_ok=True)
+                    raise BundlePackageError(exc.code, exc.message) from exc
+                except OSError:
+                    final_handoff.unlink(missing_ok=True)
+                    final_sidecar.unlink(missing_ok=True)
+                    final_archive.unlink(missing_ok=True)
+                    raise
         except BundlePackageError:
             raise
         except OSError as exc:
@@ -236,8 +259,11 @@ class BundlePackageService:
             manifest=manifest,
             archive_path=final_archive,
             sidecar_path=final_sidecar,
+            handoff_path=final_handoff,
             archive_sha256=archive_sha,
             archive_size=archive_size,
+            handoff_sha256=handoff.sha256,
+            handoff_size=len(handoff.payload),
             signing_key_fingerprint=fingerprint,
         )
 
@@ -979,6 +1005,23 @@ class BundlePackageService:
             raise
         finally:
             sidecar_tmp.unlink(missing_ok=True)
+
+    def _atomic_publish_metadata(self, destination: Path, payload: bytes) -> None:
+        temporary = self.outgoing_root / (
+            f".{destination.name}.{secrets.token_hex(6)}.tmp"
+        )
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, destination)
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _verify_sidecar(
         self,

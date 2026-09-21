@@ -173,6 +173,57 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.text()).toContain('Обнаружить готовые пакеты')
   })
 
+  it('requires VERIFIED signed handoff before media discovery', async () => {
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('TARGET')
+    vi.spyOn(importsApi, 'verifyPhysicalHandoff').mockResolvedValue({
+      delivery_id: 'DELIVERY-20260921-HANDOFF1',
+      signing_key_fingerprint: `sha256:${'a'.repeat(64)}`,
+      bundle_sha256: 'b'.repeat(64),
+      bundle_size_bytes: 8192,
+      created_at: '2026-09-21T11:00:00Z',
+      created_by: 'source-operator',
+      verified: true,
+    })
+    const discover = vi.spyOn(importsApi, 'discoverImportBundles').mockResolvedValue({
+      operations: [],
+    })
+
+    const wrapper = mount(ImportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    const discoverButton = wrapper.findAll('button').find((item) =>
+      item.text().includes('Обнаружить готовые пакеты'),
+    )
+    expect(discoverButton).toBeDefined()
+    expect(discoverButton?.attributes('disabled')).toBeDefined()
+
+    const inputs = wrapper.findAll('input[type="file"]')
+    const handoff = inputs.find((item) => item.attributes('accept')?.includes('.htp-handoff.json'))
+    expect(handoff).toBeDefined()
+    Object.defineProperty(handoff!.element, 'files', {
+      configurable: true,
+      value: [new File(['{}'], 'DELIVERY-20260921-HANDOFF1.htp-handoff.json', { type: 'application/json' })],
+    })
+    await handoff!.trigger('change')
+    await flushPromises()
+
+    expect(importsApi.verifyPhysicalHandoff).toHaveBeenCalledOnce()
+    expect(wrapper.text()).toContain('VERIFIED')
+    expect(wrapper.text()).toContain('source-operator')
+    expect(wrapper.text()).toContain('DELIVERY-20260921-HANDOFF1')
+    expect(discoverButton?.attributes('disabled')).toBeUndefined()
+
+    await discoverButton!.trigger('click')
+    await flushPromises()
+    expect(discover).toHaveBeenCalledOnce()
+  })
+
   it('renders SOURCE fallback and does not restore TARGET operations', async () => {
     sessionStorage.setItem('htp.import.operation-id', '51')
     const getOperation = vi.spyOn(importsApi, 'getOperation')

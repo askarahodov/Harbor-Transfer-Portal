@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import io
 import json
 import os
@@ -174,6 +175,12 @@ def test_valid_bundle_round_trip_and_independent_target_verification(tmp_path: P
 
     assert built.archive_path.is_file()
     assert built.sidecar_path.is_file()
+    assert built.handoff_path.is_file()
+    assert built.handoff_path.name == f"{DELIVERY_ID}.htp-handoff.json"
+    assert built.handoff_sha256 == hashlib.sha256(
+        built.handoff_path.read_bytes()
+    ).hexdigest()
+    assert built.handoff_size == built.handoff_path.stat().st_size
     assert built.sidecar_path.read_text(encoding="utf-8").endswith(
         f"  {built.archive_path.name}\n"
     )
@@ -433,7 +440,10 @@ def test_publish_writes_archive_before_readiness_sidecar(
         delivery_id=DELIVERY_ID,
     )
 
-    assert destinations[-2:] == [result.archive_path.name, result.sidecar_path.name]
+    archive_index = destinations.index(result.archive_path.name)
+    sidecar_index = destinations.index(result.sidecar_path.name)
+    handoff_index = destinations.index(result.handoff_path.name)
+    assert archive_index < sidecar_index < handoff_index
 
 
 def test_failed_sidecar_publish_cleans_archive_and_sidecar(

@@ -19,6 +19,8 @@ import { apiClient } from '@/api/client'
 import {
   apiErrorInfo,
   createExportDownloadTicket,
+  downloadExportHandoff,
+  getExportHandoffRecord,
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
@@ -32,6 +34,7 @@ const wizard = useExportWizardStore()
 const runtime = useRuntimeStore()
 const auth = useAuthStore()
 const downloadError = ref<string | null>(null)
+const printHandoffBusy = ref(false)
 const signingRecoveryBusy = ref(false)
 const now = ref(Date.now())
 let clock: ReturnType<typeof setInterval> | null = null
@@ -162,6 +165,104 @@ function downloadSidecar(): void {
   anchor.download = `${wizard.bundle.archive_name}.sha256`
   anchor.click()
   URL.revokeObjectURL(href)
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;')
+}
+
+async function printHandoffRecord(): Promise<void> {
+  if (!wizard.operation || printHandoffBusy.value) return
+  const popup = window.open('', '_blank')
+  if (!popup) {
+    downloadError.value = 'Браузер заблокировал окно печати handoff.'
+    return
+  }
+  popup.opener = null
+  printHandoffBusy.value = true
+  downloadError.value = null
+  try {
+    const record = await getExportHandoffRecord(wizard.operation.id)
+    const rows = record.payload.files
+      .map(
+        (item) =>
+          `<tr><td>${escapeHtml(item.role)}</td><td>${escapeHtml(item.name)}</td><td>${item.size_bytes}</td><td><code>${escapeHtml(item.sha256)}</code></td></tr>`,
+      )
+      .join('')
+    popup.document.write(`<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Handoff ${escapeHtml(record.payload.delivery_id)}</title>
+<style>
+body{font-family:Arial,sans-serif;margin:32px;color:CanvasText}
+h1{font-size:22px}
+dl{display:grid;grid-template-columns:180px 1fr;gap:8px 16px}
+dt{font-weight:700}
+dd{margin:0}
+table{width:100%;border-collapse:collapse;margin-top:24px}
+th,td{border:1px solid ButtonBorder;padding:8px;text-align:left;vertical-align:top}
+code{word-break:break-all;font-size:11px}
+.signatures{margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:48px}
+.line{border-bottom:1px solid CanvasText;height:32px}
+@media print{button{display:none}}
+</style>
+</head>
+<body>
+<h1>Harbor Transfer Portal — ведомость физической передачи</h1>
+<dl>
+<dt>Delivery ID</dt><dd>${escapeHtml(record.payload.delivery_id)}</dd>
+<dt>SOURCE signer</dt><dd><code>${escapeHtml(record.payload.signing_key_fingerprint)}</code></dd>
+<dt>Создано UTC</dt><dd>${escapeHtml(record.payload.created_at)}</dd>
+<dt>Создал</dt><dd>${escapeHtml(record.payload.created_by)}</dd>
+<dt>Schema</dt><dd>${escapeHtml(record.payload.schema_version)}</dd>
+</dl>
+<table>
+<thead><tr><th>Role</th><th>Файл</th><th>Размер, bytes</th><th>SHA-256</th></tr></thead>
+<tbody>${rows}</tbody>
+</table>
+<div class="signatures">
+<div><div class="line"></div><p>SOURCE передал / дата</p></div>
+<div><div class="line"></div><p>TARGET принял / дата</p></div>
+</div>
+<button onclick="window.print()">Печать</button>
+</body>
+</html>`)
+    popup.document.close()
+    popup.focus()
+  } catch (error) {
+    popup.close()
+    downloadError.value = apiErrorInfo(
+      error,
+      'Не удалось подготовить печатную handoff-ведомость.',
+    ).message
+  } finally {
+    printHandoffBusy.value = false
+  }
+}
+
+async function downloadHandoff(): Promise<void> {
+  if (!wizard.operation || !wizard.bundle) return
+  downloadError.value = null
+  try {
+    const blob = await downloadExportHandoff(wizard.operation.id)
+    const href = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = href
+    anchor.download = `${wizard.bundle.delivery_id}.htp-handoff.json`
+    anchor.click()
+    URL.revokeObjectURL(href)
+  } catch (error) {
+    downloadError.value = apiErrorInfo(
+      error,
+      'Не удалось скачать signed physical handoff.',
+    ).message
+  }
 }
 
 onMounted(async () => {
@@ -597,8 +698,8 @@ onBeforeUnmount(() => {
         <div class="notice notice--warning">
           <AlertTriangle :size="22" aria-hidden="true" />
           <div>
-            <strong>На носитель нужно скопировать два файла.</strong>
-            <p>Перенесите сам `.htp.tar.gz` и соответствующий `.sha256`. TARGET использует sidecar как readiness/integrity metadata; SHA-256 не заменяет цифровую подпись bundle.</p>
+            <strong>На носитель нужно скопировать три файла.</strong>
+            <p>Перенесите `.htp.tar.gz`, соответствующий `.sha256` и signed `.htp-handoff.json`. Handoff подтверждает состав физического носителя, но не заменяет Bundle v1 signature verification.</p>
           </div>
         </div>
 
@@ -610,13 +711,25 @@ onBeforeUnmount(() => {
           <button class="secondary-button" type="button" :disabled="!wizard.bundle" @click="downloadSidecar">
             <Download :size="19" aria-hidden="true" /> Скачать `.sha256`
           </button>
+          <button class="secondary-button" type="button" :disabled="!wizard.bundle" @click="downloadHandoff">
+            <Download :size="19" aria-hidden="true" /> Скачать handoff
+          </button>
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="!wizard.bundle || printHandoffBusy"
+            @click="printHandoffRecord"
+          >
+            <FileArchive :size="19" aria-hidden="true" />
+            {{ printHandoffBusy ? 'Подготовка…' : 'Печатная ведомость' }}
+          </button>
         </div>
 
         <div class="next-steps">
           <h3>Что дальше</h3>
           <ol>
-            <li>Сверьте, что оба файла имеют одинаковое базовое имя.</li>
-            <li>Скопируйте их на разрешённый физический носитель по вашей организационной процедуре.</li>
+            <li>Сверьте, что bundle и sidecar имеют одинаковое базовое имя, а handoff содержит тот же Delivery ID.</li>
+            <li>Скопируйте все три файла на разрешённый физический носитель по вашей организационной процедуре.</li>
             <li>В TARGET откройте workflow «Приём» и загрузите/обнаружьте bundle. Не распаковывайте archive вручную.</li>
           </ol>
         </div>

@@ -513,7 +513,7 @@ def test_streaming_upload_limit_cleans_partial_file(tmp_path: Path) -> None:
     )
 
 
-def test_incoming_discovery_requires_readiness_sidecar(tmp_path: Path) -> None:
+def test_incoming_discovery_requires_readiness_sidecar_and_handoff(tmp_path: Path) -> None:
     private_key, trusted_dir = _write_keys(tmp_path)
     bundle = _build_bundle(tmp_path, private_key, trusted_dir)
     settings, manager, _skopeo, _helm, orchestrator = _target_environment(
@@ -523,6 +523,7 @@ def test_incoming_discovery_requires_readiness_sidecar(tmp_path: Path) -> None:
     settings.import_discovery_root.mkdir(parents=True, exist_ok=True)
     incoming_archive = settings.import_discovery_root / bundle.archive_path.name
     incoming_sidecar = incoming_archive.with_name(incoming_archive.name + ".sha256")
+    incoming_handoff = settings.import_discovery_root / bundle.handoff_path.name
     shutil.copyfile(bundle.archive_path, incoming_archive)
 
     async def scenario() -> int:
@@ -533,6 +534,12 @@ def test_incoming_discovery_requires_readiness_sidecar(tmp_path: Path) -> None:
         )
         assert not_ready == ()
         shutil.copyfile(bundle.sidecar_path, incoming_sidecar)
+        sidecar_only = await orchestrator.discover_ready(
+            actor_user_id=None,  # type: ignore[arg-type]
+            actor_username="target-operator",
+        )
+        assert sidecar_only == ()
+        shutil.copyfile(bundle.handoff_path, incoming_handoff)
         ready = await orchestrator.discover_ready(
             actor_user_id=None,  # type: ignore[arg-type]
             actor_username="target-operator",
@@ -548,6 +555,7 @@ def test_incoming_discovery_requires_readiness_sidecar(tmp_path: Path) -> None:
     assert operation.status is OperationStatus.READY
     assert not incoming_archive.exists()
     assert not incoming_sidecar.exists()
+    assert not incoming_handoff.exists()
 
 
 def test_bundle_change_after_preview_fails_before_import(tmp_path: Path) -> None:
