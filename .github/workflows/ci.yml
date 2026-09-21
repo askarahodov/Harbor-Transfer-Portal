@@ -198,6 +198,7 @@ jobs:
           tests/test_key_management_api.py
           tests/test_key_management_atomic_commit.py
           tests/test_key_management_hardening.py
+          tests/test_source_trust_package.py
           tests/test_skopeo_service.py
           tests/test_helm_oci_service.py
           tests/test_helm_oci_hardening.py
