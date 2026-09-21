@@ -138,4 +138,59 @@ describe('History store', () => {
     expect(list).not.toHaveBeenCalled()
     expect(store.error?.code).toBe('history_date_range_invalid')
   })
+  it('cancels an unfinished owned operation and updates history in place', async () => {
+    const readySummary: OperationSummary = { ...summary, id: 55, status: 'READY', type: 'IMPORT', finished_at: null }
+    const readyDetail: Operation = {
+      ...detail,
+      id: 55,
+      status: 'READY',
+      type: 'IMPORT',
+      finished_at: null,
+      progress: { ...detail.progress, current_phase: 'READY', completed_artifacts: 0 },
+    }
+    const cancelled: Operation = {
+      ...readyDetail,
+      status: 'CANCELLED',
+      finished_at: '2026-09-21T14:30:00Z',
+      error_code: 'operation_cancelled',
+      error_message: 'Операция отменена пользователем',
+      progress: { ...readyDetail.progress, current_phase: 'CANCELLED' },
+    }
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [readySummary], total: 1, limit: 25, offset: 0,
+    })
+    vi.spyOn(historyApi, 'getOperation').mockResolvedValue(readyDetail)
+    const cancel = vi.spyOn(historyApi, 'cancelOperation').mockResolvedValue(cancelled)
+    const auth = useAuthStore()
+    auth.initialized = true
+    auth.user = { id: 2, username: 'operator', role: 'operator', is_active: true }
+
+    const store = useHistoryStore()
+    await store.load(true)
+    await store.openDetail(readySummary)
+
+    expect(store.canManageSelectedLifecycle).toBe(true)
+    expect(await store.cancelOperationFromHistory(55)).toBe(true)
+    expect(cancel).toHaveBeenCalledWith(55)
+    expect(store.items[0]?.status).toBe('CANCELLED')
+    expect(store.detail?.status).toBe('CANCELLED')
+    expect(store.canManageSelectedLifecycle).toBe(false)
+  })
+
+  it('does not let a viewer cancel an unfinished operation', async () => {
+    const readySummary: OperationSummary = { ...summary, id: 56, status: 'READY', type: 'IMPORT', finished_at: null }
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [readySummary], total: 1, limit: 25, offset: 0,
+    })
+    const cancel = vi.spyOn(historyApi, 'cancelOperation')
+    const auth = useAuthStore()
+    auth.initialized = true
+    auth.user = { id: 3, username: 'viewer', role: 'viewer', is_active: true }
+
+    const store = useHistoryStore()
+    await store.load(true)
+
+    expect(await store.cancelOperationFromHistory(56)).toBe(false)
+    expect(cancel).not.toHaveBeenCalled()
+  })
 })

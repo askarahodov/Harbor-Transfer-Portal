@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 
 import {
   apiErrorInfo,
+  cancelOperation,
   createExportDownloadTicket,
   downloadImportReceiptFile,
   downloadOperationReport,
@@ -25,6 +26,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const PAGE_SIZE = 25
 const REPORT_READY_STATUSES = ['COMPLETED', 'FAILED', 'REJECTED', 'CANCELLED'] as const
+const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'REJECTED', 'CANCELLED'])
 
 function emptyFilters(): HistoryFilters {
   return {
@@ -53,6 +55,8 @@ export const useHistoryStore = defineStore('history', () => {
   const receipt = ref<ImportReceipt | null>(null)
   const receiptState = ref<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   const downloadError = ref<string | null>(null)
+  const lifecycleBusyOperationId = ref<number | null>(null)
+  const lifecycleError = ref<ApiErrorInfo | null>(null)
 
   const retryPlan = ref<ImportDestinationPlan | null>(null)
   const retryOperationId = ref<number | null>(null)
@@ -90,6 +94,14 @@ export const useHistoryStore = defineStore('history', () => {
     if (auth.user?.role === 'admin') return true
     return auth.user?.role === 'operator' && auth.user.username === detail.value.actor_username
   })
+
+  const canManageSelectedLifecycle = computed(() => {
+    const operation = detail.value
+    if (!operation || TERMINAL_STATUSES.has(operation.status)) return false
+    if (auth.user?.role === 'admin') return true
+    return auth.user?.role === 'operator' && auth.user.username === operation.actor_username
+  })
+
 
   const selectedDestinationPlanId = computed(() => {
     if (receipt.value?.destination_plan_id) return receipt.value.destination_plan_id
@@ -224,6 +236,7 @@ export const useHistoryStore = defineStore('history', () => {
     receiptState.value = 'idle'
     detailError.value = null
     downloadError.value = null
+    lifecycleError.value = null
     resetRetryState()
     detailLoading.value = true
     try {
@@ -243,7 +256,57 @@ export const useHistoryStore = defineStore('history', () => {
     receipt.value = null
     receiptState.value = 'idle'
     downloadError.value = null
+    lifecycleError.value = null
     resetRetryState()
+  }
+
+  async function cancelOperationFromHistory(operationId: number): Promise<boolean> {
+    const summary = items.value.find((item) => item.id === operationId)
+    const operation = detail.value?.id === operationId ? detail.value : null
+    const candidate = operation ?? summary
+    if (!candidate || TERMINAL_STATUSES.has(candidate.status)) return false
+
+    const permitted =
+      auth.user?.role === 'admin' ||
+      (auth.user?.role === 'operator' && auth.user.username === candidate.actor_username)
+    if (!permitted || lifecycleBusyOperationId.value !== null) return false
+
+    lifecycleBusyOperationId.value = operationId
+    lifecycleError.value = null
+    try {
+      const cancelled = await cancelOperation(operationId)
+      items.value = items.value.map((item) =>
+        item.id === operationId
+          ? {
+              ...item,
+              status: cancelled.status,
+              finished_at: cancelled.finished_at,
+              error_code: cancelled.error_code,
+              error_message: cancelled.error_message,
+              successful_artifacts: cancelled.progress.successful_artifacts,
+              failed_artifacts: cancelled.progress.failed_artifacts,
+              skipped_artifacts: cancelled.progress.skipped_artifacts,
+              conflict_artifacts: cancelled.progress.conflict_artifacts,
+            }
+          : item,
+      )
+      if (detail.value?.id === operationId) {
+        detail.value = cancelled as Operation
+      }
+      if (selectedSummary.value?.id === operationId) {
+        selectedSummary.value =
+          items.value.find((item) => item.id === operationId) ?? selectedSummary.value
+      }
+      return cancelled.status === 'CANCELLED'
+    } catch (requestError) {
+      lifecycleError.value = apiErrorInfo(
+        requestError,
+        'Не удалось отменить незавершённую операцию.',
+      )
+      return false
+    } finally {
+      lifecycleBusyOperationId.value = null
+    }
   }
 
   async function prepareSelectedRetry(): Promise<void> {
@@ -345,6 +408,8 @@ export const useHistoryStore = defineStore('history', () => {
     retryStarting,
     retryStarted,
     retryError,
+    lifecycleBusyOperationId,
+    lifecycleError,
     currentPage,
     pageCount,
     hasPrevious,
@@ -353,6 +418,7 @@ export const useHistoryStore = defineStore('history', () => {
     canDownloadSelectedReport,
     canDownloadSelectedReceipt,
     canDownloadSelectedExport,
+    canManageSelectedLifecycle,
     selectedDestinationPlanId,
     canPrepareSelectedRetry,
     retryHasConflicts,
@@ -365,6 +431,7 @@ export const useHistoryStore = defineStore('history', () => {
     nextPage,
     openDetail,
     closeDetail,
+    cancelOperationFromHistory,
     prepareSelectedRetry,
     startPreparedRetry,
     downloadSelectedReport,

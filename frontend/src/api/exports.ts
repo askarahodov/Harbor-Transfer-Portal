@@ -317,9 +317,13 @@ export function apiErrorInfo(error: unknown, fallback: string): ApiErrorInfo {
   }
 
   const status = error.response?.status
-  const detail = error.response?.data?.detail
-  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
-    const candidate = detail as Record<string, unknown>
+  const payload = error.response?.data
+  const structured =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? ((payload as Record<string, unknown>).error ?? (payload as Record<string, unknown>).detail)
+      : null
+  if (structured && typeof structured === 'object' && !Array.isArray(structured)) {
+    const candidate = structured as Record<string, unknown>
     if (typeof candidate.code === 'string' && typeof candidate.message === 'string') {
       return { code: candidate.code, message: candidate.message, status }
     }
