@@ -47,7 +47,7 @@ function storageOrNull(): Storage | null {
 }
 
 function selectedKey(selection: ExportSelection): string {
-  return [selection.kind, selection.project, selection.repository, selection.reference].join('|')
+  return [selection.kind, selection.project, selection.repository, selection.digest].join('|')
 }
 
 function savedOperationId(): number | null {
