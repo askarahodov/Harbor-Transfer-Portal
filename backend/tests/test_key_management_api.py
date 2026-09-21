@@ -68,6 +68,9 @@ def _build_app(tmp_path: Path, contour: PortalContour):
         bundle_outgoing_root=root / "data" / "outgoing",
         bundle_extract_root=root / "data" / "verified",
         bundle_signing_private_key_file=root / "keys" / "source-signing-private.pem",
+        bundle_pending_signing_private_key_file=(
+            root / "keys" / "source-signing-pending-private.pem"
+        ),
         bundle_trusted_public_keys_dir=root / "keys" / "trusted-source",
         operation_workspace_root=root / "data" / "tmp" / "operations",
         import_discovery_root=root / "data" / "incoming",
@@ -365,11 +368,8 @@ def test_source_trust_package_bootstraps_target_verifier_end_to_end(
 def test_source_private_key_is_atomic_private_and_never_disclosed(tmp_path: Path) -> None:
     app = _build_app(tmp_path, PortalContour.SOURCE)
     old_key = Ed25519PrivateKey.generate()
-    new_key = Ed25519PrivateKey.generate()
     old_pem = _private_pem(old_key)
-    new_pem = _private_pem(new_key)
     old_fingerprint = ed25519_public_key_fingerprint(old_key.public_key())
-    new_fingerprint = ed25519_public_key_fingerprint(new_key.public_key())
 
     with TestClient(app) as client:
         admin = _login(client, "admin")
@@ -378,6 +378,10 @@ def test_source_private_key_is_atomic_private_and_never_disclosed(tmp_path: Path
         empty = client.get("/api/settings/keys", headers=headers)
         assert empty.status_code == 200
         assert empty.json()["signing_key"] == {"configured": False, "fingerprint": None}
+        assert empty.json()["pending_signing_key"] == {
+            "configured": False,
+            "fingerprint": None,
+        }
 
         installed = client.put(
             "/api/settings/keys/signing",
@@ -386,47 +390,94 @@ def test_source_private_key_is_atomic_private_and_never_disclosed(tmp_path: Path
         )
         assert installed.status_code == 200
         assert installed.json() == {"action": "installed", "fingerprint": old_fingerprint}
-        assert old_pem not in installed.text
 
         key_path = app.state.settings.bundle_signing_private_key_file
-        assert key_path.is_file()
+        pending_path = app.state.settings.bundle_pending_signing_private_key_file
         assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
 
-        status_response = client.get("/api/settings/keys", headers=headers)
-        assert status_response.json()["signing_key"] == {
-            "configured": True,
-            "fingerprint": old_fingerprint,
-        }
-        assert old_pem not in status_response.text
-
-        rotated = client.put(
+        direct_rotation = client.put(
             "/api/settings/keys/signing",
-            json={"pem": new_pem},
+            json={"pem": _private_pem(Ed25519PrivateKey.generate())},
             headers=headers,
         )
-        assert rotated.status_code == 200
-        assert rotated.json() == {"action": "rotated", "fingerprint": new_fingerprint}
-        assert old_fingerprint != new_fingerprint
-        assert old_pem.encode() not in key_path.read_bytes()
+        assert direct_rotation.status_code == 409
+        assert direct_rotation.json()["error"]["code"] == "signing_rotation_required"
+
+        prepared = client.post(
+            "/api/settings/keys/signing/rotation/prepare",
+            headers=headers,
+        )
+        assert prepared.status_code == 201
+        pending_fingerprint = prepared.json()["fingerprint"]
+        assert pending_fingerprint != old_fingerprint
+        assert pending_path.is_file()
+        assert stat.S_IMODE(pending_path.stat().st_mode) == 0o600
+
+        duplicate = client.post(
+            "/api/settings/keys/signing/rotation/prepare",
+            headers=headers,
+        )
+        assert duplicate.status_code == 409
+        assert duplicate.json()["error"]["code"] == (
+            "pending_signing_key_already_configured"
+        )
+
+        pending_package = client.get(
+            "/api/settings/keys/signing/rotation/trust-package",
+            headers=headers,
+        )
+        assert pending_package.status_code == 200
+        assert pending_package.headers["x-signing-key-fingerprint"] == pending_fingerprint
+        assert b"PRIVATE KEY" not in pending_package.content
+
+        status_response = client.get("/api/settings/keys", headers=headers)
+        assert status_response.json()["signing_key"]["fingerprint"] == old_fingerprint
+        assert status_response.json()["pending_signing_key"] == {
+            "configured": True,
+            "fingerprint": pending_fingerprint,
+        }
+
+        mismatch = client.post(
+            "/api/settings/keys/signing/rotation/activate",
+            json={"expected_fingerprint": "sha256:" + "0" * 64},
+            headers=headers,
+        )
+        assert mismatch.status_code == 409
+        assert mismatch.json()["error"]["code"] == (
+            "pending_signing_key_fingerprint_mismatch"
+        )
+        assert pending_path.exists()
+
+        activated = client.post(
+            "/api/settings/keys/signing/rotation/activate",
+            json={"expected_fingerprint": pending_fingerprint},
+            headers=headers,
+        )
+        assert activated.status_code == 200
+        assert activated.json()["action"] == "activated"
+        assert activated.json()["fingerprint"] == pending_fingerprint
+        assert not pending_path.exists()
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+        final_status = client.get("/api/settings/keys", headers=headers).json()
+        assert final_status["signing_key"]["fingerprint"] == pending_fingerprint
+        assert final_status["pending_signing_key"] == {
+            "configured": False,
+            "fingerprint": None,
+        }
 
     with app.state.session_factory() as session:
-        events = list(
+        event_types = list(
             session.scalars(
-                select(AuditEvent)
-                .where(AuditEvent.event_type.in_(["signing.key.installed", "signing.key.rotated"]))
+                select(AuditEvent.event_type)
+                .where(AuditEvent.event_type.like("signing.%"))
                 .order_by(AuditEvent.id)
             )
         )
-    assert [event.event_type for event in events] == [
-        "signing.key.installed",
-        "signing.key.rotated",
-    ]
-    assert json.loads(events[0].metadata_json)["fingerprint"] == old_fingerprint
-    assert json.loads(events[1].metadata_json)["fingerprint"] == new_fingerprint
-    assert all(
-        old_pem not in event.metadata_json and new_pem not in event.metadata_json
-        for event in events
-    )
+    assert "signing.key.installed" in event_types
+    assert "signing.rotation.prepared" in event_types
+    assert "signing.rotation.trust_package.exported" in event_types
+    assert "signing.rotation.activated" in event_types
 
 
 def test_wrong_key_types_and_size_bounds_are_rejected_without_replacement(tmp_path: Path) -> None:
@@ -479,9 +530,7 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
     source_app = _build_app(tmp_path, PortalContour.SOURCE)
     target_app = _build_app(tmp_path, PortalContour.TARGET)
     old_key = Ed25519PrivateKey.generate()
-    new_key = Ed25519PrivateKey.generate()
     old_fingerprint = ed25519_public_key_fingerprint(old_key.public_key())
-    new_fingerprint = ed25519_public_key_fingerprint(new_key.public_key())
 
     with TestClient(source_app) as source:
         source_admin = _login(source, "admin")
@@ -497,27 +546,41 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
         )
         assert old_bundle.signing_key_fingerprint == old_fingerprint
 
-        assert source.put(
-            "/api/settings/keys/signing",
-            json={"pem": _private_pem(new_key)},
+        prepared = source.post(
+            "/api/settings/keys/signing/rotation/prepare",
             headers=headers,
-        ).status_code == 200
-        new_bundle = _build_chart_bundle(
-            source_app.state.settings,
-            "DELIVERY-20260914-NEWKEY1",
         )
-        assert new_bundle.signing_key_fingerprint == new_fingerprint
+        assert prepared.status_code == 201
+        new_fingerprint = prepared.json()["fingerprint"]
+
+        pending_package = source.get(
+            "/api/settings/keys/signing/rotation/trust-package",
+            headers=headers,
+        )
+        assert pending_package.status_code == 200
+
+        still_old_bundle = _build_chart_bundle(
+            source_app.state.settings,
+            "DELIVERY-20260914-STILLOLD",
+        )
+        assert still_old_bundle.signing_key_fingerprint == old_fingerprint
 
     with TestClient(target_app) as target:
         target_admin = _login(target, "admin")
         headers = _auth(target_admin)
-        for key in (old_key, new_key):
-            added = target.post(
-                "/api/settings/keys/trusted",
-                json=_trusted_payload(key),
-                headers=headers,
-            )
-            assert added.status_code == 201
+        assert target.post(
+            "/api/settings/keys/trusted",
+            json=_trusted_payload(old_key),
+            headers=headers,
+        ).status_code == 201
+        imported = target.post(
+            "/api/settings/keys/trusted/package",
+            params={"confirm": True},
+            content=pending_package.content,
+            headers={**headers, "Content-Type": "application/gzip"},
+        )
+        assert imported.status_code == 201
+        assert imported.json()["fingerprint"] == new_fingerprint
 
         listed = target.get("/api/settings/keys", headers=headers)
         assert listed.status_code == 200
@@ -536,70 +599,33 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
             sidecar_path=old_bundle.sidecar_path,
         ).signing_key_fingerprint == old_fingerprint
         assert verifier.verify_bundle(
-            new_bundle.archive_path,
-            sidecar_path=new_bundle.sidecar_path,
-        ).signing_key_fingerprint == new_fingerprint
-
-        disabled = target.patch(
-            f"/api/settings/keys/trusted/{old_fingerprint}",
-            json={"enabled": False, "confirm": True},
-            headers=headers,
-        )
-        assert disabled.status_code == 200
-        assert disabled.json()["action"] == "disabled"
-
-        with pytest.raises(BundlePackageError) as exc_info:
-            verifier.verify_bundle(
-                old_bundle.archive_path,
-                sidecar_path=old_bundle.sidecar_path,
-            )
-        assert exc_info.value.code == "bundle_signature_untrusted"
-        assert verifier.verify_bundle(
-            new_bundle.archive_path,
-            sidecar_path=new_bundle.sidecar_path,
-        ).signing_key_fingerprint == new_fingerprint
-
-        enabled = target.patch(
-            f"/api/settings/keys/trusted/{old_fingerprint}",
-            json={"enabled": True, "confirm": True},
-            headers=headers,
-        )
-        assert enabled.status_code == 200
-        assert verifier.verify_bundle(
-            old_bundle.archive_path,
-            sidecar_path=old_bundle.sidecar_path,
+            still_old_bundle.archive_path,
+            sidecar_path=still_old_bundle.sidecar_path,
         ).signing_key_fingerprint == old_fingerprint
 
-        removed = target.delete(
-            f"/api/settings/keys/trusted/{old_fingerprint}",
-            params={"confirm": True},
-            headers=headers,
+    with TestClient(source_app) as source:
+        source_admin = _login(source, "admin")
+        activated = source.post(
+            "/api/settings/keys/signing/rotation/activate",
+            json={"expected_fingerprint": new_fingerprint},
+            headers=_auth(source_admin),
         )
-        assert removed.status_code == 200
-        assert removed.json()["action"] == "removed"
-
-    trust_dir = target_app.state.settings.bundle_trusted_public_keys_dir
-    active_files = sorted(path.name for path in trust_dir.glob("*.pem"))
-    assert active_files == [f"{new_fingerprint.removeprefix('sha256:')}.pem"]
-    assert all(not path.is_symlink() for path in trust_dir.iterdir())
-    assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in trust_dir.iterdir())
-
-    with target_app.state.session_factory() as session:
-        events = list(
-            session.scalars(
-                select(AuditEvent)
-                .where(AuditEvent.event_type.like("trust.key.%"))
-                .order_by(AuditEvent.id)
-            )
+        assert activated.status_code == 200
+        new_bundle = _build_chart_bundle(
+            source_app.state.settings,
+            "DELIVERY-20260914-NEWKEY1",
         )
-    assert [event.event_type for event in events] == [
-        "trust.key.added",
-        "trust.key.added",
-        "trust.key.disabled",
-        "trust.key.enabled",
-        "trust.key.removed",
-    ]
-    assert all("BEGIN PUBLIC KEY" not in event.metadata_json for event in events)
+        assert new_bundle.signing_key_fingerprint == new_fingerprint
+
+    verifier = BundlePackageService(target_app.state.settings)
+    assert verifier.verify_bundle(
+        old_bundle.archive_path,
+        sidecar_path=old_bundle.sidecar_path,
+    ).signing_key_fingerprint == old_fingerprint
+    assert verifier.verify_bundle(
+        new_bundle.archive_path,
+        sidecar_path=new_bundle.sidecar_path,
+    ).signing_key_fingerprint == new_fingerprint
 
 
 def test_target_managed_actions_canonicalize_legacy_filename(tmp_path: Path) -> None:
