@@ -440,7 +440,10 @@ def test_publish_writes_archive_before_readiness_sidecar(
         delivery_id=DELIVERY_ID,
     )
 
-    assert destinations[-2:] == [result.archive_path.name, result.sidecar_path.name]
+    archive_index = destinations.index(result.archive_path.name)
+    sidecar_index = destinations.index(result.sidecar_path.name)
+    handoff_index = destinations.index(result.handoff_path.name)
+    assert archive_index < sidecar_index < handoff_index
 
 
 def test_failed_sidecar_publish_cleans_archive_and_sidecar(
