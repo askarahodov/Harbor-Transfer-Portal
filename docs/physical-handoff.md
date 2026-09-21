@@ -64,7 +64,20 @@ pending-trust-package
 
 ## TARGET operator flow
 
-Для transfer-media workflow:
+Есть два равноправных intake-варианта.
+
+### Browser intake
+
+1. В Import workflow выбрать или перетащить **сразу три файла одной доставки**:
+   - `.htp.tar.gz`;
+   - matching `.htp.tar.gz.sha256`;
+   - matching `.htp-handoff.json`.
+2. Bundle передаётся raw stream, а sidecar/handoff привязываются к той же intake-операции.
+3. Backend до preview проверяет Ed25519 handoff signature, SOURCE trust, имена, размеры и SHA-256 фактически загруженного bundle/sidecar.
+4. После этого Bundle v1 отдельно проходит обычную checksum/schema/signature verification.
+5. Harbor mutation начинается только после verified preview, destination-plan checks и явного запуска import.
+
+### Transfer-media / incoming directory
 
 1. Скопировать физические файлы в configured incoming directory TARGET.
 2. В Import workflow выбрать signed `.htp-handoff.json`.
@@ -73,6 +86,8 @@ pending-trust-package
 5. После discovery Bundle v1 отдельно проходит checksum/schema/signature verification.
 6. Harbor mutation начинается только после verified preview, destination-plan checks и
    явного запуска import.
+
+Browser intake не требует shell, `docker cp` или прямого доступа оператора к filesystem контейнера. Incoming/discovery остаётся альтернативой для смонтированного transfer media и специальных эксплуатационных сценариев.
 
 Состояния handoff:
 
