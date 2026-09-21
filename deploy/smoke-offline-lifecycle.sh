@@ -118,6 +118,20 @@ case "${1:-}" in
         fi
         ;;
       up)
+        if [ "${FAKE_DOCKER_FAIL_UP_ONCE:-0}" = 1 ]; then
+          : "${FAKE_DOCKER_FAIL_STATE:?}"
+          if [ ! -f "$FAKE_DOCKER_FAIL_STATE" ]; then
+            : > "$FAKE_DOCKER_FAIL_STATE"
+            if [ "${FAKE_DOCKER_MUTATE_ON_FAILED_UP:-0}" = 1 ] && [ -n "${FAKE_DOCKER_VOLUME_DIR:-}" ]; then
+              printf 'migrated-new-schema\n' > "$FAKE_DOCKER_VOLUME_DIR/marker.txt"
+              printf 'rotated-by-failed-upgrade\n' > "$FAKE_DOCKER_VOLUME_DIR/keys/source-signing-private.pem"
+              rm -f "$FAKE_DOCKER_VOLUME_DIR/keys/source-signing-pending-private.pem"
+              rm -f "$FAKE_DOCKER_VOLUME_DIR/keys/trusted-source/old.pem"
+              rm -f "$FAKE_DOCKER_VOLUME_DIR/keys/trusted-source/new.pem"
+            fi
+            exit 17
+          fi
+        fi
         [ "${FAKE_DOCKER_FAIL_UP:-0}" != 1 ] || exit 17
         ;;
     esac
@@ -173,9 +187,8 @@ for script in backup.sh restore.sh upgrade.sh uninstall.sh; do
     fail "lifecycle script is not covered by payload checksums: $script"
 done
 
-PREVIOUS="$TMP/previous-install"
-mkdir -p "$PREVIOUS"
-cp "$KIT_OK/compose.yaml" "$PREVIOUS/compose.yaml"
+PREVIOUS=$(extract_kit "$TMP/previous")
+printf '%s\n' "$OLD_VERSION" > "$PREVIOUS/release-version.txt"
 cat > "$PREVIOUS/.env" <<EOF
 PORTAL_CONTOUR=TARGET
 PORTAL_HTTP_PORT=18080
@@ -185,16 +198,46 @@ CUSTOM_SETTING=preserve-me
 EOF
 chmod 0600 "$PREVIOUS/.env"
 
-# Failed upgrade must still create the backup first and restore old configuration.
+# Re-sign the synthetic previous kit after changing its release version.
+previous_names="$TMP/previous-checksum-names"
+awk '{ print $2 }' "$PREVIOUS/CHECKSUMS.sha256" > "$previous_names"
+: > "$PREVIOUS/CHECKSUMS.sha256.new"
+while IFS= read -r name; do
+  (
+    cd "$PREVIOUS"
+    sha256sum "$name"
+  ) >> "$PREVIOUS/CHECKSUMS.sha256.new"
+done < "$previous_names"
+mv "$PREVIOUS/CHECKSUMS.sha256.new" "$PREVIOUS/CHECKSUMS.sha256"
+
+# Failed upgrade must restore the matching old kit and persistent state automatically.
 : > "$FAKE_LOG"
-if PORTAL_BACKUP_DIR="$TMP/backups-fail" FAKE_DOCKER_FAIL_UP=1 \
-  sh "$KIT_FAIL/upgrade.sh" "$PREVIOUS" >/dev/null 2>&1; then
-  fail 'upgrade unexpectedly succeeded when Compose startup failed'
+FAIL_STATE="$TMP/fail-up-once.state"
+rm -f "$FAIL_STATE"
+if PORTAL_BACKUP_DIR="$TMP/backups-fail" \
+  FAKE_DOCKER_FAIL_UP_ONCE=1 \
+  FAKE_DOCKER_FAIL_STATE="$FAIL_STATE" \
+  FAKE_DOCKER_MUTATE_ON_FAILED_UP=1 \
+  sh "$KIT_FAIL/upgrade.sh" "$PREVIOUS" >"$TMP/upgrade-fail.out" 2>"$TMP/upgrade-fail.err"; then
+  fail 'upgrade unexpectedly succeeded when new Compose startup failed'
 fi
-grep -Fx "PORTAL_VERSION=$OLD_VERSION" "$KIT_FAIL/.env" >/dev/null || \
-  fail 'failed upgrade did not restore previous PORTAL_VERSION'
-grep -Fx 'CUSTOM_SETTING=preserve-me' "$KIT_FAIL/.env" >/dev/null || \
-  fail 'failed upgrade did not preserve unrelated configuration'
+grep -F 'ROLLBACK_OK:' "$TMP/upgrade-fail.err" >/dev/null || \
+  fail 'failed upgrade did not report successful automatic rollback'
+[ ! -e "$KIT_FAIL/.env" ] || fail 'failed new kit retained an active .env after rollback'
+grep -Fx "PORTAL_VERSION=$OLD_VERSION" "$PREVIOUS/.env" >/dev/null || \
+  fail 'automatic rollback did not restore previous PORTAL_VERSION'
+grep -Fx 'CUSTOM_SETTING=preserve-me' "$PREVIOUS/.env" >/dev/null || \
+  fail 'automatic rollback did not restore previous configuration'
+grep -Fx 'fake persistent volume snapshot' "$FAKE_VOLUME/marker.txt" >/dev/null || \
+  fail 'automatic rollback did not restore pre-upgrade persistent state'
+grep -Fx 'active-private-key' "$FAKE_VOLUME/keys/source-signing-private.pem" >/dev/null || \
+  fail 'automatic rollback did not restore active SOURCE signing key'
+grep -Fx 'pending-private-key' "$FAKE_VOLUME/keys/source-signing-pending-private.pem" >/dev/null || \
+  fail 'automatic rollback did not restore pending SOURCE signing key'
+grep -Fx 'old-public-key' "$FAKE_VOLUME/keys/trusted-source/old.pem" >/dev/null || \
+  fail 'automatic rollback did not restore old TARGET trust key'
+grep -Fx 'new-public-key' "$FAKE_VOLUME/keys/trusted-source/new.pem" >/dev/null || \
+  fail 'automatic rollback did not restore new TARGET trust key'
 
 backup_fail=$(find "$TMP/backups-fail" -maxdepth 1 -type f -name '*.tar.gz' | head -n 1)
 [ -n "$backup_fail" ] && [ -f "$backup_fail" ] || fail 'failed upgrade did not create pre-upgrade backup'
@@ -234,7 +277,28 @@ grep -F "harbor-transfer-portal-backend:$OLD_VERSION" "$FAKE_LOG" >/dev/null || 
 grep -F 'compose --env-file' "$FAKE_LOG" | grep -F ' up -d --no-build --pull never --wait --wait-timeout 180' >/dev/null || \
   fail 'upgrade must start Compose with explicit no-build/no-pull semantics'
 
+# If both new startup and matching-version restore startup fail, stop with ROLLBACK_FAILED.
+KIT_ROLLBACK_FAIL=$(extract_kit "$TMP/rollback-fail")
+: > "$FAKE_LOG"
+if PORTAL_BACKUP_DIR="$TMP/backups-rollback-fail" FAKE_DOCKER_FAIL_UP=1 \
+  sh "$KIT_ROLLBACK_FAIL/upgrade.sh" "$PREVIOUS" \
+  >"$TMP/rollback-failed.out" 2>"$TMP/rollback-failed.err"; then
+  fail 'upgrade unexpectedly succeeded when new startup and rollback both failed'
+fi
+grep -F 'ROLLBACK_FAILED:' "$TMP/rollback-failed.err" >/dev/null || \
+  fail 'double failure did not report ROLLBACK_FAILED'
+grep -F "$PREVIOUS" "$TMP/rollback-failed.err" >/dev/null || \
+  fail 'ROLLBACK_FAILED output did not identify matching recovery kit'
+rollback_failed_backup=$(find "$TMP/backups-rollback-fail" -maxdepth 1 -type f -name '*.tar.gz' | head -n 1)
+[ -n "$rollback_failed_backup" ] && [ -f "$rollback_failed_backup" ] || \
+  fail 'ROLLBACK_FAILED did not preserve pre-upgrade backup'
+
 # Successful upgrade must preserve every setting except PORTAL_VERSION.
+printf 'fake persistent volume snapshot\n' > "$FAKE_VOLUME/marker.txt"
+printf 'active-private-key\n' > "$FAKE_VOLUME/keys/source-signing-private.pem"
+printf 'pending-private-key\n' > "$FAKE_VOLUME/keys/source-signing-pending-private.pem"
+printf 'old-public-key\n' > "$FAKE_VOLUME/keys/trusted-source/old.pem"
+printf 'new-public-key\n' > "$FAKE_VOLUME/keys/trusted-source/new.pem"
 : > "$FAKE_LOG"
 PORTAL_BACKUP_DIR="$TMP/backups-ok" sh "$KIT_OK/upgrade.sh" "$PREVIOUS" >/dev/null
 grep -Fx "PORTAL_VERSION=$NEW_VERSION" "$KIT_OK/.env" >/dev/null || \
