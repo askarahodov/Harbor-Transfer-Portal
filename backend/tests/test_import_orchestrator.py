@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.config import PortalContour, Settings
 from app.db.base import Base
+from app.db.models import Operation
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import ArtifactStatus, BundleSource, OperationStatus
 from app.domain.imports import ImportPreviewState
@@ -653,3 +654,67 @@ def test_source_contour_rejects_import_intake(tmp_path: Path) -> None:
         assert exc_info.value.code == "import_wrong_contour"
 
     asyncio.run(scenario())
+
+
+def test_browser_physical_handoff_upload_verifies_three_file_delivery(tmp_path: Path) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    _settings, manager, _skopeo, _helm, orchestrator = _target_environment(
+        tmp_path,
+        trusted_dir,
+    )
+
+    async def scenario() -> int:
+        await manager.startup()
+        started = await orchestrator.accept_upload(
+            _stream(bundle.archive_path.read_bytes()),
+            content_length=bundle.archive_size,
+            actor_user_id=None,  # type: ignore[arg-type]
+            actor_username="target-operator",
+            bundle_filename=bundle.archive_path.name,
+            sidecar_payload=bundle.sidecar_path.read_bytes(),
+            handoff_payload=bundle.handoff_path.read_bytes(),
+        )
+        await manager.wait(started.operation_id)
+        await manager.shutdown()
+        return started.operation_id
+
+    operation_id = asyncio.run(scenario())
+    operation = manager.get_operation(operation_id)
+    assert operation is not None
+    assert operation.status is OperationStatus.READY
+    assert operation.bundle_filename == bundle.archive_path.name
+    assert operation.bundle_sha256 == bundle.archive_sha256
+
+
+def test_browser_physical_handoff_rejects_tampered_sidecar_before_operation(
+    tmp_path: Path,
+) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    settings, manager, _skopeo, _helm, orchestrator = _target_environment(
+        tmp_path,
+        trusted_dir,
+    )
+
+    async def scenario() -> None:
+        await manager.startup()
+        with pytest.raises(ImportOrchestrationError) as exc_info:
+            await orchestrator.accept_upload(
+                _stream(bundle.archive_path.read_bytes()),
+                content_length=bundle.archive_size,
+                actor_user_id=None,  # type: ignore[arg-type]
+                actor_username="target-operator",
+                bundle_filename=bundle.archive_path.name,
+                sidecar_payload=b"0" * 64 + b"  wrong.htp.tar.gz\n",
+                handoff_payload=bundle.handoff_path.read_bytes(),
+            )
+        assert exc_info.value.code == "handoff_file_mismatch"
+        await manager.shutdown()
+
+    asyncio.run(scenario())
+    with orchestrator.session_factory() as session:
+        assert session.query(Operation).count() == 0
+    assert not settings.import_staging_root.exists() or not any(
+        settings.import_staging_root.iterdir()
+    )

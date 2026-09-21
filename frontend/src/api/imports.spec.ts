@@ -5,6 +5,7 @@ import { apiClient } from '@/api/client'
 import {
   buildImportDestinationPlan,
   executeImport,
+  uploadImportBundle,
   type ImportDestinationPlan,
   type ImportDestinationPlanRequest,
 } from './imports'
@@ -40,6 +41,40 @@ describe('import destination API contract', () => {
 
     expect(await buildImportDestinationPlan(42, mapping)).toEqual(destinationPlan())
     expect(put).toHaveBeenCalledWith('/imports/42/destination-plan', mapping)
+  })
+
+
+  it('binds browser physical handoff metadata to the raw bundle upload', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({
+      data: { operation_id: 7, status: 'UPLOADED', intake_mode: 'upload' },
+    })
+    const delivery = 'DELIVERY-20260921-BROWSER01'
+    const bundle = new File(['bundle-bytes'], `${delivery}.htp.tar.gz`, {
+      type: 'application/gzip',
+    })
+    const sidecar = new File(['sidecar'], `${delivery}.htp.tar.gz.sha256`, {
+      type: 'text/plain',
+    })
+    const handoff = new File(['handoff'], `${delivery}.htp-handoff.json`, {
+      type: 'application/json',
+    })
+
+    await uploadImportBundle(bundle, undefined, { sidecar, handoff })
+
+    expect(post).toHaveBeenCalledOnce()
+    expect(post.mock.calls[0]?.[0]).toBe('/imports/upload')
+    expect(post.mock.calls[0]?.[1]).toBe(bundle)
+    expect(post.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'Content-Type': 'application/gzip',
+          'X-HTP-Bundle-Filename': bundle.name,
+          'X-HTP-Sidecar-Base64': btoa('sidecar'),
+          'X-HTP-Handoff-Base64': btoa('handoff'),
+        }),
+        timeout: 0,
+      }),
+    )
   })
 
   it('binds execute to the exact confirmed destination plan id', async () => {
