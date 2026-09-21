@@ -74,7 +74,12 @@ describe('runtime store', () => {
 
   it('changes contour only after backend confirms the requested mode', async () => {
     vi.spyOn(apiClient, 'put').mockResolvedValue({
-      data: { previous: 'SOURCE', current: 'TARGET', changed: true },
+      data: {
+        previous: 'SOURCE',
+        current: 'TARGET',
+        changed: true,
+        cancelled_operation_ids: [17, 18],
+      },
     } as unknown as AxiosResponse)
     setActivePinia(createPinia())
     const store = useRuntimeStore()
@@ -85,6 +90,7 @@ describe('runtime store', () => {
     expect(apiClient.put).toHaveBeenCalledWith('/runtime/mode', { mode: 'TARGET' })
     expect(store.contour).toBe('TARGET')
     expect(store.switchErrorCode).toBeNull()
+    expect(store.lastCancelledOperationIds).toEqual([17, 18])
     expect(store.switching).toBe(false)
   })
 
