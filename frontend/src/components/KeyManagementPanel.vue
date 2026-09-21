@@ -74,6 +74,54 @@ function requireMode(expected: Contour): boolean {
   return false
 }
 
+async function generateSigningIdentity(): Promise<void> {
+  if (!requireMode('SOURCE') || keySettings.value?.signing_key?.configured) return
+  if (
+    !window.confirm(
+      'Создать SOURCE signing identity? Private key будет создан и сохранён только на этом сервере.',
+    )
+  ) {
+    return
+  }
+
+  busy.value = true
+  message.value = ''
+  error.value = ''
+  try {
+    await apiClient.post('/settings/keys/signing/generate')
+    await loadKeys()
+    message.value = 'SOURCE signing identity создана. Скачайте public key для TARGET trust set.'
+  } catch (reason) {
+    error.value = safeError('Не удалось создать SOURCE signing identity.', reason)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function downloadSigningPublicKey(): Promise<void> {
+  if (!requireMode('SOURCE') || !keySettings.value?.signing_key?.configured) return
+
+  busy.value = true
+  message.value = ''
+  error.value = ''
+  try {
+    const response = await apiClient.get<Blob>('/settings/keys/signing/public', {
+      responseType: 'blob',
+    })
+    const href = URL.createObjectURL(response.data)
+    const anchor = document.createElement('a')
+    anchor.href = href
+    anchor.download = 'source-signing-public.pem'
+    anchor.click()
+    URL.revokeObjectURL(href)
+    message.value = 'Public key подготовлен для переноса в TARGET.'
+  } catch (reason) {
+    error.value = safeError('Не удалось скачать SOURCE public key.', reason)
+  } finally {
+    busy.value = false
+  }
+}
+
 async function installSigningKey(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -231,7 +279,28 @@ onMounted(loadKeys)
       <p v-if="keySettings.signing_key?.fingerprint" class="fingerprint">
         Fingerprint: <code>{{ keySettings.signing_key.fingerprint }}</code>
       </p>
-      <label for="source-signing-key">Ed25519 private key, PEM</label>
+      <div class="actions">
+        <button
+          v-if="!keySettings.signing_key?.configured"
+          type="button"
+          :disabled="busy"
+          @click="generateSigningIdentity"
+        >
+          Создать signing identity
+        </button>
+        <button
+          v-else
+          type="button"
+          class="secondary"
+          :disabled="busy"
+          @click="downloadSigningPublicKey"
+        >
+          Скачать public key
+        </button>
+      </div>
+      <label for="source-signing-key">
+        {{ keySettings.signing_key?.configured ? 'Ротация: Ed25519 private key, PEM' : 'Или установить существующий Ed25519 private key, PEM' }}
+      </label>
       <input
         id="source-signing-key"
         type="file"
@@ -241,7 +310,8 @@ onMounted(loadKeys)
       />
       <p class="warning">
         Private key используется только server-side и никогда не возвращается через normal API/UI.
-        При rotation сначала обеспечьте overlap trusted public keys на TARGET.
+        Автогенерация создаёт identity от имени текущего admin в audit. При rotation сначала
+        обеспечьте overlap trusted public keys на TARGET.
       </p>
     </template>
 
