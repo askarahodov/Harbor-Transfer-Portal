@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import PortalContour, Settings
@@ -76,8 +76,11 @@ class TrustedKeyRetirementService:
                 select(Operation.id)
                 .where(
                     Operation.type == OperationType.IMPORT,
-                    Operation.bundle_signing_key_fingerprint == normalized,
                     Operation.status.not_in(_TERMINAL_IMPORT_STATUSES),
+                    or_(
+                        Operation.bundle_signing_key_fingerprint == normalized,
+                        Operation.bundle_signing_key_fingerprint.is_(None),
+                    ),
                 )
                 .order_by(Operation.id)
             )
@@ -96,6 +99,6 @@ class TrustedKeyRetirementService:
             ids = ", ".join(str(item) for item in impact.blocking_operation_ids)
             raise TrustedKeyRetirementError(
                 "trusted_key_retirement_blocked",
-                f"Trusted key используется READY/in-flight import operations: {ids}",
+                f"Trusted key нельзя retire во время READY/in-flight import operations: {ids}",
             )
         return impact
