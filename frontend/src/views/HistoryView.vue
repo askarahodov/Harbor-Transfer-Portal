@@ -166,8 +166,8 @@ onMounted(() => history.load(true))
         <p class="eyebrow">Operations</p>
         <h1 id="history-title">История операций</h1>
         <p>
-          Persisted SOURCE/TARGET state из backend API. Экран не читает raw logs и не меняет
-          состояние операций.
+          Persisted SOURCE/TARGET state из backend API. Terminal operations доступны для просмотра
+          и отчётов; незавершённую operation можно открыть или безопасно отменить.
         </p>
       </div>
       <button class="button button--secondary" type="button" :disabled="history.loading" @click="history.load()">
@@ -219,6 +219,16 @@ onMounted(() => history.load(true))
       </div>
     </form>
 
+    <div v-if="resumeError" class="notice notice--warning" role="alert">
+      <AlertCircle :size="20" aria-hidden="true" />
+      <div><strong>Нельзя продолжить operation из текущего режима</strong><p>{{ resumeError }}</p></div>
+    </div>
+
+    <div v-if="history.lifecycleError" class="notice notice--danger" role="alert">
+      <AlertCircle :size="20" aria-hidden="true" />
+      <div><strong>{{ history.lifecycleError.code }}</strong><p>{{ history.lifecycleError.message }}</p></div>
+    </div>
+
     <div v-if="history.error" class="notice notice--danger" role="alert">
       <AlertCircle :size="20" aria-hidden="true" />
       <div><strong>{{ history.error.code }}</strong><p>{{ history.error.message }}</p></div>
@@ -247,7 +257,7 @@ onMounted(() => history.load(true))
         <table>
           <thead>
             <tr>
-              <th>ID</th><th>Тип / статус</th><th>Delivery</th><th>Actor</th><th>Создано</th><th>Artifacts</th><th>Результат</th>
+              <th>ID</th><th>Тип / статус</th><th>Delivery</th><th>Actor</th><th>Создано</th><th>Artifacts</th><th>Результат</th><th>Действия</th>
             </tr>
           </thead>
           <tbody>
@@ -262,6 +272,23 @@ onMounted(() => history.load(true))
                 <span v-if="item.retry_of_operation_id">retry of #{{ item.retry_of_operation_id }} · </span>
                 <span v-if="item.error_code" class="safe-error">{{ item.error_code }}</span>
                 <span v-else>{{ item.successful_artifacts }} ok · {{ item.failed_artifacts }} failed · {{ item.skipped_artifacts }} skipped</span>
+              </td>
+              <td>
+                <div v-if="canManageOperation(item)" class="row-actions">
+                  <button class="button button--secondary button--compact" type="button" @click="continueOperation(item)">
+                    {{ continuationLabel(item) }}
+                  </button>
+                  <button
+                    class="button button--danger button--compact"
+                    type="button"
+                    :disabled="history.lifecycleBusyOperationId === item.id"
+                    @click="cancelFromHistory(item)"
+                  >
+                    {{ history.lifecycleBusyOperationId === item.id ? 'Отмена…' : 'Отменить' }}
+                  </button>
+                </div>
+                <span v-else-if="!isTerminal(item.status)" class="muted">Только владелец / admin</span>
+                <span v-else class="muted">Завершена</span>
               </td>
             </tr>
           </tbody>
