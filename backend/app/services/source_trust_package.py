@@ -4,6 +4,7 @@ import gzip
 import io
 import json
 import tarfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from cryptography.exceptions import InvalidSignature
@@ -406,7 +407,7 @@ class SourceTrustPackageService:
         return endorsing_fingerprint
 
     @staticmethod
-    def _canonical_json(payload: dict[str, object]) -> bytes:
+    def _canonical_json(payload: Mapping[str, object]) -> bytes:
         return (
             json.dumps(
                 payload,
