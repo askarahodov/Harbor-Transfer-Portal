@@ -35,6 +35,12 @@ function isReleaseVersion(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function clearModeBoundWorkspacePointers(): void {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.removeItem('htp.export.operation-id')
+  window.sessionStorage.removeItem('htp.import.operation-id')
+}
+
 function readInjectedContour(): PortalContour | null {
   if (typeof window === 'undefined') return null
   const contour = window.__HTP_CONFIG__?.contour
@@ -121,6 +127,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
         return false
       }
       contour.value = response.data.current
+      clearModeBoundWorkspacePointers()
       lastCancelledOperationIds.value = cancelledOperationIds(
         response.data.cancelled_operation_ids,
       )
