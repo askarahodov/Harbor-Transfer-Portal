@@ -327,6 +327,29 @@ onMounted(() => history.load(true))
           <div><strong>{{ history.detailError.code }}</strong><p>{{ history.detailError.message }}</p></div>
         </div>
         <template v-else-if="history.detail">
+          <article v-if="history.canManageSelectedLifecycle" class="lifecycle-card">
+            <h3>Незавершённая операция</h3>
+            <p v-if="history.detail.type === 'IMPORT' && history.detail.status === 'READY'">
+              Bundle уже проверен. Вернитесь к TARGET mapping и продолжите этот же import без повторной загрузки.
+            </p>
+            <p v-else>
+              Откройте существующий workflow для просмотра текущего состояния или отмените operation. Новая operation не создаётся.
+            </p>
+            <div class="lifecycle-actions">
+              <button class="button button--primary" type="button" @click="continueOperation(history.detail)">
+                {{ continuationLabel(history.detail) }}
+              </button>
+              <button
+                class="button button--danger"
+                type="button"
+                :disabled="history.lifecycleBusyOperationId === history.detail.id"
+                @click="cancelFromHistory(history.detail)"
+              >
+                {{ history.lifecycleBusyOperationId === history.detail.id ? 'Отмена…' : 'Отменить операцию' }}
+              </button>
+            </div>
+          </article>
+
           <dl class="metadata-grid">
             <div><dt>Actor</dt><dd>{{ history.detail.actor_username }}</dd></div>
             <div><dt>Delivery ID</dt><dd>{{ history.detail.delivery_id ?? '—' }}</dd></div>
