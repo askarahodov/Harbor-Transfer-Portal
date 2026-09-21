@@ -5,6 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Literal
 
 from cryptography.exceptions import InvalidSignature
@@ -29,8 +30,16 @@ class MediaHandoffError(Exception):
         return self.message
 
 
+HandoffFileRole = Literal[
+    "bundle",
+    "bundle-sidecar",
+    "source-trust-package",
+    "pending-trust-package",
+]
+
+
 class HandoffFile(BaseModel):
-    role: Literal["bundle", "bundle-sidecar"]
+    role: HandoffFileRole
     name: str = Field(min_length=1, max_length=240, pattern=r"^[A-Za-z0-9._-]+$")
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     size_bytes: int = Field(ge=0)
@@ -43,7 +52,7 @@ class HandoffPayload(BaseModel):
     created_at: str
     created_by: str = Field(min_length=1, max_length=128)
     signing_key_fingerprint: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
-    files: list[HandoffFile] = Field(min_length=2, max_length=2)
+    files: list[HandoffFile] = Field(min_length=2, max_length=4)
 
     @field_validator("created_at")
     @classmethod
@@ -54,14 +63,21 @@ class HandoffPayload(BaseModel):
 
     @model_validator(mode="after")
     def require_exact_file_roles(self) -> HandoffPayload:
+        roles = [item.role for item in self.files]
+        if len(roles) != len(set(roles)):
+            raise ValueError("handoff file roles must be unique")
         by_role = {item.role: item for item in self.files}
-        if set(by_role) != {"bundle", "bundle-sidecar"}:
+        if "bundle" not in by_role or "bundle-sidecar" not in by_role:
             raise ValueError("handoff must contain bundle and bundle-sidecar")
         expected_bundle = f"{self.delivery_id}.htp.tar.gz"
         if by_role["bundle"].name != expected_bundle:
             raise ValueError("bundle name does not match delivery_id")
         if by_role["bundle-sidecar"].name != f"{expected_bundle}.sha256":
             raise ValueError("sidecar name does not match delivery_id")
+        for role in ("source-trust-package", "pending-trust-package"):
+            item = by_role.get(role)
+            if item is not None and not item.name.endswith(".htp-trust.tar.gz"):
+                raise ValueError(f"{role} must use .htp-trust.tar.gz")
         return self
 
 
@@ -99,6 +115,7 @@ class MediaHandoffService:
         bundle_path: Path,
         sidecar_path: Path,
         private_key: Ed25519PrivateKey,
+        optional_files: Sequence[tuple[HandoffFileRole, Path]] = (),
     ) -> HandoffBuildResult:
         if self.settings.portal_contour is not PortalContour.SOURCE:
             raise MediaHandoffError(
@@ -114,6 +131,10 @@ class MediaHandoffService:
             files=[
                 self._file("bundle", bundle_path),
                 self._file("bundle-sidecar", sidecar_path),
+                *[
+                    self._file(role, path)
+                    for role, path in optional_files
+                ],
             ],
         )
         payload_bytes = self._canonical_payload(payload)
@@ -181,7 +202,10 @@ class MediaHandoffService:
         root = self.settings.import_discovery_root.resolve()
         by_role = {item.role: item for item in payload.files}
         bundle = self._safe_discovery_file(root, by_role["bundle"])
-        self._safe_discovery_file(root, by_role["bundle-sidecar"])
+        for expected in payload.files:
+            if expected.role == "bundle":
+                continue
+            self._safe_discovery_file(root, expected)
         return HandoffVerificationResult(
             delivery_id=payload.delivery_id,
             signing_key_fingerprint=payload.signing_key_fingerprint,
@@ -215,7 +239,7 @@ class MediaHandoffService:
         return candidate
 
     @staticmethod
-    def _file(role: Literal["bundle", "bundle-sidecar"], path: Path) -> HandoffFile:
+    def _file(role: HandoffFileRole, path: Path) -> HandoffFile:
         if not path.is_file() or path.is_symlink():
             raise MediaHandoffError(
                 "handoff_file_missing",
