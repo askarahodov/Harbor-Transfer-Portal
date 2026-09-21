@@ -140,8 +140,9 @@ def test_export_builds_exact_secure_argv_and_preserves_digest(tmp_path: Path) ->
 
     def materialize_layout(argv: tuple[str, ...]) -> None:
         transport = argv[-1]
-        assert transport.startswith("oci:") and transport.endswith(":image")
-        _write_oci_layout(Path(transport[len("oci:") : -len(":image")]))
+        assert transport.startswith("oci:")
+        assert not transport.endswith(":image")
+        _write_oci_layout(Path(transport[len("oci:") :]))
 
     runner.copy_callback = materialize_layout
     phases: list[SkopeoPhase] = []
@@ -193,7 +194,7 @@ def test_export_builds_exact_secure_argv_and_preserves_digest(tmp_path: Path) ->
         "--src-cert-dir",
         src_cert_dir,
         "docker://harbor.local:8443/team/nested-app:release-1",
-        f"oci:{destination.resolve()}:image",
+        f"oci:{destination.resolve()}",
     )
     assert TEST_CREDENTIAL in copy_redactions
     assert TEST_CREDENTIAL not in " ".join(copy_argv)
@@ -230,7 +231,7 @@ def test_import_verifies_payload_before_push_and_target_after_push(tmp_path: Pat
     assert result.target_digest == DIGEST_A
     copy_argv, _ = runner.calls[1]
     assert copy_argv[0:4] == ("skopeo", "copy", "--all", "--preserve-digests")
-    assert copy_argv[-2] == f"oci:{payload.resolve()}:image"
+    assert copy_argv[-2] == f"oci:{payload.resolve()}"
     assert copy_argv[-1] == "docker://harbor.local:8443/team/app:release-1"
     assert "--dest-tls-verify=true" in copy_argv
 
