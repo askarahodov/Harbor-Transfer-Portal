@@ -41,6 +41,7 @@ def _api_error(exc: KeyManagementError) -> HTTPException:
         "trusted_key_confirmation_required": status.HTTP_409_CONFLICT,
         "signing_key_already_configured": status.HTTP_409_CONFLICT,
         "signing_key_not_configured": status.HTTP_409_CONFLICT,
+        "signing_rotation_required": status.HTTP_409_CONFLICT,
         "pending_signing_key_already_configured": status.HTTP_409_CONFLICT,
         "pending_signing_key_not_configured": status.HTTP_409_CONFLICT,
         "pending_signing_key_fingerprint_mismatch": status.HTTP_409_CONFLICT,
