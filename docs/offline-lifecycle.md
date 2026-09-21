@@ -85,8 +85,8 @@ Upgrade выполняет операции в таком порядке:
 1. проверяет `CHECKSUMS.sha256` нового kit, architecture и Docker prerequisites;
 2. проверяет старый `.env` и текущую `PORTAL_VERSION`;
 3. **до любой mutation** проверяет, что предыдущая installation сама является recoverable matching-version kit: `restore.sh`, release metadata, bundled images и checksums присутствуют и валидны;
-4. создаёт обязательный pre-upgrade backup;
-5. только после backup загружает bundled backend/frontend images новой версии через `docker load`;
+4. создаёт обязательный pre-upgrade backup и оставляет старый workload **paused/quiesced** после snapshot;
+5. пока old workload quiesced, загружает bundled backend/frontend images новой версии через `docker load`;
 6. проверяет exact local image references и architecture;
 7. копирует прежнюю конфигурацию, атомарно меняя только `PORTAL_VERSION`;
 8. запускает новый Compose с `--no-build --pull never --wait`.
@@ -108,6 +108,8 @@ Upgrade выполняет операции в таком порядке:
 - остальные данные `/app/data`.
 
 Rollback выполняется matching-version local images с `--pull never --network none`; network helper или registry не нужны.
+
+От snapshot до завершения `UPGRADE_OK` или rollback старый Portal не должен принимать новые записи. Это исключает окно, в котором операция была бы подтверждена пользователю уже после snapshot, а затем потеряна при restore. Если upgrade завершается ошибкой **до** попытки запуска новой версии (например, invalid timeout или локальная pre-start validation), upgrade cleanup снимает pause и возвращает старый Portal в исходное состояние без restore.
 
 `upgrade.sh` имеет три явных terminal outcome:
 
