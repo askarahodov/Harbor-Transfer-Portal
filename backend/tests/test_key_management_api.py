@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import stat
+import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -219,6 +221,145 @@ def test_admin_can_generate_identity_and_export_only_public_key(tmp_path: Path) 
     assert metadata["action"] == "generated"
     assert metadata["fingerprint"] == fingerprint
     assert "PRIVATE KEY" not in events[0].metadata_json
+
+
+def test_source_trust_package_bootstraps_target_verifier_end_to_end(
+    tmp_path: Path,
+) -> None:
+    source_app = _build_app(tmp_path, PortalContour.SOURCE)
+    target_app = _build_app(tmp_path, PortalContour.TARGET)
+
+    with TestClient(source_app) as source:
+        source_admin = _login(source, "admin")
+        source_headers = _auth(source_admin)
+        generated = source.post(
+            "/api/settings/keys/signing/generate",
+            headers=source_headers,
+        )
+        assert generated.status_code == 201
+        fingerprint = generated.json()["fingerprint"]
+
+        first = source.get(
+            "/api/settings/keys/signing/trust-package",
+            headers=source_headers,
+        )
+        second = source.get(
+            "/api/settings/keys/signing/trust-package",
+            headers=source_headers,
+        )
+        assert first.status_code == 200
+        assert first.content == second.content
+        assert first.headers["x-signing-key-fingerprint"] == fingerprint
+        assert "htp-trust.tar.gz" in first.headers["content-disposition"]
+
+        with tarfile.open(fileobj=io.BytesIO(first.content), mode="r:gz") as archive:
+            names = [member.name for member in archive.getmembers()]
+            assert names == [
+                "source-signing-public.pem",
+                "identity.json",
+                "fingerprint.sha256",
+            ]
+            contents = {
+                name: archive.extractfile(name).read()  # type: ignore[union-attr]
+                for name in names
+            }
+        assert b"PRIVATE KEY" not in b"".join(contents.values())
+        assert contents["fingerprint.sha256"] == f"{fingerprint}\n".encode("ascii")
+
+        bundle = _build_chart_bundle(
+            source_app.state.settings,
+            "DELIVERY-20260921-TRUSTPKG1",
+        )
+
+    with TestClient(target_app) as target:
+        admin = _login(target, "admin")
+        operator = _login(target, "operator")
+
+        denied = target.post(
+            "/api/settings/keys/trusted/package",
+            params={"confirm": True},
+            content=first.content,
+            headers={
+                **_auth(operator),
+                "Content-Type": "application/gzip",
+            },
+        )
+        assert denied.status_code == 403
+
+        unconfirmed = target.post(
+            "/api/settings/keys/trusted/package",
+            content=first.content,
+            headers={
+                **_auth(admin),
+                "Content-Type": "application/gzip",
+            },
+        )
+        assert unconfirmed.status_code == 409
+        assert unconfirmed.json()["error"]["code"] == "trusted_key_confirmation_required"
+
+        imported = target.post(
+            "/api/settings/keys/trusted/package",
+            params={"confirm": True},
+            content=first.content,
+            headers={
+                **_auth(admin),
+                "Content-Type": "application/gzip",
+            },
+        )
+        assert imported.status_code == 201
+        assert imported.json() == {"action": "added", "fingerprint": fingerprint}
+
+        duplicate = target.post(
+            "/api/settings/keys/trusted/package",
+            params={"confirm": True},
+            content=first.content,
+            headers={
+                **_auth(admin),
+                "Content-Type": "application/gzip",
+            },
+        )
+        assert duplicate.status_code == 201
+        assert duplicate.json() == {"action": "unchanged", "fingerprint": fingerprint}
+
+        settings_response = target.get(
+            "/api/settings/keys",
+            headers=_auth(admin),
+        )
+        assert settings_response.status_code == 200
+        assert settings_response.json()["trusted_keys"] == [
+            {"fingerprint": fingerprint, "enabled": True}
+        ]
+
+    verified = BundlePackageService(target_app.state.settings).verify_bundle(
+        bundle.archive_path,
+        sidecar_path=bundle.sidecar_path,
+    )
+    assert verified.signing_key_fingerprint == fingerprint
+
+    with source_app.state.session_factory() as session:
+        exported = list(
+            session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.event_type == "signing.trust_package.exported"
+                )
+            )
+        )
+    assert len(exported) == 2
+    assert all(event.actor_username == "admin" for event in exported)
+
+    with target_app.state.session_factory() as session:
+        imported_events = list(
+            session.scalars(
+                select(AuditEvent)
+                .where(AuditEvent.event_type == "trust.source_identity.imported")
+                .order_by(AuditEvent.id)
+            )
+        )
+    assert [json.loads(event.metadata_json)["action"] for event in imported_events] == [
+        "added",
+        "unchanged",
+    ]
+    assert all(event.actor_username == "admin" for event in imported_events)
 
 
 def test_source_private_key_is_atomic_private_and_never_disclosed(tmp_path: Path) -> None:
