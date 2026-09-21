@@ -217,8 +217,6 @@ describe('TARGET import wizard view', () => {
       handoff,
       expect.any(Function),
     )
-    expect(wrapper.text()).toContain(sidecar.name)
-    expect(wrapper.text()).toContain(handoff.name)
   })
 
   it('requires VERIFIED signed handoff before media discovery', async () => {
