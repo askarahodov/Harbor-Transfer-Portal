@@ -14,6 +14,7 @@ from app.services.key_management import (
     KeyManagementError,
     KeyManagementService,
     KeyMutation,
+    SigningPublicKey,
 )
 from app.services.key_material import ed25519_public_key_fingerprint
 
@@ -63,7 +64,7 @@ class SourceTrustPackageService:
             raise TrustPackageError(exc.code, exc.message) from exc
         return self._build(public)
 
-    def _build(self, public) -> TrustPackageBuildResult:
+    def _build(self, public: SigningPublicKey) -> TrustPackageBuildResult:
         identity = {
             "algorithm": "Ed25519",
             "fingerprint": public.fingerprint,
