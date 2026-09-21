@@ -290,6 +290,11 @@ class KeyManagementService:
             fingerprint=fingerprint,
         )
 
+    def trusted_public_key_fingerprint(self, pem: str) -> str:
+        self._require_target()
+        key = self._parse_public_key(self._bounded_bytes(pem))
+        return ed25519_public_key_fingerprint(key)
+
     def replace_trusted_public_key(self, fingerprint: str, pem: str) -> KeyMutation:
         self._require_target()
         previous = self._validate_fingerprint(fingerprint)
