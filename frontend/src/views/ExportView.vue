@@ -10,6 +10,7 @@ import {
   PackageCheck,
   RefreshCw,
   Search,
+  ChevronDown,
   ShipWheel,
   XCircle,
 } from 'lucide-vue-next'
@@ -100,17 +101,6 @@ function kindLabel(kind: string): string {
   return 'OCI (не поддерживается)'
 }
 
-async function searchProjects(): Promise<void> {
-  await wizard.loadProjects(1)
-}
-
-async function searchRepositories(): Promise<void> {
-  await wizard.loadRepositories(1)
-}
-
-async function searchArtifacts(): Promise<void> {
-  await wizard.loadArtifacts(1)
-}
 
 async function generateIdentityAndContinueExport(): Promise<void> {
   if (auth.user?.role !== 'admin' || signingRecoveryBusy.value) return
@@ -357,103 +347,83 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="browser-grid">
-          <section class="browser-panel" aria-labelledby="projects-title">
-            <h3 id="projects-title">1. Проект</h3>
-            <form class="search-row" @submit.prevent="searchProjects">
-              <label class="sr-only" for="project-search">Поиск проекта</label>
-              <input id="project-search" v-model="wizard.projectSearch" type="search" placeholder="Найти проект" maxlength="256" />
-              <button class="icon-button" type="submit" aria-label="Искать проект">
-                <Search :size="18" aria-hidden="true" />
-              </button>
-            </form>
-            <StatePlaceholder
-              v-if="wizard.busy === 'projects'"
-              compact
-              kind="loading"
-              title="Загрузка проектов"
-            />
-            <StatePlaceholder
-              v-else-if="wizard.projects.length === 0"
-              compact
-              kind="empty"
-              title="Проекты не найдены"
-            />
-            <button
-              v-for="project in wizard.projects"
-              :key="project.name"
-              type="button"
-              :class="['browser-item', { 'browser-item--selected': wizard.selectedProject === project.name }]"
-              @click="wizard.chooseProject(project.name)"
-            >
-              <span>{{ project.name }}</span>
-              <span class="item-meta">{{ project.public ? 'public' : 'private' }}</span>
-            </button>
-            <div v-if="wizard.projectTotal > 25" class="pagination" aria-label="Страницы проектов">
-              <button type="button" :disabled="wizard.projectPage <= 1" @click="wizard.loadProjects(wizard.projectPage - 1)">Назад</button>
-              <span>{{ wizard.projectPage }} / {{ Math.ceil(wizard.projectTotal / 25) }}</span>
-              <button type="button" :disabled="wizard.projectPage * 25 >= wizard.projectTotal" @click="wizard.loadProjects(wizard.projectPage + 1)">Далее</button>
-            </div>
-          </section>
+        <div class="compact-selector" aria-label="Выбор артефакта Harbor">
+          <label class="compact-field">
+            <span>1. Проект</span>
+            <span class="select-shell">
+              <select
+                :value="wizard.selectedProject ?? ''"
+                aria-label="Проект Harbor"
+                @change="wizard.chooseProject(($event.target as HTMLSelectElement).value)"
+              >
+                <option value="" disabled>Выберите проект</option>
+                <option v-for="project in wizard.projects" :key="project.name" :value="project.name">
+                  {{ project.name }} · {{ project.public ? 'public' : 'private' }}
+                </option>
+              </select>
+              <ChevronDown :size="17" aria-hidden="true" />
+            </span>
+          </label>
+          <div v-if="wizard.projectTotal > 25" class="compact-pagination" aria-label="Страницы проектов">
+            <button type="button" :disabled="wizard.projectPage <= 1" @click="wizard.loadProjects(wizard.projectPage - 1)">‹</button>
+            <span>{{ wizard.projectPage }} / {{ Math.ceil(wizard.projectTotal / 25) }}</span>
+            <button type="button" :disabled="wizard.projectPage * 25 >= wizard.projectTotal" @click="wizard.loadProjects(wizard.projectPage + 1)">›</button>
+          </div>
 
-          <section class="browser-panel" aria-labelledby="repositories-title">
-            <h3 id="repositories-title">2. Репозиторий</h3>
-            <form class="search-row" @submit.prevent="searchRepositories">
-              <label class="sr-only" for="repository-search">Поиск репозитория</label>
-              <input id="repository-search" v-model="wizard.repositorySearch" type="search" placeholder="Найти репозиторий" maxlength="256" :disabled="!wizard.selectedProject" />
-              <button class="icon-button" type="submit" aria-label="Искать репозиторий" :disabled="!wizard.selectedProject">
-                <Search :size="18" aria-hidden="true" />
-              </button>
-            </form>
-            <StatePlaceholder
-              v-if="!wizard.selectedProject"
-              compact
-              kind="empty"
-              title="Сначала выберите проект"
-            />
-            <StatePlaceholder
-              v-else-if="wizard.busy === 'repositories'"
-              compact
-              kind="loading"
-              title="Загрузка репозиториев"
-            />
-            <StatePlaceholder
-              v-else-if="wizard.repositories.length === 0"
-              compact
-              kind="empty"
-              title="Репозитории не найдены"
-            />
-            <button
-              v-for="repository in wizard.repositories"
-              :key="repository.name"
-              type="button"
-              :class="['browser-item', { 'browser-item--selected': wizard.selectedRepository === repository.name }]"
-              @click="wizard.chooseRepository(repository.name)"
-            >
-              <span>{{ repository.name }}</span>
-              <span class="item-meta">{{ repository.artifact_count ?? '—' }} artifacts</span>
-            </button>
-            <div v-if="wizard.repositoryTotal > 25" class="pagination" aria-label="Страницы репозиториев">
-              <button type="button" :disabled="wizard.repositoryPage <= 1" @click="wizard.loadRepositories(wizard.repositoryPage - 1)">Назад</button>
-              <span>{{ wizard.repositoryPage }} / {{ Math.ceil(wizard.repositoryTotal / 25) }}</span>
-              <button type="button" :disabled="wizard.repositoryPage * 25 >= wizard.repositoryTotal" @click="wizard.loadRepositories(wizard.repositoryPage + 1)">Далее</button>
-            </div>
-          </section>
+          <label class="compact-field">
+            <span>2. Репозиторий</span>
+            <span class="select-shell">
+              <select
+                :value="wizard.selectedRepository ?? ''"
+                :disabled="!wizard.selectedProject || wizard.busy === 'repositories'"
+                aria-label="Репозиторий Harbor"
+                @change="wizard.chooseRepository(($event.target as HTMLSelectElement).value)"
+              >
+                <option value="" disabled>
+                  {{ wizard.busy === 'repositories' ? 'Загрузка…' : 'Выберите репозиторий' }}
+                </option>
+                <option v-for="repository in wizard.repositories" :key="repository.name" :value="repository.name">
+                  {{ repository.name }} · {{ repository.artifact_count ?? '—' }} artifacts
+                </option>
+              </select>
+              <ChevronDown :size="17" aria-hidden="true" />
+            </span>
+          </label>
+          <div v-if="wizard.repositoryTotal > 25" class="compact-pagination" aria-label="Страницы репозиториев">
+            <button type="button" :disabled="wizard.repositoryPage <= 1" @click="wizard.loadRepositories(wizard.repositoryPage - 1)">‹</button>
+            <span>{{ wizard.repositoryPage }} / {{ Math.ceil(wizard.repositoryTotal / 25) }}</span>
+            <button type="button" :disabled="wizard.repositoryPage * 25 >= wizard.repositoryTotal" @click="wizard.loadRepositories(wizard.repositoryPage + 1)">›</button>
+          </div>
+
+          <label class="compact-field compact-field--search">
+            <span>3. Версия / tag</span>
+            <span class="compact-search">
+              <Search :size="17" aria-hidden="true" />
+              <input
+                v-model="wizard.artifactSearch"
+                type="search"
+                placeholder="Фильтр version, tag или digest"
+                maxlength="256"
+                :disabled="!wizard.selectedRepository"
+                aria-label="Фильтр версии, tag или digest"
+              />
+            </span>
+          </label>
         </div>
 
-        <section class="artifact-panel" aria-labelledby="artifacts-title">
+        <div class="selection-context" aria-live="polite">
+          <span v-if="wizard.selectedProject"><strong>{{ wizard.selectedProject }}</strong></span>
+          <span v-if="wizard.selectedRepository">/ {{ wizard.selectedRepository }}</span>
+          <span v-if="wizard.selectedRepository" class="muted">· выберите точную версию ниже</span>
+          <span v-else class="muted">Сначала выберите проект и репозиторий.</span>
+        </div>
+
+        <section class="artifact-panel artifact-panel--compact" aria-labelledby="artifacts-title">
           <div class="artifact-panel__heading">
             <div>
-              <h3 id="artifacts-title">3. Точные tag / version</h3>
-              <p>Выбор хранится при поиске и переходе между страницами.</p>
+              <h3 id="artifacts-title">Доступные версии</h3>
+              <p>Digest остаётся источником точной идентичности; tag используется как удобное имя.</p>
             </div>
-            <form class="search-row search-row--wide" @submit.prevent="searchArtifacts">
-              <label class="sr-only" for="artifact-search">Поиск tag, version или digest</label>
-              <input id="artifact-search" v-model="wizard.artifactSearch" type="search" placeholder="Tag, version или digest" maxlength="256" :disabled="!wizard.selectedRepository" />
-              <button class="icon-button" type="submit" aria-label="Искать артефакт" :disabled="!wizard.selectedRepository">
-                <Search :size="18" aria-hidden="true" />
-              </button>
-            </form>
           </div>
 
           <StatePlaceholder
@@ -461,23 +431,21 @@ onBeforeUnmount(() => {
             compact
             kind="empty"
             title="Выберите проект и репозиторий"
-            description="После выбора здесь появятся доступные версии."
           />
           <StatePlaceholder
             v-else-if="wizard.busy === 'artifacts'"
             compact
             kind="loading"
-            title="Загрузка артефактов"
+            title="Загрузка версий"
           />
           <StatePlaceholder
             v-else-if="wizard.artifacts.length === 0"
             compact
             kind="empty"
-            title="Артефакты не найдены"
-            description="По текущему фильтру нет доступных tag/version."
+            title="Версии не найдены"
           />
-          <div v-else class="artifact-list">
-            <article v-for="artifact in wizard.artifacts" :key="artifact.digest" class="artifact-card">
+          <div v-else class="artifact-list artifact-list--compact">
+            <article v-for="artifact in wizard.artifacts" :key="artifact.digest" class="artifact-card artifact-card--compact">
               <div class="artifact-card__main">
                 <div class="kind-icon" aria-hidden="true">
                   <Box v-if="artifact.kind === 'container-image'" :size="20" />
@@ -500,11 +468,8 @@ onBeforeUnmount(() => {
                     {{ reference }}
                   </code>
                 </div>
-                <div v-else>Нет явной версии/tag — доступна только диагностика</div>
               </div>
-              <div v-else-if="wizard.referencesFor(artifact).length === 0" class="unsupported">
-                Нет явной версии/tag — выбрать нельзя
-              </div>
+              <div v-else-if="wizard.referencesFor(artifact).length === 0" class="unsupported">Нет явной версии/tag</div>
               <div v-else class="reference-list">
                 <label v-for="reference in wizard.referencesFor(artifact)" :key="reference" class="reference-choice">
                   <input
@@ -759,6 +724,19 @@ h3 { margin-bottom: var(--space-2); font-size: 16px; }
 .wizard-card { display: grid; gap: var(--space-6); padding: var(--space-6); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); }
 .selection-summary { padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--color-info-surface); color: var(--color-info-text); }
 .browser-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.compact-selector { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(220px, 1fr) minmax(260px, 1.2fr); gap: var(--space-3); align-items: end; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
+.compact-field { display: grid; gap: var(--space-2); min-width: 0; font-weight: 700; }
+.compact-pagination { display: flex; align-items: center; justify-content: center; gap: var(--space-1); font-size: 12px; color: var(--color-text-muted); }
+.compact-pagination button { border: 0; background: transparent; color: var(--color-action); cursor: pointer; }
+.select-shell { position: relative; display: block; }
+.select-shell select { width: 100%; min-height: 42px; padding: 0 38px 0 var(--space-3); appearance: none; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; }
+.select-shell > svg { position: absolute; right: var(--space-3); top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--color-text-muted); }
+.compact-search { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: var(--space-2); min-height: 42px; padding-left: var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); }
+.compact-search input[type='search'] { min-height: 40px; padding-left: 0; border: 0; outline: 0; }
+.selection-context { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: calc(var(--space-3) * -1); font-size: 13px; }
+.artifact-panel--compact { padding: var(--space-3) var(--space-4); }
+.artifact-list--compact { gap: var(--space-2); }
+.artifact-card--compact { padding: var(--space-3); }
 .browser-panel, .artifact-panel { display: grid; align-content: start; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
 .artifact-panel { gap: var(--space-4); }
 .search-row { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: var(--space-2); }
@@ -829,6 +807,8 @@ progress { width: 100%; height: 12px; accent-color: var(--color-action); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 860px) {
   .browser-grid, .identity-grid, .operation-summary, .ready-grid { grid-template-columns: 1fr 1fr; }
+  .compact-selector { grid-template-columns: 1fr 1fr; }
+  .compact-field--search { grid-column: 1 / -1; }
   .page-heading, .section-heading, .artifact-panel__heading { align-items: stretch; flex-direction: column; }
   .search-row--wide { width: 100%; }
   .artifact-card, .operation-artifact { align-items: flex-start; flex-direction: column; }
@@ -837,7 +817,8 @@ progress { width: 100%; height: 12px; accent-color: var(--color-action); }
 }
 @media (max-width: 620px) {
   .stepper { grid-template-columns: 1fr 1fr; }
-  .browser-grid, .identity-grid, .operation-summary, .ready-grid { grid-template-columns: 1fr; }
+  .browser-grid, .identity-grid, .operation-summary, .ready-grid, .compact-selector { grid-template-columns: 1fr; }
+  .compact-field--search { grid-column: auto; }
   .wizard-card { padding: var(--space-4); }
   .actions, .ready-summary { align-items: stretch; flex-direction: column; }
   .primary-button, .secondary-button, .danger-button { width: 100%; }
