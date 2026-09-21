@@ -121,6 +121,30 @@ def _build_chart_bundle(settings: Settings, delivery_id: str):
     )
 
 
+def test_generated_identity_stays_successful_after_post_commit_fsync_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        portal_contour=PortalContour.SOURCE,
+        bundle_signing_private_key_file=tmp_path / "keys" / "source-signing-private.pem",
+    )
+    service = KeyManagementService(settings)
+
+    def fail_directory_fsync(_path: Path) -> None:
+        raise OSError("synthetic directory fsync failure")
+
+    monkeypatch.setattr(service, "_fsync_directory", fail_directory_fsync)
+
+    mutation = service.generate_signing_private_key()
+
+    assert mutation.action == "generated"
+    status = service.signing_status()
+    assert status.configured is True
+    assert status.fingerprint == mutation.fingerprint
+
+
 def test_concurrent_source_generation_never_silently_rotates_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
