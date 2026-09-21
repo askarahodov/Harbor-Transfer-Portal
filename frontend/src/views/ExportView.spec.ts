@@ -19,7 +19,11 @@ function button(wrapper: VueWrapper, label: string) {
 }
 
 async function chooseOption(wrapper: VueWrapper, label: string, value: string): Promise<void> {
-  await wrapper.get(`select[aria-label="${label}"]`).setValue(value)
+  const input = wrapper.get(`input[role="combobox"][aria-label="${label}"]`)
+  await input.trigger('focus')
+  const option = wrapper.findAll('[role="option"]').find((item) => item.text().includes(value))
+  if (!option) throw new Error(`Option not found: ${value}`)
+  await option.trigger('mousedown')
   await flushPromises()
 }
 
@@ -156,7 +160,7 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
 
     expect(wrapper.get('h1').text()).toContain('Отправка артефактов')
-    expect(wrapper.get('select[aria-label="Проект Harbor"]').exists()).toBe(true)
+    expect(wrapper.get('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(true)
 
     await chooseOption(wrapper, 'Проект Harbor', 'team')
     await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
@@ -336,6 +340,6 @@ describe('SOURCE export wizard view', () => {
 
     expect(wrapper.text()).toContain('Экспорт доступен только в контуре SOURCE')
     expect(connection).not.toHaveBeenCalled()
-    expect(wrapper.find('select[aria-label="Проект Harbor"]').exists()).toBe(false)
+    expect(wrapper.find('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(false)
   })
 })

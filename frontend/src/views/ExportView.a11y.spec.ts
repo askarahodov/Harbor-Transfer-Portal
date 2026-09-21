@@ -38,8 +38,10 @@ describe('ExportView accessibility states', () => {
     const states = wrapper.findAll('.state-placeholder')
     expect(states.length).toBeGreaterThanOrEqual(1)
     expect(states.every((state) => state.attributes('role') === 'status')).toBe(true)
-    expect(wrapper.get('select[aria-label="Проект Harbor"]').exists()).toBe(true)
-    expect(wrapper.get('select[aria-label="Репозиторий Harbor"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(true)
+    expect(
+      wrapper.get('input[role="combobox"][aria-label="Репозиторий Harbor"]').attributes('disabled'),
+    ).toBeDefined()
     expect(wrapper.get('input[aria-label="Фильтр версии, tag или digest"]').attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('Выберите проект и репозиторий')
   })

@@ -10,7 +10,6 @@ import {
   PackageCheck,
   RefreshCw,
   Search,
-  ChevronDown,
   ShipWheel,
   XCircle,
 } from 'lucide-vue-next'
@@ -25,6 +24,7 @@ import {
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
+import SearchCombobox from '@/components/SearchCombobox.vue'
 import StatePlaceholder from '@/components/StatePlaceholder.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
 import { useAuthStore } from '@/stores/auth'
@@ -90,6 +90,21 @@ const progressPercent = computed(() => {
   if (!progress || progress.progress_total <= 0) return null
   return Math.round((progress.progress_current / progress.progress_total) * 100)
 })
+const projectOptions = computed(() =>
+  wizard.projects.map((project) => ({
+    value: project.name,
+    label: project.name,
+    description: project.public ? 'public' : 'private',
+  })),
+)
+const repositoryOptions = computed(() =>
+  wizard.repositories.map((repository) => ({
+    value: repository.name,
+    label: repository.name,
+    description: `${repository.artifact_count ?? '—'} artifacts`,
+  })),
+)
+
 
 function shortDigest(digest: string | null): string {
   return formatShortDigest(digest, { maxLength: 24, headLength: 18, tailLength: 8 })
@@ -348,52 +363,36 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="compact-selector" aria-label="Выбор артефакта Harbor">
-          <label class="compact-field">
-            <span>1. Проект</span>
-            <span class="select-shell">
-              <select
-                :value="wizard.selectedProject ?? ''"
-                aria-label="Проект Harbor"
-                @change="wizard.chooseProject(($event.target as HTMLSelectElement).value)"
-              >
-                <option value="" disabled>Выберите проект</option>
-                <option v-for="project in wizard.projects" :key="project.name" :value="project.name">
-                  {{ project.name }} · {{ project.public ? 'public' : 'private' }}
-                </option>
-              </select>
-              <ChevronDown :size="17" aria-hidden="true" />
-            </span>
-          </label>
-          <div v-if="wizard.projectTotal > 25" class="compact-pagination" aria-label="Страницы проектов">
-            <button type="button" :disabled="wizard.projectPage <= 1" @click="wizard.loadProjects(wizard.projectPage - 1)">‹</button>
-            <span>{{ wizard.projectPage }} / {{ Math.ceil(wizard.projectTotal / 25) }}</span>
-            <button type="button" :disabled="wizard.projectPage * 25 >= wizard.projectTotal" @click="wizard.loadProjects(wizard.projectPage + 1)">›</button>
-          </div>
+          <SearchCombobox
+            label="Проект Harbor"
+            :model-value="wizard.selectedProject ?? ''"
+            :search="wizard.projectSearch"
+            :options="projectOptions"
+            placeholder="Найти проект"
+            :loading="wizard.busy === 'projects'"
+            :page="wizard.projectPage"
+            :total="wizard.projectTotal"
+            @update:search="wizard.projectSearch = $event"
+            @select="wizard.chooseProject"
+            @previous="wizard.loadProjects(wizard.projectPage - 1)"
+            @next="wizard.loadProjects(wizard.projectPage + 1)"
+          />
 
-          <label class="compact-field">
-            <span>2. Репозиторий</span>
-            <span class="select-shell">
-              <select
-                :value="wizard.selectedRepository ?? ''"
-                :disabled="!wizard.selectedProject || wizard.busy === 'repositories'"
-                aria-label="Репозиторий Harbor"
-                @change="wizard.chooseRepository(($event.target as HTMLSelectElement).value)"
-              >
-                <option value="" disabled>
-                  {{ wizard.busy === 'repositories' ? 'Загрузка…' : 'Выберите репозиторий' }}
-                </option>
-                <option v-for="repository in wizard.repositories" :key="repository.name" :value="repository.name">
-                  {{ repository.name }} · {{ repository.artifact_count ?? '—' }} artifacts
-                </option>
-              </select>
-              <ChevronDown :size="17" aria-hidden="true" />
-            </span>
-          </label>
-          <div v-if="wizard.repositoryTotal > 25" class="compact-pagination" aria-label="Страницы репозиториев">
-            <button type="button" :disabled="wizard.repositoryPage <= 1" @click="wizard.loadRepositories(wizard.repositoryPage - 1)">‹</button>
-            <span>{{ wizard.repositoryPage }} / {{ Math.ceil(wizard.repositoryTotal / 25) }}</span>
-            <button type="button" :disabled="wizard.repositoryPage * 25 >= wizard.repositoryTotal" @click="wizard.loadRepositories(wizard.repositoryPage + 1)">›</button>
-          </div>
+          <SearchCombobox
+            label="Репозиторий Harbor"
+            :model-value="wizard.selectedRepository ?? ''"
+            :search="wizard.repositorySearch"
+            :options="repositoryOptions"
+            placeholder="Найти репозиторий"
+            :disabled="!wizard.selectedProject"
+            :loading="wizard.busy === 'repositories'"
+            :page="wizard.repositoryPage"
+            :total="wizard.repositoryTotal"
+            @update:search="wizard.repositorySearch = $event"
+            @select="wizard.chooseRepository"
+            @previous="wizard.loadRepositories(wizard.repositoryPage - 1)"
+            @next="wizard.loadRepositories(wizard.repositoryPage + 1)"
+          />
 
           <label class="compact-field compact-field--search">
             <span>3. Версия / tag</span>
