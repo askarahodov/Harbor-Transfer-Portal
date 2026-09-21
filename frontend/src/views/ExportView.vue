@@ -20,6 +20,7 @@ import {
   apiErrorInfo,
   createExportDownloadTicket,
   downloadExportHandoff,
+  getExportHandoffRecord,
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
@@ -33,6 +34,7 @@ const wizard = useExportWizardStore()
 const runtime = useRuntimeStore()
 const auth = useAuthStore()
 const downloadError = ref<string | null>(null)
+const printHandoffBusy = ref(false)
 const signingRecoveryBusy = ref(false)
 const now = ref(Date.now())
 let clock: ReturnType<typeof setInterval> | null = null
@@ -163,6 +165,83 @@ function downloadSidecar(): void {
   anchor.download = `${wizard.bundle.archive_name}.sha256`
   anchor.click()
   URL.revokeObjectURL(href)
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+async function printHandoffRecord(): Promise<void> {
+  if (!wizard.operation || printHandoffBusy.value) return
+  printHandoffBusy.value = true
+  downloadError.value = null
+  try {
+    const record = await getExportHandoffRecord(wizard.operation.id)
+    const rows = record.payload.files
+      .map(
+        (item) =>
+          `<tr><td>${escapeHtml(item.role)}</td><td>${escapeHtml(item.name)}</td><td>${item.size_bytes}</td><td><code>${escapeHtml(item.sha256)}</code></td></tr>`,
+      )
+      .join('')
+    const popup = window.open('', '_blank')
+    if (!popup) {
+      throw new Error('print_window_blocked')
+    }
+    popup.opener = null
+    popup.document.write(`<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Handoff ${escapeHtml(record.payload.delivery_id)}</title>
+<style>
+body{font-family:Arial,sans-serif;margin:32px;color:#111}
+h1{font-size:22px}
+dl{display:grid;grid-template-columns:180px 1fr;gap:8px 16px}
+dt{font-weight:700}
+dd{margin:0}
+table{width:100%;border-collapse:collapse;margin-top:24px}
+th,td{border:1px solid #bbb;padding:8px;text-align:left;vertical-align:top}
+code{word-break:break-all;font-size:11px}
+.signatures{margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:48px}
+.line{border-bottom:1px solid #111;height:32px}
+@media print{button{display:none}}
+</style>
+</head>
+<body>
+<h1>Harbor Transfer Portal — ведомость физической передачи</h1>
+<dl>
+<dt>Delivery ID</dt><dd>${escapeHtml(record.payload.delivery_id)}</dd>
+<dt>SOURCE signer</dt><dd><code>${escapeHtml(record.payload.signing_key_fingerprint)}</code></dd>
+<dt>Создано UTC</dt><dd>${escapeHtml(record.payload.created_at)}</dd>
+<dt>Создал</dt><dd>${escapeHtml(record.payload.created_by)}</dd>
+<dt>Schema</dt><dd>${escapeHtml(record.payload.schema_version)}</dd>
+</dl>
+<table>
+<thead><tr><th>Role</th><th>Файл</th><th>Размер, bytes</th><th>SHA-256</th></tr></thead>
+<tbody>${rows}</tbody>
+</table>
+<div class="signatures">
+<div><div class="line"></div><p>SOURCE передал / дата</p></div>
+<div><div class="line"></div><p>TARGET принял / дата</p></div>
+</div>
+<button onclick="window.print()">Печать</button>
+</body>
+</html>`)
+    popup.document.close()
+    popup.focus()
+  } catch (error) {
+    downloadError.value =
+      error instanceof Error && error.message === 'print_window_blocked'
+        ? 'Браузер заблокировал окно печати handoff.'
+        : apiErrorInfo(error, 'Не удалось подготовить печатную handoff-ведомость.').message
+  } finally {
+    printHandoffBusy.value = false
+  }
 }
 
 async function downloadHandoff(): Promise<void> {
@@ -632,6 +711,15 @@ onBeforeUnmount(() => {
           </button>
           <button class="secondary-button" type="button" :disabled="!wizard.bundle" @click="downloadHandoff">
             <Download :size="19" aria-hidden="true" /> Скачать handoff
+          </button>
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="!wizard.bundle || printHandoffBusy"
+            @click="printHandoffRecord"
+          >
+            <FileArchive :size="19" aria-hidden="true" />
+            {{ printHandoffBusy ? 'Подготовка…' : 'Печатная ведомость' }}
           </button>
         </div>
 
