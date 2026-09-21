@@ -1,3 +1,5 @@
+import base64
+import binascii
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -161,6 +163,33 @@ def _authorize_operation(
         )
 
 
+def _decode_browser_metadata_header(request: Request, name: str) -> bytes | None:
+    raw = request.headers.get(name)
+    if raw is None:
+        return None
+    if len(raw) > 16_384:
+        raise _api_error(
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "handoff_size_invalid",
+            "Browser handoff metadata превышают header limit",
+        )
+    try:
+        payload = base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise _api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "handoff_invalid",
+            "Browser handoff metadata имеют неверный base64 encoding",
+        ) from exc
+    if not payload:
+        raise _api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "handoff_invalid",
+            "Browser handoff metadata пусты",
+        )
+    return payload
+
+
 def _content_length(request: Request) -> int | None:
     raw = request.headers.get("content-length")
     if raw is None:
@@ -282,6 +311,15 @@ async def upload_bundle(
             content_length=_content_length(request),
             actor_user_id=actor.id,
             actor_username=actor.username,
+            bundle_filename=request.headers.get("x-htp-bundle-filename"),
+            sidecar_payload=_decode_browser_metadata_header(
+                request,
+                "x-htp-sidecar-base64",
+            ),
+            handoff_payload=_decode_browser_metadata_header(
+                request,
+                "x-htp-handoff-base64",
+            ),
         )
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc
