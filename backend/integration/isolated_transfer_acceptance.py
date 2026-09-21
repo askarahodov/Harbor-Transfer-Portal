@@ -27,9 +27,6 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
 from app.config import PortalContour, Settings
 from app.db.base import Base
 from app.db.models import Operation as OperationModel
@@ -270,31 +267,6 @@ def registry_manifest_digest(repository: str, reference: str) -> str | None:
     if digest is None or not digest.startswith("sha256:") or len(digest) != 71:
         raise RuntimeError("registry returned invalid Docker-Content-Digest")
     return digest
-
-
-def write_keys(root: Path) -> tuple[Path, Path, Path]:
-    private = Ed25519PrivateKey.generate()
-    private_path = root / "keys" / "source-private.pem"
-    trusted_dir = root / "keys" / "trusted"
-    public_path = trusted_dir / "source.pem"
-    private_path.parent.mkdir(parents=True, exist_ok=True)
-    trusted_dir.mkdir(parents=True, exist_ok=True)
-    private_path.write_bytes(
-        private.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-    )
-    os.chmod(private_path, 0o600)
-    public_path.write_bytes(
-        private.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-    )
-    os.chmod(public_path, 0o644)
-    return private_path, trusted_dir, public_path
 
 
 def settings_for(
