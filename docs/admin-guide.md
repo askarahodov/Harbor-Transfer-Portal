@@ -229,6 +229,12 @@ SOURCE создаёт Bundle v1 и хранит Ed25519 private key только
 
 После этого admin скачивает **SOURCE trust package** (`.htp-trust.tar.gz`). В нём только public material: public PEM, identity metadata и fingerprint. Private key туда не входит.
 
+Trust package можно перенести в TARGET на разрешённой USB-флешке/съёмном
+носителе. Для первого bootstrap полный `sha256:...` fingerprint SOURCE
+передайте **отдельным доверенным каналом** и сверьте в TARGET UI. Не считайте
+файл fingerprint, лежащий на той же флешке, независимым доказательством
+происхождения ключа.
+
 Ручная генерация через OpenSSL остаётся advanced-вариантом для controlled rotation/import существующей identity:
 
 ```bash
@@ -247,7 +253,7 @@ Private key нельзя передавать:
 - в Git/logs/issues/chats;
 - как постоянный command-line argument.
 
-Rotation выполняется только staged-flow: **Подготовить rotation → перенести pending trust package → импортировать его на TARGET → убедиться, что old+new enabled → Активировать pending key**. Прямая замена уже настроенного active private key запрещена.
+Rotation выполняется только staged-flow: **Подготовить rotation → перенести pending trust package → TARGET проверяет package подписью уже trusted old SOURCE key → убедиться, что old+new enabled → Активировать pending key**. Pending package содержит public identity и Ed25519 endorsement от текущего active SOURCE key; private key не переносится. Прямая замена уже настроенного active private key запрещена.
 
 ## 10. TARGET trusted SOURCE keys
 
@@ -257,7 +263,16 @@ TARGET хранит только public keys:
 BUNDLE_TRUSTED_PUBLIC_KEYS_DIR=./data/keys/trusted-source
 ```
 
-Для первичной настройки admin выбирает **Импортировать SOURCE trust package** и подтверждает enrollment. TARGET проверяет allowlist archive, Ed25519 public key и совпадение fingerprint с metadata до изменения trust set. Повторный импорт той же active identity идемпотентен.
+Для первичной настройки admin выбирает **Импортировать SOURCE trust package**,
+вводит полный expected SOURCE fingerprint, полученный отдельно от USB/media, и
+подтверждает enrollment. TARGET проверяет allowlist archive, Ed25519 public key,
+metadata и exact expected fingerprint до изменения trust set. Без expected
+fingerprint fresh TARGET первый trust не создаёт.
+
+При плановой rotation expected fingerprint вручную не требуется: pending package
+подписан текущим SOURCE active key, а TARGET проверяет endorsement против уже
+enabled trusted public key. Unknown/disabled endorser или invalid signature
+отклоняются. Повторный импорт уже известной identity идемпотентен.
 
 Через UI также можно вручную добавить/заменить, enable/disable и удалить Ed25519 public key по fingerprint. Private/malformed/oversized material отклоняется.
 
@@ -369,7 +384,7 @@ PORTAL_CONFIRM_PURGE=DELETE_PORTAL_DATA ./uninstall.sh --purge-data
 
 После admin configuration operator работает через browser. На universal instance текущая role выбирается runtime switcher; при физически раздельных контурах каждая installation всё равно взаимодействует только со своим local Harbor.
 
-Для первого обмена admin сначала выполняет trust bootstrap: SOURCE создаёт signing identity, скачивает `.htp-trust.tar.gz`, физически переносит его на TARGET, а TARGET admin импортирует SOURCE identity. First-run readiness в Settings показывает Harbor + identity/trust state.
+Для первого обмена admin сначала выполняет trust bootstrap: SOURCE создаёт signing identity и скачивает `.htp-trust.tar.gz`; package переносится на разрешённом USB/media, а полный SHA-256 fingerprint SOURCE передаётся TARGET отдельным доверенным каналом. TARGET admin вводит expected fingerprint и импортирует identity только при exact match. First-run readiness в Settings показывает Harbor + identity/trust state.
 
 После bootstrap штатный operator flow:
 
