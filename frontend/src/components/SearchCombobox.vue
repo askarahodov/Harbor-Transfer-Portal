@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, Search } from 'lucide-vue-next'
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 export type SearchComboboxOption = {
   value: string
@@ -40,6 +40,10 @@ const listboxId = `combobox-${Math.random().toString(36).slice(2)}`
 const hasPrevious = computed(() => props.page > 1)
 const hasNext = computed(() => props.page * props.pageSize < props.total)
 const activeId = computed(() => activeIndex.value >= 0 ? `${listboxId}-${activeIndex.value}` : undefined)
+
+watch(() => props.loading, (loading) => {
+  if (loading) queryPending.value = false
+})
 
 function show(): void {
   if (props.disabled) return
