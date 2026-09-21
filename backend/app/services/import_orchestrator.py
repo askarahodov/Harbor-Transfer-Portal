@@ -37,6 +37,7 @@ from app.services.helm_oci_service import (
     HelmTargetState,
 )
 from app.services.key_management import KeyManagementError, KeyManagementService
+from app.services.media_handoff import MediaHandoffError, MediaHandoffService
 from app.services.operation_manager import (
     OperationContext,
     OperationManager,
@@ -171,13 +172,33 @@ class ImportOrchestrator:
         ready: list[ImportIntakeResult] = []
         for archive in sorted(self.discovery_root.glob("*.htp.tar.gz")):
             sidecar = archive.with_name(archive.name + ".sha256")
+            delivery_id = archive.name.removesuffix(".htp.tar.gz")
+            handoff = archive.with_name(f"{delivery_id}.htp-handoff.json")
             if (
                 archive.is_symlink()
                 or not archive.is_file()
                 or sidecar.is_symlink()
                 or not sidecar.is_file()
+                or handoff.is_symlink()
+                or not handoff.is_file()
             ):
                 continue
+            try:
+                verified_handoff = MediaHandoffService(
+                    self.settings
+                ).verify_from_discovery(handoff.read_bytes())
+            except (OSError, MediaHandoffError) as exc:
+                if isinstance(exc, MediaHandoffError):
+                    raise ImportOrchestrationError(exc.code, exc.message) from exc
+                raise ImportOrchestrationError(
+                    "handoff_file_invalid",
+                    "Signed physical handoff не удалось прочитать",
+                ) from exc
+            if verified_handoff.delivery_id != delivery_id:
+                raise ImportOrchestrationError(
+                    "handoff_delivery_mismatch",
+                    "Signed handoff относится к другому Delivery ID",
+                )
             size = archive.stat().st_size
             if size < 1 or size > self.settings.import_max_upload_bytes:
                 continue
@@ -187,11 +208,15 @@ class ImportOrchestrator:
             storage_dir = self._prepare_storage_dir(storage_key)
             claimed_archive = storage_dir / archive.name
             claimed_sidecar = storage_dir / sidecar.name
+            claimed_handoff = storage_dir / handoff.name
             try:
                 os.replace(archive, claimed_archive)
                 try:
                     os.replace(sidecar, claimed_sidecar)
+                    os.replace(handoff, claimed_handoff)
                 except Exception:
+                    if claimed_sidecar.exists():
+                        os.replace(claimed_sidecar, sidecar)
                     os.replace(claimed_archive, archive)
                     raise
                 self._fsync_directory(storage_dir)
