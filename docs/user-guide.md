@@ -196,15 +196,18 @@ Wizard состоит из трёх этапов:
 
 Есть два поддерживаемых пользовательских варианта.
 
-### Вариант A — загрузка archive через браузер
+### Вариант A — полная физическая доставка через браузер
 
-Подходит для умеренного размера пакета.
+1. Перенесите в TARGET три файла одной доставки:
+   - `.htp.tar.gz`;
+   - соответствующий `.htp.tar.gz.sha256`;
+   - signed `.htp-handoff.json`.
+2. В `/import` перетащите **сразу три файла** в browser intake или выберите их одним file picker.
+3. Portal сопоставляет filenames, отправляет большой archive raw stream, а маленькие companion metadata — вместе с upload request.
+4. Backend проверяет signed handoff против точных загруженных archive/sidecar bytes **до verified preview**.
+5. Дождитесь обычной Bundle v1 checksum/schema/signature verification.
 
-1. Перенесите bundle и `.sha256` в TARGET по физической процедуре.
-2. В `/import` перетащите **`.htp.tar.gz` archive** в область загрузки или выберите его через file picker.
-3. Дождитесь окончания upload и backend verification.
-
-Browser upload отправляет archive как stream; пользователь не должен использовать multipart-обходы, CLI или ручную распаковку.
+Для этого пути не нужен shell-доступ к TARGET, `docker cp` или ручное копирование в `/app/data/incoming`. Browser proxy не должен вводить отдельный body limit ниже backend `import_max_upload_bytes`.
 
 ### Вариант B — большой пакет / transfer media
 
