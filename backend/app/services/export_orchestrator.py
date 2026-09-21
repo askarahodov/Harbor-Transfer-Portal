@@ -439,9 +439,14 @@ class ExportOrchestrator:
         build: BundleBuildResult,
     ) -> None:
         expected_archive, expected_sidecar = self._delivery_paths(delivery_id)
+        expected_handoff = (
+            self.settings.bundle_outgoing_root.resolve()
+            / f"{delivery_id}.htp-handoff.json"
+        )
         if (
             build.archive_path.resolve() != expected_archive
             or build.sidecar_path.resolve() != expected_sidecar
+            or build.handoff_path.resolve() != expected_handoff
         ):
             raise OperationTaskFailure(
                 "export_bundle_path_invalid",
@@ -457,6 +462,16 @@ class ExportOrchestrator:
             raise OperationTaskFailure(
                 "export_bundle_metadata_invalid",
                 "Размер опубликованного bundle изменился до фиксации metadata",
+            )
+        if (
+            not expected_handoff.is_file()
+            or expected_handoff.is_symlink()
+            or expected_handoff.stat().st_size != build.handoff_size
+            or self._sha256_file(expected_handoff) != build.handoff_sha256
+        ):
+            raise OperationTaskFailure(
+                "export_handoff_metadata_invalid",
+                "Signed handoff изменился до фиксации metadata",
             )
         with self.session_factory() as session:
             operation = session.get(Operation, operation_id)
