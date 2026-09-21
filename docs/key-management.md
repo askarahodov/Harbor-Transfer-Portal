@@ -94,9 +94,22 @@ Private key в trust package отсутствует и через normal API н�
 вариант для rotation и совместимости.
 
 На TARGET admin выбирает **Импортировать SOURCE trust package** и явно
-подтверждает enrollment. Повторный импорт той же active identity идемпотентен
-(`action=unchanged`); если identity была disabled, повторный import включает
-существующий trust slot. SOURCE private key никогда не переносится между контурами.
+подтверждает enrollment.
+
+Для **самого первого** trust enrollment TARGET дополнительно требует полный
+`expected_fingerprint=sha256:...`. Этот fingerprint должен быть получен
+независимым доверенным каналом, а не только из той же флешки, на которой лежит
+trust package. Подходящие организационные варианты: подписанный акт/заявка,
+контролируемый телефонный/голосовой канал, отдельная ИБ-процедура или личная
+сверка на SOURCE.
+
+Сам `.htp-trust.tar.gz` не содержит секрета и может переноситься на разрешённом
+USB/removable media. TARGET заново вычисляет fingerprint из public key и
+записывает trust только при полном совпадении с independently verified value.
+
+Повторный импорт той же active identity идемпотентен (`action=unchanged`);
+если identity была disabled, повторный import включает существующий trust slot.
+SOURCE private key никогда не переносится между контурами.
 
 Export выполняет signing preflight до создания операции и до Skopeo/Helm materialization.
 Если identity отсутствует, backend возвращает `409 bundle_signing_key_not_configured`.
@@ -116,7 +129,12 @@ Rotation состоит из трёх server-side состояний: active, pe
 1. SOURCE admin нажимает **Подготовить rotation**.
 2. Backend создаёт новый Ed25519 private key в `BUNDLE_PENDING_SIGNING_PRIVATE_KEY_FILE` с mode `0600`; active key не меняется.
 3. SOURCE скачивает pending trust package через `GET /api/settings/keys/signing/rotation/trust-package`.
-4. TARGET admin импортирует package; старый и новый public fingerprint остаются enabled одновременно.
+   Package содержит pending public identity плюс `endorsement.json` и
+   `endorsement.sig`; endorsement подписан текущим active SOURCE private key.
+4. TARGET admin импортирует package. TARGET находит указанный endorsing fingerprint
+   в своём **enabled** trust set и проверяет Ed25519 signature. При успехе новый
+   public key добавляется как `verification=chained`; ручной out-of-band fingerprint
+   для плановой rotation не требуется.
 5. SOURCE admin активирует pending identity, передавая **точный expected fingerprint**.
 6. Backend сверяет fingerprint pending key и только затем атомарно заменяет active key.
 7. Старый TARGET public key остаётся enabled на overlap/rollback window.
@@ -134,18 +152,37 @@ Fresh install выполняется так:
 SOURCE admin
   → создать signing identity
   → скачать .htp-trust.tar.gz
-  → физически перенести package
+  → перенести package на разрешённом USB/media
+  → передать полный sha256 fingerprint отдельным доверенным каналом
 TARGET admin
-  → импортировать SOURCE trust package
-  → проверить fingerprint
+  → загрузить SOURCE trust package
+  → ввести independently verified expected fingerprint
+  → TARGET сравнивает actual public-key fingerprint с expected
+  → только после exact match создаёт первый trust
   → TARGET готов к verification/import
 ```
 
-Trust package import доступен только роли `admin`, требует `confirm=true`,
-ограничен по размеру `BUNDLE_TRUST_PACKAGE_MAX_BYTES` и принимает ровно
-allowlist из трёх regular files. Extra entries, duplicates, symlink/hardlink,
-malformed metadata, private-key substitution и fingerprint mismatch отклоняются
-до изменения trust store.
+Trust package import доступен только роли `admin`, требует `confirm=true`
+и ограничен по размеру `BUNDLE_TRUST_PACKAGE_MAX_BYTES`.
+
+Initial package принимает strict allowlist из трёх regular files:
+
+```text
+source-signing-public.pem
+identity.json
+fingerprint.sha256
+```
+
+Rotation package принимает strict allowlist из пяти files, добавляя:
+
+```text
+endorsement.json
+endorsement.sig
+```
+
+Extra entries, duplicates, symlink/hardlink, malformed metadata,
+private-key substitution, fingerprint mismatch и invalid/unknown/disabled
+endorser отклоняются до изменения trust store.
 
 TARGET принимает только Ed25519 public PEM. Private key, malformed PEM или другой key type отклоняются до изменения trust set.
 
@@ -212,7 +249,11 @@ TARGET поддерживает несколько active Ed25519 public keys о
 ```text
 old key active
     ↓
-add new key
+SOURCE создаёт pending key B
+    ↓
+active key A подписывает endorsement для B
+    ↓
+TARGET проверяет endorsement trusted key A
     ↓
 old + new active
     ↓

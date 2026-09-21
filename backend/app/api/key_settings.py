@@ -16,6 +16,7 @@ from app.schemas.keys import (
     TrustedKeyRetirementImpactResponse,
     TrustedKeyStateRequest,
     TrustedKeyStatusResponse,
+    TrustPackageImportResponse,
 )
 from app.services.key_management import KeyManagementError, KeyManagementService, KeyMutation
 from app.services.runtime_mode import RuntimeModeError, RuntimeModeService, RuntimeModeSnapshot
@@ -71,6 +72,11 @@ def _trust_package_error(exc: TrustPackageError) -> HTTPException:
         "trusted_key_limit_exceeded": status.HTTP_409_CONFLICT,
         "trust_package_size_invalid": status.HTTP_413_CONTENT_TOO_LARGE,
         "trust_package_too_large": status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "trust_package_expected_fingerprint_required": status.HTTP_409_CONFLICT,
+        "trust_package_expected_fingerprint_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "trust_package_expected_fingerprint_mismatch": status.HTTP_409_CONFLICT,
+        "trust_package_endorser_untrusted": status.HTTP_409_CONFLICT,
+        "trust_package_endorsement_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
     }
     return HTTPException(
         status_code=mapping.get(exc.code, status.HTTP_422_UNPROCESSABLE_CONTENT),
@@ -390,7 +396,7 @@ def download_source_trust_package(
 
 @router.post(
     "/trusted/package",
-    response_model=KeyMutationResponse,
+    response_model=TrustPackageImportResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def import_source_trust_package(
@@ -398,7 +404,11 @@ async def import_source_trust_package(
     admin: AdminDep,
     session: SessionDep,
     confirm: bool = Query(False),
-) -> KeyMutationResponse:
+    expected_fingerprint: str | None = Query(
+        default=None,
+        pattern=r"^sha256:[a-f0-9]{64}$",
+    ),
+) -> TrustPackageImportResponse:
     _require_confirmation(confirm)
     payload = await _bounded_request_body(
         request,
@@ -406,22 +416,34 @@ async def import_source_trust_package(
     )
     try:
         with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
-            mutation = SourceTrustPackageService(
+            result = SourceTrustPackageService(
                 request.app.state.settings
-            ).import_package(payload)
+            ).import_package(
+                payload,
+                expected_fingerprint=expected_fingerprint,
+            )
             _audit(
                 session,
                 admin,
                 "trust.source_identity.imported",
-                mutation,
+                result.mutation,
                 runtime,
-                extra={"package_format": "htp-trust-v1"},
+                extra={
+                    "package_format": "htp-trust-v1",
+                    "verification": result.verification,
+                    "endorsing_fingerprint": result.endorsing_fingerprint,
+                },
             )
     except RuntimeModeError as exc:
         raise _runtime_error(exc) from exc
     except TrustPackageError as exc:
         raise _trust_package_error(exc) from exc
-    return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+    return TrustPackageImportResponse(
+        action=result.mutation.action,
+        fingerprint=result.mutation.fingerprint,
+        verification=result.verification,
+        endorsing_fingerprint=result.endorsing_fingerprint,
+    )
 
 
 @router.put("/signing", response_model=KeyMutationResponse)

@@ -123,14 +123,22 @@ if docker ps -a --format '{{.Names}}' | grep -F "$SOURCE_PROJECT" >/dev/null; th
 fi
 
 file_count=$(find "$SOURCE_OUT" -maxdepth 1 -type f | wc -l | tr -d ' ')
-[ "$file_count" = 3 ] || fail "SOURCE exported unexpected physical payload file count: $file_count"
+[ "$file_count" = 5 ] || fail "SOURCE exported unexpected handoff file count: $file_count"
 archive=$(find "$SOURCE_OUT" -maxdepth 1 -type f -name '*.htp.tar.gz' -print)
 [ -n "$archive" ] || fail 'SOURCE did not produce transfer bundle'
 archive_base=$(basename "$archive")
 [ -f "$SOURCE_OUT/$archive_base.sha256" ] || fail 'SOURCE did not produce bundle sidecar'
-trust_package=$(find "$SOURCE_OUT" -maxdepth 1 -type f -name '*.htp-trust.tar.gz' -print)
-[ -n "$trust_package" ] || fail 'SOURCE did not produce trust package'
-trust_package_base=$(basename "$trust_package")
+bootstrap_trust="$SOURCE_OUT/bootstrap.htp-trust.tar.gz"
+rotation_trust="$SOURCE_OUT/rotation.htp-trust.tar.gz"
+fingerprint_file="$SOURCE_OUT/source-fingerprint.out-of-band.txt"
+[ -f "$bootstrap_trust" ] || fail 'SOURCE did not produce bootstrap trust package'
+[ -f "$rotation_trust" ] || fail 'SOURCE did not produce rotation trust package'
+[ -f "$fingerprint_file" ] || fail 'SOURCE did not produce out-of-band fingerprint fixture'
+expected_fingerprint=$(tr -d '\r\n' < "$fingerprint_file")
+case "$expected_fingerprint" in
+  sha256:????????????????????????????????????????????????????????????????) ;;
+  *) fail 'SOURCE produced invalid out-of-band fingerprint' ;;
+esac
 
 # Publication files keep their production ownership/mode. The physical transport
 # is a no-network copier that can read UID 10001-owned 0440 files without changing
@@ -140,23 +148,28 @@ docker run --rm \
   --user 0 \
   --entrypoint /bin/sh \
   -e HTP_BUNDLE_NAME="$archive_base" \
-  -e HTP_TRUST_PACKAGE_NAME="$trust_package_base" \
   -v "$SOURCE_OUT:/source:ro" \
   -v "$PHYSICAL:/physical" \
   "$ACCEPTANCE_IMAGE" \
   -c 'set -eu
       cp "/source/$HTP_BUNDLE_NAME" "/physical/$HTP_BUNDLE_NAME"
       cp "/source/$HTP_BUNDLE_NAME.sha256" "/physical/$HTP_BUNDLE_NAME.sha256"
-      cp "/source/$HTP_TRUST_PACKAGE_NAME" "/physical/$HTP_TRUST_PACKAGE_NAME"
-      chmod 0444 "/physical/$HTP_BUNDLE_NAME" "/physical/$HTP_BUNDLE_NAME.sha256" "/physical/$HTP_TRUST_PACKAGE_NAME"'
+      cp /source/bootstrap.htp-trust.tar.gz /physical/bootstrap.htp-trust.tar.gz
+      cp /source/rotation.htp-trust.tar.gz /physical/rotation.htp-trust.tar.gz
+      chmod 0444         "/physical/$HTP_BUNDLE_NAME"         "/physical/$HTP_BUNDLE_NAME.sha256"         /physical/bootstrap.htp-trust.tar.gz         /physical/rotation.htp-trust.tar.gz'
 
 physical_count=$(find "$PHYSICAL" -maxdepth 1 -type f | wc -l | tr -d ' ')
-[ "$physical_count" = 3 ] \
-  || fail 'physical transfer contains files outside bundle/sidecar/trust package'
+[ "$physical_count" = 4 ] \
+  || fail 'physical transfer contains files outside bundle/sidecar/two trust packages'
+[ ! -e "$PHYSICAL/source-fingerprint.out-of-band.txt" ] \
+  || fail 'out-of-band SOURCE fingerprint leaked onto physical media'
 
 printf 'TARGET phase: SOURCE is gone; importing only physically copied material...\n'
 set +e
-HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" HTP_TRANSFER_DIR="$PHYSICAL" \
+HTP_ACCEPTANCE_IMAGE="$ACCEPTANCE_IMAGE" \
+  HTP_REGISTRY_IMAGE="$REGISTRY_IMAGE" \
+  HTP_TRANSFER_DIR="$PHYSICAL" \
+  HTP_ACCEPTANCE_EXPECTED_FINGERPRINT="$expected_fingerprint" \
   docker compose -p "$TARGET_PROJECT" -f "$COMPOSE" --profile target \
   up --abort-on-container-exit --exit-code-from target-runner target-runner
 target_run_status=$?

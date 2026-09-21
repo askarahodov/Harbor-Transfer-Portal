@@ -39,6 +39,7 @@ services:
       HTP_ACCEPTANCE_REGISTRY_URL: http://target-registry:5000
       HTP_ACCEPTANCE_TRANSFER_DIR: /transfer
       HTP_ACCEPTANCE_WORK_ROOT: /tmp/htp-isolated-target
+      HTP_ACCEPTANCE_EXPECTED_FINGERPRINT: ${HTP_ACCEPTANCE_EXPECTED_FINGERPRINT:-}
     volumes:
       - ../backend/integration/isolated_transfer_acceptance.py:/opt/htp-acceptance/driver.py:ro
       - ${HTP_TRANSFER_DIR:?HTP_TRANSFER_DIR is required}:/transfer:ro
