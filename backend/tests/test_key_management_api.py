@@ -298,7 +298,7 @@ def test_source_trust_package_bootstraps_target_verifier_end_to_end(
         assert unconfirmed.status_code == 409
         assert unconfirmed.json()["error"]["code"] == "trusted_key_confirmation_required"
 
-        imported = target.post(
+        missing_fingerprint = target.post(
             "/api/settings/keys/trusted/package",
             params={"confirm": True},
             content=first.content,
@@ -307,8 +307,30 @@ def test_source_trust_package_bootstraps_target_verifier_end_to_end(
                 "Content-Type": "application/gzip",
             },
         )
+        assert missing_fingerprint.status_code == 409
+        assert missing_fingerprint.json()["error"]["code"] == (
+            "trust_package_expected_fingerprint_required"
+        )
+
+        imported = target.post(
+            "/api/settings/keys/trusted/package",
+            params={
+                "confirm": True,
+                "expected_fingerprint": fingerprint,
+            },
+            content=first.content,
+            headers={
+                **_auth(admin),
+                "Content-Type": "application/gzip",
+            },
+        )
         assert imported.status_code == 201
-        assert imported.json() == {"action": "added", "fingerprint": fingerprint}
+        assert imported.json() == {
+            "action": "added",
+            "fingerprint": fingerprint,
+            "verification": "out_of_band",
+            "endorsing_fingerprint": None,
+        }
 
         duplicate = target.post(
             "/api/settings/keys/trusted/package",
@@ -320,7 +342,12 @@ def test_source_trust_package_bootstraps_target_verifier_end_to_end(
             },
         )
         assert duplicate.status_code == 201
-        assert duplicate.json() == {"action": "unchanged", "fingerprint": fingerprint}
+        assert duplicate.json() == {
+            "action": "unchanged",
+            "fingerprint": fingerprint,
+            "verification": "existing",
+            "endorsing_fingerprint": None,
+        }
 
         settings_response = target.get(
             "/api/settings/keys",
@@ -589,6 +616,8 @@ def test_target_overlap_rotation_is_consumed_by_real_bundle_verifier(tmp_path: P
         )
         assert imported.status_code == 201
         assert imported.json()["fingerprint"] == new_fingerprint
+        assert imported.json()["verification"] == "chained"
+        assert imported.json()["endorsing_fingerprint"] == old_fingerprint
 
         listed = target.get("/api/settings/keys", headers=headers)
         assert listed.status_code == 200

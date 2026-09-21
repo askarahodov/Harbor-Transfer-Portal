@@ -4,8 +4,10 @@ import gzip
 import io
 import json
 import tarfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -20,10 +22,17 @@ from app.services.key_material import ed25519_public_key_fingerprint
 
 _TRUST_PACKAGE_KIND = "harbor-transfer-portal-source-identity"
 _TRUST_PACKAGE_SCHEMA = "1.0"
+_ROTATION_ENDORSEMENT_KIND = "harbor-transfer-portal-source-rotation-endorsement"
+_ROTATION_ENDORSEMENT_SCHEMA = "1.0"
 _TRUST_PACKAGE_FILES = (
     "source-signing-public.pem",
     "identity.json",
     "fingerprint.sha256",
+)
+_ROTATION_TRUST_PACKAGE_FILES = (
+    *_TRUST_PACKAGE_FILES,
+    "endorsement.json",
+    "endorsement.sig",
 )
 
 
@@ -41,6 +50,14 @@ class TrustPackageBuildResult:
     payload: bytes
     fingerprint: str
     filename: str
+    endorsing_fingerprint: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TrustPackageImportResult:
+    mutation: KeyMutation
+    verification: str
+    endorsing_fingerprint: str | None = None
 
 
 class SourceTrustPackageService:
@@ -60,11 +77,33 @@ class SourceTrustPackageService:
         self._require_source()
         try:
             public = self.keys.pending_signing_public_key()
+            active = self.keys.signing_public_key()
+            endorsement = {
+                "algorithm": "Ed25519",
+                "endorsed_fingerprint": public.fingerprint,
+                "endorsing_fingerprint": active.fingerprint,
+                "kind": _ROTATION_ENDORSEMENT_KIND,
+                "schema_version": _ROTATION_ENDORSEMENT_SCHEMA,
+            }
+            endorsement_bytes = self._canonical_json(endorsement)
+            signature = self.keys.sign_with_active_key(endorsement_bytes)
         except KeyManagementError as exc:
             raise TrustPackageError(exc.code, exc.message) from exc
-        return self._build(public)
+        return self._build(
+            public,
+            endorsement_bytes=endorsement_bytes,
+            endorsement_signature=signature,
+            endorsing_fingerprint=active.fingerprint,
+        )
 
-    def _build(self, public: SigningPublicKey) -> TrustPackageBuildResult:
+    def _build(
+        self,
+        public: SigningPublicKey,
+        *,
+        endorsement_bytes: bytes | None = None,
+        endorsement_signature: bytes | None = None,
+        endorsing_fingerprint: str | None = None,
+    ) -> TrustPackageBuildResult:
         identity = {
             "algorithm": "Ed25519",
             "fingerprint": public.fingerprint,
@@ -73,17 +112,17 @@ class SourceTrustPackageService:
         }
         files = {
             "source-signing-public.pem": public.pem,
-            "identity.json": (
-                json.dumps(
-                    identity,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                + "\n"
-            ).encode("utf-8"),
+            "identity.json": self._canonical_json(identity),
             "fingerprint.sha256": f"{public.fingerprint}\n".encode("ascii"),
         }
+        if (endorsement_bytes is None) != (endorsement_signature is None):
+            raise TrustPackageError(
+                "trust_package_endorsement_invalid",
+                "Rotation endorsement сформирован неполностью",
+            )
+        if endorsement_bytes is not None and endorsement_signature is not None:
+            files["endorsement.json"] = endorsement_bytes
+            files["endorsement.sig"] = endorsement_signature
         payload = self._archive(files)
         if len(payload) > self.settings.bundle_trust_package_max_bytes:
             raise TrustPackageError(
@@ -95,9 +134,15 @@ class SourceTrustPackageService:
             payload=payload,
             fingerprint=public.fingerprint,
             filename=f"source-trust-{short}.htp-trust.tar.gz",
+            endorsing_fingerprint=endorsing_fingerprint,
         )
 
-    def import_package(self, payload: bytes) -> KeyMutation:
+    def import_package(
+        self,
+        payload: bytes,
+        *,
+        expected_fingerprint: str | None = None,
+    ) -> TrustPackageImportResult:
         self._require_target()
         if not payload or len(payload) > self.settings.bundle_trust_package_max_bytes:
             raise TrustPackageError(
@@ -171,10 +216,36 @@ class SourceTrustPackageService:
                 item.fingerprint: item.enabled for item in self.keys.list_trusted_keys()
             }
             if fingerprint in existing:
-                if existing[fingerprint]:
-                    return KeyMutation(action="unchanged", fingerprint=fingerprint)
-                return self.keys.set_trusted_key_enabled(fingerprint, True)
-            return self.keys.add_trusted_public_key(public_pem.decode("ascii"))
+                mutation = (
+                    KeyMutation(action="unchanged", fingerprint=fingerprint)
+                    if existing[fingerprint]
+                    else self.keys.set_trusted_key_enabled(fingerprint, True)
+                )
+                return TrustPackageImportResult(
+                    mutation=mutation,
+                    verification="existing",
+                )
+
+            endorsing_fingerprint: str | None = None
+            if "endorsement.json" in files:
+                endorsing_fingerprint = self._verify_rotation_endorsement(
+                    files,
+                    fingerprint,
+                )
+                verification = "chained"
+            else:
+                self._require_expected_fingerprint(
+                    expected_fingerprint,
+                    fingerprint,
+                )
+                verification = "out_of_band"
+
+            mutation = self.keys.add_trusted_public_key(public_pem.decode("ascii"))
+            return TrustPackageImportResult(
+                mutation=mutation,
+                verification=verification,
+                endorsing_fingerprint=endorsing_fingerprint,
+            )
         except (UnicodeDecodeError, KeyManagementError) as exc:
             if isinstance(exc, KeyManagementError):
                 raise TrustPackageError(exc.code, exc.message) from exc
@@ -189,10 +260,15 @@ class SourceTrustPackageService:
             with tarfile.open(fileobj=io.BytesIO(raw_archive), mode="r:") as archive:
                 members = archive.getmembers()
                 names = [member.name for member in members]
+                name_set = set(names)
+                allowed_layouts = (
+                    set(_TRUST_PACKAGE_FILES),
+                    set(_ROTATION_TRUST_PACKAGE_FILES),
+                )
                 if (
-                    len(members) != len(_TRUST_PACKAGE_FILES)
-                    or len(set(names)) != len(names)
-                    or set(names) != set(_TRUST_PACKAGE_FILES)
+                    len(set(names)) != len(names)
+                    or name_set not in allowed_layouts
+                    or len(members) != len(name_set)
                 ):
                     raise TrustPackageError(
                         "trust_package_layout_invalid",
@@ -233,6 +309,115 @@ class SourceTrustPackageService:
                 "Trust package повреждён или не читается",
             ) from exc
 
+    def _require_expected_fingerprint(
+        self,
+        expected_fingerprint: str | None,
+        actual_fingerprint: str,
+    ) -> None:
+        if expected_fingerprint is None:
+            raise TrustPackageError(
+                "trust_package_expected_fingerprint_required",
+                "Первичное доверие требует fingerprint SOURCE из независимого канала",
+            )
+        try:
+            expected = self.keys._validate_fingerprint(expected_fingerprint)
+        except KeyManagementError as exc:
+            raise TrustPackageError(
+                "trust_package_expected_fingerprint_invalid",
+                "Expected SOURCE fingerprint имеет неверный формат",
+            ) from exc
+        if expected != actual_fingerprint:
+            raise TrustPackageError(
+                "trust_package_expected_fingerprint_mismatch",
+                "Expected SOURCE fingerprint не совпадает с trust package",
+            )
+
+    def _verify_rotation_endorsement(
+        self,
+        files: dict[str, bytes],
+        endorsed_fingerprint: str,
+    ) -> str:
+        endorsement_bytes = files.get("endorsement.json")
+        signature = files.get("endorsement.sig")
+        if endorsement_bytes is None or signature is None:
+            raise TrustPackageError(
+                "trust_package_endorsement_invalid",
+                "Rotation trust package не содержит полного endorsement",
+            )
+        if len(signature) != 64:
+            raise TrustPackageError(
+                "trust_package_endorsement_invalid",
+                "Rotation endorsement signature имеет неверный размер",
+            )
+        try:
+            endorsement = json.loads(endorsement_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise TrustPackageError(
+                "trust_package_endorsement_invalid",
+                "endorsement.json некорректен",
+            ) from exc
+        expected_fields = {
+            "algorithm",
+            "endorsed_fingerprint",
+            "endorsing_fingerprint",
+            "kind",
+            "schema_version",
+        }
+        if not isinstance(endorsement, dict) or set(endorsement) != expected_fields:
+            raise TrustPackageError(
+                "trust_package_endorsement_invalid",
+                "endorsement.json содержит неподдерживаемую структуру",
+            )
+        if (
+            endorsement.get("kind") != _ROTATION_ENDORSEMENT_KIND
+            or endorsement.get("schema_version") != _ROTATION_ENDORSEMENT_SCHEMA
+            or endorsement.get("algorithm") != "Ed25519"
+            or endorsement.get("endorsed_fingerprint") != endorsed_fingerprint
+            or endorsement_bytes != self._canonical_json(endorsement)
+        ):
+            raise TrustPackageError(
+                "trust_package_endorsement_invalid",
+                "Rotation endorsement metadata не согласована с pending identity",
+            )
+        endorsing_fingerprint = endorsement.get("endorsing_fingerprint")
+        if not isinstance(endorsing_fingerprint, str):
+            raise TrustPackageError(
+                "trust_package_endorsement_invalid",
+                "Rotation endorsement не содержит корректный endorsing fingerprint",
+            )
+        try:
+            endorser = self.keys.trusted_public_key(
+                endorsing_fingerprint,
+                require_enabled=True,
+            )
+        except KeyManagementError as exc:
+            if exc.code in {"trusted_key_not_found", "trusted_key_disabled"}:
+                raise TrustPackageError(
+                    "trust_package_endorser_untrusted",
+                    "Rotation package подписан неизвестным или отключённым SOURCE key",
+                ) from exc
+            raise TrustPackageError(exc.code, exc.message) from exc
+        try:
+            endorser.verify(signature, endorsement_bytes)
+        except InvalidSignature as exc:
+            raise TrustPackageError(
+                "trust_package_endorsement_invalid",
+                "Rotation endorsement signature не прошла проверку",
+            ) from exc
+        return endorsing_fingerprint
+
+    @staticmethod
+    def _canonical_json(payload: Mapping[str, object]) -> bytes:
+        return (
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+
     def _bounded_decompress(self, payload: bytes) -> bytes:
         limit = self.settings.bundle_trust_package_max_bytes
         try:
@@ -259,7 +444,9 @@ class SourceTrustPackageService:
                 mode="w",
                 format=tarfile.PAX_FORMAT,
             ) as archive:
-                for name in _TRUST_PACKAGE_FILES:
+                for name in _ROTATION_TRUST_PACKAGE_FILES:
+                    if name not in files:
+                        continue
                     payload = files[name]
                     info = tarfile.TarInfo(name)
                     info.size = len(payload)
