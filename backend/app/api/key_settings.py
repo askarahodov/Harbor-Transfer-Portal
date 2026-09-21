@@ -11,6 +11,7 @@ from app.schemas.keys import (
     KeyMutationResponse,
     KeySettingsResponse,
     SigningKeyStatusResponse,
+    SigningRotationRequest,
     TrustedKeyMaterialRequest,
     TrustedKeyStateRequest,
     TrustedKeyStatusResponse,
@@ -35,6 +36,9 @@ def _api_error(exc: KeyManagementError) -> HTTPException:
         "trusted_key_confirmation_required": status.HTTP_409_CONFLICT,
         "signing_key_already_configured": status.HTTP_409_CONFLICT,
         "signing_key_not_configured": status.HTTP_409_CONFLICT,
+        "pending_signing_key_already_configured": status.HTTP_409_CONFLICT,
+        "pending_signing_key_not_configured": status.HTTP_409_CONFLICT,
+        "pending_signing_key_fingerprint_mismatch": status.HTTP_409_CONFLICT,
         "key_store_write_failed": status.HTTP_500_INTERNAL_SERVER_ERROR,
     }
     return HTTPException(
@@ -158,11 +162,16 @@ def get_key_settings(
             service = _service(request)
             if runtime.mode is PortalContour.SOURCE:
                 signing = service.signing_status()
+                pending = service.pending_signing_status()
                 return KeySettingsResponse(
                     contour=runtime.mode,
                     signing_key=SigningKeyStatusResponse(
                         configured=signing.configured,
                         fingerprint=signing.fingerprint,
+                    ),
+                    pending_signing_key=SigningKeyStatusResponse(
+                        configured=pending.configured,
+                        fingerprint=pending.fingerprint,
                     ),
                 )
             trusted = service.list_trusted_keys()
@@ -201,6 +210,107 @@ def generate_signing_key(
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+
+
+@router.post(
+    "/signing/rotation/prepare",
+    response_model=KeyMutationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def prepare_signing_rotation(
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> KeyMutationResponse:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE) as runtime:
+            mutation = _service(request).prepare_pending_signing_key()
+            _audit(session, admin, "signing.rotation.prepared", mutation, runtime)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except KeyManagementError as exc:
+        raise _api_error(exc) from exc
+    return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+
+
+@router.post(
+    "/signing/rotation/activate",
+    response_model=KeyMutationResponse,
+)
+def activate_signing_rotation(
+    payload: SigningRotationRequest,
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> KeyMutationResponse:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE) as runtime:
+            mutation = _service(request).activate_pending_signing_key(
+                payload.expected_fingerprint
+            )
+            _audit(session, admin, "signing.rotation.activated", mutation, runtime)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except KeyManagementError as exc:
+        raise _api_error(exc) from exc
+    return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+
+
+@router.post(
+    "/signing/rotation/cancel",
+    response_model=KeyMutationResponse,
+)
+def cancel_signing_rotation(
+    payload: SigningRotationRequest,
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> KeyMutationResponse:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE) as runtime:
+            mutation = _service(request).cancel_pending_signing_key(
+                payload.expected_fingerprint
+            )
+            _audit(session, admin, "signing.rotation.cancelled", mutation, runtime)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except KeyManagementError as exc:
+        raise _api_error(exc) from exc
+    return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+
+
+@router.get("/signing/rotation/trust-package")
+def download_pending_trust_package(
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> Response:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE) as runtime:
+            package = SourceTrustPackageService(
+                request.app.state.settings
+            ).build_pending()
+            _audit(
+                session,
+                admin,
+                "signing.rotation.trust_package.exported",
+                KeyMutation(action="exported", fingerprint=package.fingerprint),
+                runtime,
+            )
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except TrustPackageError as exc:
+        raise _trust_package_error(exc) from exc
+
+    return Response(
+        content=package.payload,
+        media_type="application/gzip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{package.filename}"',
+            "Cache-Control": "no-store",
+            "X-Signing-Key-Fingerprint": package.fingerprint,
+        },
+    )
 
 
 @router.get("/signing/public")
