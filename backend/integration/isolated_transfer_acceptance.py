@@ -405,6 +405,10 @@ def stage_incoming(settings: Settings, archive: Path, sidecar: Path) -> None:
     incoming.mkdir(parents=True, exist_ok=True)
     shutil.copy2(archive, incoming / archive.name)
     shutil.copy2(sidecar, incoming / sidecar.name)
+    delivery_id = archive.name.removesuffix(".htp.tar.gz")
+    handoff = TRANSFER_DIR / f"{delivery_id}{HANDOFF_SUFFIX}"
+    if handoff.is_file():
+        shutil.copy2(handoff, incoming / handoff.name)
 
 
 async def discover_one(
