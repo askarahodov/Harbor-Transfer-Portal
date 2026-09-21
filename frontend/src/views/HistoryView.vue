@@ -78,6 +78,59 @@ function targetArtifactLabel(item: OperationArtifact): string {
   return reference ? `${item.target_repository}:${reference}` : item.target_repository
 }
 
+function isTerminal(status: OperationStatus): boolean {
+  return terminalStatuses.has(status)
+}
+
+function canManageOperation(item: { actor_username: string; status: OperationStatus }): boolean {
+  if (isTerminal(item.status)) return false
+  if (auth.user?.role === 'admin') return true
+  return auth.user?.role === 'operator' && auth.user.username === item.actor_username
+}
+
+function requiredContour(type: 'EXPORT' | 'IMPORT'): PortalContour {
+  return type === 'EXPORT' ? 'SOURCE' : 'TARGET'
+}
+
+function continuationLabel(item: { type: 'EXPORT' | 'IMPORT'; status: OperationStatus }): string {
+  if (item.type === 'IMPORT' && item.status === 'READY') return 'Продолжить'
+  return 'Открыть'
+}
+
+async function continueOperation(item: {
+  id: number
+  type: 'EXPORT' | 'IMPORT'
+  status: OperationStatus
+  actor_username: string
+}): Promise<void> {
+  if (!canManageOperation(item)) return
+  resumeError.value = null
+  if (!runtime.contour) await runtime.loadRuntime()
+
+  const expected = requiredContour(item.type)
+  if (runtime.contour !== expected) {
+    resumeError.value =
+      'Операция #' + item.id + ' относится к режиму ' + expected + '. Текущий режим ' +
+      (runtime.contour ?? 'не определён') +
+      '. Переключение режима автоматически отменяет незавершённые операции, поэтому эта operation не будет переключена молча.'
+    return
+  }
+
+  const key = item.type === 'EXPORT' ? 'htp.export.operation-id' : 'htp.import.operation-id'
+  window.sessionStorage.setItem(key, String(item.id))
+  await router.push(item.type === 'EXPORT' ? '/export' : '/import')
+}
+
+async function cancelFromHistory(item: {
+  id: number
+  actor_username: string
+  status: OperationStatus
+}): Promise<void> {
+  if (!canManageOperation(item)) return
+  resumeError.value = null
+  if (!window.confirm('Отменить незавершённую операцию #' + item.id + '? Она перейдёт в CANCELLED и останется в History.')) return
+  await history.cancelOperationFromHistory(item.id)
+}
 function statusClass(status: OperationStatus): string {
   if (status === 'COMPLETED') return 'status status--success'
   if (['FAILED', 'REJECTED'].includes(status)) return 'status status--danger'
