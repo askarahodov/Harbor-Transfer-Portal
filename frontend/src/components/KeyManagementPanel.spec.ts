@@ -45,6 +45,7 @@ describe('KeyManagementPanel', () => {
       response({
         contour: 'SOURCE',
         signing_key: { configured: true, fingerprint },
+        pending_signing_key: { configured: false, fingerprint: null },
         trusted_keys: [],
       }),
     )
@@ -54,8 +55,10 @@ describe('KeyManagementPanel', () => {
 
     expect(wrapper.text()).toContain(fingerprint)
     expect(wrapper.text()).toContain('Private key используется только server-side')
-    expect(wrapper.text()).toContain('Скачать trust package')
+    expect(wrapper.text()).toContain('Скачать active trust package')
     expect(wrapper.text()).toContain('Скачать public key')
+    expect(wrapper.text()).toContain('Подготовить rotation')
+    expect(wrapper.find('#source-signing-key').exists()).toBe(false)
     expect(wrapper.find('#target-trusted-key').exists()).toBe(false)
   })
 
@@ -66,6 +69,7 @@ describe('KeyManagementPanel', () => {
         response({
           contour: 'SOURCE',
           signing_key: { configured: false, fingerprint: null },
+          pending_signing_key: { configured: false, fingerprint: null },
           trusted_keys: [],
         }),
       )
@@ -73,6 +77,7 @@ describe('KeyManagementPanel', () => {
         response({
           contour: 'SOURCE',
           signing_key: { configured: true, fingerprint },
+          pending_signing_key: { configured: false, fingerprint: null },
           trusted_keys: [],
         }),
       )
@@ -94,6 +99,67 @@ describe('KeyManagementPanel', () => {
     expect(post).toHaveBeenCalledWith('/settings/keys/signing/generate')
     expect(wrapper.text()).toContain(fingerprint)
     expect(wrapper.text()).toContain('Скачать public key')
+  })
+
+  it('prepares and activates SOURCE rotation without direct private-key replacement', async () => {
+    const pendingFingerprint = `sha256:${'b'.repeat(64)}`
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(apiClient, 'get')
+      .mockResolvedValueOnce(
+        response({
+          contour: 'SOURCE',
+          signing_key: { configured: true, fingerprint },
+          pending_signing_key: { configured: false, fingerprint: null },
+          trusted_keys: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          contour: 'SOURCE',
+          signing_key: { configured: true, fingerprint },
+          pending_signing_key: { configured: true, fingerprint: pendingFingerprint },
+          trusted_keys: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          contour: 'SOURCE',
+          signing_key: { configured: true, fingerprint: pendingFingerprint },
+          pending_signing_key: { configured: false, fingerprint: null },
+          trusted_keys: [],
+        }),
+      )
+    const post = vi.spyOn(apiClient, 'post')
+      .mockResolvedValueOnce(response({ action: 'prepared', fingerprint: pendingFingerprint }, 201))
+      .mockResolvedValueOnce(response({ action: 'activated', fingerprint: pendingFingerprint }))
+
+    const wrapper = mount(KeyManagementPanel, { props: { contour: 'SOURCE' } })
+    await flushPromises()
+
+    const prepare = wrapper.findAll('button').find((item) =>
+      item.text().includes('Подготовить rotation'),
+    )
+    if (!prepare) throw new Error('Prepare rotation button not found')
+    await prepare.trigger('click')
+    await flushPromises()
+
+    expect(post).toHaveBeenNthCalledWith(1, '/settings/keys/signing/rotation/prepare')
+    expect(wrapper.text()).toContain(pendingFingerprint)
+    expect(wrapper.text()).toContain('Активировать pending key')
+    expect(wrapper.find('#source-signing-key').exists()).toBe(false)
+
+    const activate = wrapper.findAll('button').find((item) =>
+      item.text().includes('Активировать pending key'),
+    )
+    if (!activate) throw new Error('Activate pending key button not found')
+    await activate.trigger('click')
+    await flushPromises()
+
+    expect(post).toHaveBeenNthCalledWith(2, '/settings/keys/signing/rotation/activate', {
+      expected_fingerprint: pendingFingerprint,
+    })
+    expect(wrapper.text()).toContain(pendingFingerprint)
+    expect(wrapper.text()).toContain('Подготовить rotation')
   })
 
   it('uploads SOURCE key file only after explicit confirmation', async () => {
@@ -127,13 +193,28 @@ describe('KeyManagementPanel', () => {
 
   it('manages TARGET trust state with confirmations', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    vi.spyOn(apiClient, 'get').mockResolvedValue(
-      response({
-        contour: 'TARGET',
-        signing_key: null,
-        trusted_keys: [{ fingerprint, enabled: true }],
-      }),
-    )
+    vi.spyOn(apiClient, 'get').mockImplementation((url) => {
+      if (String(url).includes('/impact')) {
+        return Promise.resolve(
+          response({
+            fingerprint,
+            enabled: true,
+            enabled_key_count: 2,
+            historical_import_count: 7,
+            blocking_operation_ids: [],
+            can_retire: true,
+          }),
+        )
+      }
+      return Promise.resolve(
+        response({
+          contour: 'TARGET',
+          signing_key: null,
+          pending_signing_key: null,
+          trusted_keys: [{ fingerprint, enabled: true }],
+        }),
+      )
+    })
     const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(
       response({ action: 'disabled', fingerprint }),
     )
@@ -267,6 +348,7 @@ describe('KeyManagementPanel', () => {
         response({
           contour: 'SOURCE',
           signing_key: { configured: true, fingerprint },
+          pending_signing_key: { configured: false, fingerprint: null },
           trusted_keys: [],
         }),
       )
@@ -278,7 +360,8 @@ describe('KeyManagementPanel', () => {
     runtime.setContour('SOURCE')
     const wrapper = mount(KeyManagementPanel, { props: { contour: 'SOURCE' } })
     await flushPromises()
-    expect(wrapper.find('#source-signing-key').exists()).toBe(true)
+    expect(wrapper.find('#source-signing-key').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Подготовить rotation')
 
     runtime.setContour('TARGET')
     await wrapper.vm.$nextTick()
@@ -309,6 +392,7 @@ describe('KeyManagementPanel', () => {
       response({
         contour: 'SOURCE',
         signing_key: { configured: true, fingerprint },
+        pending_signing_key: { configured: false, fingerprint: null },
         trusted_keys: [],
       }),
     )
