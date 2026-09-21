@@ -46,8 +46,10 @@ class HandoffFile(BaseModel):
 
 
 class HandoffPayload(BaseModel):
-    kind: Literal["harbor-transfer-portal-physical-handoff"] = _HANDOFF_KIND
-    schema_version: Literal["1.0"] = _HANDOFF_SCHEMA
+    kind: Literal["harbor-transfer-portal-physical-handoff"] = (
+        "harbor-transfer-portal-physical-handoff"
+    )
+    schema_version: Literal["1.0"] = "1.0"
     delivery_id: str = Field(pattern=r"^DELIVERY-[0-9]{8}-[A-Z0-9]{6,32}$")
     created_at: str
     created_by: str = Field(min_length=1, max_length=128)
