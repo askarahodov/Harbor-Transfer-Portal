@@ -666,9 +666,16 @@ def test_target_retirement_blocks_ready_import_and_reports_historical_impact(
                 actor_username="operator",
                 bundle_signing_key_fingerprint=fingerprint,
             )
-            session.add_all([completed, ready])
+            verifying_unknown = Operation(
+                type=OperationType.IMPORT,
+                status=OperationStatus.VERIFYING,
+                actor_username="operator",
+                bundle_signing_key_fingerprint=None,
+            )
+            session.add_all([completed, ready, verifying_unknown])
             session.commit()
             ready_id = ready.id
+            verifying_id = verifying_unknown.id
 
         impact = client.get(
             f"/api/settings/keys/trusted/{fingerprint}/impact",
@@ -680,7 +687,7 @@ def test_target_retirement_blocks_ready_import_and_reports_historical_impact(
             "enabled": True,
             "enabled_key_count": 1,
             "historical_import_count": 2,
-            "blocking_operation_ids": [ready_id],
+            "blocking_operation_ids": [ready_id, verifying_id],
             "can_retire": False,
         }
 
@@ -700,10 +707,22 @@ def test_target_retirement_blocks_ready_import_and_reports_historical_impact(
         assert blocked_remove.status_code == 409
         assert blocked_remove.json()["error"]["code"] == "trusted_key_retirement_blocked"
 
+        replacement_key = Ed25519PrivateKey.generate()
+        blocked_replace = client.put(
+            f"/api/settings/keys/trusted/{fingerprint}",
+            json={"pem": _public_pem(replacement_key), "confirm": True},
+            headers=headers,
+        )
+        assert blocked_replace.status_code == 409
+        assert blocked_replace.json()["error"]["code"] == "trusted_key_retirement_blocked"
+
         with app.state.session_factory() as session:
             ready = session.get(Operation, ready_id)
+            verifying = session.get(Operation, verifying_id)
             assert ready is not None
+            assert verifying is not None
             ready.status = OperationStatus.COMPLETED
+            verifying.status = OperationStatus.REJECTED
             session.commit()
 
         allowed = client.patch(
