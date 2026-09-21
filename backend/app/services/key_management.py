@@ -231,6 +231,20 @@ class KeyManagementService:
             ),
         )
 
+    def sign_with_active_key(self, payload: bytes) -> bytes:
+        self._require_source()
+        if not payload or len(payload) > self.settings.bundle_key_material_max_bytes:
+            raise KeyManagementError(
+                "key_material_size_invalid",
+                "Payload для SOURCE signature пуст или превышает допустимый размер",
+            )
+        if not self.signing_path.exists() and not self.signing_path.is_symlink():
+            raise KeyManagementError(
+                "signing_key_not_configured",
+                "SOURCE signing private key не настроен",
+            )
+        return self._read_private_key_file(self.signing_path).sign(payload)
+
     def install_signing_private_key(self, pem: str) -> KeyMutation:
         self._require_source()
         if self.signing_path.exists() or self.signing_path.is_symlink():
@@ -288,6 +302,37 @@ class KeyManagementService:
         return KeyMutation(
             action="replaced" if existing else "added",
             fingerprint=fingerprint,
+        )
+
+    def trusted_public_key(
+        self,
+        fingerprint: str,
+        *,
+        require_enabled: bool = True,
+    ) -> Ed25519PublicKey:
+        self._require_target()
+        normalized = self._validate_fingerprint(fingerprint)
+        matches = self._find_trusted_key_files(normalized)
+        if not matches:
+            raise KeyManagementError(
+                "trusted_key_not_found",
+                "Trusted public key не найден",
+            )
+        for path in matches:
+            enabled = path.name.endswith(".pem")
+            if require_enabled and not enabled:
+                continue
+            key = self._read_public_key_file(path)
+            if ed25519_public_key_fingerprint(key) == normalized:
+                return key
+        if require_enabled:
+            raise KeyManagementError(
+                "trusted_key_disabled",
+                "Trusted public key отключён",
+            )
+        raise KeyManagementError(
+            "trusted_key_store_invalid",
+            "Trusted key store не содержит согласованный public key",
         )
 
     def trusted_public_key_fingerprint(self, pem: str) -> str:
