@@ -1,3 +1,6 @@
+import base64
+import binascii
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -87,6 +90,9 @@ def _import_error(exc: ImportOrchestrationError) -> HTTPException:
         "handoff_not_canonical": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "handoff_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "handoff_file_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "browser_handoff_required": status.HTTP_400_BAD_REQUEST,
+        "browser_handoff_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "browser_bundle_filename_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
     }
     return _api_error(
         mapping.get(exc.code, status.HTTP_422_UNPROCESSABLE_CONTENT),
@@ -159,6 +165,38 @@ def _authorize_operation(
             "import_forbidden",
             "Operator может управлять только собственными import operations",
         )
+
+
+def _decode_companion_header(
+    request: Request,
+    name: str,
+    *,
+    required: bool,
+) -> bytes | None:
+    raw = request.headers.get(name)
+    if raw is None:
+        if required:
+            raise _api_error(
+                status.HTTP_400_BAD_REQUEST,
+                "browser_handoff_required",
+                "Browser physical transfer требует bundle, .sha256 и signed handoff вместе",
+            )
+        return None
+    try:
+        payload = base64.b64decode(raw, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise _api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "browser_handoff_invalid",
+            f"{name} имеет неверный base64 encoding",
+        ) from exc
+    if not payload or len(payload) > request.app.state.settings.bundle_max_metadata_bytes:
+        raise _api_error(
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "browser_handoff_invalid",
+            f"{name} пуст или превышает metadata limit",
+        )
+    return payload
 
 
 def _content_length(request: Request) -> int | None:
@@ -276,15 +314,57 @@ async def upload_bundle(
     actor: ImportActorDep,
     orchestrator: ImportOrchestratorDep,
 ) -> ImportIntakeResponse:
+    filename = request.headers.get("x-htp-bundle-filename")
+    browser_handoff = filename is not None or any(
+        request.headers.get(name) is not None
+        for name in ("x-htp-sidecar-b64", "x-htp-handoff-b64")
+    )
+    sidecar = _decode_companion_header(
+        request,
+        "x-htp-sidecar-b64",
+        required=browser_handoff,
+    )
+    handoff = _decode_companion_header(
+        request,
+        "x-htp-handoff-b64",
+        required=browser_handoff,
+    )
+    if browser_handoff and filename is None:
+        raise _api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "browser_handoff_required",
+            "Browser physical transfer требует исходное имя bundle",
+        )
+
     try:
         started = await orchestrator.accept_upload(
             request.stream(),
             content_length=_content_length(request),
             actor_user_id=actor.id,
             actor_username=actor.username,
+            filename=filename,
+            sidecar=sidecar,
+            handoff=handoff,
         )
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc
+
+    if started.handoff_verification is not None:
+        verified = started.handoff_verification
+        AuditEventRepository(session).create(
+            actor=actor,
+            event_type="physical.handoff.verified",
+            result="verified",
+            metadata={
+                "delivery_id": verified.delivery_id,
+                "signing_key_fingerprint": verified.signing_key_fingerprint,
+                "bundle_sha256": verified.bundle_sha256,
+                "bundle_size_bytes": verified.bundle_size_bytes,
+                "intake_mode": "browser",
+            },
+        )
+        session.commit()
+
     return ImportIntakeResponse(
         operation_id=started.operation_id,
         status=started.status,
