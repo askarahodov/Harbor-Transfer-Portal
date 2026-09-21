@@ -175,14 +175,33 @@ export async function verifyPhysicalHandoff(
   return response.data
 }
 
+async function smallFileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return window.btoa(binary)
+}
+
 export async function uploadImportBundle(
   file: File,
+  sidecar?: File,
+  handoff?: File,
   onProgress?: (loaded: number, total: number | null) => void,
 ): Promise<ImportIntake> {
+  const browserHandoff = sidecar !== undefined || handoff !== undefined
+  if (browserHandoff && (!sidecar || !handoff)) {
+    throw new Error('Browser physical transfer requires bundle, sidecar and handoff together')
+  }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/gzip',
+  }
+  if (sidecar && handoff) {
+    headers['X-HTP-Bundle-Filename'] = file.name
+    headers['X-HTP-Sidecar-B64'] = await smallFileToBase64(sidecar)
+    headers['X-HTP-Handoff-B64'] = await smallFileToBase64(handoff)
+  }
   const response = await apiClient.post<ImportIntake>('/imports/upload', file, {
-    headers: {
-      'Content-Type': 'application/gzip',
-    },
+    headers,
     timeout: 0,
     onUploadProgress: (event: AxiosProgressEvent) => {
       onProgress?.(event.loaded, event.total ?? null)
