@@ -176,7 +176,15 @@ export async function verifyPhysicalHandoff(
 }
 
 async function smallFileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
+  const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.addEventListener('load', () => resolve(reader.result as ArrayBuffer), { once: true })
+    reader.addEventListener('error', () => reject(reader.error ?? new Error('File read failed')), {
+      once: true,
+    })
+    reader.readAsArrayBuffer(file)
+  })
+  const bytes = new Uint8Array(buffer)
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)
   return window.btoa(binary)
