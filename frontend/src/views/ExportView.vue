@@ -199,16 +199,16 @@ async function printHandoffRecord(): Promise<void> {
 <meta charset="utf-8">
 <title>Handoff ${escapeHtml(record.payload.delivery_id)}</title>
 <style>
-body{font-family:Arial,sans-serif;margin:32px;color:black}
+body{font-family:Arial,sans-serif;margin:32px;color:CanvasText}
 h1{font-size:22px}
 dl{display:grid;grid-template-columns:180px 1fr;gap:8px 16px}
 dt{font-weight:700}
 dd{margin:0}
 table{width:100%;border-collapse:collapse;margin-top:24px}
-th,td{border:1px solid gray;padding:8px;text-align:left;vertical-align:top}
+th,td{border:1px solid ButtonBorder;padding:8px;text-align:left;vertical-align:top}
 code{word-break:break-all;font-size:11px}
 .signatures{margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:48px}
-.line{border-bottom:1px solid black;height:32px}
+.line{border-bottom:1px solid CanvasText;height:32px}
 @media print{button{display:none}}
 </style>
 </head>
