@@ -94,6 +94,7 @@ def test_runtime_mode_switch_is_immediate_and_persists_across_restart(tmp_path: 
             "previous": "SOURCE",
             "current": "TARGET",
             "changed": True,
+            "cancelled_operation_ids": [],
         }
         assert client.get("/api/health").json()["contour"] == "TARGET"
 
@@ -130,8 +131,8 @@ def test_viewer_can_read_but_cannot_switch_runtime_mode(tmp_path: Path) -> None:
         assert client.get("/api/health").json()["contour"] == "SOURCE"
 
 
-def test_running_operation_blocks_runtime_mode_switch(tmp_path: Path) -> None:
-    database_url = f"sqlite:///{tmp_path / 'runtime-busy.db'}"
+def test_runtime_mode_switch_cancels_blocking_operation(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'runtime-cancel.db'}"
     _migrate(database_url)
     app = create_app(_settings(database_url, PortalContour.SOURCE))
     _seed_users(app)
@@ -139,23 +140,43 @@ def test_running_operation_blocks_runtime_mode_switch(tmp_path: Path) -> None:
     with TestClient(app) as client:
         operator = _login(client, "operator", "operator-password-123")
         with app.state.session_factory() as session:
-            session.add(
-                Operation(
-                    type=OperationType.EXPORT,
-                    status=OperationStatus.RUNNING,
-                    actor_username="operator",
-                )
+            operation = Operation(
+                type=OperationType.EXPORT,
+                status=OperationStatus.RUNNING,
+                actor_username="operator",
+                runtime_mode="SOURCE",
+                runtime_mode_version=1,
             )
+            session.add(operation)
             session.commit()
+            operation_id = operation.id
 
         response = client.put(
             "/api/runtime/mode",
             headers=operator,
             json={"mode": "TARGET"},
         )
-        assert response.status_code == 409
-        assert response.json()["error"]["code"] == "runtime_mode_busy"
-        assert client.get("/api/health").json()["contour"] == "SOURCE"
+        assert response.status_code == 200
+        assert response.json() == {
+            "previous": "SOURCE",
+            "current": "TARGET",
+            "changed": True,
+            "cancelled_operation_ids": [operation_id],
+        }
+        assert client.get("/api/health").json()["contour"] == "TARGET"
+
+        with app.state.session_factory() as session:
+            cancelled = session.get(Operation, operation_id)
+            assert cancelled is not None
+            assert cancelled.status is OperationStatus.CANCELLED
+            assert cancelled.error_code == "operation_cancelled"
+            events = list(
+                session.scalars(
+                    select(AuditEvent).where(AuditEvent.event_type == "runtime_mode_changed")
+                )
+            )
+        assert len(events) == 1
+        assert json.loads(events[0].metadata_json)["cancelled_operation_ids"] == [operation_id]
 
 
 def test_runtime_mode_switch_writes_audit_event_and_noop_is_idempotent(tmp_path: Path) -> None:
