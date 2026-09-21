@@ -148,6 +148,25 @@ def test_target_contour_rejects_export_with_stable_error_code(tmp_path: Path) ->
     assert response.json()["error"]["code"] == "export_wrong_contour"
 
 
+def test_start_export_requires_signing_identity_before_operation_creation(
+    tmp_path: Path,
+) -> None:
+    app, _user_ids = _app_with_users(tmp_path, PortalContour.SOURCE)
+
+    with TestClient(app) as client:
+        operator = _login(client, "operator")
+        response = client.post(
+            "/api/exports",
+            headers=_auth(operator),
+            json=_selection_payload(),
+        )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "bundle_signing_key_not_configured"
+    with app.state.session_factory() as session:
+        assert session.query(Operation).count() == 0
+
+
 def test_export_selection_rejects_duplicate_reference_and_invalid_image_tag(
     tmp_path: Path,
 ) -> None:
