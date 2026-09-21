@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import PortalContour, Settings
 from app.db.models import Operation
+from app.db.repositories import AuditEventRepository
 from app.domain.artifacts import ArtifactKind, classify_artifact_kind
 from app.domain.bundle import ArtifactStatus, BundleSource, OperationStatus, OperationType
 from app.schemas.exports import ExportArtifactSelection
@@ -487,6 +488,19 @@ class ExportOrchestrator:
             operation.handoff_sha256 = build.handoff_sha256
             operation.handoff_size_bytes = build.handoff_size
             operation.bundle_signing_key_fingerprint = build.signing_key_fingerprint
+            AuditEventRepository(session).create_identity(
+                actor_user_id=operation.actor_user_id,
+                actor_username=operation.actor_username,
+                event_type="physical.handoff.generated",
+                result="generated",
+                metadata={
+                    "operation_id": operation.id,
+                    "delivery_id": delivery_id,
+                    "handoff_filename": build.handoff_path.name,
+                    "handoff_sha256": build.handoff_sha256,
+                    "signing_key_fingerprint": build.signing_key_fingerprint,
+                },
+            )
             session.commit()
 
     def _clear_bundle_metadata(self, operation_id: int) -> None:
