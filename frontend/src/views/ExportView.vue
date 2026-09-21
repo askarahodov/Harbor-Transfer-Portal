@@ -3,14 +3,11 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  Box,
   CheckCircle2,
   Download,
   FileArchive,
   PackageCheck,
   RefreshCw,
-  Search,
-  ShipWheel,
   XCircle,
 } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -24,6 +21,7 @@ import {
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
+import ExportArtifactSelector from '@/components/ExportArtifactSelector.vue'
 import SearchCombobox from '@/components/SearchCombobox.vue'
 import StatePlaceholder from '@/components/StatePlaceholder.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
@@ -394,20 +392,6 @@ onBeforeUnmount(() => {
             @next="wizard.loadRepositories(wizard.repositoryPage + 1)"
           />
 
-          <label class="compact-field compact-field--search">
-            <span>3. Версия / tag</span>
-            <span class="compact-search">
-              <Search :size="17" aria-hidden="true" />
-              <input
-                v-model="wizard.artifactSearch"
-                type="search"
-                placeholder="Фильтр version, tag или digest"
-                maxlength="256"
-                :disabled="!wizard.selectedRepository"
-                aria-label="Фильтр версии, tag или digest"
-              />
-            </span>
-          </label>
         </div>
 
         <div class="selection-context" aria-live="polite">
@@ -417,76 +401,19 @@ onBeforeUnmount(() => {
           <span v-else class="muted">Сначала выберите проект и репозиторий.</span>
         </div>
 
-        <section class="artifact-panel artifact-panel--compact" aria-labelledby="artifacts-title">
-          <div class="artifact-panel__heading">
-            <div>
-              <h3 id="artifacts-title">Доступные версии</h3>
-              <p>Digest остаётся источником точной идентичности; tag используется как удобное имя.</p>
-            </div>
-          </div>
-
-          <StatePlaceholder
-            v-if="!wizard.selectedRepository"
-            compact
-            kind="empty"
-            title="Выберите проект и репозиторий"
-          />
-          <StatePlaceholder
-            v-else-if="wizard.busy === 'artifacts'"
-            compact
-            kind="loading"
-            title="Загрузка версий"
-          />
-          <StatePlaceholder
-            v-else-if="wizard.artifacts.length === 0"
-            compact
-            kind="empty"
-            title="Версии не найдены"
-          />
-          <div v-else class="artifact-list artifact-list--compact">
-            <article v-for="artifact in wizard.artifacts" :key="artifact.digest" class="artifact-card artifact-card--compact">
-              <div class="artifact-card__main">
-                <div class="kind-icon" aria-hidden="true">
-                  <Box v-if="artifact.kind === 'container-image'" :size="20" />
-                  <ShipWheel v-else :size="20" />
-                </div>
-                <div>
-                  <strong>{{ kindLabel(artifact.kind) }}</strong>
-                  <p class="digest" :title="artifact.digest">{{ shortDigest(artifact.digest) }}</p>
-                  <p class="muted">{{ formatBytes(artifact.size) }}</p>
-                </div>
-              </div>
-              <div v-if="artifact.kind === 'unknown-oci'" class="unsupported">
-                <div>Не поддерживается export v1</div>
-                <div
-                  v-if="wizard.referencesFor(artifact).length > 0"
-                  class="reference-list"
-                  aria-label="References неподдерживаемого OCI"
-                >
-                  <code v-for="reference in wizard.referencesFor(artifact)" :key="reference">
-                    {{ reference }}
-                  </code>
-                </div>
-              </div>
-              <div v-else-if="wizard.referencesFor(artifact).length === 0" class="unsupported">Нет явной версии/tag</div>
-              <div v-else class="reference-list">
-                <label v-for="reference in wizard.referencesFor(artifact)" :key="reference" class="reference-choice">
-                  <input
-                    type="checkbox"
-                    :checked="wizard.isSelected(artifact, reference)"
-                    @change="wizard.toggleArtifact(artifact, reference)"
-                  />
-                  <span>{{ reference }}</span>
-                </label>
-              </div>
-            </article>
-          </div>
-          <div v-if="wizard.artifactTotal > 25" class="pagination" aria-label="Страницы артефактов">
-            <button type="button" :disabled="wizard.artifactPage <= 1" @click="wizard.loadArtifacts(wizard.artifactPage - 1)">Назад</button>
-            <span>{{ wizard.artifactPage }} / {{ Math.ceil(wizard.artifactTotal / 25) }}</span>
-            <button type="button" :disabled="wizard.artifactPage * 25 >= wizard.artifactTotal" @click="wizard.loadArtifacts(wizard.artifactPage + 1)">Далее</button>
-          </div>
-        </section>
+        <ExportArtifactSelector
+          :artifacts="wizard.artifacts"
+          :selected-repository="wizard.selectedRepository"
+          :search="wizard.artifactSearch"
+          :busy="wizard.busy === 'artifacts'"
+          :page="wizard.artifactPage"
+          :total="wizard.artifactTotal"
+          :references-for="wizard.referencesFor"
+          :is-selected="wizard.isSelected"
+          @update:search="wizard.artifactSearch = $event"
+          @toggle="wizard.toggleArtifact"
+          @page="wizard.loadArtifacts"
+        />
 
         <div class="actions actions--end">
           <button class="primary-button" type="button" :disabled="wizard.selectedCount === 0 || wizard.busy === 'preview'" @click="wizard.preparePreview">
