@@ -73,6 +73,7 @@ const error = ref('')
 const readinessLoading = ref(false)
 const readinessHarbor = ref<boolean | null>(null)
 const readinessKeys = ref<KeyReadiness | null>(null)
+let readinessGeneration = 0
 
 const effectiveContour = computed(
   () => runtime.contour ?? settings.value?.contour ?? null,
@@ -270,18 +271,20 @@ async function removeCa(): Promise<void> {
 }
 
 async function loadReadiness(): Promise<void> {
+  const generation = ++readinessGeneration
   readinessLoading.value = true
   try {
     const [harborResult, keysResult] = await Promise.allSettled([
       apiClient.get<{ connected: boolean }>('/harbor/connection'),
       apiClient.get<KeyReadiness>('/settings/keys'),
     ])
+    if (generation !== readinessGeneration) return
     readinessHarbor.value =
       harborResult.status === 'fulfilled' ? harborResult.value.data.connected : false
     readinessKeys.value =
       keysResult.status === 'fulfilled' ? keysResult.value.data : null
   } finally {
-    readinessLoading.value = false
+    if (generation === readinessGeneration) readinessLoading.value = false
   }
 }
 
