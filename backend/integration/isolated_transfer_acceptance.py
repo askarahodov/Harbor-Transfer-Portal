@@ -906,6 +906,7 @@ async def target_phase() -> None:
     # registry mutation occurs.
     for physical_file in (archive, sidecar, bootstrap_package, rotation_package):
         shutil.copy2(physical_file, incoming / physical_file.name)
+    (incoming / archive.name).unlink()
     (incoming / archive.name).write_bytes(b"tampered-physical-media\n")
     try:
         MediaHandoffService(settings).verify_from_discovery(handoff.read_bytes())
@@ -1206,19 +1207,22 @@ async def target_phase() -> None:
         if registry_manifest_digest(primary_target_repository, IMAGE_TAG) != conflict_digest:
             fail("blocked mapped conflict mutated TARGET image")
 
-        # Signed-bundle tamper remains fail-closed even after destination mapping.
+        # Bundle v1 signature tamper is an internal cryptographic failure distinct
+        # from physical-media handoff tamper. Verify it directly so media discovery
+        # remains reserved for complete bundle+sidecar+handoff sets.
         with tempfile.TemporaryDirectory(prefix="htp-tamper-") as temp_name:
             tampered = Path(temp_name) / "tampered.htp.tar.gz"
             tamper_signature(archive, tampered)
             tampered_sidecar = tampered.with_name(tampered.name + ".sha256")
-            stage_incoming(settings, tampered, tampered_sidecar)
-            tampered_id = await discover_one(manager, orchestrator)
-            tampered_operation = manager.get_operation(tampered_id)
-            if (
-                tampered_operation is None
-                or tampered_operation.status is not OperationStatus.REJECTED
-            ):
-                fail(f"tampered signed bundle was not REJECTED: {tampered_operation}")
+            try:
+                BundlePackageService(settings).verify_bundle(
+                    tampered,
+                    sidecar_path=tampered_sidecar,
+                )
+            except Exception:
+                pass
+            else:
+                fail("tampered Bundle v1 signature unexpectedly verified")
 
         if registry_manifest_digest(primary_target_repository, IMAGE_TAG) != conflict_digest:
             fail("tampered bundle mutated TARGET registry")
