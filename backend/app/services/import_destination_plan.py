@@ -570,6 +570,15 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     "import_not_ready",
                     "Import можно запускать только после verified preview",
                 )
+            if operation.import_preview_json is None:
+                raise ImportOrchestrationError(
+                    "import_preview_not_ready",
+                    "Verified preview отсутствует",
+                )
+            preview = ImportPreviewResponse.model_validate_json(
+                operation.import_preview_json
+            )
+            self._require_preview_signer_trusted(preview)
             policy = self._policy_object(operation)
             persisted = self._plan_from_policy(policy)
             if persisted is None or persisted.plan_id != plan.plan_id:
