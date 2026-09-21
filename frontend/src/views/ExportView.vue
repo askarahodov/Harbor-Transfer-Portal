@@ -101,17 +101,6 @@ function kindLabel(kind: string): string {
   return 'OCI (не поддерживается)'
 }
 
-async function searchProjects(): Promise<void> {
-  await wizard.loadProjects(1)
-}
-
-async function searchRepositories(): Promise<void> {
-  await wizard.loadRepositories(1)
-}
-
-async function searchArtifacts(): Promise<void> {
-  await wizard.loadArtifacts(1)
-}
 
 async function generateIdentityAndContinueExport(): Promise<void> {
   if (auth.user?.role !== 'admin' || signingRecoveryBusy.value) return
@@ -375,6 +364,11 @@ onBeforeUnmount(() => {
               <ChevronDown :size="17" aria-hidden="true" />
             </span>
           </label>
+          <div v-if="wizard.projectTotal > 25" class="compact-pagination" aria-label="Страницы проектов">
+            <button type="button" :disabled="wizard.projectPage <= 1" @click="wizard.loadProjects(wizard.projectPage - 1)">‹</button>
+            <span>{{ wizard.projectPage }} / {{ Math.ceil(wizard.projectTotal / 25) }}</span>
+            <button type="button" :disabled="wizard.projectPage * 25 >= wizard.projectTotal" @click="wizard.loadProjects(wizard.projectPage + 1)">›</button>
+          </div>
 
           <label class="compact-field">
             <span>2. Репозиторий</span>
@@ -395,6 +389,11 @@ onBeforeUnmount(() => {
               <ChevronDown :size="17" aria-hidden="true" />
             </span>
           </label>
+          <div v-if="wizard.repositoryTotal > 25" class="compact-pagination" aria-label="Страницы репозиториев">
+            <button type="button" :disabled="wizard.repositoryPage <= 1" @click="wizard.loadRepositories(wizard.repositoryPage - 1)">‹</button>
+            <span>{{ wizard.repositoryPage }} / {{ Math.ceil(wizard.repositoryTotal / 25) }}</span>
+            <button type="button" :disabled="wizard.repositoryPage * 25 >= wizard.repositoryTotal" @click="wizard.loadRepositories(wizard.repositoryPage + 1)">›</button>
+          </div>
 
           <label class="compact-field compact-field--search">
             <span>3. Версия / tag</span>
@@ -716,6 +715,8 @@ h3 { margin-bottom: var(--space-2); font-size: 16px; }
 .browser-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
 .compact-selector { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(220px, 1fr) minmax(260px, 1.2fr); gap: var(--space-3); align-items: end; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
 .compact-field { display: grid; gap: var(--space-2); min-width: 0; font-weight: 700; }
+.compact-pagination { display: flex; align-items: center; justify-content: center; gap: var(--space-1); font-size: 12px; color: var(--color-text-muted); }
+.compact-pagination button { border: 0; background: transparent; color: var(--color-action); cursor: pointer; }
 .select-shell { position: relative; display: block; }
 .select-shell select { width: 100%; min-height: 42px; padding: 0 38px 0 var(--space-3); appearance: none; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; }
 .select-shell > svg { position: absolute; right: var(--space-3); top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--color-text-muted); }
