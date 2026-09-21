@@ -325,7 +325,11 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     }
   }
 
-  async function upload(file: File): Promise<boolean> {
+  async function upload(
+    file: File,
+    sidecar?: File,
+    handoff?: File,
+  ): Promise<boolean> {
     selectedFile.value = { name: file.name, size: file.size }
     uploadProgress.value = { loaded: 0, total: file.size }
     busy.value = 'upload'
@@ -334,7 +338,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     receipt.value = null
     resetMapping()
     try {
-      const intake = await uploadImportBundle(file, (loaded, total) => {
+      const intake = await uploadImportBundle(file, sidecar, handoff, (loaded, total) => {
         uploadProgress.value = { loaded, total: total ?? file.size }
       })
       await selectOperation(intake.operation_id)
