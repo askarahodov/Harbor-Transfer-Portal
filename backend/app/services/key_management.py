@@ -93,7 +93,7 @@ class KeyManagementService:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        self._atomic_write(self.signing_path, normalized, 0o600)
+        self._atomic_create_signing_key(normalized)
         return KeyMutation(action="generated", fingerprint=fingerprint)
 
     def signing_public_key(self) -> SigningPublicKey:
@@ -469,6 +469,44 @@ class KeyManagementService:
         for path in paths:
             if path != keep:
                 path.unlink(missing_ok=True)
+
+    def _atomic_create_signing_key(self, payload: bytes) -> None:
+        parent = self.signing_path.parent
+        parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if parent.is_symlink() or not parent.is_dir():
+            raise KeyManagementError(
+                "key_store_invalid",
+                "Каталог key material некорректен",
+            )
+
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{self.signing_path.name}-",
+            dir=parent,
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temporary, 0o600)
+            try:
+                os.link(temporary, self.signing_path, follow_symlinks=False)
+            except FileExistsError as exc:
+                raise KeyManagementError(
+                    "signing_key_already_configured",
+                    "SOURCE signing identity уже настроена; используйте rotation вместо повторной генерации",
+                ) from exc
+            self._fsync_directory(parent)
+        except KeyManagementError:
+            raise
+        except OSError as exc:
+            raise KeyManagementError(
+                "key_store_write_failed",
+                "Не удалось атомарно создать SOURCE signing identity",
+            ) from exc
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _atomic_write(self, path: Path, payload: bytes, mode: int) -> None:
         parent = path.parent
