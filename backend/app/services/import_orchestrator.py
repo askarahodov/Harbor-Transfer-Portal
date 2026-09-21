@@ -36,6 +36,7 @@ from app.services.helm_oci_service import (
     HelmServiceError,
     HelmTargetState,
 )
+from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.operation_manager import (
     OperationContext,
     OperationManager,
@@ -264,6 +265,20 @@ class ImportOrchestrator:
                     "Verified preview отсутствует",
                 )
             preview = ImportPreviewResponse.model_validate_json(operation.import_preview_json)
+            try:
+                trusted = {
+                    item.fingerprint
+                    for item in KeyManagementService(self.settings).list_trusted_keys()
+                    if item.enabled
+                }
+            except KeyManagementError as exc:
+                raise ImportOrchestrationError(exc.code, exc.message) from exc
+            if preview.signing_key_fingerprint not in trusted:
+                raise ImportOrchestrationError(
+                    "import_signing_key_untrusted",
+                    "SOURCE signing identity из verified preview больше не trusted/enabled",
+                )
+
             unresolved = [
                 item
                 for item in preview.artifacts
