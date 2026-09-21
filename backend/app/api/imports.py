@@ -14,12 +14,14 @@ from app.schemas.imports import (
     ImportExecuteRequest,
     ImportIntakeResponse,
     ImportPreviewResponse,
+    MediaHandoffVerificationResponse,
     ImportReceiptResponse,
     ImportStartResponse,
 )
 from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
 from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_mapping_audit import destination_plan_audit_metadata
+from app.services.media_handoff import MediaHandoffError, MediaHandoffService
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.policy_aware_destination_plan import PolicyAwareImportDestinationPlanOrchestrator
 from app.services.report_service import receipt_filename
@@ -83,6 +85,52 @@ def _import_error(exc: ImportOrchestrationError) -> HTTPException:
         exc.code,
         exc.message,
     )
+
+
+def _handoff_error(exc: MediaHandoffError) -> HTTPException:
+    mapping = {
+        "handoff_wrong_contour": status.HTTP_409_CONFLICT,
+        "handoff_size_invalid": status.HTTP_413_CONTENT_TOO_LARGE,
+        "handoff_signer_untrusted": status.HTTP_409_CONFLICT,
+        "handoff_file_missing": status.HTTP_409_CONFLICT,
+        "handoff_file_mismatch": status.HTTP_409_CONFLICT,
+        "handoff_signature_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "handoff_not_canonical": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "handoff_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "handoff_file_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    }
+    return _api_error(
+        mapping.get(exc.code, status.HTTP_422_UNPROCESSABLE_CONTENT),
+        exc.code,
+        exc.message,
+    )
+
+
+async def _read_handoff_body(request: Request) -> bytes:
+    limit = request.app.state.settings.bundle_max_metadata_bytes
+    declared = _content_length(request)
+    if declared is not None and declared > limit:
+        raise _api_error(
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "handoff_size_invalid",
+            "Handoff manifest превышает metadata limit",
+        )
+    payload = bytearray()
+    async for chunk in request.stream():
+        payload.extend(chunk)
+        if len(payload) > limit:
+            raise _api_error(
+                status.HTTP_413_CONTENT_TOO_LARGE,
+                "handoff_size_invalid",
+                "Handoff manifest превышает metadata limit",
+            )
+    if not payload:
+        raise _api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "handoff_empty",
+            "Handoff manifest пуст",
+        )
+    return bytes(payload)
 
 
 def _authorize_operation(
@@ -169,6 +217,45 @@ def _audit_import_start(
             },
         )
     session.commit()
+
+
+@router.post(
+    "/handoff/verify",
+    response_model=MediaHandoffVerificationResponse,
+)
+async def verify_physical_handoff(
+    request: Request,
+    actor: ImportActorDep,
+    session: SessionDep,
+) -> MediaHandoffVerificationResponse:
+    payload = await _read_handoff_body(request)
+    try:
+        result = MediaHandoffService(
+            request.app.state.settings
+        ).verify_from_discovery(payload)
+    except MediaHandoffError as exc:
+        raise _handoff_error(exc) from exc
+
+    AuditEventRepository(session).create(
+        actor=actor,
+        event_type="physical.handoff.verified",
+        result="verified",
+        metadata={
+            "delivery_id": result.delivery_id,
+            "signing_key_fingerprint": result.signing_key_fingerprint,
+            "bundle_sha256": result.bundle_sha256,
+            "bundle_size_bytes": result.bundle_size_bytes,
+        },
+    )
+    session.commit()
+    return MediaHandoffVerificationResponse(
+        delivery_id=result.delivery_id,
+        signing_key_fingerprint=result.signing_key_fingerprint,
+        bundle_sha256=result.bundle_sha256,
+        bundle_size_bytes=result.bundle_size_bytes,
+        created_at=result.created_at,
+        created_by=result.created_by,
+    )
 
 
 @router.post(
