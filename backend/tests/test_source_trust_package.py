@@ -79,6 +79,31 @@ def test_trust_package_is_deterministic_idempotent_and_reenables_existing_identi
     ]
 
 
+def test_trust_package_bounds_highly_compressible_pax_headers_before_parse(
+    tmp_path: Path,
+) -> None:
+    target = _settings(tmp_path, PortalContour.TARGET)
+    output = io.BytesIO()
+    with gzip.GzipFile(fileobj=output, mode="wb", filename="", mtime=0) as compressed:
+        with tarfile.open(
+            fileobj=compressed,
+            mode="w",
+            format=tarfile.PAX_FORMAT,
+        ) as archive:
+            info = tarfile.TarInfo("source-signing-public.pem")
+            info.size = 1
+            info.pax_headers = {"comment": "A" * 200_000}
+            archive.addfile(info, io.BytesIO(b"x"))
+
+    payload = output.getvalue()
+    assert len(payload) < target.bundle_trust_package_max_bytes
+
+    with pytest.raises(TrustPackageError) as exc:
+        SourceTrustPackageService(target).import_package(payload)
+    assert exc.value.code == "trust_package_decompressed_size_invalid"
+    assert KeyManagementService(target).list_trusted_keys() == ()
+
+
 def test_trust_package_rejects_fingerprint_tamper(tmp_path: Path) -> None:
     source = _settings(tmp_path, PortalContour.SOURCE)
     target = _settings(tmp_path, PortalContour.TARGET)
