@@ -13,12 +13,17 @@ from app.schemas.keys import (
     SigningKeyStatusResponse,
     SigningRotationRequest,
     TrustedKeyMaterialRequest,
+    TrustedKeyRetirementImpactResponse,
     TrustedKeyStateRequest,
     TrustedKeyStatusResponse,
 )
 from app.services.key_management import KeyManagementError, KeyManagementService, KeyMutation
 from app.services.runtime_mode import RuntimeModeError, RuntimeModeService, RuntimeModeSnapshot
 from app.services.source_trust_package import SourceTrustPackageService, TrustPackageError
+from app.services.trusted_key_retirement import (
+    TrustedKeyRetirementError,
+    TrustedKeyRetirementService,
+)
 
 router = APIRouter(prefix="/settings/keys", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
@@ -40,6 +45,18 @@ def _api_error(exc: KeyManagementError) -> HTTPException:
         "pending_signing_key_not_configured": status.HTTP_409_CONFLICT,
         "pending_signing_key_fingerprint_mismatch": status.HTTP_409_CONFLICT,
         "key_store_write_failed": status.HTTP_500_INTERNAL_SERVER_ERROR,
+    }
+    return HTTPException(
+        status_code=mapping.get(exc.code, status.HTTP_422_UNPROCESSABLE_CONTENT),
+        detail={"code": exc.code, "message": exc.message},
+    )
+
+
+def _retirement_error(exc: TrustedKeyRetirementError) -> HTTPException:
+    mapping = {
+        "key_management_wrong_contour": status.HTTP_409_CONFLICT,
+        "trusted_key_not_found": status.HTTP_404_NOT_FOUND,
+        "trusted_key_retirement_blocked": status.HTTP_409_CONFLICT,
     }
     return HTTPException(
         status_code=mapping.get(exc.code, status.HTTP_422_UNPROCESSABLE_CONTENT),
@@ -474,6 +491,36 @@ def replace_trusted_key(
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
 
 
+@router.get(
+    "/trusted/{fingerprint}/impact",
+    response_model=TrustedKeyRetirementImpactResponse,
+)
+def trusted_key_retirement_impact(
+    fingerprint: str,
+    request: Request,
+    _admin: AdminDep,
+    session: SessionDep,
+) -> TrustedKeyRetirementImpactResponse:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.TARGET):
+            impact = TrustedKeyRetirementService(
+                session,
+                request.app.state.settings,
+            ).impact(fingerprint)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except TrustedKeyRetirementError as exc:
+        raise _retirement_error(exc) from exc
+    return TrustedKeyRetirementImpactResponse(
+        fingerprint=impact.fingerprint,
+        enabled=impact.enabled,
+        enabled_key_count=impact.enabled_key_count,
+        historical_import_count=impact.historical_import_count,
+        blocking_operation_ids=list(impact.blocking_operation_ids),
+        can_retire=impact.can_retire,
+    )
+
+
 @router.patch("/trusted/{fingerprint}", response_model=KeyMutationResponse)
 def set_trusted_key_state(
     fingerprint: str,
@@ -485,10 +532,32 @@ def set_trusted_key_state(
     _require_confirmation(payload.confirm)
     try:
         with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
+            impact = None
+            if not payload.enabled:
+                impact = TrustedKeyRetirementService(
+                    session,
+                    request.app.state.settings,
+                ).require_retirable(fingerprint)
             mutation = _service(request).set_trusted_key_enabled(fingerprint, payload.enabled)
-            _audit(session, admin, f"trust.key.{mutation.action}", mutation, runtime)
+            _audit(
+                session,
+                admin,
+                f"trust.key.{mutation.action}",
+                mutation,
+                runtime,
+                extra=(
+                    {
+                        "historical_import_count": impact.historical_import_count,
+                        "enabled_key_count_before": impact.enabled_key_count,
+                    }
+                    if impact is not None
+                    else None
+                ),
+            )
     except RuntimeModeError as exc:
         raise _runtime_error(exc) from exc
+    except TrustedKeyRetirementError as exc:
+        raise _retirement_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
@@ -505,10 +574,26 @@ def remove_trusted_key(
     _require_confirmation(confirm)
     try:
         with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
+            impact = TrustedKeyRetirementService(
+                session,
+                request.app.state.settings,
+            ).require_retirable(fingerprint)
             mutation = _service(request).remove_trusted_key(fingerprint)
-            _audit(session, admin, "trust.key.removed", mutation, runtime)
+            _audit(
+                session,
+                admin,
+                "trust.key.removed",
+                mutation,
+                runtime,
+                extra={
+                    "historical_import_count": impact.historical_import_count,
+                    "enabled_key_count_before": impact.enabled_key_count,
+                },
+            )
     except RuntimeModeError as exc:
         raise _runtime_error(exc) from exc
+    except TrustedKeyRetirementError as exc:
+        raise _retirement_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
