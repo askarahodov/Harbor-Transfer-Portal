@@ -15,6 +15,7 @@ type RuntimeModeUpdatePayload = {
   previous?: unknown
   current?: unknown
   changed?: unknown
+  cancelled_operation_ids?: unknown
 }
 
 type FastApiErrorEnvelope = {
@@ -37,6 +38,13 @@ function readInjectedContour(): PortalContour | null {
   return isPortalContour(contour) ? contour : null
 }
 
+function cancelledOperationIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (item): item is number => Number.isInteger(item) && typeof item === 'number' && item > 0,
+  )
+}
+
 function modeSwitchErrorCode(error: unknown): string {
   if (!axios.isAxiosError<FastApiErrorEnvelope>(error)) return 'runtime_mode_unavailable'
   const code = error.response?.data?.detail?.code
@@ -50,6 +58,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const errorCode = ref<string | null>(null)
   const switching = ref(false)
   const switchErrorCode = ref<string | null>(null)
+  const lastCancelledOperationIds = ref<number[]>([])
   let switchGeneration = 0
 
   const contourLabel = computed(() => contour.value ?? '—')
@@ -60,6 +69,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
 
   function clearSwitchError(): void {
     switchErrorCode.value = null
+  }
+
+  function clearSwitchNotice(): void {
+    lastCancelledOperationIds.value = []
   }
 
   async function loadRuntime(): Promise<void> {
@@ -93,6 +106,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     const generation = ++switchGeneration
     switching.value = true
     switchErrorCode.value = null
+    lastCancelledOperationIds.value = []
     try {
       const response = await apiClient.put<RuntimeModeUpdatePayload>('/runtime/mode', {
         mode: target,
@@ -103,6 +117,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
         return false
       }
       contour.value = response.data.current
+      lastCancelledOperationIds.value = cancelledOperationIds(
+        response.data.cancelled_operation_ids,
+      )
       return true
     } catch (error: unknown) {
       if (generation === switchGeneration) {
@@ -124,8 +141,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
     errorCode,
     switching,
     switchErrorCode,
+    lastCancelledOperationIds,
     setContour,
     clearSwitchError,
+    clearSwitchNotice,
     loadRuntime,
     switchMode,
   }
