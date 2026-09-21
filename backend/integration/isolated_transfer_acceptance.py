@@ -60,6 +60,13 @@ from app.services.source_trust_package import SourceTrustPackageService
 REGISTRY_URL = os.environ.get("HTP_ACCEPTANCE_REGISTRY_URL", "").rstrip("/")
 TRANSFER_DIR = Path(os.environ.get("HTP_ACCEPTANCE_TRANSFER_DIR", "/transfer"))
 WORK_ROOT = Path(os.environ.get("HTP_ACCEPTANCE_WORK_ROOT", "/tmp/htp-isolated-acceptance"))
+EXPECTED_SOURCE_FINGERPRINT = os.environ.get(
+    "HTP_ACCEPTANCE_EXPECTED_FINGERPRINT",
+    "",
+).strip()
+BOOTSTRAP_TRUST_NAME = "bootstrap.htp-trust.tar.gz"
+ROTATION_TRUST_NAME = "rotation.htp-trust.tar.gz"
+OUT_OF_BAND_FINGERPRINT_NAME = "source-fingerprint.out-of-band.txt"
 
 IMAGE_REPOSITORY = "team/images/app"
 IMAGE_TAG = "1.0.0"
@@ -365,7 +372,7 @@ def package_chart(settings: Settings) -> Path:
     return package
 
 
-def transfer_bundle() -> tuple[Path, Path, Path]:
+def transfer_bundle() -> tuple[Path, Path, Path, Path]:
     archives = sorted(
         path
         for path in TRANSFER_DIR.glob("*.htp.tar.gz")
@@ -375,13 +382,13 @@ def transfer_bundle() -> tuple[Path, Path, Path]:
         fail(f"expected exactly one physical bundle, got {len(archives)}")
     archive = archives[0]
     sidecar = archive.with_name(archive.name + ".sha256")
-    trust_packages = sorted(TRANSFER_DIR.glob("*.htp-trust.tar.gz"))
-    if len(trust_packages) != 1:
-        fail(f"expected exactly one SOURCE trust package, got {len(trust_packages)}")
-    trust_package = trust_packages[0]
+    bootstrap = TRANSFER_DIR / BOOTSTRAP_TRUST_NAME
+    rotation = TRANSFER_DIR / ROTATION_TRUST_NAME
     if not sidecar.is_file():
         fail("physical transfer is missing bundle sidecar")
-    return archive, sidecar, trust_package
+    if not bootstrap.is_file() or not rotation.is_file():
+        fail("physical transfer is missing bootstrap/rotation trust package")
+    return archive, sidecar, bootstrap, rotation
 
 
 def stage_incoming(settings: Settings, archive: Path, sidecar: Path) -> None:
@@ -604,10 +611,24 @@ async def source_phase() -> None:
     WORK_ROOT.mkdir(parents=True)
     TRANSFER_DIR.mkdir(parents=True, exist_ok=True)
     settings = settings_for(WORK_ROOT, PortalContour.SOURCE)
-    generated_identity = KeyManagementService(settings).generate_signing_private_key()
-    trust_package = SourceTrustPackageService(settings).build()
-    if trust_package.fingerprint != generated_identity.fingerprint:
-        fail("SOURCE trust package fingerprint does not match generated identity")
+    source_keys = KeyManagementService(settings)
+    generated_identity = source_keys.generate_signing_private_key()
+    bootstrap_trust = SourceTrustPackageService(settings).build()
+    if bootstrap_trust.fingerprint != generated_identity.fingerprint:
+        fail("SOURCE bootstrap trust package fingerprint does not match generated identity")
+
+    pending_identity = source_keys.prepare_pending_signing_key()
+    rotation_trust = SourceTrustPackageService(settings).build_pending()
+    if rotation_trust.fingerprint != pending_identity.fingerprint:
+        fail("SOURCE rotation trust package fingerprint does not match pending identity")
+    if rotation_trust.endorsing_fingerprint != generated_identity.fingerprint:
+        fail("SOURCE rotation trust package is not endorsed by active identity")
+    activated = source_keys.activate_pending_signing_key(
+        pending_identity.fingerprint
+    )
+    if activated.fingerprint != pending_identity.fingerprint:
+        fail("SOURCE pending identity activation mismatch")
+
     factory, manager = environment(settings)
     await manager.startup()
     try:
@@ -726,15 +747,30 @@ async def source_phase() -> None:
 
         transfer_archive = TRANSFER_DIR / metadata_result.archive_path.name
         transfer_sidecar = TRANSFER_DIR / sidecar.name
-        transfer_trust_package = TRANSFER_DIR / trust_package.filename
+        transfer_bootstrap = TRANSFER_DIR / BOOTSTRAP_TRUST_NAME
+        transfer_rotation = TRANSFER_DIR / ROTATION_TRUST_NAME
+        out_of_band_fingerprint = TRANSFER_DIR / OUT_OF_BAND_FINGERPRINT_NAME
         shutil.copy2(metadata_result.archive_path, transfer_archive)
         shutil.copy2(sidecar, transfer_sidecar)
-        transfer_trust_package.write_bytes(trust_package.payload)
-        for path in (transfer_archive, transfer_sidecar, transfer_trust_package):
+        transfer_bootstrap.write_bytes(bootstrap_trust.payload)
+        transfer_rotation.write_bytes(rotation_trust.payload)
+        out_of_band_fingerprint.write_text(
+            f"{generated_identity.fingerprint}\n",
+            encoding="ascii",
+        )
+        for path in (
+            transfer_archive,
+            transfer_sidecar,
+            transfer_bootstrap,
+            transfer_rotation,
+            out_of_band_fingerprint,
+        ):
             os.chmod(path, 0o644)
 
         print(
             f"SOURCE acceptance export OK: {started.delivery_id}; "
+            f"bootstrap={generated_identity.fingerprint}; "
+            f"rotation={pending_identity.fingerprint}; "
             f"images={image_digest},{second_digest}; chart={chart_digest}"
         )
     finally:
@@ -804,13 +840,30 @@ async def target_phase() -> None:
     if WORK_ROOT.exists():
         shutil.rmtree(WORK_ROOT)
     WORK_ROOT.mkdir(parents=True)
-    archive, sidecar, transferred_trust_package = transfer_bundle()
+    archive, sidecar, bootstrap_package, rotation_package = transfer_bundle()
+    if not EXPECTED_SOURCE_FINGERPRINT:
+        fail("TARGET acceptance is missing out-of-band SOURCE fingerprint")
     settings = settings_for(WORK_ROOT, PortalContour.TARGET)
-    trust_mutation = SourceTrustPackageService(settings).import_package(
-        transferred_trust_package.read_bytes()
+    trust_service = SourceTrustPackageService(settings)
+    bootstrap = trust_service.import_package(
+        bootstrap_package.read_bytes(),
+        expected_fingerprint=EXPECTED_SOURCE_FINGERPRINT,
     )
-    if trust_mutation.action != "added":
-        fail(f"fresh TARGET trust bootstrap was not create-only: {trust_mutation.action}")
+    if (
+        bootstrap.mutation.action != "added"
+        or bootstrap.verification != "out_of_band"
+        or bootstrap.mutation.fingerprint != EXPECTED_SOURCE_FINGERPRINT
+    ):
+        fail(f"fresh TARGET trust bootstrap verification failed: {bootstrap}")
+
+    rotation = trust_service.import_package(rotation_package.read_bytes())
+    if (
+        rotation.mutation.action != "added"
+        or rotation.verification != "chained"
+        or rotation.endorsing_fingerprint != EXPECTED_SOURCE_FINGERPRINT
+    ):
+        fail(f"TARGET chained SOURCE rotation verification failed: {rotation}")
+
     factory, manager = environment(settings)
     await manager.startup()
     try:
@@ -820,6 +873,8 @@ async def target_phase() -> None:
             sidecar_path=sidecar,
             extract_to=settings.bundle_extract_root / "acceptance-inspection",
         )
+        if verified_transfer.signing_key_fingerprint != rotation.mutation.fingerprint:
+            fail("physical bundle is not signed by the chained rotation identity")
         if len(verified_transfer.manifest.artifacts) != 3:
             fail("physical bundle is not the expected mixed three-artifact bundle")
         assert_bundle_has_no_private_material(archive)
@@ -1103,6 +1158,7 @@ async def target_phase() -> None:
 
         print(
             f"TARGET mixed acceptance OK: {verified_transfer.manifest.delivery_id}; "
+            "out-of-band bootstrap, chained rotation, "
             "mapped refs, digests/content, replay, alternate mapping, access fail-closed, "
             "conflict policy, receipt provenance and tamper assertions passed"
         )
