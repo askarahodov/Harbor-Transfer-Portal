@@ -421,7 +421,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     if (!destinationPlan.value || mappingDirty.value || !destinationPlan.value.valid) {
       error.value = {
         code: 'import_destination_plan_required',
-        message: 'После изменения назначения сначала нажмите «Проверить TARGET».',,
+        message: 'После изменения назначения сначала нажмите «Проверить TARGET».',
       }
       return false
     }
