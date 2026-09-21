@@ -178,6 +178,12 @@ function escapeHtml(value: string): string {
 
 async function printHandoffRecord(): Promise<void> {
   if (!wizard.operation || printHandoffBusy.value) return
+  const popup = window.open('', '_blank')
+  if (!popup) {
+    downloadError.value = 'Браузер заблокировал окно печати handoff.'
+    return
+  }
+  popup.opener = null
   printHandoffBusy.value = true
   downloadError.value = null
   try {
@@ -188,11 +194,6 @@ async function printHandoffRecord(): Promise<void> {
           `<tr><td>${escapeHtml(item.role)}</td><td>${escapeHtml(item.name)}</td><td>${item.size_bytes}</td><td><code>${escapeHtml(item.sha256)}</code></td></tr>`,
       )
       .join('')
-    const popup = window.open('', '_blank')
-    if (!popup) {
-      throw new Error('print_window_blocked')
-    }
-    popup.opener = null
     popup.document.write(`<!doctype html>
 <html lang="ru">
 <head>
@@ -235,10 +236,11 @@ code{word-break:break-all;font-size:11px}
     popup.document.close()
     popup.focus()
   } catch (error) {
-    downloadError.value =
-      error instanceof Error && error.message === 'print_window_blocked'
-        ? 'Браузер заблокировал окно печати handoff.'
-        : apiErrorInfo(error, 'Не удалось подготовить печатную handoff-ведомость.').message
+    popup.close()
+    downloadError.value = apiErrorInfo(
+      error,
+      'Не удалось подготовить печатную handoff-ведомость.',
+    ).message
   } finally {
     printHandoffBusy.value = false
   }
