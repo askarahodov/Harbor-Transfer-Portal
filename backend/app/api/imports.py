@@ -79,6 +79,14 @@ def _import_error(exc: ImportOrchestrationError) -> HTTPException:
         "operation_worker_already_running": status.HTTP_409_CONFLICT,
         "operation_insufficient_disk": status.HTTP_507_INSUFFICIENT_STORAGE,
         "import_operation_create_failed": status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "handoff_signer_untrusted": status.HTTP_409_CONFLICT,
+        "handoff_file_missing": status.HTTP_409_CONFLICT,
+        "handoff_file_mismatch": status.HTTP_409_CONFLICT,
+        "handoff_delivery_mismatch": status.HTTP_409_CONFLICT,
+        "handoff_signature_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "handoff_not_canonical": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "handoff_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "handoff_file_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
     }
     return _api_error(
         mapping.get(exc.code, status.HTTP_422_UNPROCESSABLE_CONTENT),
