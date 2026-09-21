@@ -19,6 +19,7 @@ import { apiClient } from '@/api/client'
 import {
   apiErrorInfo,
   createExportDownloadTicket,
+  downloadExportHandoff,
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
@@ -162,6 +163,25 @@ function downloadSidecar(): void {
   anchor.download = `${wizard.bundle.archive_name}.sha256`
   anchor.click()
   URL.revokeObjectURL(href)
+}
+
+async function downloadHandoff(): Promise<void> {
+  if (!wizard.operation || !wizard.bundle) return
+  downloadError.value = null
+  try {
+    const blob = await downloadExportHandoff(wizard.operation.id)
+    const href = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = href
+    anchor.download = `${wizard.bundle.delivery_id}.htp-handoff.json`
+    anchor.click()
+    URL.revokeObjectURL(href)
+  } catch (error) {
+    downloadError.value = apiErrorInfo(
+      error,
+      'Не удалось скачать signed physical handoff.',
+    ).message
+  }
 }
 
 onMounted(async () => {
@@ -597,8 +617,8 @@ onBeforeUnmount(() => {
         <div class="notice notice--warning">
           <AlertTriangle :size="22" aria-hidden="true" />
           <div>
-            <strong>На носитель нужно скопировать два файла.</strong>
-            <p>Перенесите сам `.htp.tar.gz` и соответствующий `.sha256`. TARGET использует sidecar как readiness/integrity metadata; SHA-256 не заменяет цифровую подпись bundle.</p>
+            <strong>На носитель нужно скопировать три файла.</strong>
+            <p>Перенесите `.htp.tar.gz`, соответствующий `.sha256` и signed `.htp-handoff.json`. Handoff подтверждает состав физического носителя, но не заменяет Bundle v1 signature verification.</p>
           </div>
         </div>
 
@@ -610,13 +630,16 @@ onBeforeUnmount(() => {
           <button class="secondary-button" type="button" :disabled="!wizard.bundle" @click="downloadSidecar">
             <Download :size="19" aria-hidden="true" /> Скачать `.sha256`
           </button>
+          <button class="secondary-button" type="button" :disabled="!wizard.bundle" @click="downloadHandoff">
+            <Download :size="19" aria-hidden="true" /> Скачать handoff
+          </button>
         </div>
 
         <div class="next-steps">
           <h3>Что дальше</h3>
           <ol>
-            <li>Сверьте, что оба файла имеют одинаковое базовое имя.</li>
-            <li>Скопируйте их на разрешённый физический носитель по вашей организационной процедуре.</li>
+            <li>Сверьте, что bundle и sidecar имеют одинаковое базовое имя, а handoff содержит тот же Delivery ID.</li>
+            <li>Скопируйте все три файла на разрешённый физический носитель по вашей организационной процедуре.</li>
             <li>В TARGET откройте workflow «Приём» и загрузите/обнаружьте bundle. Не распаковывайте archive вручную.</li>
           </ol>
         </div>
