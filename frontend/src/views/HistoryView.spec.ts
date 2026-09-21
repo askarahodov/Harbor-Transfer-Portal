@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -7,6 +8,7 @@ import type { ImportReceipt, Operation, OperationSummary } from '@/api/history'
 import * as importsApi from '@/api/imports'
 import type { ImportDestinationPlan } from '@/api/imports'
 import { useAuthStore } from '@/stores/auth'
+import { useRuntimeStore } from '@/stores/runtime'
 import HistoryView from '@/views/HistoryView.vue'
 
 const summary: OperationSummary = {
@@ -196,6 +198,7 @@ function buttonByText(wrapper: ReturnType<typeof mount>, text: string) {
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  sessionStorage.clear()
   setActivePinia(createPinia())
 })
 
@@ -375,6 +378,118 @@ describe('HistoryView', () => {
     expect(wrapper.text()).toContain('Retry operation #10 запущена')
   })
 
+  it('resumes an existing READY import from history without creating a new operation', async () => {
+    const readySummary: OperationSummary = {
+      ...importSummary,
+      id: 5,
+      status: 'READY',
+      finished_at: null,
+      successful_artifacts: 0,
+      skipped_artifacts: 0,
+    }
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [readySummary], total: 1, limit: 25, offset: 0,
+    })
+    const auth = useAuthStore()
+    auth.initialized = true
+    auth.user = { id: 1, username: 'admin', role: 'admin', is_active: true }
+    const runtime = useRuntimeStore()
+    runtime.setContour('TARGET')
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/history', component: { template: '<div />' } },
+        { path: '/import', component: { template: '<div />' } },
+        { path: '/export', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/history')
+    await router.isReady()
+
+    const wrapper = mount(HistoryView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    const resume = buttonByText(wrapper, 'Продолжить')
+    expect(resume?.exists()).toBe(true)
+    await resume!.trigger('click')
+    await flushPromises()
+
+    expect(sessionStorage.getItem('htp.import.operation-id')).toBe('5')
+    expect(router.currentRoute.value.path).toBe('/import')
+  })
+
+
+  it('does not implicitly switch runtime mode when resuming an unfinished operation', async () => {
+    const readySummary: OperationSummary = {
+      ...importSummary,
+      id: 15,
+      status: 'READY',
+      finished_at: null,
+    }
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [readySummary], total: 1, limit: 25, offset: 0,
+    })
+    const auth = useAuthStore()
+    auth.initialized = true
+    auth.user = { id: 1, username: 'admin', role: 'admin', is_active: true }
+    const runtime = useRuntimeStore()
+    runtime.setContour('SOURCE')
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/history', component: { template: '<div />' } },
+        { path: '/import', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/history')
+    await router.isReady()
+
+    const wrapper = mount(HistoryView, { global: { plugins: [router] } })
+    await flushPromises()
+    await buttonByText(wrapper, 'Продолжить')!.trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/history')
+    expect(sessionStorage.getItem('htp.import.operation-id')).toBeNull()
+    expect(wrapper.text()).toContain('Нельзя продолжить operation из текущего режима')
+    expect(wrapper.text()).toContain('Переключение режима автоматически отменяет незавершённые операции')
+  })
+
+  it('cancels READY import from history after explicit confirmation', async () => {
+    const readySummary: OperationSummary = { ...importSummary, id: 5, status: 'READY', finished_at: null }
+    const readyDetail: Operation = {
+      ...importDetail,
+      id: 5,
+      status: 'READY',
+      finished_at: null,
+      progress: { ...importDetail.progress, current_phase: 'READY', completed_artifacts: 0 },
+    }
+    const cancelled: Operation = {
+      ...readyDetail,
+      status: 'CANCELLED',
+      finished_at: '2026-09-21T14:31:00Z',
+      error_code: 'operation_cancelled',
+      error_message: 'Операция отменена пользователем',
+      progress: { ...readyDetail.progress, current_phase: 'CANCELLED' },
+    }
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [readySummary], total: 1, limit: 25, offset: 0,
+    })
+    const cancel = vi.spyOn(historyApi, 'cancelOperation').mockResolvedValue(cancelled)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const auth = useAuthStore()
+    auth.initialized = true
+    auth.user = { id: 1, username: 'admin', role: 'admin', is_active: true }
+
+    const wrapper = mount(HistoryView)
+    await flushPromises()
+    await buttonByText(wrapper, 'Отменить')!.trigger('click')
+    await flushPromises()
+
+    expect(cancel).toHaveBeenCalledWith(5)
+    expect(wrapper.text()).toContain('CANCELLED')
+    expect(wrapper.text()).not.toContain('Продолжить')
+  })
   it('shows a useful empty state', async () => {
     vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
       items: [], total: 0, limit: 25, offset: 0,

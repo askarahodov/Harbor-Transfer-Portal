@@ -1,6 +1,7 @@
 import { apiClient } from '@/api/client'
 import {
   apiErrorInfo,
+  cancelOperation,
   createExportDownloadTicket,
   type ApiErrorInfo,
   type Operation as BaseOperation,
@@ -10,7 +11,7 @@ import {
 } from '@/api/exports'
 import { getImportReceipt, type ImportReceipt } from '@/api/imports'
 
-export { apiErrorInfo, createExportDownloadTicket, getImportReceipt }
+export { apiErrorInfo, cancelOperation, createExportDownloadTicket, getImportReceipt }
 export type { ApiErrorInfo, ImportReceipt, OperationStatus, OperationType }
 
 export type Operation = BaseOperation & {

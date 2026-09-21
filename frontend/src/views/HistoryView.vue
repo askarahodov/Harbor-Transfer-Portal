@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   AlertCircle,
   ChevronLeft,
@@ -16,11 +17,18 @@ import {
   formatDateTimeLocale as formatDate,
   shortDigest as formatShortDigest,
 } from '@/presentation/format'
+import { useAuthStore } from '@/stores/auth'
 import { useHistoryStore } from '@/stores/history'
+import { useRuntimeStore, type PortalContour } from '@/stores/runtime'
 
 const history = useHistoryStore()
+const auth = useAuthStore()
+const runtime = useRuntimeStore()
+const router = useRouter()
 const detailCloseButton = ref<HTMLButtonElement | null>(null)
 let detailTrigger: HTMLElement | null = null
+const resumeError = ref<string | null>(null)
+const terminalStatuses = new Set<OperationStatus>(['COMPLETED', 'FAILED', 'REJECTED', 'CANCELLED'])
 
 const statuses: OperationStatus[] = [
   'CREATED',
@@ -70,6 +78,59 @@ function targetArtifactLabel(item: OperationArtifact): string {
   return reference ? `${item.target_repository}:${reference}` : item.target_repository
 }
 
+function isTerminal(status: OperationStatus): boolean {
+  return terminalStatuses.has(status)
+}
+
+function canManageOperation(item: { actor_username: string; status: OperationStatus }): boolean {
+  if (isTerminal(item.status)) return false
+  if (auth.user?.role === 'admin') return true
+  return auth.user?.role === 'operator' && auth.user.username === item.actor_username
+}
+
+function requiredContour(type: 'EXPORT' | 'IMPORT'): PortalContour {
+  return type === 'EXPORT' ? 'SOURCE' : 'TARGET'
+}
+
+function continuationLabel(item: { type: 'EXPORT' | 'IMPORT'; status: OperationStatus }): string {
+  if (item.type === 'IMPORT' && item.status === 'READY') return 'Продолжить'
+  return 'Открыть'
+}
+
+async function continueOperation(item: {
+  id: number
+  type: 'EXPORT' | 'IMPORT'
+  status: OperationStatus
+  actor_username: string
+}): Promise<void> {
+  if (!canManageOperation(item)) return
+  resumeError.value = null
+  if (!runtime.contour) await runtime.loadRuntime()
+
+  const expected = requiredContour(item.type)
+  if (runtime.contour !== expected) {
+    resumeError.value =
+      'Операция #' + item.id + ' относится к режиму ' + expected + '. Текущий режим ' +
+      (runtime.contour ?? 'не определён') +
+      '. Переключение режима автоматически отменяет незавершённые операции, поэтому эта operation не будет переключена молча.'
+    return
+  }
+
+  const key = item.type === 'EXPORT' ? 'htp.export.operation-id' : 'htp.import.operation-id'
+  window.sessionStorage.setItem(key, String(item.id))
+  await router.push(item.type === 'EXPORT' ? '/export' : '/import')
+}
+
+async function cancelFromHistory(item: {
+  id: number
+  actor_username: string
+  status: OperationStatus
+}): Promise<void> {
+  if (!canManageOperation(item)) return
+  resumeError.value = null
+  if (!window.confirm('Отменить незавершённую операцию #' + item.id + '? Она перейдёт в CANCELLED и останется в History.')) return
+  await history.cancelOperationFromHistory(item.id)
+}
 function statusClass(status: OperationStatus): string {
   if (status === 'COMPLETED') return 'status status--success'
   if (['FAILED', 'REJECTED'].includes(status)) return 'status status--danger'
@@ -105,8 +166,8 @@ onMounted(() => history.load(true))
         <p class="eyebrow">Operations</p>
         <h1 id="history-title">История операций</h1>
         <p>
-          Persisted SOURCE/TARGET state из backend API. Экран не читает raw logs и не меняет
-          состояние операций.
+          Persisted SOURCE/TARGET state из backend API. Terminal operations доступны для просмотра
+          и отчётов; незавершённую operation можно открыть или безопасно отменить.
         </p>
       </div>
       <button class="button button--secondary" type="button" :disabled="history.loading" @click="history.load()">
@@ -158,6 +219,16 @@ onMounted(() => history.load(true))
       </div>
     </form>
 
+    <div v-if="resumeError" class="notice notice--warning" role="alert">
+      <AlertCircle :size="20" aria-hidden="true" />
+      <div><strong>Нельзя продолжить operation из текущего режима</strong><p>{{ resumeError }}</p></div>
+    </div>
+
+    <div v-if="history.lifecycleError" class="notice notice--danger" role="alert">
+      <AlertCircle :size="20" aria-hidden="true" />
+      <div><strong>{{ history.lifecycleError.code }}</strong><p>{{ history.lifecycleError.message }}</p></div>
+    </div>
+
     <div v-if="history.error" class="notice notice--danger" role="alert">
       <AlertCircle :size="20" aria-hidden="true" />
       <div><strong>{{ history.error.code }}</strong><p>{{ history.error.message }}</p></div>
@@ -186,7 +257,7 @@ onMounted(() => history.load(true))
         <table>
           <thead>
             <tr>
-              <th>ID</th><th>Тип / статус</th><th>Delivery</th><th>Actor</th><th>Создано</th><th>Artifacts</th><th>Результат</th>
+              <th>ID</th><th>Тип / статус</th><th>Delivery</th><th>Actor</th><th>Создано</th><th>Artifacts</th><th>Результат</th><th>Действия</th>
             </tr>
           </thead>
           <tbody>
@@ -201,6 +272,23 @@ onMounted(() => history.load(true))
                 <span v-if="item.retry_of_operation_id">retry of #{{ item.retry_of_operation_id }} · </span>
                 <span v-if="item.error_code" class="safe-error">{{ item.error_code }}</span>
                 <span v-else>{{ item.successful_artifacts }} ok · {{ item.failed_artifacts }} failed · {{ item.skipped_artifacts }} skipped</span>
+              </td>
+              <td>
+                <div v-if="canManageOperation(item)" class="row-actions">
+                  <button class="button button--secondary button--compact" type="button" @click="continueOperation(item)">
+                    {{ continuationLabel(item) }}
+                  </button>
+                  <button
+                    class="button button--danger button--compact"
+                    type="button"
+                    :disabled="history.lifecycleBusyOperationId === item.id"
+                    @click="cancelFromHistory(item)"
+                  >
+                    {{ history.lifecycleBusyOperationId === item.id ? 'Отмена…' : 'Отменить' }}
+                  </button>
+                </div>
+                <span v-else-if="!isTerminal(item.status)" class="muted">Только владелец / admin</span>
+                <span v-else class="muted">Завершена</span>
               </td>
             </tr>
           </tbody>
@@ -239,6 +327,29 @@ onMounted(() => history.load(true))
           <div><strong>{{ history.detailError.code }}</strong><p>{{ history.detailError.message }}</p></div>
         </div>
         <template v-else-if="history.detail">
+          <article v-if="history.canManageSelectedLifecycle" class="lifecycle-card">
+            <h3>Незавершённая операция</h3>
+            <p v-if="history.detail.type === 'IMPORT' && history.detail.status === 'READY'">
+              Bundle уже проверен. Вернитесь к TARGET mapping и продолжите этот же import без повторной загрузки.
+            </p>
+            <p v-else>
+              Откройте существующий workflow для просмотра текущего состояния или отмените operation. Новая operation не создаётся.
+            </p>
+            <div class="lifecycle-actions">
+              <button class="button button--primary" type="button" @click="continueOperation(history.detail)">
+                {{ continuationLabel(history.detail) }}
+              </button>
+              <button
+                class="button button--danger"
+                type="button"
+                :disabled="history.lifecycleBusyOperationId === history.detail.id"
+                @click="cancelFromHistory(history.detail)"
+              >
+                {{ history.lifecycleBusyOperationId === history.detail.id ? 'Отмена…' : 'Отменить операцию' }}
+              </button>
+            </div>
+          </article>
+
           <dl class="metadata-grid">
             <div><dt>Actor</dt><dd>{{ history.detail.actor_username }}</dd></div>
             <div><dt>Delivery ID</dt><dd>{{ history.detail.delivery_id ?? '—' }}</dd></div>
@@ -410,7 +521,9 @@ onMounted(() => history.load(true))
 .button:disabled { opacity: .5; cursor: not-allowed; }
 .button--primary { background: var(--color-action-surface); color: var(--color-on-accent); }
 .button--secondary { background: var(--color-surface); border-color: var(--color-border-control); color: var(--color-text); }
-.download-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.button--danger { background: var(--color-danger); border-color: var(--color-danger); color: var(--color-on-accent); }
+.button--compact { min-height: 34px; padding: 5px 9px; font-size: 12px; }
+.download-actions, .row-actions, .lifecycle-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
 table { width: 100%; border-collapse: collapse; background: var(--color-surface); }
 th, td { padding: 12px; border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: top; }
@@ -424,6 +537,7 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .notice { display: flex; gap: var(--space-3); padding: var(--space-3); border-radius: var(--radius-md); }
 .notice p { margin: 4px 0 0; }
 .notice--danger { background: color-mix(in srgb, var(--color-danger) 10%, transparent); color: var(--color-danger); }
+.notice--warning { background: var(--color-warning-surface); color: var(--color-warning-text); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .drawer-backdrop { position: fixed; inset: 0; z-index: 30; display: flex; justify-content: flex-end; background: var(--color-overlay-backdrop); }
 .detail-drawer { width: min(900px, 96vw); height: 100%; overflow-y: auto; padding: var(--space-5); background: var(--color-background); box-shadow: var(--shadow-drawer); }
@@ -431,6 +545,9 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .icon-button { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
 .metadata-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0 0 var(--space-4); }
 .metadata-grid div, .bundle-card, .receipt-card, .report-card, .retry-card { padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.lifecycle-card { display: grid; gap: var(--space-3); margin: 0 0 var(--space-4); padding: var(--space-4); border: 1px solid var(--color-warning-text); border-radius: var(--radius-md); background: var(--color-warning-surface); }
+.lifecycle-card h3, .lifecycle-card p { margin: 0; }
+.muted { color: var(--color-text-muted); }
 .metadata-grid dt { color: var(--color-text-muted); font-size: 12px; }
 .metadata-grid dd { margin: 4px 0 0; overflow-wrap: anywhere; font-weight: 600; }
 .bundle-card, .receipt-card, .report-card, .retry-card { margin-top: var(--space-4); margin-bottom: var(--space-4); }
