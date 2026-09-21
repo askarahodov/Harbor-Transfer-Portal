@@ -84,15 +84,44 @@ Upgrade выполняет операции в таком порядке:
 
 1. проверяет `CHECKSUMS.sha256` нового kit, architecture и Docker prerequisites;
 2. проверяет старый `.env` и текущую `PORTAL_VERSION`;
-3. создаёт обязательный pre-upgrade backup;
-4. только после backup загружает bundled backend/frontend images через `docker load`;
-5. проверяет exact local image references и architecture;
-6. копирует прежнюю конфигурацию, атомарно меняя только `PORTAL_VERSION`;
-7. запускает новый Compose с `--no-build --pull never --wait`.
+3. **до любой mutation** проверяет, что предыдущая installation сама является recoverable matching-version kit: `restore.sh`, release metadata, bundled images и checksums присутствуют и валидны;
+4. создаёт обязательный pre-upgrade backup и оставляет старый workload **paused/quiesced** после snapshot;
+5. пока old workload quiesced, загружает bundled backend/frontend images новой версии через `docker load`;
+6. проверяет exact local image references и architecture;
+7. копирует прежнюю конфигурацию, атомарно меняя только `PORTAL_VERSION`;
+8. запускает новый Compose с `--no-build --pull never --wait`.
 
 `PORTAL_CONTOUR`, JWT secret, Harbor settings и остальные строки старой `.env` сохраняются без регенерации. Для уже инициализированной installation `PORTAL_CONTOUR` остаётся bootstrap fallback; authoritative runtime mode сохраняется в SQLite persistent state. Stable Compose project name `harbor-transfer-portal` сохраняет identity named volume между versioned каталогами.
 
-Если startup новой версии завершается ошибкой, `upgrade.sh` возвращает `.env` к предыдущей `PORTAL_VERSION` и сообщает путь к backup. Это **не является полным automatic rollback**: backend startup мог уже применить forward Alembic migration к SQLite. Если migration не backwards compatible, используйте matching-version `restore.sh` с созданным pre-upgrade backup.
+### Transactional rollback
+
+Если startup новой версии завершается ошибкой, `upgrade.sh` **не ограничивается возвратом строки PORTAL_VERSION**. Он удаляет activation `.env` нового kit и автоматически запускает verified `restore.sh` из предыдущего matching-version kit с обязательным pre-upgrade backup.
+
+Таким образом rollback возвращает:
+
+- предыдущую `.env`;
+- SQLite schema/state до возможной forward Alembic migration;
+- authoritative runtime mode;
+- Harbor credential/CA;
+- SOURCE active и pending signing private keys;
+- TARGET overlap trust set;
+- остальные данные `/app/data`.
+
+Rollback выполняется matching-version local images с `--pull never --network none`; network helper или registry не нужны.
+
+От snapshot до завершения `UPGRADE_OK` или rollback старый Portal не должен принимать новые записи. Это исключает окно, в котором операция была бы подтверждена пользователю уже после snapshot, а затем потеряна при restore. Если upgrade завершается ошибкой **до** попытки запуска новой версии (например, invalid timeout или локальная pre-start validation), upgrade cleanup снимает pause и возвращает старый Portal в исходное состояние без restore.
+
+`upgrade.sh` имеет три явных terminal outcome:
+
+```text
+UPGRADE_OK       новая версия прошла startup/health
+ROLLBACK_OK      новая версия упала, предыдущая версия и snapshot автоматически восстановлены
+ROLLBACK_FAILED  новая версия упала и автоматический matching-version restore тоже не завершился
+```
+
+При `ROLLBACK_OK` команда upgrade всё равно возвращает non-zero: upgrade не состоялся, но предыдущая installation снова является active. Новый kit не оставляет активный `.env`.
+
+При `ROLLBACK_FAILED` не запускайте ни старую, ни новую версию вручную против текущего volume. Сохраните указанный pre-upgrade backup, устраните инфраструктурную причину и повторите recovery из указанного matching-version предыдущего kit.
 
 Не удаляйте pre-upgrade backup до завершения функциональной проверки новой версии.
 
