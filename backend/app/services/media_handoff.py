@@ -3,9 +3,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Sequence
 from typing import Literal
 
 from cryptography.exceptions import InvalidSignature
@@ -201,7 +201,7 @@ class MediaHandoffService:
 
         root = self.settings.import_discovery_root.resolve()
         by_role = {item.role: item for item in payload.files}
-        bundle = self._safe_discovery_file(root, by_role["bundle"])
+        self._safe_discovery_file(root, by_role["bundle"])
         for expected in payload.files:
             if expected.role == "bundle":
                 continue
