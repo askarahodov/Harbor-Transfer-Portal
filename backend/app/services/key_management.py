@@ -233,21 +233,20 @@ class KeyManagementService:
 
     def install_signing_private_key(self, pem: str) -> KeyMutation:
         self._require_source()
+        if self.signing_path.exists() or self.signing_path.is_symlink():
+            raise KeyManagementError(
+                "signing_rotation_required",
+                "Active SOURCE signing identity уже настроена; используйте staged rotation",
+            )
         key = self._parse_private_key(self._bounded_bytes(pem))
         fingerprint = ed25519_public_key_fingerprint(key.public_key())
-        if self.signing_path.is_symlink():
-            raise KeyManagementError(
-                "signing_key_invalid",
-                "SOURCE signing key path не может быть symlink",
-            )
-        action = "rotated" if self.signing_path.exists() else "installed"
         normalized = key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        self._atomic_write(self.signing_path, normalized, 0o600)
-        return KeyMutation(action=action, fingerprint=fingerprint)
+        self._atomic_create_signing_key(normalized)
+        return KeyMutation(action="installed", fingerprint=fingerprint)
 
     def list_trusted_keys(self) -> tuple[TrustedKeyStatus, ...]:
         self._require_target()
