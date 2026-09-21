@@ -418,6 +418,43 @@ describe('HistoryView', () => {
     expect(router.currentRoute.value.path).toBe('/import')
   })
 
+
+  it('does not implicitly switch runtime mode when resuming an unfinished operation', async () => {
+    const readySummary: OperationSummary = {
+      ...importSummary,
+      id: 15,
+      status: 'READY',
+      finished_at: null,
+    }
+    vi.spyOn(historyApi, 'listOperationHistory').mockResolvedValue({
+      items: [readySummary], total: 1, limit: 25, offset: 0,
+    })
+    const auth = useAuthStore()
+    auth.initialized = true
+    auth.user = { id: 1, username: 'admin', role: 'admin', is_active: true }
+    const runtime = useRuntimeStore()
+    runtime.setContour('SOURCE')
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/history', component: { template: '<div />' } },
+        { path: '/import', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/history')
+    await router.isReady()
+
+    const wrapper = mount(HistoryView, { global: { plugins: [router] } })
+    await flushPromises()
+    await buttonByText(wrapper, 'Продолжить')!.trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/history')
+    expect(sessionStorage.getItem('htp.import.operation-id')).toBeNull()
+    expect(wrapper.text()).toContain('Нельзя продолжить operation из текущего режима')
+    expect(wrapper.text()).toContain('Переключение режима автоматически отменяет незавершённые операции')
+  })
+
   it('cancels READY import from history after explicit confirmation', async () => {
     const readySummary: OperationSummary = { ...importSummary, id: 5, status: 'READY', finished_at: null }
     const readyDetail: Operation = {
