@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import axios from 'axios'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import { apiClient } from '@/api/client'
 import KeyManagementPanel from '@/components/KeyManagementPanel.vue'
@@ -37,6 +37,12 @@ type ConnectionTest = {
   version: string | null
 }
 
+type KeyReadiness = {
+  contour: 'SOURCE' | 'TARGET'
+  signing_key: { configured: boolean; fingerprint: string | null } | null
+  trusted_keys: Array<{ fingerprint: string; enabled: boolean }>
+}
+
 const MIB = 1024 ** 2
 const settings = ref<HarborSettings | null>(null)
 const transferSettings = ref<TransferSettings | null>(null)
@@ -62,6 +68,22 @@ const testing = ref(false)
 const caBusy = ref(false)
 const message = ref('')
 const error = ref('')
+const readinessLoading = ref(false)
+const readinessHarbor = ref<boolean | null>(null)
+const readinessKeys = ref<KeyReadiness | null>(null)
+
+const enabledTrustedKeys = computed(
+  () => readinessKeys.value?.trusted_keys.filter((item) => item.enabled).length ?? 0,
+)
+const identityReady = computed(
+  () => readinessKeys.value?.signing_key?.configured === true,
+)
+const firstRunReady = computed(() => {
+  if (!settings.value || readinessHarbor.value !== true || !readinessKeys.value) return false
+  return settings.value.contour === 'SOURCE'
+    ? identityReady.value
+    : enabledTrustedKeys.value > 0
+})
 
 function safeError(fallback: string, value: unknown): string {
   if (axios.isAxiosError(value)) {
@@ -242,12 +264,29 @@ async function removeCa(): Promise<void> {
   }
 }
 
+async function loadReadiness(): Promise<void> {
+  readinessLoading.value = true
+  try {
+    const [harborResult, keysResult] = await Promise.allSettled([
+      apiClient.get<{ connected: boolean }>('/harbor/connection'),
+      apiClient.get<KeyReadiness>('/settings/keys'),
+    ])
+    readinessHarbor.value =
+      harborResult.status === 'fulfilled' ? harborResult.value.data.connected : false
+    readinessKeys.value =
+      keysResult.status === 'fulfilled' ? keysResult.value.data : null
+  } finally {
+    readinessLoading.value = false
+  }
+}
+
 async function testConnection(): Promise<void> {
   testing.value = true
   error.value = ''
   message.value = ''
   try {
     const response = await apiClient.post<ConnectionTest>('/settings/harbor/test')
+    readinessHarbor.value = response.data.ok
     if (response.data.ok) {
       message.value = `Подключение успешно${response.data.version ? ` · Harbor ${response.data.version}` : ''}.`
     } else {
@@ -260,7 +299,10 @@ async function testConnection(): Promise<void> {
   }
 }
 
-onMounted(loadSettings)
+onMounted(() => {
+  void loadSettings()
+  void loadReadiness()
+})
 </script>
 
 <template>
@@ -275,6 +317,39 @@ onMounted(loadSettings)
 
     <p v-if="loading">Загрузка настроек…</p>
     <div v-else-if="settings && transferSettings" class="settings__grid">
+      <section class="card card--wide readiness-card" aria-labelledby="first-run-readiness-title">
+        <div class="readiness-heading">
+          <div>
+            <h2 id="first-run-readiness-title">First-run readiness</h2>
+            <p class="status">Проверка минимальных условий для {{ settings.contour }} workflow.</p>
+          </div>
+          <button type="button" class="secondary" :disabled="readinessLoading" @click="loadReadiness">
+            {{ readinessLoading ? 'Проверка…' : 'Обновить readiness' }}
+          </button>
+        </div>
+        <ul class="readiness-list">
+          <li :class="{ ready: readinessHarbor === true }">
+            Harbor: {{ readinessHarbor === true ? 'доступен' : readinessHarbor === false ? 'не готов' : 'проверяется' }}
+          </li>
+          <template v-if="settings.contour === 'SOURCE'">
+            <li :class="{ ready: identityReady }">
+              Signing identity: {{ identityReady ? 'готова' : 'не настроена' }}
+            </li>
+            <li :class="{ ready: identityReady }">
+              Trust package: {{ identityReady ? 'можно скачать' : 'создайте identity' }}
+            </li>
+          </template>
+          <template v-else>
+            <li :class="{ ready: enabledTrustedKeys > 0 }">
+              SOURCE trust: {{ enabledTrustedKeys > 0 ? enabledTrustedKeys + ' active key(s)' : 'не настроен' }}
+            </li>
+            <li :class="{ ready: firstRunReady }">
+              Import readiness: {{ firstRunReady ? 'готов' : 'требуется Harbor + SOURCE trust' }}
+            </li>
+          </template>
+        </ul>
+      </section>
+
       <form class="card" @submit.prevent="saveSettings">
         <h2>Подключение</h2>
         <label for="harbor-url">URL локального Harbor</label>
@@ -325,7 +400,7 @@ onMounted(loadSettings)
         </button>
       </section>
 
-      <KeyManagementPanel :contour="settings.contour" />
+      <KeyManagementPanel :contour="settings.contour" @changed="loadReadiness" />
 
       <form class="card card--wide transfer-form" @submit.prevent="saveTransferSettings">
         <div>
@@ -454,6 +529,10 @@ onMounted(loadSettings)
 .mapping-policy { display: grid; gap: var(--space-3); margin-top: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
 .mapping-policy label { display: grid; gap: var(--space-2); }
 .status { margin: 0; color: var(--color-text-muted); }
+.readiness-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.readiness-list { display: grid; gap: var(--space-2); margin: 0; padding-left: var(--space-5); }
+.readiness-list li { color: var(--color-warning-text); }
+.readiness-list li.ready { color: var(--color-success-text); }
 .warning { margin: 0; padding: var(--space-3); border: 1px solid var(--color-warning-text); border-radius: var(--radius-md); color: var(--color-warning-text); }
 .success, .error { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); }
 .success { border: 1px solid var(--color-success-text); color: var(--color-success-text); }
