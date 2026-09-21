@@ -167,7 +167,7 @@ describe('import wizard store', () => {
 
     expect(await store.upload(file)).toBe(true)
 
-    expect(uploadSpy).toHaveBeenCalledWith(file, expect.any(Function))
+    expect(uploadSpy).toHaveBeenCalledWith(file, undefined, undefined, expect.any(Function))
     expect(store.selectedFile).toEqual({ name: 'transfer.htp.tar.gz', size: 6 })
     expect(sessionStorage.getItem('htp.import.operation-id')).toBe('51')
     expect(store.step).toBe(2)
