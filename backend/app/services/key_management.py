@@ -83,7 +83,8 @@ class KeyManagementService:
                 )
             raise KeyManagementError(
                 "signing_key_already_configured",
-                "SOURCE signing identity уже настроена; используйте rotation вместо повторной генерации",
+                "SOURCE signing identity уже настроена; используйте rotation "
+                "вместо повторной генерации",
             )
 
         key = Ed25519PrivateKey.generate()
@@ -495,7 +496,8 @@ class KeyManagementService:
             except FileExistsError as exc:
                 raise KeyManagementError(
                     "signing_key_already_configured",
-                    "SOURCE signing identity уже настроена; используйте rotation вместо повторной генерации",
+                    "SOURCE signing identity уже настроена; используйте rotation "
+                "вместо повторной генерации",
                 ) from exc
             self._fsync_directory(parent)
         except KeyManagementError:
