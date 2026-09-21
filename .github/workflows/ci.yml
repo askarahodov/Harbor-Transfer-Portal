@@ -263,6 +263,9 @@ jobs:
           PORTAL_RELEASE_OUTPUT_DIR: ${{ runner.temp }}/qualified-offline-release
         run: sh deploy/qualify-clean-offline-install.sh
 
+      - name: Проверить backup/restore key lifecycle
+        run: sh deploy/smoke-offline-lifecycle.sh
+
       - name: Проверить сохранённый qualified release
         shell: bash
         run: |

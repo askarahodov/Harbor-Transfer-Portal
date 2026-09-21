@@ -247,7 +247,7 @@ Private key нельзя передавать:
 - в Git/logs/issues/chats;
 - как постоянный command-line argument.
 
-Rotation выполняйте с overlap: сначала добавьте новый public key на TARGET, затем переключайте SOURCE private key.
+Rotation выполняется только staged-flow: **Подготовить rotation → перенести pending trust package → импортировать его на TARGET → убедиться, что old+new enabled → Активировать pending key**. Прямая замена уже настроенного active private key запрещена.
 
 ## 10. TARGET trusted SOURCE keys
 
@@ -261,7 +261,7 @@ BUNDLE_TRUSTED_PUBLIC_KEYS_DIR=./data/keys/trusted-source
 
 Через UI также можно вручную добавить/заменить, enable/disable и удалить Ed25519 public key по fingerprint. Private/malformed/oversized material отклоняется.
 
-Trust package/public key должен поступать по утверждённому организационному каналу. Для rotation используйте overlap двух enabled keys, затем disable/remove старый после migration window.
+Trust package/public key должен поступать по утверждённому организационному каналу. Перед disable/remove старого key Portal показывает impact: historical imports, enabled-key count и READY/in-flight operations. Retirement блокируется, пока незавершённые imports зависят от этого fingerprint.
 
 Подробнее: [key-management.md](key-management.md).
 

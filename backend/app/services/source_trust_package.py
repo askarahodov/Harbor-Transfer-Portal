@@ -14,6 +14,7 @@ from app.services.key_management import (
     KeyManagementError,
     KeyManagementService,
     KeyMutation,
+    SigningPublicKey,
 )
 from app.services.key_material import ed25519_public_key_fingerprint
 
@@ -53,7 +54,17 @@ class SourceTrustPackageService:
             public = self.keys.signing_public_key()
         except KeyManagementError as exc:
             raise TrustPackageError(exc.code, exc.message) from exc
+        return self._build(public)
 
+    def build_pending(self) -> TrustPackageBuildResult:
+        self._require_source()
+        try:
+            public = self.keys.pending_signing_public_key()
+        except KeyManagementError as exc:
+            raise TrustPackageError(exc.code, exc.message) from exc
+        return self._build(public)
+
+    def _build(self, public: SigningPublicKey) -> TrustPackageBuildResult:
         identity = {
             "algorithm": "Ed25519",
             "fingerprint": public.fingerprint,

@@ -68,6 +68,9 @@ def _build_app(tmp_path: Path, contour: PortalContour):
         bundle_outgoing_root=root / "data" / "outgoing",
         bundle_extract_root=root / "data" / "verified",
         bundle_signing_private_key_file=root / "keys" / "source-signing-private.pem",
+        bundle_pending_signing_private_key_file=(
+            root / "keys" / "source-signing-pending-private.pem"
+        ),
         bundle_trusted_public_keys_dir=root / "keys" / "trusted-source",
         operation_workspace_root=root / "data" / "tmp" / "operations",
         import_discovery_root=root / "data" / "incoming",
@@ -255,9 +258,7 @@ def test_replace_at_full_limit_switches_real_verifier_trust(tmp_path: Path) -> N
     target_app = _build_app(tmp_path, PortalContour.TARGET)
     target_app.state.settings.bundle_max_trusted_keys = 1
     old_key = Ed25519PrivateKey.generate()
-    new_key = Ed25519PrivateKey.generate()
     old_fingerprint = ed25519_public_key_fingerprint(old_key.public_key())
-    new_fingerprint = ed25519_public_key_fingerprint(new_key.public_key())
 
     with TestClient(source_app) as source:
         headers = _login(source)
@@ -270,11 +271,25 @@ def test_replace_at_full_limit_switches_real_verifier_trust(tmp_path: Path) -> N
             source_app.state.settings,
             "DELIVERY-20260914-REPL01",
         )
-        assert source.put(
-            "/api/settings/keys/signing",
-            json={"pem": _private_pem(new_key)},
+
+        prepared = source.post(
+            "/api/settings/keys/signing/rotation/prepare",
             headers=headers,
-        ).status_code == 200
+        )
+        assert prepared.status_code == 201
+        new_fingerprint = prepared.json()["fingerprint"]
+        pending_public = KeyManagementService(
+            source_app.state.settings
+        ).pending_signing_public_key()
+        new_public_pem = pending_public.pem.decode("ascii")
+        assert pending_public.fingerprint == new_fingerprint
+
+        activated = source.post(
+            "/api/settings/keys/signing/rotation/activate",
+            json={"expected_fingerprint": new_fingerprint},
+            headers=headers,
+        )
+        assert activated.status_code == 200
         new_bundle = _build_chart_bundle(
             source_app.state.settings,
             "DELIVERY-20260914-REPL02",
@@ -291,7 +306,7 @@ def test_replace_at_full_limit_switches_real_verifier_trust(tmp_path: Path) -> N
 
         over_limit = target.post(
             "/api/settings/keys/trusted",
-            json={"pem": _public_pem(new_key), "confirm": True},
+            json={"pem": new_public_pem, "confirm": True},
             headers=headers,
         )
         assert over_limit.status_code == 409
@@ -299,7 +314,7 @@ def test_replace_at_full_limit_switches_real_verifier_trust(tmp_path: Path) -> N
 
         replaced = target.put(
             f"/api/settings/keys/trusted/{old_fingerprint}",
-            json={"pem": _public_pem(new_key), "confirm": True},
+            json={"pem": new_public_pem, "confirm": True},
             headers=headers,
         )
         assert replaced.status_code == 200

@@ -56,6 +56,9 @@ class KeyManagementService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.signing_path = settings.bundle_signing_private_key_file.absolute()
+        self.pending_signing_path = (
+            settings.bundle_pending_signing_private_key_file.absolute()
+        )
         self.trusted_dir = settings.bundle_trusted_public_keys_dir.absolute()
 
     def signing_status(self) -> SigningKeyStatus:
@@ -67,6 +70,120 @@ class KeyManagementService:
             configured=True,
             fingerprint=ed25519_public_key_fingerprint(key.public_key()),
         )
+
+    def pending_signing_status(self) -> SigningKeyStatus:
+        self._require_source()
+        if (
+            not self.pending_signing_path.exists()
+            and not self.pending_signing_path.is_symlink()
+        ):
+            return SigningKeyStatus(configured=False, fingerprint=None)
+        key = self._read_private_key_file(self.pending_signing_path)
+        return SigningKeyStatus(
+            configured=True,
+            fingerprint=ed25519_public_key_fingerprint(key.public_key()),
+        )
+
+    def prepare_pending_signing_key(self) -> KeyMutation:
+        self._require_source()
+        if not self.signing_status().configured:
+            raise KeyManagementError(
+                "signing_key_not_configured",
+                "Сначала настройте active SOURCE signing identity",
+            )
+        if self.pending_signing_path.exists() or self.pending_signing_path.is_symlink():
+            if self.pending_signing_path.is_symlink() or not self.pending_signing_path.is_file():
+                raise KeyManagementError(
+                    "pending_signing_key_invalid",
+                    "Pending SOURCE signing key path должен быть обычным файлом",
+                )
+            raise KeyManagementError(
+                "pending_signing_key_already_configured",
+                "Pending SOURCE signing identity уже подготовлена",
+            )
+        key = Ed25519PrivateKey.generate()
+        fingerprint = ed25519_public_key_fingerprint(key.public_key())
+        normalized = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        self._atomic_create_private_key(
+            self.pending_signing_path,
+            normalized,
+            conflict_code="pending_signing_key_already_configured",
+            conflict_message="Pending SOURCE signing identity уже подготовлена",
+        )
+        return KeyMutation(action="prepared", fingerprint=fingerprint)
+
+    def pending_signing_public_key(self) -> SigningPublicKey:
+        self._require_source()
+        if (
+            not self.pending_signing_path.exists()
+            and not self.pending_signing_path.is_symlink()
+        ):
+            raise KeyManagementError(
+                "pending_signing_key_not_configured",
+                "Pending SOURCE signing identity не подготовлена",
+            )
+        key = self._read_private_key_file(self.pending_signing_path)
+        public_key = key.public_key()
+        return SigningPublicKey(
+            fingerprint=ed25519_public_key_fingerprint(public_key),
+            pem=public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            ),
+        )
+
+    def activate_pending_signing_key(self, expected_fingerprint: str) -> KeyMutation:
+        self._require_source()
+        expected = self._validate_fingerprint(expected_fingerprint)
+        pending = self.pending_signing_public_key()
+        if pending.fingerprint != expected:
+            raise KeyManagementError(
+                "pending_signing_key_fingerprint_mismatch",
+                "Pending SOURCE signing identity изменилась; activation отменена",
+            )
+        if self.signing_path.is_symlink():
+            raise KeyManagementError(
+                "signing_key_invalid",
+                "SOURCE signing key path не может быть symlink",
+            )
+        try:
+            os.replace(self.pending_signing_path, self.signing_path)
+        except OSError as exc:
+            raise KeyManagementError(
+                "key_store_write_failed",
+                "Не удалось атомарно активировать pending SOURCE signing identity",
+            ) from exc
+        try:
+            self._fsync_directory(self.signing_path.parent)
+        except OSError:
+            pass
+        return KeyMutation(action="activated", fingerprint=pending.fingerprint)
+
+    def cancel_pending_signing_key(self, expected_fingerprint: str) -> KeyMutation:
+        self._require_source()
+        expected = self._validate_fingerprint(expected_fingerprint)
+        pending = self.pending_signing_public_key()
+        if pending.fingerprint != expected:
+            raise KeyManagementError(
+                "pending_signing_key_fingerprint_mismatch",
+                "Pending SOURCE signing identity изменилась; cancel отменён",
+            )
+        try:
+            self.pending_signing_path.unlink()
+        except OSError as exc:
+            raise KeyManagementError(
+                "key_store_write_failed",
+                "Не удалось удалить pending SOURCE signing identity",
+            ) from exc
+        try:
+            self._fsync_directory(self.pending_signing_path.parent)
+        except OSError:
+            pass
+        return KeyMutation(action="cancelled", fingerprint=pending.fingerprint)
 
     def generate_signing_private_key(self) -> KeyMutation:
         self._require_source()
@@ -116,21 +233,20 @@ class KeyManagementService:
 
     def install_signing_private_key(self, pem: str) -> KeyMutation:
         self._require_source()
+        if self.signing_path.exists() or self.signing_path.is_symlink():
+            raise KeyManagementError(
+                "signing_rotation_required",
+                "Active SOURCE signing identity уже настроена; используйте staged rotation",
+            )
         key = self._parse_private_key(self._bounded_bytes(pem))
         fingerprint = ed25519_public_key_fingerprint(key.public_key())
-        if self.signing_path.is_symlink():
-            raise KeyManagementError(
-                "signing_key_invalid",
-                "SOURCE signing key path не может быть symlink",
-            )
-        action = "rotated" if self.signing_path.exists() else "installed"
         normalized = key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        self._atomic_write(self.signing_path, normalized, 0o600)
-        return KeyMutation(action=action, fingerprint=fingerprint)
+        self._atomic_create_signing_key(normalized)
+        return KeyMutation(action="installed", fingerprint=fingerprint)
 
     def list_trusted_keys(self) -> tuple[TrustedKeyStatus, ...]:
         self._require_target()
@@ -173,6 +289,11 @@ class KeyManagementService:
             action="replaced" if existing else "added",
             fingerprint=fingerprint,
         )
+
+    def trusted_public_key_fingerprint(self, pem: str) -> str:
+        self._require_target()
+        key = self._parse_public_key(self._bounded_bytes(pem))
+        return ed25519_public_key_fingerprint(key)
 
     def replace_trusted_public_key(self, fingerprint: str, pem: str) -> KeyMutation:
         self._require_target()
@@ -472,7 +593,25 @@ class KeyManagementService:
                 path.unlink(missing_ok=True)
 
     def _atomic_create_signing_key(self, payload: bytes) -> None:
-        parent = self.signing_path.parent
+        self._atomic_create_private_key(
+            self.signing_path,
+            payload,
+            conflict_code="signing_key_already_configured",
+            conflict_message=(
+                "SOURCE signing identity уже настроена; используйте rotation "
+                "вместо повторной генерации"
+            ),
+        )
+
+    def _atomic_create_private_key(
+        self,
+        path: Path,
+        payload: bytes,
+        *,
+        conflict_code: str,
+        conflict_message: str,
+    ) -> None:
+        parent = path.parent
         parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if parent.is_symlink() or not parent.is_dir():
             raise KeyManagementError(
@@ -481,7 +620,7 @@ class KeyManagementService:
             )
 
         fd, temporary_name = tempfile.mkstemp(
-            prefix=f".{self.signing_path.name}-",
+            prefix=f".{path.name}-",
             dir=parent,
         )
         temporary = Path(temporary_name)
@@ -492,26 +631,22 @@ class KeyManagementService:
                 os.fsync(handle.fileno())
             os.chmod(temporary, 0o600)
             try:
-                os.link(temporary, self.signing_path, follow_symlinks=False)
+                os.link(temporary, path, follow_symlinks=False)
             except FileExistsError as exc:
                 raise KeyManagementError(
-                    "signing_key_already_configured",
-                    "SOURCE signing identity уже настроена; используйте rotation "
-                "вместо повторной генерации",
+                    conflict_code,
+                    conflict_message,
                 ) from exc
             try:
                 self._fsync_directory(parent)
             except OSError:
-                # The hard link is the commit boundary. A post-commit directory
-                # fsync failure must not report that generation failed after the
-                # signing identity has already become authoritative.
                 pass
         except KeyManagementError:
             raise
         except OSError as exc:
             raise KeyManagementError(
                 "key_store_write_failed",
-                "Не удалось атомарно создать SOURCE signing identity",
+                "Не удалось атомарно создать private key material",
             ) from exc
         finally:
             temporary.unlink(missing_ok=True)

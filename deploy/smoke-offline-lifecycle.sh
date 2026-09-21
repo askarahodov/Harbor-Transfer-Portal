@@ -67,10 +67,32 @@ case "${1:-}" in
     log_command "$@"
     case " $* " in
       *' -czf - '*)
-        data_tmp=$(mktemp -d)
-        printf 'fake persistent volume snapshot\n' > "$data_tmp/marker.txt"
-        tar -C "$data_tmp" -czf - .
-        rm -rf "$data_tmp"
+        if [ -n "${FAKE_DOCKER_VOLUME_DIR:-}" ] && [ -d "$FAKE_DOCKER_VOLUME_DIR" ]; then
+          tar -C "$FAKE_DOCKER_VOLUME_DIR" -czf - .
+        else
+          data_tmp=$(mktemp -d)
+          printf 'fake persistent volume snapshot\n' > "$data_tmp/marker.txt"
+          tar -C "$data_tmp" -czf - .
+          rm -rf "$data_tmp"
+        fi
+        ;;
+      *'find /app/data -mindepth 1 -maxdepth 1'*)
+        if [ -n "${FAKE_DOCKER_VOLUME_DIR:-}" ] && [ -d "$FAKE_DOCKER_VOLUME_DIR" ]; then
+          find "$FAKE_DOCKER_VOLUME_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+        fi
+        ;;
+      *' -xzf /backup/portal-data.tar.gz '*)
+        if [ -n "${FAKE_DOCKER_VOLUME_DIR:-}" ]; then
+          backup_mount=
+          for arg in "$@"; do
+            case "$arg" in
+              *:/backup/portal-data.tar.gz:ro) backup_mount=${arg%:/backup/portal-data.tar.gz:ro} ;;
+            esac
+          done
+          [ -n "$backup_mount" ] || exit 2
+          mkdir -p "$FAKE_DOCKER_VOLUME_DIR"
+          tar -C "$FAKE_DOCKER_VOLUME_DIR" -xzf "$backup_mount"
+        fi
         ;;
     esac
     ;;
@@ -110,6 +132,21 @@ chmod 0755 "$FAKE_BIN/docker"
 
 export PATH="$FAKE_BIN:$PATH"
 export FAKE_DOCKER_LOG="$FAKE_LOG"
+
+FAKE_VOLUME="$TMP/fake-volume"
+mkdir -p "$FAKE_VOLUME/keys/trusted-source"
+printf 'fake persistent volume snapshot\n' > "$FAKE_VOLUME/marker.txt"
+printf 'active-private-key\n' > "$FAKE_VOLUME/keys/source-signing-private.pem"
+printf 'pending-private-key\n' > "$FAKE_VOLUME/keys/source-signing-pending-private.pem"
+printf 'old-public-key\n' > "$FAKE_VOLUME/keys/trusted-source/old.pem"
+printf 'new-public-key\n' > "$FAKE_VOLUME/keys/trusted-source/new.pem"
+chmod 0600 \
+  "$FAKE_VOLUME/keys/source-signing-private.pem" \
+  "$FAKE_VOLUME/keys/source-signing-pending-private.pem" \
+  "$FAKE_VOLUME/keys/trusted-source/old.pem" \
+  "$FAKE_VOLUME/keys/trusted-source/new.pem"
+export FAKE_DOCKER_VOLUME_DIR="$FAKE_VOLUME"
+
 SOURCE_REVISION=$(git -C "$ROOT" rev-parse --verify HEAD 2>/dev/null || printf 'unknown')
 export FAKE_DOCKER_LABEL_REVISION="$SOURCE_REVISION"
 
@@ -177,6 +214,14 @@ grep -Fx "PORTAL_VERSION=$OLD_VERSION" "$BACKUP_EXTRACT/.env" >/dev/null || \
   fail 'backup does not contain the pre-upgrade configuration'
 tar -tzf "$BACKUP_EXTRACT/portal-data.tar.gz" | grep -F './marker.txt' >/dev/null || \
   fail 'backup does not contain the persistent-volume snapshot archive'
+for member in \
+  './keys/source-signing-private.pem' \
+  './keys/source-signing-pending-private.pem' \
+  './keys/trusted-source/old.pem' \
+  './keys/trusted-source/new.pem'; do
+  tar -tzf "$BACKUP_EXTRACT/portal-data.tar.gz" | grep -Fx "$member" >/dev/null || \
+    fail "backup dropped key lifecycle material: $member"
+done
 
 backup_line=$(grep -n '^run ' "$FAKE_LOG" | head -n 1 | cut -d: -f1)
 load_line=$(grep -n '^load ' "$FAKE_LOG" | head -n 1 | cut -d: -f1)
@@ -270,7 +315,31 @@ sed 's/^CUSTOM_SETTING=.*/CUSTOM_SETTING=changed-after-backup/' "$KIT_OK/.env" >
 chmod 0600 "$KIT_OK/.env.changed"
 mv "$KIT_OK/.env.changed" "$KIT_OK/.env"
 : > "$FAKE_LOG"
+printf 'mutated\n' > "$FAKE_VOLUME/keys/source-signing-private.pem"
+rm -f \
+  "$FAKE_VOLUME/keys/source-signing-pending-private.pem" \
+  "$FAKE_VOLUME/keys/trusted-source/old.pem" \
+  "$FAKE_VOLUME/keys/trusted-source/new.pem"
+
 sh "$KIT_OK/restore.sh" "$restore_backup" --confirm-restore "$KIT_OK" >/dev/null
+
+grep -Fx 'active-private-key' "$FAKE_VOLUME/keys/source-signing-private.pem" >/dev/null || \
+  fail 'restore did not recover active SOURCE signing key'
+grep -Fx 'pending-private-key' "$FAKE_VOLUME/keys/source-signing-pending-private.pem" >/dev/null || \
+  fail 'restore did not recover pending SOURCE signing key'
+grep -Fx 'old-public-key' "$FAKE_VOLUME/keys/trusted-source/old.pem" >/dev/null || \
+  fail 'restore did not recover old TARGET overlap trust key'
+grep -Fx 'new-public-key' "$FAKE_VOLUME/keys/trusted-source/new.pem" >/dev/null || \
+  fail 'restore did not recover new TARGET overlap trust key'
+for key_file in \
+  "$FAKE_VOLUME/keys/source-signing-private.pem" \
+  "$FAKE_VOLUME/keys/source-signing-pending-private.pem" \
+  "$FAKE_VOLUME/keys/trusted-source/old.pem" \
+  "$FAKE_VOLUME/keys/trusted-source/new.pem"; do
+  mode=$(stat -c '%a' "$key_file")
+  [ "$mode" = 600 ] || fail "restore changed restrictive key permissions for $key_file: $mode"
+done
+
 grep -Fx "PORTAL_VERSION=$NEW_VERSION" "$KIT_OK/.env" >/dev/null || \
   fail 'restore changed the release version'
 grep -Fx 'PORTAL_CONTOUR=TARGET' "$KIT_OK/.env" >/dev/null || \

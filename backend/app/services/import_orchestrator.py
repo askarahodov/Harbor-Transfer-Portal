@@ -362,6 +362,11 @@ class ImportOrchestrator:
                 "Bundle изменился между intake и verification",
             )
 
+        self._persist_verified_signer(
+            operation_id,
+            verified.signing_key_fingerprint,
+        )
+
         preview = ImportPreviewResponse(
             operation_id=operation_id,
             status=OperationStatus.READY,
@@ -674,6 +679,27 @@ class ImportOrchestrator:
             for artifact in operation.artifacts:
                 session.expunge(artifact)
             return operation, preview, overwrite, requested_at
+
+    def _persist_verified_signer(
+        self,
+        operation_id: int,
+        fingerprint: str,
+    ) -> None:
+        with self.session_factory() as session:
+            operation = session.get(Operation, operation_id)
+            if operation is None:
+                raise OperationTaskFailure(
+                    "import_operation_not_found",
+                    "Import operation не найдена при сохранении verified signer",
+                )
+            existing = operation.bundle_signing_key_fingerprint
+            if existing is not None and existing != fingerprint:
+                raise OperationTaskFailure(
+                    "import_signing_key_changed",
+                    "Verified signer fingerprint изменился внутри import operation",
+                )
+            operation.bundle_signing_key_fingerprint = fingerprint
+            session.commit()
 
     def _persist_preview(self, operation_id: int, preview: ImportPreviewResponse) -> None:
         with self.session_factory() as session:

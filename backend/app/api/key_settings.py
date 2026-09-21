@@ -11,13 +11,19 @@ from app.schemas.keys import (
     KeyMutationResponse,
     KeySettingsResponse,
     SigningKeyStatusResponse,
+    SigningRotationRequest,
     TrustedKeyMaterialRequest,
+    TrustedKeyRetirementImpactResponse,
     TrustedKeyStateRequest,
     TrustedKeyStatusResponse,
 )
 from app.services.key_management import KeyManagementError, KeyManagementService, KeyMutation
 from app.services.runtime_mode import RuntimeModeError, RuntimeModeService, RuntimeModeSnapshot
 from app.services.source_trust_package import SourceTrustPackageService, TrustPackageError
+from app.services.trusted_key_retirement import (
+    TrustedKeyRetirementError,
+    TrustedKeyRetirementService,
+)
 
 router = APIRouter(prefix="/settings/keys", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
@@ -35,7 +41,23 @@ def _api_error(exc: KeyManagementError) -> HTTPException:
         "trusted_key_confirmation_required": status.HTTP_409_CONFLICT,
         "signing_key_already_configured": status.HTTP_409_CONFLICT,
         "signing_key_not_configured": status.HTTP_409_CONFLICT,
+        "signing_rotation_required": status.HTTP_409_CONFLICT,
+        "pending_signing_key_already_configured": status.HTTP_409_CONFLICT,
+        "pending_signing_key_not_configured": status.HTTP_409_CONFLICT,
+        "pending_signing_key_fingerprint_mismatch": status.HTTP_409_CONFLICT,
         "key_store_write_failed": status.HTTP_500_INTERNAL_SERVER_ERROR,
+    }
+    return HTTPException(
+        status_code=mapping.get(exc.code, status.HTTP_422_UNPROCESSABLE_CONTENT),
+        detail={"code": exc.code, "message": exc.message},
+    )
+
+
+def _retirement_error(exc: TrustedKeyRetirementError) -> HTTPException:
+    mapping = {
+        "key_management_wrong_contour": status.HTTP_409_CONFLICT,
+        "trusted_key_not_found": status.HTTP_404_NOT_FOUND,
+        "trusted_key_retirement_blocked": status.HTTP_409_CONFLICT,
     }
     return HTTPException(
         status_code=mapping.get(exc.code, status.HTTP_422_UNPROCESSABLE_CONTENT),
@@ -158,11 +180,16 @@ def get_key_settings(
             service = _service(request)
             if runtime.mode is PortalContour.SOURCE:
                 signing = service.signing_status()
+                pending = service.pending_signing_status()
                 return KeySettingsResponse(
                     contour=runtime.mode,
                     signing_key=SigningKeyStatusResponse(
                         configured=signing.configured,
                         fingerprint=signing.fingerprint,
+                    ),
+                    pending_signing_key=SigningKeyStatusResponse(
+                        configured=pending.configured,
+                        fingerprint=pending.fingerprint,
                     ),
                 )
             trusted = service.list_trusted_keys()
@@ -201,6 +228,107 @@ def generate_signing_key(
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+
+
+@router.post(
+    "/signing/rotation/prepare",
+    response_model=KeyMutationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def prepare_signing_rotation(
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> KeyMutationResponse:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE) as runtime:
+            mutation = _service(request).prepare_pending_signing_key()
+            _audit(session, admin, "signing.rotation.prepared", mutation, runtime)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except KeyManagementError as exc:
+        raise _api_error(exc) from exc
+    return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+
+
+@router.post(
+    "/signing/rotation/activate",
+    response_model=KeyMutationResponse,
+)
+def activate_signing_rotation(
+    payload: SigningRotationRequest,
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> KeyMutationResponse:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE) as runtime:
+            mutation = _service(request).activate_pending_signing_key(
+                payload.expected_fingerprint
+            )
+            _audit(session, admin, "signing.rotation.activated", mutation, runtime)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except KeyManagementError as exc:
+        raise _api_error(exc) from exc
+    return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+
+
+@router.post(
+    "/signing/rotation/cancel",
+    response_model=KeyMutationResponse,
+)
+def cancel_signing_rotation(
+    payload: SigningRotationRequest,
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> KeyMutationResponse:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE) as runtime:
+            mutation = _service(request).cancel_pending_signing_key(
+                payload.expected_fingerprint
+            )
+            _audit(session, admin, "signing.rotation.cancelled", mutation, runtime)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except KeyManagementError as exc:
+        raise _api_error(exc) from exc
+    return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+
+
+@router.get("/signing/rotation/trust-package")
+def download_pending_trust_package(
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> Response:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE) as runtime:
+            package = SourceTrustPackageService(
+                request.app.state.settings
+            ).build_pending()
+            _audit(
+                session,
+                admin,
+                "signing.rotation.trust_package.exported",
+                KeyMutation(action="exported", fingerprint=package.fingerprint),
+                runtime,
+            )
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except TrustPackageError as exc:
+        raise _trust_package_error(exc) from exc
+
+    return Response(
+        content=package.payload,
+        media_type="application/gzip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{package.filename}"',
+            "Cache-Control": "no-store",
+            "X-Signing-Key-Fingerprint": package.fingerprint,
+        },
+    )
 
 
 @router.get("/signing/public")
@@ -348,20 +476,71 @@ def replace_trusted_key(
     _require_confirmation(payload.confirm)
     try:
         with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
-            mutation = _service(request).replace_trusted_public_key(fingerprint, payload.pem)
+            service = _service(request)
+            previous = service._validate_fingerprint(fingerprint)
+            replacement = service.trusted_public_key_fingerprint(payload.pem)
+            impact = None
+            if replacement != previous:
+                impact = TrustedKeyRetirementService(
+                    session,
+                    request.app.state.settings,
+                ).require_retirable(previous)
+            mutation = service.replace_trusted_public_key(previous, payload.pem)
             _audit(
                 session,
                 admin,
                 "trust.key.replaced",
                 mutation,
                 runtime,
-                extra={"previous_fingerprint": fingerprint.strip().lower()},
+                extra={
+                    "previous_fingerprint": previous,
+                    **(
+                        {
+                            "historical_import_count": impact.historical_import_count,
+                            "enabled_key_count_before": impact.enabled_key_count,
+                        }
+                        if impact is not None
+                        else {}
+                    ),
+                },
             )
     except RuntimeModeError as exc:
         raise _runtime_error(exc) from exc
+    except TrustedKeyRetirementError as exc:
+        raise _retirement_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+
+
+@router.get(
+    "/trusted/{fingerprint}/impact",
+    response_model=TrustedKeyRetirementImpactResponse,
+)
+def trusted_key_retirement_impact(
+    fingerprint: str,
+    request: Request,
+    _admin: AdminDep,
+    session: SessionDep,
+) -> TrustedKeyRetirementImpactResponse:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.TARGET):
+            impact = TrustedKeyRetirementService(
+                session,
+                request.app.state.settings,
+            ).impact(fingerprint)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except TrustedKeyRetirementError as exc:
+        raise _retirement_error(exc) from exc
+    return TrustedKeyRetirementImpactResponse(
+        fingerprint=impact.fingerprint,
+        enabled=impact.enabled,
+        enabled_key_count=impact.enabled_key_count,
+        historical_import_count=impact.historical_import_count,
+        blocking_operation_ids=list(impact.blocking_operation_ids),
+        can_retire=impact.can_retire,
+    )
 
 
 @router.patch("/trusted/{fingerprint}", response_model=KeyMutationResponse)
@@ -375,10 +554,32 @@ def set_trusted_key_state(
     _require_confirmation(payload.confirm)
     try:
         with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
+            impact = None
+            if not payload.enabled:
+                impact = TrustedKeyRetirementService(
+                    session,
+                    request.app.state.settings,
+                ).require_retirable(fingerprint)
             mutation = _service(request).set_trusted_key_enabled(fingerprint, payload.enabled)
-            _audit(session, admin, f"trust.key.{mutation.action}", mutation, runtime)
+            _audit(
+                session,
+                admin,
+                f"trust.key.{mutation.action}",
+                mutation,
+                runtime,
+                extra=(
+                    {
+                        "historical_import_count": impact.historical_import_count,
+                        "enabled_key_count_before": impact.enabled_key_count,
+                    }
+                    if impact is not None
+                    else None
+                ),
+            )
     except RuntimeModeError as exc:
         raise _runtime_error(exc) from exc
+    except TrustedKeyRetirementError as exc:
+        raise _retirement_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
@@ -395,10 +596,26 @@ def remove_trusted_key(
     _require_confirmation(confirm)
     try:
         with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
+            impact = TrustedKeyRetirementService(
+                session,
+                request.app.state.settings,
+            ).require_retirable(fingerprint)
             mutation = _service(request).remove_trusted_key(fingerprint)
-            _audit(session, admin, "trust.key.removed", mutation, runtime)
+            _audit(
+                session,
+                admin,
+                "trust.key.removed",
+                mutation,
+                runtime,
+                extra={
+                    "historical_import_count": impact.historical_import_count,
+                    "enabled_key_count_before": impact.enabled_key_count,
+                },
+            )
     except RuntimeModeError as exc:
         raise _runtime_error(exc) from exc
+    except TrustedKeyRetirementError as exc:
+        raise _retirement_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)

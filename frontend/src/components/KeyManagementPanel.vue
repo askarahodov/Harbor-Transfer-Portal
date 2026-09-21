@@ -20,7 +20,17 @@ type TrustedKeyStatus = {
 type KeySettings = {
   contour: Contour
   signing_key: SigningKeyStatus | null
+  pending_signing_key: SigningKeyStatus | null
   trusted_keys: TrustedKeyStatus[]
+}
+
+type TrustedKeyRetirementImpact = {
+  fingerprint: string
+  enabled: boolean
+  enabled_key_count: number
+  historical_import_count: number
+  blocking_operation_ids: number[]
+  can_retire: boolean
 }
 
 const props = defineProps<{ contour: Contour }>()
@@ -95,6 +105,114 @@ async function generateSigningIdentity(): Promise<void> {
     message.value = 'SOURCE signing identity создана. Скачайте trust package для TARGET.'
   } catch (reason) {
     error.value = safeError('Не удалось создать SOURCE signing identity.', reason)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function prepareSigningRotation(): Promise<void> {
+  if (!requireMode('SOURCE') || !keySettings.value?.signing_key?.configured) return
+  if (keySettings.value?.pending_signing_key?.configured) return
+  if (
+    !window.confirm(
+      'Подготовить новый pending signing key? Active key останется без изменений до отдельной активации.',
+    )
+  ) {
+    return
+  }
+
+  busy.value = true
+  message.value = ''
+  error.value = ''
+  try {
+    await apiClient.post('/settings/keys/signing/rotation/prepare')
+    await loadKeys()
+    emit('changed')
+    message.value =
+      'Pending identity подготовлена. Перенесите её trust package на TARGET до активации.'
+  } catch (reason) {
+    error.value = safeError('Не удалось подготовить signing rotation.', reason)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function downloadPendingTrustPackage(): Promise<void> {
+  if (!requireMode('SOURCE') || !keySettings.value?.pending_signing_key?.configured) return
+
+  busy.value = true
+  message.value = ''
+  error.value = ''
+  try {
+    const response = await apiClient.get<Blob>(
+      '/settings/keys/signing/rotation/trust-package',
+      { responseType: 'blob' },
+    )
+    const href = URL.createObjectURL(response.data)
+    const anchor = document.createElement('a')
+    anchor.href = href
+    const disposition = String(response.headers['content-disposition'] ?? '')
+    const match = disposition.match(/filename="([^"]+)"/)
+    anchor.download = match?.[1] ?? 'source-pending-trust.htp-trust.tar.gz'
+    anchor.click()
+    URL.revokeObjectURL(href)
+    message.value =
+      'Pending trust package готов. Импортируйте его на TARGET и убедитесь, что новый fingerprint active.'
+  } catch (reason) {
+    error.value = safeError('Не удалось скачать pending trust package.', reason)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function activateSigningRotation(): Promise<void> {
+  if (!requireMode('SOURCE')) return
+  const fingerprint = keySettings.value?.pending_signing_key?.fingerprint
+  if (!fingerprint) return
+  if (
+    !window.confirm(
+      `Активировать pending identity ${fingerprint}? Делайте это только после импорта этого fingerprint на TARGET.`,
+    )
+  ) {
+    return
+  }
+
+  busy.value = true
+  message.value = ''
+  error.value = ''
+  try {
+    await apiClient.post('/settings/keys/signing/rotation/activate', {
+      expected_fingerprint: fingerprint,
+    })
+    await loadKeys()
+    emit('changed')
+    message.value =
+      'Rotation активирована. Старый public key оставьте на TARGET на overlap-период.'
+  } catch (reason) {
+    error.value = safeError('Не удалось активировать signing rotation.', reason)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function cancelSigningRotation(): Promise<void> {
+  if (!requireMode('SOURCE')) return
+  const fingerprint = keySettings.value?.pending_signing_key?.fingerprint
+  if (!fingerprint) return
+  if (!window.confirm(`Отменить pending rotation ${fingerprint}? Active key не изменится.`)) return
+
+  busy.value = true
+  message.value = ''
+  error.value = ''
+  try {
+    await apiClient.post('/settings/keys/signing/rotation/cancel', {
+      expected_fingerprint: fingerprint,
+    })
+    await loadKeys()
+    emit('changed')
+    message.value = 'Pending rotation отменена. Active signing identity не изменялась.'
+  } catch (reason) {
+    error.value = safeError('Не удалось отменить pending rotation.', reason)
   } finally {
     busy.value = false
   }
@@ -275,15 +393,37 @@ async function replaceTrustedKey(key: TrustedKeyStatus, event: Event): Promise<v
   }
 }
 
+async function retirementImpact(
+  key: TrustedKeyStatus,
+): Promise<TrustedKeyRetirementImpact> {
+  const response = await apiClient.get<TrustedKeyRetirementImpact>(
+    `/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}/impact`,
+  )
+  return response.data
+}
+
 async function setTrustedState(key: TrustedKeyStatus, enabled: boolean): Promise<void> {
   if (!requireMode('TARGET')) return
-  const verb = enabled ? 'включить' : 'отключить'
-  if (!window.confirm(`${verb[0]?.toUpperCase()}${verb.slice(1)} trust для ${key.fingerprint}?`)) return
 
   busy.value = true
   message.value = ''
   error.value = ''
   try {
+    if (!enabled) {
+      const impact = await retirementImpact(key)
+      if (!impact.can_retire) {
+        error.value =
+          `Нельзя отключить key: его используют операции ${impact.blocking_operation_ids.join(', ')}.`
+        return
+      }
+      const confirmed = window.confirm(
+        `Отключить trust для ${key.fingerprint}? Исторических import: ${impact.historical_import_count}. Enabled keys сейчас: ${impact.enabled_key_count}.`,
+      )
+      if (!confirmed) return
+    } else if (!window.confirm(`Включить trust для ${key.fingerprint}?`)) {
+      return
+    }
+
     await apiClient.patch(`/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}`, {
       enabled,
       confirm: true,
@@ -300,12 +440,25 @@ async function setTrustedState(key: TrustedKeyStatus, enabled: boolean): Promise
 
 async function removeTrustedKey(key: TrustedKeyStatus): Promise<void> {
   if (!requireMode('TARGET')) return
-  if (!window.confirm(`Удалить trusted key ${key.fingerprint}? Это действие нельзя отменить.`)) return
 
   busy.value = true
   message.value = ''
   error.value = ''
   try {
+    const impact = await retirementImpact(key)
+    if (!impact.can_retire) {
+      error.value =
+        `Нельзя удалить key: его используют операции ${impact.blocking_operation_ids.join(', ')}.`
+      return
+    }
+    if (
+      !window.confirm(
+        `Удалить trusted key ${key.fingerprint}? Исторических import: ${impact.historical_import_count}. Это действие нельзя отменить.`,
+      )
+    ) {
+      return
+    }
+
     await apiClient.delete(`/settings/keys/trusted/${encodeURIComponent(key.fingerprint)}`, {
       params: { confirm: true },
     })
@@ -350,7 +503,7 @@ onMounted(loadKeys)
       </p>
       <p class="status">
         SOURCE readiness:
-        <strong>{{ keySettings.signing_key?.configured ? 'identity и trust package готовы' : 'нужно создать identity' }}</strong>
+        <strong>{{ keySettings.signing_key?.configured ? 'active identity готова' : 'нужно создать identity' }}</strong>
       </p>
       <div class="actions">
         <button
@@ -362,37 +515,59 @@ onMounted(loadKeys)
           Создать signing identity
         </button>
         <template v-else>
-          <button
-            type="button"
-            :disabled="busy"
-            @click="downloadTrustPackage"
-          >
-            Скачать trust package
+          <button type="button" :disabled="busy" @click="downloadTrustPackage">
+            Скачать active trust package
+          </button>
+          <button type="button" class="secondary" :disabled="busy" @click="downloadSigningPublicKey">
+            Скачать public key
           </button>
           <button
+            v-if="!keySettings.pending_signing_key?.configured"
             type="button"
             class="secondary"
             :disabled="busy"
-            @click="downloadSigningPublicKey"
+            @click="prepareSigningRotation"
           >
-            Скачать public key
+            Подготовить rotation
           </button>
         </template>
       </div>
-      <label for="source-signing-key">
-        {{ keySettings.signing_key?.configured ? 'Ротация: Ed25519 private key, PEM' : 'Или установить существующий Ed25519 private key, PEM' }}
-      </label>
-      <input
-        id="source-signing-key"
-        type="file"
-        accept=".pem,text/plain"
-        :disabled="busy"
-        @change="installSigningKey"
-      />
+
+      <div v-if="keySettings.pending_signing_key?.configured" class="rotation-panel">
+        <strong>Pending rotation</strong>
+        <p class="fingerprint">
+          Новый fingerprint:
+          <code>{{ keySettings.pending_signing_key.fingerprint }}</code>
+        </p>
+        <p class="status">
+          Active key пока не менялся. Сначала импортируйте pending trust package на TARGET.
+        </p>
+        <div class="actions">
+          <button type="button" :disabled="busy" @click="downloadPendingTrustPackage">
+            Скачать pending trust package
+          </button>
+          <button type="button" :disabled="busy" @click="activateSigningRotation">
+            Активировать pending key
+          </button>
+          <button type="button" class="danger" :disabled="busy" @click="cancelSigningRotation">
+            Отменить pending
+          </button>
+        </div>
+      </div>
+
+      <template v-if="!keySettings.signing_key?.configured">
+        <label for="source-signing-key">Или установить существующий Ed25519 private key, PEM</label>
+        <input
+          id="source-signing-key"
+          type="file"
+          accept=".pem,text/plain"
+          :disabled="busy"
+          @change="installSigningKey"
+        />
+      </template>
       <p class="warning">
-        Private key используется только server-side и никогда не возвращается через normal API/UI.
-        Автогенерация создаёт identity от имени текущего admin в audit. При rotation сначала
-        обеспечьте overlap trusted public keys на TARGET.
+        Private key остаётся только server-side. Для ротации используйте staged flow:
+        prepare → TARGET overlap → activate. Прямая замена active private key запрещена.
       </p>
     </template>
 
@@ -489,6 +664,7 @@ onMounted(loadKeys)
 .status { margin: 0; color: var(--color-text-muted); }
 .fingerprint { margin: 0; overflow-wrap: anywhere; }
 .warning { margin: 0; padding: var(--space-3); border: 1px solid var(--color-warning-text); border-radius: var(--radius-md); color: var(--color-warning-text); }
+.rotation-panel { display: grid; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); }
 .success, .error { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); }
 .success { border: 1px solid var(--color-success-text); color: var(--color-success-text); }
 .error { border: 1px solid var(--color-danger-text); color: var(--color-danger-text); }

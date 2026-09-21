@@ -57,6 +57,9 @@ def _app(tmp_path: Path):
         bundle_outgoing_root=root / "data" / "outgoing",
         bundle_extract_root=root / "data" / "verified",
         bundle_signing_private_key_file=root / "keys" / "source-signing-private.pem",
+        bundle_pending_signing_private_key_file=(
+            root / "keys" / "source-signing-pending-private.pem"
+        ),
         bundle_trusted_public_keys_dir=root / "keys" / "trusted-source",
         operation_workspace_root=root / "data" / "tmp" / "operations",
         import_discovery_root=root / "data" / "incoming",
@@ -264,7 +267,6 @@ def test_mode_specific_key_mutations_fail_closed_after_switch(tmp_path: Path) ->
 def test_target_verification_uses_only_explicit_trust_not_local_signing_key(tmp_path: Path) -> None:
     app = _app(tmp_path)
     bundle_signer = Ed25519PrivateKey.generate()
-    local_signer_after_rotation = Ed25519PrivateKey.generate()
     trusted_unrelated = Ed25519PrivateKey.generate()
     bundle_fingerprint = ed25519_public_key_fingerprint(bundle_signer.public_key())
 
@@ -278,14 +280,25 @@ def test_target_verification_uses_only_explicit_trust_not_local_signing_key(tmp_
         assert installed.status_code == 200
         bundle = _build_bundle(app.state.settings, "DELIVERY-20260915-KEYISO1")
 
-        rotated = client.put(
-            "/api/settings/keys/signing",
-            json={"pem": _private_pem(local_signer_after_rotation)},
+        prepared = client.post(
+            "/api/settings/keys/signing/rotation/prepare",
             headers=headers,
         )
-        assert rotated.status_code == 200
-        local_signing_bytes = app.state.settings.bundle_signing_private_key_file.read_bytes()
-        assert _private_pem(local_signer_after_rotation).encode() == local_signing_bytes
+        assert prepared.status_code == 201
+        local_fingerprint_after_rotation = prepared.json()["fingerprint"]
+        assert local_fingerprint_after_rotation != bundle_fingerprint
+
+        activated = client.post(
+            "/api/settings/keys/signing/rotation/activate",
+            json={"expected_fingerprint": local_fingerprint_after_rotation},
+            headers=headers,
+        )
+        assert activated.status_code == 200
+        source_status = client.get("/api/settings/keys", headers=headers)
+        assert source_status.status_code == 200
+        assert source_status.json()["signing_key"]["fingerprint"] == (
+            local_fingerprint_after_rotation
+        )
 
         _switch(client, headers, PortalContour.TARGET)
         target_before_trust = client.get("/api/settings/keys", headers=headers)
@@ -319,8 +332,7 @@ def test_target_verification_uses_only_explicit_trust_not_local_signing_key(tmp_
         _switch(client, headers, PortalContour.SOURCE)
         # TARGET trust material remains present but cannot influence SOURCE signing.
         second = _build_bundle(app.state.settings, "DELIVERY-20260915-KEYISO2")
-        expected_local = ed25519_public_key_fingerprint(local_signer_after_rotation.public_key())
-        assert second.signing_key_fingerprint == expected_local
+        assert second.signing_key_fingerprint == local_fingerprint_after_rotation
         assert second.signing_key_fingerprint != bundle_fingerprint
 
 
