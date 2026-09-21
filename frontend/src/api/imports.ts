@@ -17,6 +17,16 @@ export type { ApiErrorInfo, ArtifactStatus, Operation, OperationStatus }
 export type ImportIntakeMode = 'upload' | 'incoming'
 export type ImportPreviewState = 'NEW' | 'SAME' | 'CONFLICT' | 'UNKNOWN' | 'ERROR'
 
+export type MediaHandoffVerification = {
+  delivery_id: string
+  signing_key_fingerprint: string
+  bundle_sha256: string
+  bundle_size_bytes: number
+  created_at: string
+  created_by: string
+  verified: boolean
+}
+
 export type ImportIntake = {
   operation_id: number
   status: OperationStatus
@@ -148,6 +158,21 @@ export type ImportReceipt = {
   failure_policy?: string | null
   result: string
   artifacts: ImportReceiptArtifact[]
+}
+
+export async function verifyPhysicalHandoff(
+  file: File,
+): Promise<MediaHandoffVerification> {
+  const response = await apiClient.post<MediaHandoffVerification>(
+    '/imports/handoff/verify',
+    file,
+    {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+  return response.data
 }
 
 export async function uploadImportBundle(
