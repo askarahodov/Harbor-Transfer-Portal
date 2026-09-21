@@ -94,3 +94,50 @@ def test_skopeo_subprocess_environment_does_not_inherit_portal_or_registry_state
         "XDG_RUNTIME_DIR": 0o700,
         "TMPDIR": 0o700,
     }
+
+
+def test_skopeo_relative_executable_is_resolved_before_isolated_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    startup_dir = tmp_path / "backend"
+    startup_dir.mkdir()
+    monkeypatch.chdir(startup_dir)
+    captured: dict[str, object] = {}
+
+    class Process:
+        def __init__(self) -> None:
+            self.stdout = asyncio.StreamReader()
+            self.stderr = asyncio.StreamReader()
+            self.stdout.feed_eof()
+            self.stderr.feed_eof()
+            self.returncode = 0
+
+        async def wait(self) -> int:
+            return self.returncode
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    async def fake_exec(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return Process()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+    temp_root = tmp_path / "exec"
+    asyncio.run(
+        AsyncioCommandRunner(temp_root).run(
+            ("./vendor/skopeo", "--version"),
+            timeout_seconds=1,
+            output_limit_bytes=4096,
+        )
+    )
+
+    args = captured["args"]
+    kwargs = captured["kwargs"]
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+    assert args[0] == str(startup_dir / "vendor" / "skopeo")
+    assert Path(kwargs["cwd"]).is_relative_to(temp_root)
