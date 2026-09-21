@@ -18,6 +18,16 @@ class ImportIntakeResponse(BaseModel):
     intake_mode: ImportIntakeMode
 
 
+class MediaHandoffVerificationResponse(BaseModel):
+    delivery_id: str
+    signing_key_fingerprint: str
+    bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    bundle_size_bytes: int = Field(ge=1)
+    created_at: str
+    created_by: str
+    verified: bool = True
+
+
 class ImportDiscoveryResponse(BaseModel):
     operations: list[ImportIntakeResponse]
 
