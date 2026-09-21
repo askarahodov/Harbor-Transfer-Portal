@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     bundle_outgoing_root: Path = Path("./data/outgoing")
     bundle_extract_root: Path = Path("./data/incoming/verified")
     bundle_signing_private_key_file: Path = Path("./data/keys/source-signing-private.pem")
+    bundle_pending_signing_private_key_file: Path = Path(
+        "./data/keys/source-signing-pending-private.pem"
+    )
     bundle_trusted_public_keys_dir: Path = Path("./data/keys/trusted-source")
     bundle_key_material_max_bytes: int = Field(default=65_536, ge=1024, le=1_048_576)
     bundle_trust_package_max_bytes: int = Field(
