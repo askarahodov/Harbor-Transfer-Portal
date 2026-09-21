@@ -77,6 +77,16 @@ class ExportBundleMetadata:
     sha256: str
 
 
+@dataclass(frozen=True, slots=True)
+class ExportHandoffMetadata:
+    operation_id: int
+    delivery_id: str
+    handoff_path: Path
+    handoff_size: int
+    sha256: str
+    signing_key_fingerprint: str
+
+
 HarborClientFactory = Callable[[], HarborClient]
 SkopeoFactory = Callable[[Session], SkopeoService]
 HelmFactory = Callable[[Session], HelmOciService]
@@ -242,6 +252,59 @@ class ExportOrchestrator:
             sha256=digest,
         )
 
+    def handoff_metadata(self, operation_id: int) -> ExportHandoffMetadata:
+        bundle = self.bundle_metadata(operation_id)
+        operation = self.operation_manager.get_operation(operation_id)
+        if operation is None or operation.type is not OperationType.EXPORT:
+            raise ExportOrchestrationError(
+                "export_operation_not_found",
+                "Export-операция не найдена",
+            )
+        if (
+            operation.handoff_filename is None
+            or operation.handoff_sha256 is None
+            or operation.handoff_size_bytes is None
+            or operation.bundle_signing_key_fingerprint is None
+        ):
+            raise ExportOrchestrationError(
+                "export_handoff_not_available",
+                "Для этого export отсутствует signed physical handoff",
+            )
+        expected_name = f"{bundle.delivery_id}.htp-handoff.json"
+        if operation.handoff_filename != expected_name:
+            raise ExportOrchestrationError(
+                "export_handoff_metadata_invalid",
+                "Имя handoff не соответствует delivery_id",
+            )
+        handoff = (self.settings.bundle_outgoing_root.resolve() / expected_name).resolve()
+        try:
+            handoff.relative_to(self.settings.bundle_outgoing_root.resolve())
+        except ValueError as exc:
+            raise ExportOrchestrationError(
+                "export_handoff_path_invalid",
+                "Handoff path выходит за пределы outgoing storage",
+            ) from exc
+        if not handoff.is_file() or handoff.is_symlink():
+            raise ExportOrchestrationError(
+                "export_handoff_missing",
+                "Signed physical handoff отсутствует",
+            )
+        size = handoff.stat().st_size
+        digest = self._sha256_file(handoff)
+        if size != operation.handoff_size_bytes or digest != operation.handoff_sha256:
+            raise ExportOrchestrationError(
+                "export_handoff_metadata_invalid",
+                "Handoff file не совпадает с persisted operation metadata",
+            )
+        return ExportHandoffMetadata(
+            operation_id=operation_id,
+            delivery_id=bundle.delivery_id,
+            handoff_path=handoff,
+            handoff_size=size,
+            sha256=digest,
+            signing_key_fingerprint=operation.bundle_signing_key_fingerprint,
+        )
+
     async def _run_export(
         self,
         context: OperationContext,
@@ -404,6 +467,10 @@ class ExportOrchestrator:
             operation.bundle_filename = expected_archive.name
             operation.bundle_sha256 = build.archive_sha256
             operation.bundle_size_bytes = build.archive_size
+            operation.handoff_filename = build.handoff_path.name
+            operation.handoff_sha256 = build.handoff_sha256
+            operation.handoff_size_bytes = build.handoff_size
+            operation.bundle_signing_key_fingerprint = build.signing_key_fingerprint
             session.commit()
 
     def _clear_bundle_metadata(self, operation_id: int) -> None:
@@ -414,10 +481,18 @@ class ExportOrchestrator:
             operation.bundle_filename = None
             operation.bundle_sha256 = None
             operation.bundle_size_bytes = None
+            operation.handoff_filename = None
+            operation.handoff_sha256 = None
+            operation.handoff_size_bytes = None
+            operation.bundle_signing_key_fingerprint = None
             session.commit()
 
     def _cleanup_published_delivery(self, delivery_id: str) -> None:
         archive, sidecar = self._delivery_paths(delivery_id)
+        handoff = self.settings.bundle_outgoing_root.resolve() / (
+            f"{delivery_id}.htp-handoff.json"
+        )
+        handoff.unlink(missing_ok=True)
         sidecar.unlink(missing_ok=True)
         archive.unlink(missing_ok=True)
 
@@ -434,6 +509,14 @@ class ExportOrchestrator:
                 "Путь export bundle вышел за разрешённый outgoing root",
             ) from exc
         return archive, sidecar
+
+    @staticmethod
+    def _sha256_file(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     @staticmethod
     def _sidecar_digest(sidecar: Path, archive_name: str) -> str:
