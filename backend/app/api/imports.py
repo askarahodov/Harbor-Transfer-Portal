@@ -311,6 +311,7 @@ async def verify_physical_handoff(
 async def upload_bundle(
     request: Request,
     actor: ImportActorDep,
+    session: SessionDep,
     orchestrator: ImportOrchestratorDep,
 ) -> ImportIntakeResponse:
     filename = request.headers.get("x-htp-bundle-filename")
