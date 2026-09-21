@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
