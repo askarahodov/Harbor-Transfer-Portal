@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.config import PortalContour, Settings
 from app.db.base import Base
+from app.db.models import Operation
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import ArtifactStatus, BundleSource, OperationStatus
 from app.domain.imports import ImportPreviewState
@@ -712,7 +713,8 @@ def test_browser_physical_handoff_rejects_tampered_sidecar_before_operation(
         await manager.shutdown()
 
     asyncio.run(scenario())
-    assert manager.list_operations() == []
+    with orchestrator.session_factory() as session:
+        assert session.query(Operation).count() == 0
     assert not settings.import_staging_root.exists() or not any(
         settings.import_staging_root.iterdir()
     )
