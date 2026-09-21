@@ -56,6 +56,9 @@ class KeyManagementService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.signing_path = settings.bundle_signing_private_key_file.absolute()
+        self.pending_signing_path = (
+            settings.bundle_pending_signing_private_key_file.absolute()
+        )
         self.trusted_dir = settings.bundle_trusted_public_keys_dir.absolute()
 
     def signing_status(self) -> SigningKeyStatus:
@@ -67,6 +70,120 @@ class KeyManagementService:
             configured=True,
             fingerprint=ed25519_public_key_fingerprint(key.public_key()),
         )
+
+    def pending_signing_status(self) -> SigningKeyStatus:
+        self._require_source()
+        if (
+            not self.pending_signing_path.exists()
+            and not self.pending_signing_path.is_symlink()
+        ):
+            return SigningKeyStatus(configured=False, fingerprint=None)
+        key = self._read_private_key_file(self.pending_signing_path)
+        return SigningKeyStatus(
+            configured=True,
+            fingerprint=ed25519_public_key_fingerprint(key.public_key()),
+        )
+
+    def prepare_pending_signing_key(self) -> KeyMutation:
+        self._require_source()
+        if not self.signing_status().configured:
+            raise KeyManagementError(
+                "signing_key_not_configured",
+                "Сначала настройте active SOURCE signing identity",
+            )
+        if self.pending_signing_path.exists() or self.pending_signing_path.is_symlink():
+            if self.pending_signing_path.is_symlink() or not self.pending_signing_path.is_file():
+                raise KeyManagementError(
+                    "pending_signing_key_invalid",
+                    "Pending SOURCE signing key path должен быть обычным файлом",
+                )
+            raise KeyManagementError(
+                "pending_signing_key_already_configured",
+                "Pending SOURCE signing identity уже подготовлена",
+            )
+        key = Ed25519PrivateKey.generate()
+        fingerprint = ed25519_public_key_fingerprint(key.public_key())
+        normalized = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        self._atomic_create_private_key(
+            self.pending_signing_path,
+            normalized,
+            conflict_code="pending_signing_key_already_configured",
+            conflict_message="Pending SOURCE signing identity уже подготовлена",
+        )
+        return KeyMutation(action="prepared", fingerprint=fingerprint)
+
+    def pending_signing_public_key(self) -> SigningPublicKey:
+        self._require_source()
+        if (
+            not self.pending_signing_path.exists()
+            and not self.pending_signing_path.is_symlink()
+        ):
+            raise KeyManagementError(
+                "pending_signing_key_not_configured",
+                "Pending SOURCE signing identity не подготовлена",
+            )
+        key = self._read_private_key_file(self.pending_signing_path)
+        public_key = key.public_key()
+        return SigningPublicKey(
+            fingerprint=ed25519_public_key_fingerprint(public_key),
+            pem=public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            ),
+        )
+
+    def activate_pending_signing_key(self, expected_fingerprint: str) -> KeyMutation:
+        self._require_source()
+        expected = self._validate_fingerprint(expected_fingerprint)
+        pending = self.pending_signing_public_key()
+        if pending.fingerprint != expected:
+            raise KeyManagementError(
+                "pending_signing_key_fingerprint_mismatch",
+                "Pending SOURCE signing identity изменилась; activation отменена",
+            )
+        if self.signing_path.is_symlink():
+            raise KeyManagementError(
+                "signing_key_invalid",
+                "SOURCE signing key path не может быть symlink",
+            )
+        try:
+            os.replace(self.pending_signing_path, self.signing_path)
+        except OSError as exc:
+            raise KeyManagementError(
+                "key_store_write_failed",
+                "Не удалось атомарно активировать pending SOURCE signing identity",
+            ) from exc
+        try:
+            self._fsync_directory(self.signing_path.parent)
+        except OSError:
+            pass
+        return KeyMutation(action="activated", fingerprint=pending.fingerprint)
+
+    def cancel_pending_signing_key(self, expected_fingerprint: str) -> KeyMutation:
+        self._require_source()
+        expected = self._validate_fingerprint(expected_fingerprint)
+        pending = self.pending_signing_public_key()
+        if pending.fingerprint != expected:
+            raise KeyManagementError(
+                "pending_signing_key_fingerprint_mismatch",
+                "Pending SOURCE signing identity изменилась; cancel отменён",
+            )
+        try:
+            self.pending_signing_path.unlink()
+        except OSError as exc:
+            raise KeyManagementError(
+                "key_store_write_failed",
+                "Не удалось удалить pending SOURCE signing identity",
+            ) from exc
+        try:
+            self._fsync_directory(self.pending_signing_path.parent)
+        except OSError:
+            pass
+        return KeyMutation(action="cancelled", fingerprint=pending.fingerprint)
 
     def generate_signing_private_key(self) -> KeyMutation:
         self._require_source()
