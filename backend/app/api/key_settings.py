@@ -476,17 +476,38 @@ def replace_trusted_key(
     _require_confirmation(payload.confirm)
     try:
         with _runtime_service(request, session).mode_guard(PortalContour.TARGET) as runtime:
-            mutation = _service(request).replace_trusted_public_key(fingerprint, payload.pem)
+            service = _service(request)
+            previous = service._validate_fingerprint(fingerprint)
+            replacement = service.trusted_public_key_fingerprint(payload.pem)
+            impact = None
+            if replacement != previous:
+                impact = TrustedKeyRetirementService(
+                    session,
+                    request.app.state.settings,
+                ).require_retirable(previous)
+            mutation = service.replace_trusted_public_key(previous, payload.pem)
             _audit(
                 session,
                 admin,
                 "trust.key.replaced",
                 mutation,
                 runtime,
-                extra={"previous_fingerprint": fingerprint.strip().lower()},
+                extra={
+                    "previous_fingerprint": previous,
+                    **(
+                        {
+                            "historical_import_count": impact.historical_import_count,
+                            "enabled_key_count_before": impact.enabled_key_count,
+                        }
+                        if impact is not None
+                        else {}
+                    ),
+                },
             )
     except RuntimeModeError as exc:
         raise _runtime_error(exc) from exc
+    except TrustedKeyRetirementError as exc:
+        raise _retirement_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
     return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
