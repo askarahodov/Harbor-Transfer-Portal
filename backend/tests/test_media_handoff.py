@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.config import PortalContour, Settings
-from app.domain.bundle import BundleManifest, BundleSource
+from app.domain.bundle import BundleManifest, BundleSource, ContainerImageArtifact
 from app.services.key_management import KeyManagementService
 from app.services.key_material import ed25519_public_key_fingerprint
 from app.services.media_handoff import MediaHandoffError, MediaHandoffService
@@ -72,7 +72,16 @@ def _manifest() -> BundleManifest:
             harbor="https://harbor.source.local",
             portal_version="1.0.0",
         ),
-        artifacts=[],
+        artifacts=[
+            ContainerImageArtifact(
+                repository="team/example",
+                reference="1.0.0",
+                source_digest="sha256:" + "a" * 64,
+                payload_path="images/1",
+                payload_sha256="b" * 64,
+                payload_size=1,
+            )
+        ],
     )
 
 
