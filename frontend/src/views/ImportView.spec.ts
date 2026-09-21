@@ -249,7 +249,11 @@ describe('TARGET import wizard view', () => {
     expect(discoverButton?.attributes('disabled')).toBeDefined()
 
     const inputs = wrapper.findAll('input[type="file"]')
-    const handoff = inputs.find((item) => item.attributes('accept')?.includes('.htp-handoff.json'))
+    const handoff = inputs.find(
+      (item) =>
+        item.attributes('multiple') === undefined &&
+        item.attributes('accept')?.includes('.htp-handoff.json'),
+    )
     expect(handoff).toBeDefined()
     Object.defineProperty(handoff!.element, 'files', {
       configurable: true,
