@@ -25,6 +25,15 @@ def test_frontend_listener_and_api_proxy_stay_on_configured_host_boundary() -> N
     assert "proxy_pass http://127.0.0.1:8000;" in nginx
 
 
+def test_frontend_proxy_streams_browser_bundle_without_smaller_body_limit() -> None:
+    nginx = _read("frontend/nginx.conf")
+
+    assert "client_max_body_size 0;" in nginx
+    assert "proxy_request_buffering off;" in nginx
+    assert "client_body_timeout 300s;" in nginx
+    assert "proxy_send_timeout 300s;" in nginx
+
+
 def test_frontend_proxy_drops_untrusted_forwarding_headers() -> None:
     nginx = _read("frontend/nginx.conf")
 
