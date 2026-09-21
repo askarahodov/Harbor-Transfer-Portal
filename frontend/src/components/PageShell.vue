@@ -22,7 +22,7 @@ const canSwitchMode = computed(
 
 function switchConfirmation(target: PortalContour): string {
   const workspace = target === 'SOURCE' ? 'Отправка' : 'Приём'
-  return `Переключить Portal в режим ${target} (${workspace})? Текущие настройки Harbor и ключи не изменятся.`
+  return `Переключить Portal в режим ${target} (${workspace})? Все незавершённые EXPORT/IMPORT операции будут отменены. Текущие настройки Harbor и ключи не изменятся.`
 }
 
 function routeSupportsContour(target: PortalContour): boolean {
@@ -76,6 +76,7 @@ async function logout(): Promise<void> {
             :contour="runtime.contour"
             :busy="runtime.switching"
             :error-code="runtime.switchErrorCode"
+            :cancelled-operation-ids="runtime.lastCancelledOperationIds"
             @switch="switchMode"
           />
           <ContourBadge v-else :contour="runtime.contour" />
