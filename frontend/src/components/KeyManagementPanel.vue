@@ -24,6 +24,13 @@ type KeySettings = {
   trusted_keys: TrustedKeyStatus[]
 }
 
+type TrustPackageImportResponse = {
+  action: string
+  fingerprint: string
+  verification: 'out_of_band' | 'chained' | 'existing'
+  endorsing_fingerprint: string | null
+}
+
 type TrustedKeyRetirementImpact = {
   fingerprint: string
   enabled: boolean
@@ -43,6 +50,13 @@ const loading = ref(true)
 const busy = ref(false)
 const message = ref('')
 const error = ref('')
+const expectedFingerprint = ref('')
+const enabledTrustedCount = computed(
+  () => keySettings.value?.trusted_keys.filter((key) => key.enabled).length ?? 0,
+)
+const requiresBootstrapFingerprint = computed(
+  () => effectiveContour.value === 'TARGET' && enabledTrustedCount.value === 0,
+)
 let loadGeneration = 0
 
 function safeError(fallback: string, value: unknown): string {
@@ -306,6 +320,18 @@ async function importTrustPackage(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file || !requireMode('TARGET')) return
+
+  const expected = expectedFingerprint.value.trim().toLowerCase()
+  if (
+    requiresBootstrapFingerprint.value &&
+    !/^sha256:[a-f0-9]{64}$/.test(expected)
+  ) {
+    error.value =
+      'Для первого SOURCE trust введите полный fingerprint sha256:... из независимого доверенного канала.'
+    input.value = ''
+    return
+  }
+
   if (!window.confirm('Импортировать SOURCE trust package и добавить identity в TARGET trust set?')) {
     input.value = ''
     return
@@ -316,20 +342,29 @@ async function importTrustPackage(event: Event): Promise<void> {
   error.value = ''
   try {
     const payload = await file.arrayBuffer()
-    const response = await apiClient.post(
+    const params: Record<string, string | boolean> = { confirm: true }
+    if (expected) params.expected_fingerprint = expected
+    const response = await apiClient.post<TrustPackageImportResponse>(
       '/settings/keys/trusted/package',
       payload,
       {
-        params: { confirm: true },
+        params,
         headers: { 'Content-Type': 'application/gzip' },
       },
     )
     await loadKeys()
     emit('changed')
-    message.value =
-      response.data.action === 'unchanged'
-        ? 'SOURCE identity уже была trusted; изменений не требуется.'
-        : 'SOURCE identity импортирована и включена в TARGET trust set.'
+    if (response.data.verification === 'chained') {
+      message.value =
+        `Rotation identity ${response.data.fingerprint} криптографически подтверждена trusted SOURCE key ${response.data.endorsing_fingerprint}.`
+    } else if (response.data.verification === 'out_of_band') {
+      message.value =
+        'Первичный SOURCE trust добавлен: fingerprint package совпал с independently verified fingerprint.'
+    } else {
+      message.value =
+        'SOURCE identity уже была известна TARGET; trust state синхронизирован.'
+    }
+    expectedFingerprint.value = ''
   } catch (reason) {
     error.value = safeError('Не удалось импортировать SOURCE trust package.', reason)
   } finally {
@@ -501,6 +536,10 @@ onMounted(loadKeys)
       <p v-if="keySettings.signing_key?.fingerprint" class="fingerprint">
         Fingerprint: <code>{{ keySettings.signing_key.fingerprint }}</code>
       </p>
+      <p v-if="keySettings.signing_key?.fingerprint" class="status">
+        При первом bootstrap передайте этот полный fingerprint на TARGET отдельным доверенным каналом;
+        сам trust package можно перенести на разрешённой USB-флешке.
+      </p>
       <p class="status">
         SOURCE readiness:
         <strong>{{ keySettings.signing_key?.configured ? 'active identity готова' : 'нужно создать identity' }}</strong>
@@ -540,7 +579,8 @@ onMounted(loadKeys)
           <code>{{ keySettings.pending_signing_key.fingerprint }}</code>
         </p>
         <p class="status">
-          Active key пока не менялся. Сначала импортируйте pending trust package на TARGET.
+          Active key пока не менялся. Pending trust package подписан active SOURCE key:
+          TARGET с уже настроенным trust проверит rotation автоматически.
         </p>
         <div class="actions">
           <button type="button" :disabled="busy" @click="downloadPendingTrustPackage">
@@ -578,6 +618,26 @@ onMounted(loadKeys)
         TARGET readiness:
         <strong>{{ keySettings.trusted_keys.some((key) => key.enabled) ? 'SOURCE trust настроен' : 'SOURCE trust не настроен' }}</strong>
       </p>
+      <p v-if="requiresBootstrapFingerprint" class="warning">
+        Первый trust bootstrap: перенесите trust package на разрешённом физическом носителе,
+        а полный fingerprint получите отдельным доверенным каналом и введите ниже.
+      </p>
+      <p v-else class="status">
+        Для staged rotation ожидается package, подписанный уже trusted active SOURCE key.
+        Поле fingerprint ниже можно оставить пустым.
+      </p>
+      <label for="target-expected-fingerprint">
+        {{ requiresBootstrapFingerprint ? 'Expected SOURCE fingerprint (обязательно)' : 'Expected fingerprint (для ручного/unendorsed enrollment)' }}
+      </label>
+      <input
+        id="target-expected-fingerprint"
+        v-model="expectedFingerprint"
+        type="text"
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="sha256:0123456789abcdef…"
+        :disabled="busy"
+      />
       <label for="target-trust-package">Импортировать SOURCE trust package</label>
       <input
         id="target-trust-package"
