@@ -130,6 +130,52 @@ def test_signed_handoff_round_trip_verifies_exact_physical_files(tmp_path: Path)
     assert verified.bundle_size_bytes == bundle.stat().st_size
 
 
+def test_signed_handoff_can_bind_optional_trust_packages(tmp_path: Path) -> None:
+    key, private_path = _private_key(tmp_path)
+    source = _source_settings(tmp_path, private_path)
+    target = _target_settings(tmp_path)
+    bundle, sidecar = _published_files(tmp_path)
+    source_trust = tmp_path / "source" / "outgoing" / "bootstrap.htp-trust.tar.gz"
+    pending_trust = tmp_path / "source" / "outgoing" / "rotation.htp-trust.tar.gz"
+    source_trust.write_bytes(b"bootstrap-public-trust")
+    pending_trust.write_bytes(b"pending-public-trust")
+
+    built = MediaHandoffService(source).build(
+        manifest=_manifest(),
+        bundle_path=bundle,
+        sidecar_path=sidecar,
+        private_key=key,
+        optional_files=(
+            ("source-trust-package", source_trust),
+            ("pending-trust-package", pending_trust),
+        ),
+    )
+    document = json.loads(built.payload)
+    assert [item["role"] for item in document["payload"]["files"]] == [
+        "bundle",
+        "bundle-sidecar",
+        "source-trust-package",
+        "pending-trust-package",
+    ]
+
+    KeyManagementService(target).add_trusted_public_key(_public_pem(key))
+    _stage_target(target, bundle, sidecar)
+    target.import_discovery_root.joinpath(source_trust.name).write_bytes(
+        source_trust.read_bytes()
+    )
+    target.import_discovery_root.joinpath(pending_trust.name).write_bytes(
+        pending_trust.read_bytes()
+    )
+
+    verified = MediaHandoffService(target).verify_from_discovery(built.payload)
+    assert verified.delivery_id == DELIVERY_ID
+
+    target.import_discovery_root.joinpath(pending_trust.name).write_bytes(b"tampered")
+    with pytest.raises(MediaHandoffError) as exc:
+        MediaHandoffService(target).verify_from_discovery(built.payload)
+    assert exc.value.code == "handoff_file_mismatch"
+
+
 def test_handoff_rejects_physical_bundle_tamper_before_import(tmp_path: Path) -> None:
     key, private_path = _private_key(tmp_path)
     source = _source_settings(tmp_path, private_path)
