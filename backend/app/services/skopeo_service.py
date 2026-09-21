@@ -22,7 +22,6 @@ from app.services.harbor_settings import EffectiveHarborSettings, HarborSettings
 _DIGEST_PATTERN = r"sha256:[a-f0-9]{64}"
 _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
 _TAG_PATTERN = r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}"
-_OCI_REFERENCE = "image"
 _PERSISTED_DIAGNOSTIC_LIMIT = 512
 _SAFE_LOCALE_ENV = ("LANG", "LC_ALL", "LC_CTYPE")
 
@@ -463,7 +462,7 @@ class SkopeoService:
                 "skopeo_payload_path_invalid",
                 "Путь OCI payload содержит неподдерживаемый символ ':'",
             )
-        return f"oci:{payload_path}:{_OCI_REFERENCE}"
+        return f"oci:{payload_path}"
 
     def _validate_export_path(self, path: Path) -> Path:
         resolved = path.resolve()
