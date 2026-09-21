@@ -64,7 +64,21 @@ pending-trust-package
 
 ## TARGET operator flow
 
-Для transfer-media workflow:
+Есть два равноправных intake-варианта.
+
+### Через браузер
+
+1. В Import workflow выбрать или перетащить **сразу три файла одной доставки**:
+   `.htp.tar.gz`, соответствующий `.sha256` и signed `.htp-handoff.json`.
+2. Archive передаётся raw stream; frontend proxy не буферизует его и не задаёт лимит ниже backend `import_max_upload_bytes`.
+3. Backend сохраняет companion files рядом со streamed archive и проверяет signed handoff **против фактически загруженных bytes**.
+4. Только после успешного handoff verification создаётся/продвигается import preview.
+5. Bundle v1 отдельно проходит checksum/schema/signature verification.
+6. Harbor mutation начинается только после verified preview, destination-plan checks и явного запуска import.
+
+Оператору не требуется доступ к Docker container, `/app/data` или `docker cp`.
+
+### Через transfer media / incoming directory
 
 1. Скопировать физические файлы в configured incoming directory TARGET.
 2. В Import workflow выбрать signed `.htp-handoff.json`.
