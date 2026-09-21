@@ -499,7 +499,13 @@ class KeyManagementService:
                     "SOURCE signing identity уже настроена; используйте rotation "
                 "вместо повторной генерации",
                 ) from exc
-            self._fsync_directory(parent)
+            try:
+                self._fsync_directory(parent)
+            except OSError:
+                # The hard link is the commit boundary. A post-commit directory
+                # fsync failure must not report that generation failed after the
+                # signing identity has already become authoritative.
+                pass
         except KeyManagementError:
             raise
         except OSError as exc:
