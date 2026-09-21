@@ -5,6 +5,7 @@ import { apiClient } from '@/api/client'
 import {
   buildImportDestinationPlan,
   executeImport,
+  uploadImportBundle,
   type ImportDestinationPlan,
   type ImportDestinationPlanRequest,
 } from './imports'
@@ -29,6 +30,39 @@ function destinationPlan(): ImportDestinationPlan {
 afterEach(() => vi.restoreAllMocks())
 
 describe('import destination API contract', () => {
+
+  it('streams bundle with physical handoff companion headers', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({
+      data: { operation_id: 77, status: 'UPLOADED', intake_mode: 'upload' },
+    })
+    const bundle = new File(['bundle'], 'DELIVERY-20260921-ABC123.htp.tar.gz', {
+      type: 'application/gzip',
+    })
+    const sidecar = new File(['sha256-line\n'], `${bundle.name}.sha256`, {
+      type: 'text/plain',
+    })
+    const handoff = new File(
+      ['{"kind":"harbor-transfer-portal-physical-handoff"}\n'],
+      'DELIVERY-20260921-ABC123.htp-handoff.json',
+      { type: 'application/json' },
+    )
+
+    await uploadImportBundle(bundle, sidecar, handoff)
+
+    expect(post).toHaveBeenCalledOnce()
+    const [url, body, config] = post.mock.calls[0]!
+    expect(url).toBe('/imports/upload')
+    expect(body).toBe(bundle)
+    expect(config?.headers).toMatchObject({
+      'Content-Type': 'application/gzip',
+      'X-HTP-Bundle-Filename': bundle.name,
+      'X-HTP-Sidecar-B64': window.btoa('sha256-line\n'),
+      'X-HTP-Handoff-B64': window.btoa(
+        '{"kind":"harbor-transfer-portal-physical-handoff"}\n',
+      ),
+    })
+  })
+
   it('sends mapping through the destination-plan PUT endpoint unchanged', async () => {
     const mapping: ImportDestinationPlanRequest = {
       container_image_project: 'docker-target',
