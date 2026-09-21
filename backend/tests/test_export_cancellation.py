@@ -12,6 +12,7 @@ from app.domain.bundle import OperationStatus
 from app.schemas.exports import ExportArtifactSelection
 from app.services.export_orchestrator import ExportOrchestrator
 from app.services.harbor_client import HarborArtifact
+from app.services.key_management import KeyManagementService
 from app.services.operation_manager import OperationManager
 from app.services.skopeo_service import ExportResult
 
@@ -80,6 +81,8 @@ def test_cancel_during_packaging_waits_and_removes_ready_files(tmp_path: Path) -
         bundle_payload_root=data,
         bundle_outgoing_root=data / "outgoing",
     )
+    KeyManagementService(settings).generate_signing_private_key()
+
     engine = create_db_engine(settings.database_url)
     Base.metadata.create_all(engine)
     manager = OperationManager(create_session_factory(engine), settings)

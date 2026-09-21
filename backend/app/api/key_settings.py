@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.auth.dependencies import SessionDep, require_roles
 from app.config import PortalContour
@@ -32,6 +32,8 @@ def _api_error(exc: KeyManagementError) -> HTTPException:
         "trusted_key_not_found": status.HTTP_404_NOT_FOUND,
         "trusted_key_limit_exceeded": status.HTTP_409_CONFLICT,
         "trusted_key_confirmation_required": status.HTTP_409_CONFLICT,
+        "signing_key_already_configured": status.HTTP_409_CONFLICT,
+        "signing_key_not_configured": status.HTTP_409_CONFLICT,
         "key_store_write_failed": status.HTTP_500_INTERNAL_SERVER_ERROR,
     }
     return HTTPException(
@@ -127,6 +129,52 @@ def get_key_settings(
         raise _runtime_error(exc) from exc
     except KeyManagementError as exc:
         raise _api_error(exc) from exc
+
+
+@router.post(
+    "/signing/generate",
+    response_model=KeyMutationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_signing_key(
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> KeyMutationResponse:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE) as runtime:
+            mutation = _service(request).generate_signing_private_key()
+            _audit(session, admin, "signing.key.generated", mutation, runtime)
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except KeyManagementError as exc:
+        raise _api_error(exc) from exc
+    return KeyMutationResponse(action=mutation.action, fingerprint=mutation.fingerprint)
+
+
+@router.get("/signing/public")
+def download_signing_public_key(
+    request: Request,
+    _admin: AdminDep,
+    session: SessionDep,
+) -> Response:
+    try:
+        with _runtime_service(request, session).mode_guard(PortalContour.SOURCE):
+            public_key = _service(request).signing_public_key()
+    except RuntimeModeError as exc:
+        raise _runtime_error(exc) from exc
+    except KeyManagementError as exc:
+        raise _api_error(exc) from exc
+
+    return Response(
+        content=public_key.pem,
+        media_type="application/x-pem-file",
+        headers={
+            "Content-Disposition": 'attachment; filename="source-signing-public.pem"',
+            "Cache-Control": "no-store",
+            "X-Signing-Key-Fingerprint": public_key.fingerprint,
+        },
+    )
 
 
 @router.put("/signing", response_model=KeyMutationResponse)

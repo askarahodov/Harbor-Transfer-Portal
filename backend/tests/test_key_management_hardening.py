@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -117,6 +119,75 @@ def _build_chart_bundle(settings: Settings, delivery_id: str):
         delivery_id=delivery_id,
         created_at=datetime(2026, 9, 14, 8, 0, tzinfo=UTC),
     )
+
+
+def test_generated_identity_stays_successful_after_post_commit_fsync_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        portal_contour=PortalContour.SOURCE,
+        bundle_signing_private_key_file=tmp_path / "keys" / "source-signing-private.pem",
+    )
+    service = KeyManagementService(settings)
+
+    def fail_directory_fsync(_path: Path) -> None:
+        raise OSError("synthetic directory fsync failure")
+
+    monkeypatch.setattr(service, "_fsync_directory", fail_directory_fsync)
+
+    mutation = service.generate_signing_private_key()
+
+    assert mutation.action == "generated"
+    status = service.signing_status()
+    assert status.configured is True
+    assert status.fingerprint == mutation.fingerprint
+
+
+def test_concurrent_source_generation_never_silently_rotates_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        portal_contour=PortalContour.SOURCE,
+        bundle_signing_private_key_file=tmp_path / "keys" / "source-signing-private.pem",
+    )
+    first = KeyManagementService(settings)
+    second = KeyManagementService(settings)
+    barrier = threading.Barrier(2)
+    original_create = KeyManagementService._atomic_create_signing_key
+
+    def synchronized_create(service: KeyManagementService, payload: bytes) -> None:
+        barrier.wait(timeout=5)
+        original_create(service, payload)
+
+    monkeypatch.setattr(
+        KeyManagementService,
+        "_atomic_create_signing_key",
+        synchronized_create,
+    )
+
+    def generate(service: KeyManagementService):
+        try:
+            return service.generate_signing_private_key()
+        except KeyManagementError as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(generate, (first, second)))
+
+    mutations = [item for item in outcomes if not isinstance(item, KeyManagementError)]
+    errors = [item for item in outcomes if isinstance(item, KeyManagementError)]
+    assert len(mutations) == 1
+    assert len(errors) == 1
+    assert mutations[0].action == "generated"
+    assert errors[0].code == "signing_key_already_configured"
+
+    status = KeyManagementService(settings).signing_status()
+    assert status.configured is True
+    assert status.fingerprint == mutations[0].fingerprint
 
 
 def test_target_mutations_require_explicit_server_confirmation(tmp_path: Path) -> None:

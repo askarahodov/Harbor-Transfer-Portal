@@ -2,7 +2,9 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { apiClient } from '@/api/client'
 import * as exportsApi from '@/api/exports'
+import { useAuthStore } from '@/stores/auth'
 import { useRuntimeStore } from '@/stores/runtime'
 
 import ExportView from './ExportView.vue'
@@ -179,6 +181,74 @@ describe('SOURCE export wizard view', () => {
     expect(wrapper.text()).toContain('bbbbbbbbbbbbbbbb')
     expect(button(wrapper, 'Скачать bundle').attributes('type')).toBe('button')
     expect(button(wrapper, 'Скачать `.sha256`').attributes('type')).toBe('button')
+  })
+
+  it('lets an admin generate missing signing identity and continue export', async () => {
+    mockHappyPath()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(exportsApi.startExport)
+      .mockRejectedValueOnce({
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              code: 'bundle_signing_key_not_configured',
+              message: 'SOURCE signing identity не настроена',
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        operation_id: 42,
+        delivery_id: 'DELIVERY-20260911-ABCDEF',
+        status: 'CREATED',
+      })
+    const generate = vi.spyOn(apiClient, 'post').mockResolvedValue({
+      data: { action: 'generated', fingerprint: `sha256:${'c'.repeat(64)}` },
+      status: 201,
+      statusText: 'Created',
+      headers: {},
+      config: { headers: {} },
+    })
+
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('SOURCE')
+    const auth = useAuthStore(pinia)
+    auth.user = {
+      id: 1,
+      username: 'admin',
+      role: 'admin',
+      is_active: true,
+    }
+
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    await button(wrapper, 'team').trigger('click')
+    await flushPromises()
+    await button(wrapper, 'apps/demo').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('input[type="checkbox"]')[0]!.setValue(true)
+    await button(wrapper, 'Проверить выбранное').trigger('click')
+    await flushPromises()
+
+    await button(wrapper, 'Запустить экспорт').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('SOURCE signing identity не настроена')
+    await button(wrapper, 'Создать identity и продолжить экспорт').trigger('click')
+    await flushPromises()
+
+    expect(window.confirm).toHaveBeenCalledOnce()
+    expect(generate).toHaveBeenCalledWith('/settings/keys/signing/generate')
+    expect(exportsApi.startExport).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('Bundle готов к физическому переносу')
   })
 
   it('shows unknown OCI references for diagnostics without export controls', async () => {

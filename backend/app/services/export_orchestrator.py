@@ -28,6 +28,7 @@ from app.services.helm_oci_service import (
     HelmOciService,
     HelmServiceError,
 )
+from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.operation_manager import (
     OperationArtifactSpec,
     OperationContext,
@@ -124,6 +125,7 @@ class ExportOrchestrator:
         comment: str | None,
     ) -> ExportStartResult:
         self._require_source_contour()
+        self._require_signing_identity()
         selection_snapshot = tuple(selections)
         resolved = await asyncio.to_thread(self.preview, selection_snapshot)
         estimated_bytes = sum(item.size_bytes or 0 for item in resolved)
@@ -170,6 +172,17 @@ class ExportOrchestrator:
         except OperationManagerError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
         return ExportStartResult(operation_id=operation_id, delivery_id=delivery_id)
+
+    def _require_signing_identity(self) -> None:
+        try:
+            signing = KeyManagementService(self.settings).signing_status()
+        except KeyManagementError as exc:
+            raise ExportOrchestrationError(exc.code, exc.message) from exc
+        if not signing.configured:
+            raise ExportOrchestrationError(
+                "bundle_signing_key_not_configured",
+                "SOURCE signing identity не настроена",
+            )
 
     def bundle_metadata(self, operation_id: int) -> ExportBundleMetadata:
         operation = self.operation_manager.get_operation(operation_id)

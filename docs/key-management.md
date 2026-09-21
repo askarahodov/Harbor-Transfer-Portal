@@ -17,6 +17,8 @@ Admin API:
 
 ```text
 GET    /api/settings/keys
+POST   /api/settings/keys/signing/generate
+GET    /api/settings/keys/signing/public
 PUT    /api/settings/keys/signing
 POST   /api/settings/keys/trusted
 PUT    /api/settings/keys/trusted/{fingerprint}
@@ -55,7 +57,34 @@ Bundle v1 manifest не получает отдельное поле `key_id`: v
 
 Private key content, filesystem path и raw bytes через normal API/UI не выдаются.
 
-### Установка
+### Автоматическая первичная инициализация
+
+Для нового SOURCE рекомендуемый workflow не требует OpenSSL или ручной работы с private PEM.
+
+Admin в **Настройки → Signing и trust keys** нажимает **Создать signing identity**. Backend:
+
+1. проверяет authenticated роль `admin` и runtime mode `SOURCE`;
+2. убеждается, что signing identity ещё не существует;
+3. генерирует Ed25519 private key server-side;
+4. атомарно сохраняет его в `BUNDLE_SIGNING_PRIVATE_KEY_FILE` с mode `0600`;
+5. возвращает только action и public fingerprint;
+6. пишет audit event `signing.key.generated` с authenticated actor и runtime metadata.
+
+Повторная генерация существующей identity возвращает `409 signing_key_already_configured` и **не выполняет rotation**.
+
+После генерации admin может нажать **Скачать public key**. Endpoint
+`GET /api/settings/keys/signing/public` возвращает только Ed25519 public PEM с
+`Cache-Control: no-store`; private PEM через normal API отсутствует.
+
+Этот public key переносится разрешённым способом на TARGET и добавляется в TARGET trust set.
+SOURCE private key никогда не переносится между контурами.
+
+Export выполняет signing preflight до создания операции и до Skopeo/Helm materialization.
+Если identity отсутствует, backend возвращает `409 bundle_signing_key_not_configured`.
+SOURCE admin может создать identity прямо из export UX и повторить запуск; operator получает
+инструкцию обратиться к admin.
+
+### Установка существующего ключа / rotation
 
 Admin выбирает незашифрованный PEM Ed25519 private key. Backend:
 

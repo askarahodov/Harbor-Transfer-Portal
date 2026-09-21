@@ -54,7 +54,45 @@ describe('KeyManagementPanel', () => {
 
     expect(wrapper.text()).toContain(fingerprint)
     expect(wrapper.text()).toContain('Private key используется только server-side')
+    expect(wrapper.text()).toContain('Скачать public key')
     expect(wrapper.find('#target-trusted-key').exists()).toBe(false)
+  })
+
+  it('generates SOURCE identity server-side under explicit admin confirmation', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(apiClient, 'get')
+      .mockResolvedValueOnce(
+        response({
+          contour: 'SOURCE',
+          signing_key: { configured: false, fingerprint: null },
+          trusted_keys: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          contour: 'SOURCE',
+          signing_key: { configured: true, fingerprint },
+          trusted_keys: [],
+        }),
+      )
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue(
+      response({ action: 'generated', fingerprint }, 201),
+    )
+
+    const wrapper = mount(KeyManagementPanel, { props: { contour: 'SOURCE' } })
+    await flushPromises()
+
+    const generate = wrapper.findAll('button').find((item) =>
+      item.text().includes('Создать signing identity'),
+    )
+    if (!generate) throw new Error('Generate signing identity button not found')
+    await generate.trigger('click')
+    await flushPromises()
+
+    expect(window.confirm).toHaveBeenCalledOnce()
+    expect(post).toHaveBeenCalledWith('/settings/keys/signing/generate')
+    expect(wrapper.text()).toContain(fingerprint)
+    expect(wrapper.text()).toContain('Скачать public key')
   })
 
   it('uploads SOURCE key file only after explicit confirmation', async () => {

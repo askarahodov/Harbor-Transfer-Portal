@@ -15,6 +15,7 @@ import {
 } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
+import { apiClient } from '@/api/client'
 import {
   apiErrorInfo,
   createExportDownloadTicket,
@@ -23,12 +24,15 @@ import {
 } from '@/api/exports'
 import StatePlaceholder from '@/components/StatePlaceholder.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
+import { useAuthStore } from '@/stores/auth'
 import { useExportWizardStore } from '@/stores/exportWizard'
 import { useRuntimeStore } from '@/stores/runtime'
 
 const wizard = useExportWizardStore()
 const runtime = useRuntimeStore()
+const auth = useAuthStore()
 const downloadError = ref<string | null>(null)
+const signingRecoveryBusy = ref(false)
 const now = ref(Date.now())
 let clock: ReturnType<typeof setInterval> | null = null
 
@@ -103,6 +107,34 @@ async function searchRepositories(): Promise<void> {
 
 async function searchArtifacts(): Promise<void> {
   await wizard.loadArtifacts(1)
+}
+
+async function generateIdentityAndContinueExport(): Promise<void> {
+  if (auth.user?.role !== 'admin' || signingRecoveryBusy.value) return
+  if (
+    !window.confirm(
+      'Создать SOURCE signing identity и продолжить экспорт? Private key останется только на этом сервере.',
+    )
+  ) {
+    return
+  }
+
+  signingRecoveryBusy.value = true
+  try {
+    await apiClient.post('/settings/keys/signing/generate')
+    wizard.clearError()
+    await wizard.start()
+  } catch (reason) {
+    const info = apiErrorInfo(reason, 'Не удалось создать SOURCE signing identity.')
+    if (info.code === 'signing_key_already_configured') {
+      wizard.clearError()
+      await wizard.start()
+    } else {
+      wizard.error = info
+    }
+  } finally {
+    signingRecoveryBusy.value = false
+  }
 }
 
 async function downloadBundle(): Promise<void> {
@@ -193,6 +225,20 @@ onBeforeUnmount(() => {
         <div>
           <strong>{{ wizard.error.message }}</strong>
           <p class="error-code">Код: {{ wizard.error.code }}</p>
+          <div v-if="wizard.error.code === 'bundle_signing_key_not_configured'" class="signing-recovery">
+            <button
+              v-if="auth.user?.role === 'admin'"
+              class="secondary-button secondary-button--compact"
+              type="button"
+              :disabled="signingRecoveryBusy"
+              @click="generateIdentityAndContinueExport"
+            >
+              Создать identity и продолжить экспорт
+            </button>
+            <p v-else>
+              SOURCE signing identity может создать только администратор в настройках Portal.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -641,6 +687,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .notice--warning { background: var(--color-warning-surface); color: var(--color-warning-text); }
 .notice--danger { background: var(--color-danger-surface); color: var(--color-danger-text); }
 .error-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.signing-recovery { display: grid; justify-items: start; gap: var(--space-2); margin-top: var(--space-3); }
+.signing-recovery p { margin: 0; }
 .actions { align-items: center; }
 .actions--end { justify-content: flex-end; }
 .primary-button, .secondary-button, .danger-button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); border-radius: var(--radius-md); padding: 0 var(--space-4); font: inherit; font-weight: 700; cursor: pointer; }
