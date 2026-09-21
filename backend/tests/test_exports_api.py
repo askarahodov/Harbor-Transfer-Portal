@@ -33,6 +33,9 @@ def _app_with_users(
         operation_workspace_root=tmp_path / "data" / "tmp" / "operations",
         operation_disk_reserve_bytes=0,
         bundle_outgoing_root=tmp_path / "data" / "outgoing",
+        bundle_signing_private_key_file=(
+            tmp_path / "data" / "keys" / "source-signing-private.pem"
+        ),
     )
     app = create_app(settings)
     Base.metadata.create_all(app.state.db_engine)
