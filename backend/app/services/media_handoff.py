@@ -153,6 +153,15 @@ class MediaHandoffService:
         )
 
     def verify_from_discovery(self, raw: bytes) -> HandoffVerificationResult:
+        return self.verify_from_root(raw, self.settings.import_discovery_root)
+
+    def verify_from_root(self, raw: bytes, root: Path) -> HandoffVerificationResult:
+        """Verify a signed handoff against files already staged under *root*.
+
+        The caller controls the staging boundary. This allows both physical-media
+        discovery and browser-native intake to use exactly the same cryptographic
+        and file-integrity contract.
+        """
         if self.settings.portal_contour is not PortalContour.TARGET:
             raise MediaHandoffError(
                 "handoff_wrong_contour",
@@ -201,13 +210,13 @@ class MediaHandoffService:
                 "Handoff signature не прошла проверку",
             ) from exc
 
-        root = self.settings.import_discovery_root.resolve()
+        verified_root = root.resolve()
         by_role = {item.role: item for item in payload.files}
-        self._safe_discovery_file(root, by_role["bundle"])
+        self._safe_discovery_file(verified_root, by_role["bundle"])
         for expected in payload.files:
             if expected.role == "bundle":
                 continue
-            self._safe_discovery_file(root, expected)
+            self._safe_discovery_file(verified_root, expected)
         return HandoffVerificationResult(
             delivery_id=payload.delivery_id,
             signing_key_fingerprint=payload.signing_key_fingerprint,
