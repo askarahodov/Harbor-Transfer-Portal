@@ -486,13 +486,6 @@ def test_wrong_key_types_and_size_bounds_are_rejected_without_replacement(tmp_pa
     with TestClient(source_app) as source:
         admin = _login(source, "admin")
         headers = _auth(admin)
-        installed = source.put(
-            "/api/settings/keys/signing",
-            json={"pem": _private_pem(valid_key)},
-            headers=headers,
-        )
-        assert installed.status_code == 200
-        before = source_app.state.settings.bundle_signing_private_key_file.read_bytes()
 
         public_as_private = source.put(
             "/api/settings/keys/signing",
@@ -501,7 +494,7 @@ def test_wrong_key_types_and_size_bounds_are_rejected_without_replacement(tmp_pa
         )
         assert public_as_private.status_code == 422
         assert public_as_private.json()["error"]["code"] == "signing_key_invalid"
-        assert source_app.state.settings.bundle_signing_private_key_file.read_bytes() == before
+        assert not source_app.state.settings.bundle_signing_private_key_file.exists()
 
         source_app.state.settings.bundle_key_material_max_bytes = 1024
         oversized = source.put(
@@ -511,6 +504,23 @@ def test_wrong_key_types_and_size_bounds_are_rejected_without_replacement(tmp_pa
         )
         assert oversized.status_code == 422
         assert oversized.json()["error"]["code"] == "key_material_size_invalid"
+        assert not source_app.state.settings.bundle_signing_private_key_file.exists()
+
+        installed = source.put(
+            "/api/settings/keys/signing",
+            json={"pem": _private_pem(valid_key)},
+            headers=headers,
+        )
+        assert installed.status_code == 200
+        before = source_app.state.settings.bundle_signing_private_key_file.read_bytes()
+
+        direct_rotation = source.put(
+            "/api/settings/keys/signing",
+            json={"pem": _private_pem(Ed25519PrivateKey.generate())},
+            headers=headers,
+        )
+        assert direct_rotation.status_code == 409
+        assert direct_rotation.json()["error"]["code"] == "signing_rotation_required"
         assert source_app.state.settings.bundle_signing_private_key_file.read_bytes() == before
 
     target_app = _build_app(tmp_path, PortalContour.TARGET)
