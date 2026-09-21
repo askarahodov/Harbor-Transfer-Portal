@@ -38,6 +38,8 @@ const auth = useAuthStore()
 const fileInput = ref<HTMLInputElement | null>(null)
 const handoffInput = ref<HTMLInputElement | null>(null)
 const dragging = ref(false)
+const browserFiles = ref<{ name: string; size: number }[]>([])
+const browserSelectionError = ref('')
 const handoffBusy = ref(false)
 const handoffState = ref<'IDLE' | 'VERIFIED' | 'MISMATCH' | 'UNTRUSTED'>('IDLE')
 const handoffResult = ref<MediaHandoffVerification | null>(null)
@@ -163,20 +165,33 @@ async function onHandoffChange(event: Event): Promise<void> {
   input.value = ''
 }
 
-async function submitFile(file: File | undefined): Promise<void> {
-  if (!file) return
-  await wizard.upload(file)
+async function submitBrowserFiles(files: FileList | File[] | undefined): Promise<void> {
+  if (!files) return
+  const selected = Array.from(files)
+  browserFiles.value = selected.map((file) => ({ name: file.name, size: file.size }))
+  browserSelectionError.value = ''
+
+  const bundle = selected.find((file) => file.name.endsWith('.htp.tar.gz'))
+  const sidecar = selected.find((file) => file.name.endsWith('.htp.tar.gz.sha256'))
+  const handoff = selected.find((file) => file.name.endsWith('.htp-handoff.json'))
+  if (selected.length !== 3 || !bundle || !sidecar || !handoff) {
+    browserSelectionError.value =
+      'Выберите ровно три файла одной доставки: .htp.tar.gz, matching .sha256 и .htp-handoff.json.'
+    return
+  }
+
+  await wizard.uploadPhysicalHandoff({ bundle, sidecar, handoff })
 }
 
 async function onFileChange(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
-  await submitFile(input.files?.[0])
+  await submitBrowserFiles(input.files ?? undefined)
   input.value = ''
 }
 
 async function onDrop(event: DragEvent): Promise<void> {
   dragging.value = false
-  await submitFile(event.dataTransfer?.files?.[0])
+  await submitBrowserFiles(event.dataTransfer?.files ?? undefined)
 }
 
 function downloadReceipt(): void {
@@ -260,13 +275,13 @@ onBeforeUnmount(() => {
 
         <div class="intake-grid">
           <article class="intake-card">
-            <h3>Загрузка через браузер</h3>
-            <p>Подходит для умеренных размеров. Файл отправляется raw stream; multipart и фиктивные demo rows не используются.</p>
+            <h3>Физическая поставка через браузер</h3>
+            <p>Выберите три файла одной доставки. Большой bundle передаётся raw stream, а signed handoff и .sha256 проверяются backend до preview.</p>
             <div
               :class="['drop-zone', { 'drop-zone--active': dragging }]"
               tabindex="0"
               role="button"
-              aria-label="Выбрать Offline Bundle для загрузки"
+              aria-label="Выбрать три файла физической поставки"
               aria-describedby="bundle-drop-help"
               @click="chooseFile"
               @keydown.enter.prevent="chooseFile"
@@ -277,23 +292,27 @@ onBeforeUnmount(() => {
               @drop.prevent="onDrop"
             >
               <Upload :size="28" aria-hidden="true" />
-              <strong>Перетащите .htp.tar.gz сюда</strong>
-              <span id="bundle-drop-help">или нажмите, Enter или Space для выбора файла</span>
+              <strong>Перетащите сюда 3 файла одной доставки</strong>
+              <span id="bundle-drop-help">.htp.tar.gz + .sha256 + .htp-handoff.json</span>
             </div>
             <input
               ref="fileInput"
               class="visually-hidden"
               type="file"
-              accept=".gz,.htp.tar.gz,application/gzip"
+              multiple
+              accept=".gz,.htp.tar.gz,.sha256,.json,.htp-handoff.json,application/gzip,application/json,text/plain"
               @change="onFileChange"
             >
-            <div v-if="wizard.selectedFile" class="file-summary">
-              <FileArchive :size="20" aria-hidden="true" />
-              <div>
-                <strong>{{ wizard.selectedFile.name }}</strong>
-                <span>{{ formatBytes(wizard.selectedFile.size) }}</span>
+            <div v-if="browserFiles.length" class="browser-file-list">
+              <div v-for="item in browserFiles" :key="item.name" class="file-summary">
+                <FileArchive :size="20" aria-hidden="true" />
+                <div>
+                  <strong>{{ item.name }}</strong>
+                  <span>{{ formatBytes(item.size) }}</span>
+                </div>
               </div>
             </div>
+            <p v-if="browserSelectionError" class="handoff-message">{{ browserSelectionError }}</p>
             <div
               v-if="wizard.busy === 'upload' && wizard.uploadProgress"
               class="progress-block"
@@ -663,6 +682,7 @@ h1, h2, h3, p { margin-top: 0; }
 .intake-card, .verification-card, .receipt-card { padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .drop-zone { display: grid; place-items: center; gap: var(--space-2); min-height: 180px; margin: var(--space-4) 0; padding: var(--space-4); border: 2px dashed var(--color-border-control); border-radius: var(--radius-md); text-align: center; cursor: pointer; }
 .drop-zone:hover, .drop-zone:focus-visible, .drop-zone--active { border-color: var(--color-action); background: var(--color-info-surface); }
+.browser-file-list { display: grid; gap: var(--space-2); }
 .file-summary { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
 .file-summary div { display: grid; gap: var(--space-1); }
 .discovery-list { display: grid; gap: var(--space-2); margin-top: var(--space-3); }

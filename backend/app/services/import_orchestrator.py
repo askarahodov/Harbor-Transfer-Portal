@@ -106,6 +106,9 @@ class ImportOrchestrator:
         content_length: int | None,
         actor_user_id: int,
         actor_username: str,
+        bundle_filename: str | None = None,
+        sidecar_payload: bytes | None = None,
+        handoff_payload: bytes | None = None,
     ) -> ImportIntakeResult:
         self._require_target()
         if content_length is not None:
@@ -120,8 +123,22 @@ class ImportOrchestrator:
 
         storage_key = secrets.token_hex(24)
         storage_dir = self._prepare_storage_dir(storage_key)
-        temporary = storage_dir / "bundle.htp.tar.gz.part"
-        archive = storage_dir / "bundle.htp.tar.gz"
+        browser_handoff = sidecar_payload is not None or handoff_payload is not None
+        if browser_handoff and (sidecar_payload is None or handoff_payload is None):
+            shutil.rmtree(storage_dir, ignore_errors=True)
+            raise ImportOrchestrationError(
+                "handoff_browser_files_incomplete",
+                "Browser intake требует bundle, .sha256 и signed handoff вместе",
+            )
+        filename = bundle_filename or "bundle.htp.tar.gz"
+        if Path(filename).name != filename or not filename.endswith(".htp.tar.gz"):
+            shutil.rmtree(storage_dir, ignore_errors=True)
+            raise ImportOrchestrationError(
+                "import_bundle_filename_invalid",
+                "Имя browser bundle некорректно",
+            )
+        temporary = storage_dir / f"{filename}.part"
+        archive = storage_dir / filename
         digest = hashlib.sha256()
         total = 0
         try:
@@ -143,6 +160,26 @@ class ImportOrchestrator:
             if total == 0:
                 raise ImportOrchestrationError("import_upload_empty", "Upload не содержит bundle")
             os.replace(temporary, archive)
+
+            if browser_handoff:
+                sidecar = storage_dir / f"{filename}.sha256"
+                delivery_id = filename.removesuffix(".htp.tar.gz")
+                handoff = storage_dir / f"{delivery_id}.htp-handoff.json"
+                self._write_browser_metadata(sidecar, sidecar_payload or b"")
+                self._write_browser_metadata(handoff, handoff_payload or b"")
+                try:
+                    verified_handoff = MediaHandoffService(self.settings).verify_from_root(
+                        handoff_payload or b"",
+                        storage_dir,
+                    )
+                except MediaHandoffError as exc:
+                    raise ImportOrchestrationError(exc.code, exc.message) from exc
+                if verified_handoff.delivery_id != delivery_id:
+                    raise ImportOrchestrationError(
+                        "handoff_delivery_mismatch",
+                        "Signed handoff относится к другому Delivery ID",
+                    )
+
             self._fsync_directory(storage_dir)
             operation_id = self._create_intake_operation(
                 actor_user_id=actor_user_id,
@@ -930,6 +967,24 @@ class ImportOrchestrator:
         key = operation.import_storage_key
         if key and len(key) == 48 and all(ch in "0123456789abcdef" for ch in key):
             shutil.rmtree(self.staging_root / key, ignore_errors=True)
+
+    def _write_browser_metadata(self, path: Path, payload: bytes) -> None:
+        if not payload or len(payload) > self.settings.bundle_max_metadata_bytes:
+            raise ImportOrchestrationError(
+                "handoff_size_invalid",
+                "Browser handoff metadata пусты или превышают допустимый limit",
+            )
+        try:
+            with path.open("xb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(path, 0o600)
+        except OSError as exc:
+            raise ImportOrchestrationError(
+                "handoff_file_invalid",
+                "Не удалось сохранить browser handoff metadata",
+            ) from exc
 
     def _prepare_storage_dir(self, storage_key: str) -> Path:
         self.staging_root.mkdir(parents=True, exist_ok=True, mode=0o700)

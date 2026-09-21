@@ -47,5 +47,14 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertIn("--color-on-accent: var(--color-on-danger-action);", base_css)
 
 
+    def test_nginx_streams_large_uploads_without_hidden_body_limit(self) -> None:
+        nginx = (_REPOSITORY_ROOT / "frontend/nginx.conf").read_text(encoding="utf-8")
+
+        self.assertIn("client_max_body_size 0;", nginx)
+        self.assertIn("proxy_request_buffering off;", nginx)
+        self.assertIn("proxy_send_timeout 3600s;", nginx)
+
+
+
 if __name__ == "__main__":
     unittest.main()
