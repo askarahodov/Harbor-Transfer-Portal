@@ -24,6 +24,7 @@ type KeySettings = {
 }
 
 const props = defineProps<{ contour: Contour }>()
+const emit = defineEmits<{ changed: [] }>()
 const runtime = useRuntimeStore()
 const effectiveContour = computed<Contour>(() => runtime.contour ?? props.contour)
 
@@ -90,7 +91,8 @@ async function generateSigningIdentity(): Promise<void> {
   try {
     await apiClient.post('/settings/keys/signing/generate')
     await loadKeys()
-    message.value = 'SOURCE signing identity создана. Скачайте public key для TARGET trust set.'
+    emit('changed')
+    message.value = 'SOURCE signing identity создана. Скачайте trust package для TARGET.'
   } catch (reason) {
     error.value = safeError('Не удалось создать SOURCE signing identity.', reason)
   } finally {
@@ -170,6 +172,7 @@ async function installSigningKey(event: Event): Promise<void> {
     const pem = await file.text()
     await apiClient.put('/settings/keys/signing', { pem })
     await loadKeys()
+    emit('changed')
     message.value = rotating
       ? 'SOURCE signing key ротирован. Проверьте overlap trust на TARGET.'
       : 'SOURCE signing key установлен.'
@@ -204,6 +207,7 @@ async function importTrustPackage(event: Event): Promise<void> {
       },
     )
     await loadKeys()
+    emit('changed')
     message.value =
       response.data.action === 'unchanged'
         ? 'SOURCE identity уже была trusted; изменений не требуется.'
@@ -232,6 +236,7 @@ async function addTrustedKey(event: Event): Promise<void> {
     const pem = await file.text()
     await apiClient.post('/settings/keys/trusted', { pem, confirm: true })
     await loadKeys()
+    emit('changed')
     message.value = 'Trusted SOURCE public key добавлен.'
   } catch (reason) {
     error.value = safeError('Не удалось добавить trusted public key.', reason)
@@ -260,6 +265,7 @@ async function replaceTrustedKey(key: TrustedKeyStatus, event: Event): Promise<v
       confirm: true,
     })
     await loadKeys()
+    emit('changed')
     message.value = 'Trusted key атомарно заменён в существующем trust slot.'
   } catch (reason) {
     error.value = safeError('Не удалось заменить trusted public key.', reason)
@@ -283,6 +289,7 @@ async function setTrustedState(key: TrustedKeyStatus, enabled: boolean): Promise
       confirm: true,
     })
     await loadKeys()
+    emit('changed')
     message.value = enabled ? 'Trusted key включён.' : 'Trusted key отключён.'
   } catch (reason) {
     error.value = safeError('Не удалось изменить состояние trusted key.', reason)
@@ -303,6 +310,7 @@ async function removeTrustedKey(key: TrustedKeyStatus): Promise<void> {
       params: { confirm: true },
     })
     await loadKeys()
+    emit('changed')
     message.value = 'Trusted key удалён.'
   } catch (reason) {
     error.value = safeError('Не удалось удалить trusted key.', reason)
