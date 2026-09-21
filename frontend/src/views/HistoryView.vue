@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   AlertCircle,
   ChevronLeft,
@@ -16,11 +17,18 @@ import {
   formatDateTimeLocale as formatDate,
   shortDigest as formatShortDigest,
 } from '@/presentation/format'
+import { useAuthStore } from '@/stores/auth'
 import { useHistoryStore } from '@/stores/history'
+import { useRuntimeStore, type PortalContour } from '@/stores/runtime'
 
 const history = useHistoryStore()
+const auth = useAuthStore()
+const runtime = useRuntimeStore()
+const router = useRouter()
 const detailCloseButton = ref<HTMLButtonElement | null>(null)
 let detailTrigger: HTMLElement | null = null
+const resumeError = ref<string | null>(null)
+const terminalStatuses = new Set<OperationStatus>(['COMPLETED', 'FAILED', 'REJECTED', 'CANCELLED'])
 
 const statuses: OperationStatus[] = [
   'CREATED',
