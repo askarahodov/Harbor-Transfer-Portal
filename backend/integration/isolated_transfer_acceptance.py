@@ -269,13 +269,7 @@ def registry_manifest_digest(repository: str, reference: str) -> str | None:
     return digest
 
 
-def settings_for(
-    root: Path,
-    contour: PortalContour,
-    *,
-    private_key: Path | None = None,
-    trusted_dir: Path | None = None,
-) -> Settings:
+def settings_for(root: Path, contour: PortalContour) -> Settings:
     data = root / "data"
     return Settings(
         _env_file=None,
@@ -293,10 +287,8 @@ def settings_for(
         bundle_temp_root=data / "tmp" / "bundles",
         bundle_outgoing_root=data / "outgoing",
         bundle_extract_root=data / "verified",
-        bundle_signing_private_key_file=(
-            private_key or data / "keys" / "source-signing-private.pem"
-        ),
-        bundle_trusted_public_keys_dir=trusted_dir or data / "keys" / "trusted",
+        bundle_signing_private_key_file=data / "keys" / "source-signing-private.pem",
+        bundle_trusted_public_keys_dir=data / "keys" / "trusted",
         import_discovery_root=data / "incoming",
         import_staging_root=data / "staged",
         import_receipt_root=data / "receipts" / "imports",
