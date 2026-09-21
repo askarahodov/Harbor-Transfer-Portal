@@ -173,6 +173,54 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.text()).toContain('Обнаружить готовые пакеты')
   })
 
+  it('uploads bundle, checksum and signed handoff together from the browser', async () => {
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('TARGET')
+    const upload = vi.spyOn(importsApi, 'uploadImportBundle').mockResolvedValue({
+      operation_id: 51,
+      status: 'UPLOADED',
+      intake_mode: 'upload',
+    })
+    vi.spyOn(importsApi, 'getOperation').mockResolvedValue(operation('READY'))
+    vi.spyOn(importsApi, 'getImportPreview').mockResolvedValue(conflictPreview())
+
+    const wrapper = mount(ImportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    const browserInput = wrapper.findAll('input[type="file"]').find(
+      (item) => item.attributes('multiple') !== undefined,
+    )
+    expect(browserInput).toBeDefined()
+
+    const bundle = new File(['bundle'], 'DELIVERY-20260921-ABC123.htp.tar.gz')
+    const sidecar = new File(['checksum\n'], `${bundle.name}.sha256`)
+    const handoff = new File(
+      ['{"signed":true}\n'],
+      'DELIVERY-20260921-ABC123.htp-handoff.json',
+    )
+    Object.defineProperty(browserInput!.element, 'files', {
+      configurable: true,
+      value: [bundle, sidecar, handoff],
+    })
+
+    await browserInput!.trigger('change')
+    await flushPromises()
+
+    expect(upload).toHaveBeenCalledWith(
+      bundle,
+      sidecar,
+      handoff,
+      expect.any(Function),
+    )
+    expect(wrapper.text()).toContain(sidecar.name)
+    expect(wrapper.text()).toContain(handoff.name)
+  })
+
   it('requires VERIFIED signed handoff before media discovery', async () => {
     const runtime = useRuntimeStore(pinia)
     runtime.setContour('TARGET')
@@ -204,7 +252,11 @@ describe('TARGET import wizard view', () => {
     expect(discoverButton?.attributes('disabled')).toBeDefined()
 
     const inputs = wrapper.findAll('input[type="file"]')
-    const handoff = inputs.find((item) => item.attributes('accept')?.includes('.htp-handoff.json'))
+    const handoff = inputs.find(
+      (item) =>
+        item.attributes('accept')?.includes('.htp-handoff.json') &&
+        item.attributes('multiple') === undefined,
+    )
     expect(handoff).toBeDefined()
     Object.defineProperty(handoff!.element, 'files', {
       configurable: true,
