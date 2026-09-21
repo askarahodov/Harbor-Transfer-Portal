@@ -12,6 +12,7 @@ import {
   getOperation,
   uploadImportBundle,
   type ApiErrorInfo,
+  type BrowserPhysicalHandoffFiles,
   type ImportDestinationPlan,
   type ImportDestinationPlanRequest,
   type ImportIntake,
@@ -347,6 +348,49 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     }
   }
 
+  async function uploadPhysicalHandoff(files: BrowserPhysicalHandoffFiles): Promise<boolean> {
+    const { bundle, sidecar, handoff } = files
+    const deliveryId = bundle.name.replace(/\.htp\.tar\.gz$/, '')
+    if (
+      !bundle.name.endsWith('.htp.tar.gz') ||
+      sidecar.name !== `${bundle.name}.sha256` ||
+      handoff.name !== `${deliveryId}.htp-handoff.json`
+    ) {
+      error.value = {
+        code: 'handoff_browser_files_mismatch',
+        message: 'Выберите bundle, matching .sha256 и .htp-handoff.json одного Delivery ID.',
+      }
+      return false
+    }
+
+    selectedFile.value = { name: bundle.name, size: bundle.size }
+    uploadProgress.value = { loaded: 0, total: bundle.size }
+    busy.value = 'upload'
+    clearError()
+    preview.value = null
+    receipt.value = null
+    resetMapping()
+    try {
+      const intake = await uploadImportBundle(
+        bundle,
+        (loaded, total) => {
+          uploadProgress.value = { loaded, total: total ?? bundle.size }
+        },
+        { sidecar, handoff },
+      )
+      await selectOperation(intake.operation_id)
+      return true
+    } catch (requestError) {
+      error.value = apiErrorInfo(
+        requestError,
+        'Не удалось проверить и принять физическую поставку через браузер.',
+      )
+      return false
+    } finally {
+      busy.value = null
+    }
+  }
+
   async function discover(): Promise<void> {
     busy.value = 'discover'
     clearError()
@@ -488,6 +532,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     canExecuteOverwrite,
     canCancel,
     upload,
+    uploadPhysicalHandoff,
     discover,
     selectOperation,
     validateDestinationPlan,
