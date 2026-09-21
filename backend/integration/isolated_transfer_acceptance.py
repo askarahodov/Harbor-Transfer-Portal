@@ -929,7 +929,11 @@ async def target_phase() -> None:
         fail("TARGET handoff delivery id does not match physical bundle")
     if handoff_verified.signing_key_fingerprint != rotation.mutation.fingerprint:
         fail("TARGET handoff signer is not the active rotated SOURCE identity")
-    for physical_file in (archive, sidecar, bootstrap_package, rotation_package):
+    # Keep the optional public trust packages in incoming because this combined
+    # acceptance handoff binds them as part of the same physical media set.
+    # Discovery claims bundle/sidecar/handoff per operation; trust packages remain
+    # immutable reference files across replay scenarios.
+    for physical_file in (archive, sidecar):
         (incoming / physical_file.name).unlink()
 
     factory, manager = environment(settings)
