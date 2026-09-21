@@ -173,8 +173,9 @@ class SourceTrustPackageService:
             ) from exc
 
     def _read_archive(self, payload: bytes) -> dict[str, bytes]:
+        raw_archive = self._bounded_decompress(payload)
         try:
-            with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+            with tarfile.open(fileobj=io.BytesIO(raw_archive), mode="r:") as archive:
                 members = archive.getmembers()
                 names = [member.name for member in members]
                 if (
@@ -220,6 +221,23 @@ class SourceTrustPackageService:
                 "trust_package_archive_invalid",
                 "Trust package повреждён или не читается",
             ) from exc
+
+    def _bounded_decompress(self, payload: bytes) -> bytes:
+        limit = self.settings.bundle_trust_package_max_bytes
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(payload), mode="rb") as compressed:
+                raw = compressed.read(limit + 1)
+        except (OSError, EOFError) as exc:
+            raise TrustPackageError(
+                "trust_package_archive_invalid",
+                "Trust package gzip повреждён или не читается",
+            ) from exc
+        if len(raw) > limit:
+            raise TrustPackageError(
+                "trust_package_decompressed_size_invalid",
+                "Распакованный trust package превышает допустимый размер",
+            )
+        return raw
 
     @staticmethod
     def _archive(files: dict[str, bytes]) -> bytes:
