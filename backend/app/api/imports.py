@@ -63,6 +63,8 @@ def _import_error(exc: ImportOrchestrationError) -> HTTPException:
         "import_preview_unresolved": status.HTTP_409_CONFLICT,
         "import_conflict_blocked": status.HTTP_409_CONFLICT,
         "import_overwrite_disabled": status.HTTP_403_FORBIDDEN,
+        "import_signing_key_untrusted": status.HTTP_409_CONFLICT,
+        "trusted_key_store_invalid": status.HTTP_503_SERVICE_UNAVAILABLE,
         "import_destination_plan_not_ready": status.HTTP_409_CONFLICT,
         "import_destination_plan_required": status.HTTP_409_CONFLICT,
         "import_destination_plan_stale": status.HTTP_409_CONFLICT,
