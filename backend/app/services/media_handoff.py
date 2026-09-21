@@ -153,6 +153,13 @@ class MediaHandoffService:
         )
 
     def verify_from_discovery(self, raw: bytes) -> HandoffVerificationResult:
+        return self.verify_from_directory(raw, self.settings.import_discovery_root)
+
+    def verify_from_directory(
+        self,
+        raw: bytes,
+        root: Path,
+    ) -> HandoffVerificationResult:
         if self.settings.portal_contour is not PortalContour.TARGET:
             raise MediaHandoffError(
                 "handoff_wrong_contour",
@@ -201,7 +208,7 @@ class MediaHandoffService:
                 "Handoff signature не прошла проверку",
             ) from exc
 
-        root = self.settings.import_discovery_root.resolve()
+        root = root.resolve()
         by_role = {item.role: item for item in payload.files}
         self._safe_discovery_file(root, by_role["bundle"])
         for expected in payload.files:
