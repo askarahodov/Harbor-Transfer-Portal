@@ -128,7 +128,9 @@ archive=$(find "$SOURCE_OUT" -maxdepth 1 -type f -name '*.htp.tar.gz' -print)
 [ -n "$archive" ] || fail 'SOURCE did not produce transfer bundle'
 archive_base=$(basename "$archive")
 [ -f "$SOURCE_OUT/$archive_base.sha256" ] || fail 'SOURCE did not produce bundle sidecar'
-[ -f "$SOURCE_OUT/source-public.pem" ] || fail 'SOURCE did not produce public trust material'
+trust_package=$(find "$SOURCE_OUT" -maxdepth 1 -type f -name '*.htp-trust.tar.gz' -print)
+[ -n "$trust_package" ] || fail 'SOURCE did not produce trust package'
+trust_package_base=$(basename "$trust_package")
 
 # Publication files keep their production ownership/mode. The physical transport
 # is a no-network copier that can read UID 10001-owned 0440 files without changing
@@ -138,18 +140,19 @@ docker run --rm \
   --user 0 \
   --entrypoint /bin/sh \
   -e HTP_BUNDLE_NAME="$archive_base" \
+  -e HTP_TRUST_PACKAGE_NAME="$trust_package_base" \
   -v "$SOURCE_OUT:/source:ro" \
   -v "$PHYSICAL:/physical" \
   "$ACCEPTANCE_IMAGE" \
   -c 'set -eu
       cp "/source/$HTP_BUNDLE_NAME" "/physical/$HTP_BUNDLE_NAME"
       cp "/source/$HTP_BUNDLE_NAME.sha256" "/physical/$HTP_BUNDLE_NAME.sha256"
-      cp /source/source-public.pem /physical/source-public.pem
-      chmod 0444 "/physical/$HTP_BUNDLE_NAME" "/physical/$HTP_BUNDLE_NAME.sha256" /physical/source-public.pem'
+      cp "/source/$HTP_TRUST_PACKAGE_NAME" "/physical/$HTP_TRUST_PACKAGE_NAME"
+      chmod 0444 "/physical/$HTP_BUNDLE_NAME" "/physical/$HTP_BUNDLE_NAME.sha256" "/physical/$HTP_TRUST_PACKAGE_NAME"'
 
 physical_count=$(find "$PHYSICAL" -maxdepth 1 -type f | wc -l | tr -d ' ')
 [ "$physical_count" = 3 ] \
-  || fail 'physical transfer contains files outside bundle/sidecar/public trust material'
+  || fail 'physical transfer contains files outside bundle/sidecar/trust package'
 
 printf 'TARGET phase: SOURCE is gone; importing only physically copied material...\n'
 set +e
