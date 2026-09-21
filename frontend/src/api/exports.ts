@@ -180,6 +180,26 @@ export type ExportBundle = {
   download_url: string
 }
 
+export type ExportHandoffFile = {
+  role: 'bundle' | 'bundle-sidecar' | 'source-trust-package' | 'pending-trust-package'
+  name: string
+  sha256: string
+  size_bytes: number
+}
+
+export type ExportHandoffRecord = {
+  payload: {
+    kind: 'harbor-transfer-portal-physical-handoff'
+    schema_version: '1.0'
+    delivery_id: string
+    created_at: string
+    created_by: string
+    signing_key_fingerprint: string
+    files: ExportHandoffFile[]
+  }
+  signature: string
+}
+
 export type ExportDownloadTicket = {
   download_url: string
   expires_in_seconds: number
@@ -263,6 +283,15 @@ export async function cancelOperation(operationId: number): Promise<Operation> {
 
 export async function getExportBundle(operationId: number): Promise<ExportBundle> {
   const response = await apiClient.get<ExportBundle>(`/exports/${operationId}/bundle`)
+  return response.data
+}
+
+export async function getExportHandoffRecord(
+  operationId: number,
+): Promise<ExportHandoffRecord> {
+  const response = await apiClient.get<ExportHandoffRecord>(
+    `/exports/${operationId}/handoff`,
+  )
   return response.data
 }
 
