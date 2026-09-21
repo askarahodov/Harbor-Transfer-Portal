@@ -257,13 +257,21 @@ describe('KeyManagementPanel', () => {
         }),
       )
     const post = vi.spyOn(apiClient, 'post').mockResolvedValue(
-      response({ action: 'added', fingerprint }, 201),
+      response({
+        action: 'added',
+        fingerprint,
+        verification: 'out_of_band',
+        endorsing_fingerprint: null,
+      }, 201),
     )
     const payload = new Uint8Array([31, 139, 8, 0]).buffer
 
     const wrapper = mount(KeyManagementPanel, { props: { contour: 'TARGET' } })
     await flushPromises()
     expect(wrapper.text()).toContain('SOURCE trust не настроен')
+    expect(wrapper.text()).toContain('Первый trust bootstrap')
+
+    await wrapper.get('#target-expected-fingerprint').setValue(fingerprint)
 
     const input = wrapper.get('#target-trust-package')
     Object.defineProperty(input.element, 'files', {
@@ -278,12 +286,70 @@ describe('KeyManagementPanel', () => {
       '/settings/keys/trusted/package',
       payload,
       {
-        params: { confirm: true },
+        params: { confirm: true, expected_fingerprint: fingerprint },
         headers: { 'Content-Type': 'application/gzip' },
       },
     )
     expect(wrapper.text()).toContain('SOURCE trust настроен')
-    expect(wrapper.text()).toContain('SOURCE identity импортирована')
+    expect(wrapper.text()).toContain('independently verified fingerprint')
+  })
+
+  it('imports chained SOURCE rotation without a manual fingerprint', async () => {
+    const pendingFingerprint = `sha256:${'b'.repeat(64)}`
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(apiClient, 'get')
+      .mockResolvedValueOnce(
+        response({
+          contour: 'TARGET',
+          signing_key: null,
+          pending_signing_key: null,
+          trusted_keys: [{ fingerprint, enabled: true }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          contour: 'TARGET',
+          signing_key: null,
+          pending_signing_key: null,
+          trusted_keys: [
+            { fingerprint, enabled: true },
+            { fingerprint: pendingFingerprint, enabled: true },
+          ],
+        }),
+      )
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue(
+      response({
+        action: 'added',
+        fingerprint: pendingFingerprint,
+        verification: 'chained',
+        endorsing_fingerprint: fingerprint,
+      }, 201),
+    )
+    const payload = new Uint8Array([31, 139, 8, 0]).buffer
+
+    const wrapper = mount(KeyManagementPanel, { props: { contour: 'TARGET' } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('staged rotation')
+    expect((wrapper.get('#target-expected-fingerprint').element as HTMLInputElement).value).toBe('')
+
+    const input = wrapper.get('#target-trust-package')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [{ arrayBuffer: () => Promise.resolve(payload) }],
+    })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(post).toHaveBeenCalledWith(
+      '/settings/keys/trusted/package',
+      payload,
+      {
+        params: { confirm: true },
+        headers: { 'Content-Type': 'application/gzip' },
+      },
+    )
+    expect(wrapper.text()).toContain('криптографически подтверждена')
+    expect(wrapper.text()).toContain(fingerprint)
   })
 
   it('confirms and uploads a TARGET public key file', async () => {
