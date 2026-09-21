@@ -20,8 +20,9 @@ const props = withDefaults(
     page?: number
     total?: number
     pageSize?: number
+    maxLength?: number
   }>(),
-  { placeholder: 'Поиск…', disabled: false, loading: false, page: 1, total: 0, pageSize: 25 },
+  { placeholder: 'Поиск…', disabled: false, loading: false, page: 1, total: 0, pageSize: 25, maxLength: 256 },
 )
 
 const emit = defineEmits<{
@@ -33,6 +34,7 @@ const emit = defineEmits<{
 
 const open = ref(false)
 const activeIndex = ref(-1)
+const queryPending = ref(false)
 const input = ref<HTMLInputElement | null>(null)
 const listboxId = `combobox-${Math.random().toString(36).slice(2)}`
 const hasPrevious = computed(() => props.page > 1)
@@ -41,12 +43,14 @@ const activeId = computed(() => activeIndex.value >= 0 ? `${listboxId}-${activeI
 
 function show(): void {
   if (props.disabled) return
+  queryPending.value = false
   open.value = true
   const selected = props.options.findIndex((item) => item.value === props.modelValue)
   activeIndex.value = selected >= 0 ? selected : props.options.length > 0 ? 0 : -1
 }
 
 function choose(index: number): void {
+  if (queryPending.value || props.loading) return
   const option = props.options[index]
   if (!option) return
   emit('select', option.value)
@@ -56,8 +60,9 @@ function choose(index: number): void {
 
 function onInput(event: Event): void {
   emit('update:search', (event.target as HTMLInputElement).value)
+  queryPending.value = true
   open.value = true
-  activeIndex.value = 0
+  activeIndex.value = -1
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -73,7 +78,7 @@ function onKeydown(event: KeyboardEvent): void {
     activeIndex.value = (activeIndex.value + delta + props.options.length) % props.options.length
     return
   }
-  if (event.key === 'Enter' && open.value && activeIndex.value >= 0) {
+  if (event.key === 'Enter' && open.value && activeIndex.value >= 0 && !queryPending.value && !props.loading) {
     event.preventDefault()
     choose(activeIndex.value)
   }
@@ -101,6 +106,7 @@ async function toggle(): Promise<void> {
         :value="search"
         :placeholder="modelValue || placeholder"
         :disabled="disabled"
+        :maxlength="maxLength"
         :aria-label="label"
         :aria-expanded="open"
         :aria-controls="listboxId"
@@ -116,7 +122,7 @@ async function toggle(): Promise<void> {
     </div>
 
     <div v-if="open" class="search-combobox__popover">
-      <div v-if="loading" class="search-combobox__state" role="status">Загрузка…</div>
+      <div v-if="loading || queryPending" class="search-combobox__state" role="status">Поиск…</div>
       <div v-else-if="options.length === 0" class="search-combobox__state" role="status">Ничего не найдено</div>
       <ul v-else :id="listboxId" role="listbox" :aria-label="label">
         <li
