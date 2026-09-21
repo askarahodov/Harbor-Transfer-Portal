@@ -41,6 +41,12 @@ class TrustedKeyStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class SigningPublicKey:
+    fingerprint: str
+    pem: bytes
+
+
+@dataclass(frozen=True, slots=True)
 class KeyMutation:
     action: str
     fingerprint: str
@@ -60,6 +66,51 @@ class KeyManagementService:
         return SigningKeyStatus(
             configured=True,
             fingerprint=ed25519_public_key_fingerprint(key.public_key()),
+        )
+
+    def generate_signing_private_key(self) -> KeyMutation:
+        self._require_source()
+        if self.signing_path.is_symlink():
+            raise KeyManagementError(
+                "signing_key_invalid",
+                "SOURCE signing key path не может быть symlink",
+            )
+        if self.signing_path.exists():
+            if not self.signing_path.is_file():
+                raise KeyManagementError(
+                    "signing_key_invalid",
+                    "SOURCE signing key path должен быть обычным файлом",
+                )
+            raise KeyManagementError(
+                "signing_key_already_configured",
+                "SOURCE signing identity уже настроена; используйте rotation вместо повторной генерации",
+            )
+
+        key = Ed25519PrivateKey.generate()
+        fingerprint = ed25519_public_key_fingerprint(key.public_key())
+        normalized = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        self._atomic_write(self.signing_path, normalized, 0o600)
+        return KeyMutation(action="generated", fingerprint=fingerprint)
+
+    def signing_public_key(self) -> SigningPublicKey:
+        self._require_source()
+        if not self.signing_path.exists() and not self.signing_path.is_symlink():
+            raise KeyManagementError(
+                "signing_key_not_configured",
+                "SOURCE signing private key не настроен",
+            )
+        key = self._read_private_key_file(self.signing_path)
+        public_key = key.public_key()
+        return SigningPublicKey(
+            fingerprint=ed25519_public_key_fingerprint(public_key),
+            pem=public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            ),
         )
 
     def install_signing_private_key(self, pem: str) -> KeyMutation:
