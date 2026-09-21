@@ -266,6 +266,13 @@ export async function getExportBundle(operationId: number): Promise<ExportBundle
   return response.data
 }
 
+export async function downloadExportHandoff(operationId: number): Promise<Blob> {
+  const response = await apiClient.get<Blob>(`/exports/${operationId}/handoff`, {
+    responseType: 'blob',
+  })
+  return response.data
+}
+
 export async function createExportDownloadTicket(
   operationId: number,
 ): Promise<ExportDownloadTicket> {
