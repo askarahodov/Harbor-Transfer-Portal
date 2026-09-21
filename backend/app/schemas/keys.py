@@ -46,3 +46,12 @@ class SigningRotationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_fingerprint: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+
+
+class TrustedKeyRetirementImpactResponse(BaseModel):
+    fingerprint: str
+    enabled: bool
+    enabled_key_count: int
+    historical_import_count: int
+    blocking_operation_ids: list[int] = Field(default_factory=list)
+    can_retire: bool
