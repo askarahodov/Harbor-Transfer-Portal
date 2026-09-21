@@ -13,6 +13,12 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
 
+leave_paused=${PORTAL_BACKUP_LEAVE_PAUSED:-0}
+case "$leave_paused" in
+  0|1) ;;
+  *) fail 'PORTAL_BACKUP_LEAVE_PAUSED must be 0 or 1' ;;
+esac
+
 [ -d "$INSTALL_INPUT" ] || fail "install directory not found: $INSTALL_INPUT"
 INSTALL_DIR=$(CDPATH= cd -- "$INSTALL_INPUT" && pwd -P)
 cd "$INSTALL_DIR"
@@ -107,8 +113,14 @@ mv "$archive.tmp" "$archive"
 chmod 0600 "$archive.sha256"
 
 if [ "$paused" -eq 1 ]; then
-  docker compose --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/compose.yaml" unpause >/dev/null
-  paused=0
+  if [ "$leave_paused" -eq 1 ]; then
+    # Transfer ownership of the pause lifecycle to the caller (upgrade.sh).
+    paused=0
+    printf 'Portal remains paused for transactional upgrade.\n' >&2
+  else
+    docker compose --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/compose.yaml" unpause >/dev/null
+    paused=0
+  fi
 fi
 
 printf 'Backup created (contains secrets; protect it accordingly): %s\n' "$archive" >&2
