@@ -81,8 +81,8 @@ describe('ImportWorkspaceView', () => {
     expect(mapping).not.toBeNull()
     expect(mapping?.closest('.panel')).toBe(panel)
     expect(panel?.contains(mapping)).toBe(true)
-    expect(mapping?.textContent).toContain('Куда импортировать артефакты')
-    expect(mapping?.textContent).toContain('Destination plan')
+    expect(mapping?.textContent).toContain('Куда будут импортированы артефакты')
+    expect(mapping?.textContent).toContain('Назначение в TARGET Harbor')
 
     wrapper.unmount()
   })

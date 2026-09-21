@@ -77,6 +77,7 @@ describe('PageShell runtime mode switching', () => {
     await flushPromises()
 
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('TARGET'))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('незавершённые EXPORT/IMPORT операции будут отменены'))
     expect(put).toHaveBeenCalledWith('/runtime/mode', { mode: 'TARGET' })
     expect(useRuntimeStore(pinia).contour).toBe('TARGET')
     await vi.waitFor(() => {

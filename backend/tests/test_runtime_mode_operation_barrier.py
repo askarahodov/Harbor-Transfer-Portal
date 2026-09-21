@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
@@ -194,3 +195,101 @@ def test_submit_backfills_legacy_snapshot_only_in_compatible_mode(tmp_path: Path
         assert operation is not None
         assert operation.runtime_mode == "SOURCE"
         assert operation.runtime_mode_version == 1
+
+
+def test_pending_switch_blocks_new_operation_start_and_completes_after_cancel(
+    tmp_path: Path,
+) -> None:
+    settings, session_factory, manager, actor_id = _environment(tmp_path)
+    operation_id = manager.create_operation(
+        operation_type=OperationType.EXPORT,
+        actor_user_id=actor_id,
+        actor_username="admin",
+    )
+
+    with session_factory() as session:
+        actor = session.get(User, actor_id)
+        assert actor is not None
+        runtime = RuntimeModeService(session, settings)
+        preparation = runtime.begin_switch(PortalContour.TARGET)
+        assert preparation.blocking_operation_ids == (operation_id,)
+
+        try:
+            with pytest.raises(RuntimeModeError) as exc_info:
+                manager.create_operation(
+                    operation_type=OperationType.EXPORT,
+                    actor_user_id=actor_id,
+                    actor_username="admin",
+                )
+            assert exc_info.value.code == "runtime_mode_switch_in_progress"
+
+            asyncio.run(manager.cancel(operation_id))
+            result = runtime.complete_switch(
+                preparation,
+                actor=actor,
+                cancelled_operation_ids=[operation_id],
+            )
+        finally:
+            runtime.abort_switch(preparation.token)
+
+    assert result.current is PortalContour.TARGET
+    assert result.cancelled_operation_ids == (operation_id,)
+    with session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        assert operation.status is OperationStatus.CANCELLED
+
+
+def test_active_worker_stops_before_runtime_mode_changes(tmp_path: Path) -> None:
+    settings, session_factory, manager, actor_id = _environment(tmp_path)
+
+    async def scenario() -> int:
+        await manager.startup()
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def worker(context) -> None:  # type: ignore[no-untyped-def]
+            context.transition(OperationStatus.VALIDATING)
+            context.transition(OperationStatus.RUNNING)
+            entered.set()
+            await release.wait()
+
+        handle = manager.create_and_submit(
+            operation_type=OperationType.EXPORT,
+            actor_user_id=actor_id,
+            actor_username="admin",
+            worker=worker,
+        )
+        await asyncio.wait_for(entered.wait(), timeout=5)
+
+        with session_factory() as session:
+            actor = session.get(User, actor_id)
+            assert actor is not None
+            runtime = RuntimeModeService(session, settings)
+            preparation = runtime.begin_switch(PortalContour.TARGET)
+            try:
+                await manager.cancel(handle.operation_id)
+                operation = manager.get_operation(handle.operation_id)
+                assert operation is not None
+                assert operation.status is OperationStatus.CANCELLED
+
+                result = runtime.complete_switch(
+                    preparation,
+                    actor=actor,
+                    cancelled_operation_ids=[handle.operation_id],
+                )
+            finally:
+                runtime.abort_switch(preparation.token)
+
+        await manager.shutdown()
+        assert result.current is PortalContour.TARGET
+        return handle.operation_id
+
+    operation_id = asyncio.run(scenario())
+
+    with session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        assert operation.status is OperationStatus.CANCELLED
+        snapshot = RuntimeModeService(session, settings).current_snapshot()
+        assert snapshot.mode is PortalContour.TARGET

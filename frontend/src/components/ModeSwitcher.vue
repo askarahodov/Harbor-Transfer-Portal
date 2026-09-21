@@ -5,6 +5,7 @@ const props = defineProps<{
   contour: PortalContour
   busy?: boolean
   errorCode?: string | null
+  cancelledOperationIds?: number[]
 }>()
 
 const emit = defineEmits<{
@@ -19,12 +20,21 @@ function select(mode: PortalContour): void {
 function errorMessage(code: string | null | undefined): string | null {
   if (!code) return null
   if (code === 'runtime_mode_busy') {
-    return 'Дождитесь завершения текущей операции перед переключением режима.'
+    return 'Не все незавершённые операции удалось безопасно остановить. Режим не изменён.'
+  }
+  if (code === 'runtime_mode_switch_in_progress') {
+    return 'Другое переключение режима уже выполняется.'
+  }
+  if (code === 'runtime_mode_cancel_failed') {
+    return 'Не удалось безопасно отменить одну из незавершённых операций. Режим не изменён.'
+  }
+  if (code === 'runtime_mode_switch_invalid' || code === 'runtime_mode_switch_stale') {
+    return 'Состояние режима изменилось во время переключения. Обновите страницу и повторите.'
   }
   if (code === 'runtime_mode_invalid_response') {
     return 'Сервер не подтвердил новый режим. Текущий режим не изменён.'
   }
-  return 'Не удалось переключить режим. Текущий режим не изменён.'
+  return `Не удалось переключить режим (${code}). Текущий режим не изменён.`
 }
 </script>
 
@@ -56,6 +66,15 @@ function errorMessage(code: string | null | undefined): string | null {
     <span v-if="errorMessage(errorCode)" class="mode-control__error" role="status" aria-live="polite">
       {{ errorMessage(errorCode) }}
     </span>
+    <span
+      v-else-if="cancelledOperationIds?.length"
+      class="mode-control__notice"
+      role="status"
+      aria-live="polite"
+    >
+      Отменены незавершённые операции:
+      {{ cancelledOperationIds.map((operationId) => `#${operationId}`).join(', ') }}.
+    </span>
   </div>
 </template>
 
@@ -67,5 +86,6 @@ function errorMessage(code: string | null | undefined): string | null {
 .mode-switcher__option:hover:not(:disabled), .mode-switcher__option:focus-visible { color: var(--color-text); }
 .mode-switcher__option--active { background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-control); cursor: default; }
 .mode-switcher__option:disabled:not(.mode-switcher__option--active) { opacity: .55; cursor: wait; }
-.mode-control__error { flex-basis: 100%; max-width: 360px; color: var(--color-danger-text); font-size: 12px; }
+.mode-control__error { flex-basis: 100%; max-width: 420px; color: var(--color-danger-text); font-size: 12px; }
+.mode-control__notice { flex-basis: 100%; max-width: 420px; color: var(--color-success-text); font-size: 12px; }
 </style>

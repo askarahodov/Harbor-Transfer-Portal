@@ -15,9 +15,13 @@ type RuntimeModeUpdatePayload = {
   previous?: unknown
   current?: unknown
   changed?: unknown
+  cancelled_operation_ids?: unknown
 }
 
-type FastApiErrorEnvelope = {
+type ApiErrorEnvelope = {
+  error?: {
+    code?: unknown
+  }
   detail?: {
     code?: unknown
   }
@@ -31,15 +35,29 @@ function isReleaseVersion(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function clearModeBoundWorkspacePointers(): void {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.removeItem('htp.export.operation-id')
+  window.sessionStorage.removeItem('htp.import.operation-id')
+}
+
 function readInjectedContour(): PortalContour | null {
   if (typeof window === 'undefined') return null
   const contour = window.__HTP_CONFIG__?.contour
   return isPortalContour(contour) ? contour : null
 }
 
+function cancelledOperationIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (item): item is number => typeof item === 'number' && Number.isInteger(item) && item > 0,
+  )
+}
+
 function modeSwitchErrorCode(error: unknown): string {
-  if (!axios.isAxiosError<FastApiErrorEnvelope>(error)) return 'runtime_mode_unavailable'
-  const code = error.response?.data?.detail?.code
+  if (!axios.isAxiosError<ApiErrorEnvelope>(error)) return 'runtime_mode_unavailable'
+  const payload = error.response?.data
+  const code = payload?.error?.code ?? payload?.detail?.code
   return typeof code === 'string' && code ? code : 'runtime_mode_unavailable'
 }
 
@@ -50,6 +68,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const errorCode = ref<string | null>(null)
   const switching = ref(false)
   const switchErrorCode = ref<string | null>(null)
+  const lastCancelledOperationIds = ref<number[]>([])
   let switchGeneration = 0
 
   const contourLabel = computed(() => contour.value ?? '—')
@@ -60,6 +79,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
 
   function clearSwitchError(): void {
     switchErrorCode.value = null
+  }
+
+  function clearSwitchNotice(): void {
+    lastCancelledOperationIds.value = []
   }
 
   async function loadRuntime(): Promise<void> {
@@ -93,6 +116,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     const generation = ++switchGeneration
     switching.value = true
     switchErrorCode.value = null
+    lastCancelledOperationIds.value = []
     try {
       const response = await apiClient.put<RuntimeModeUpdatePayload>('/runtime/mode', {
         mode: target,
@@ -103,6 +127,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
         return false
       }
       contour.value = response.data.current
+      clearModeBoundWorkspacePointers()
+      lastCancelledOperationIds.value = cancelledOperationIds(
+        response.data.cancelled_operation_ids,
+      )
       return true
     } catch (error: unknown) {
       if (generation === switchGeneration) {
@@ -124,8 +152,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
     errorCode,
     switching,
     switchErrorCode,
+    lastCancelledOperationIds,
     setContour,
     clearSwitchError,
+    clearSwitchNotice,
     loadRuntime,
     switchMode,
   }

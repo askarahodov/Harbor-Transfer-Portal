@@ -224,7 +224,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     } catch (requestError) {
       error.value = apiErrorInfo(
         requestError,
-        'Не удалось проверить destination mapping в TARGET Harbor.',
+        'Не удалось проверить TARGET Harbor. Проверьте доступность Harbor, проекты назначения и права записи.',
       )
       return false
     } finally {
@@ -421,7 +421,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     if (!destinationPlan.value || mappingDirty.value || !destinationPlan.value.valid) {
       error.value = {
         code: 'import_destination_plan_required',
-        message: 'Сначала подтвердите актуальный destination mapping для TARGET Harbor.',
+        message: 'После изменения назначения сначала нажмите «Проверить TARGET».',
       }
       return false
     }
