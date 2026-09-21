@@ -156,12 +156,15 @@ describe('TARGET import wizard view', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('input[type="file"]').attributes('accept')).toContain('.htp.tar.gz')
+    const browserInput = wrapper.get('input[type="file"][multiple]')
+    expect(browserInput.attributes('accept')).toContain('.htp.tar.gz')
+    expect(browserInput.attributes('accept')).toContain('.sha256')
+    expect(browserInput.attributes('accept')).toContain('.htp-handoff.json')
     const dropZone = wrapper.get('.drop-zone')
     expect(dropZone.attributes('tabindex')).toBe('0')
     expect(dropZone.attributes('role')).toBe('button')
     expect(dropZone.attributes('aria-describedby')).toBe('bundle-drop-help')
-    expect(wrapper.get('#bundle-drop-help').text()).toContain('Enter или Space')
+    expect(wrapper.get('#bundle-drop-help').text()).toContain('.sha256 + .htp-handoff.json')
 
     await dropZone.trigger('keydown', { key: 'Enter' })
     await dropZone.trigger('keydown', { key: ' ' })
@@ -171,6 +174,48 @@ describe('TARGET import wizard view', () => {
     expect(emptyState.attributes('role')).toBe('status')
     expect(emptyState.text()).toContain('Готовые пакеты не найдены')
     expect(wrapper.text()).toContain('Обнаружить готовые пакеты')
+  })
+
+
+  it('uploads bundle, sidecar and signed handoff together through browser intake', async () => {
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('TARGET')
+    const upload = vi.spyOn(importsApi, 'uploadImportBundle').mockRejectedValue(
+      new Error('synthetic stop after browser intake request'),
+    )
+
+    const wrapper = mount(ImportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    const delivery = 'DELIVERY-20260921-BROWSER01'
+    const bundle = new File(['bundle'], `${delivery}.htp.tar.gz`, {
+      type: 'application/gzip',
+    })
+    const sidecar = new File(['checksum'], `${delivery}.htp.tar.gz.sha256`, {
+      type: 'text/plain',
+    })
+    const handoff = new File(['{}'], `${delivery}.htp-handoff.json`, {
+      type: 'application/json',
+    })
+    const input = wrapper.get('input[type="file"][multiple]')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [bundle, sidecar, handoff],
+    })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(upload).toHaveBeenCalledOnce()
+    expect(upload.mock.calls[0]?.[0]).toBe(bundle)
+    expect(upload.mock.calls[0]?.[2]).toEqual({ sidecar, handoff })
+    expect(wrapper.text()).toContain(bundle.name)
+    expect(wrapper.text()).toContain(sidecar.name)
+    expect(wrapper.text()).toContain(handoff.name)
   })
 
   it('requires VERIFIED signed handoff before media discovery', async () => {
