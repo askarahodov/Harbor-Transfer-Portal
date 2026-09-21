@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import axios from 'axios'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import { apiClient } from '@/api/client'
 import KeyManagementPanel from '@/components/KeyManagementPanel.vue'
+import { useRuntimeStore } from '@/stores/runtime'
 
 type HarborSettings = {
   contour: 'SOURCE' | 'TARGET'
@@ -44,6 +45,7 @@ type KeyReadiness = {
 }
 
 const MIB = 1024 ** 2
+const runtime = useRuntimeStore()
 const settings = ref<HarborSettings | null>(null)
 const transferSettings = ref<TransferSettings | null>(null)
 const url = ref('')
@@ -72,6 +74,9 @@ const readinessLoading = ref(false)
 const readinessHarbor = ref<boolean | null>(null)
 const readinessKeys = ref<KeyReadiness | null>(null)
 
+const effectiveContour = computed(
+  () => runtime.contour ?? settings.value?.contour ?? null,
+)
 const enabledTrustedKeys = computed(
   () => readinessKeys.value?.trusted_keys.filter((item) => item.enabled).length ?? 0,
 )
@@ -80,9 +85,9 @@ const identityReady = computed(
 )
 const firstRunReady = computed(() => {
   if (!settings.value || readinessHarbor.value !== true || !readinessKeys.value) return false
-  return settings.value.contour === 'SOURCE'
+  return effectiveContour.value === 'SOURCE'
     ? identityReady.value
-    : enabledTrustedKeys.value > 0
+    : effectiveContour.value === 'TARGET' && enabledTrustedKeys.value > 0
 })
 
 function safeError(fallback: string, value: unknown): string {
@@ -299,6 +304,18 @@ async function testConnection(): Promise<void> {
   }
 }
 
+watch(
+  () => runtime.contour,
+  (next, previous) => {
+    if (next && next !== previous) {
+      readinessKeys.value = null
+      readinessHarbor.value = null
+      void loadSettings()
+      void loadReadiness()
+    }
+  },
+)
+
 onMounted(() => {
   void loadSettings()
   void loadReadiness()
@@ -312,7 +329,7 @@ onMounted(() => {
         <h1 id="settings-title">Настройки</h1>
         <p>Локальный Harbor и безопасные политики переноса этого изолированного контура.</p>
       </div>
-      <strong class="contour" aria-label="Текущий контур">{{ settings?.contour ?? '—' }}</strong>
+      <strong class="contour" aria-label="Текущий контур">{{ effectiveContour ?? '—' }}</strong>
     </header>
 
     <p v-if="loading">Загрузка настроек…</p>
@@ -321,7 +338,7 @@ onMounted(() => {
         <div class="readiness-heading">
           <div>
             <h2 id="first-run-readiness-title">First-run readiness</h2>
-            <p class="status">Проверка минимальных условий для {{ settings.contour }} workflow.</p>
+            <p class="status">Проверка минимальных условий для {{ effectiveContour ?? settings.contour }} workflow.</p>
           </div>
           <button type="button" class="secondary" :disabled="readinessLoading" @click="loadReadiness">
             {{ readinessLoading ? 'Проверка…' : 'Обновить readiness' }}
@@ -331,7 +348,7 @@ onMounted(() => {
           <li :class="{ ready: readinessHarbor === true }">
             Harbor: {{ readinessHarbor === true ? 'доступен' : readinessHarbor === false ? 'не готов' : 'проверяется' }}
           </li>
-          <template v-if="settings.contour === 'SOURCE'">
+          <template v-if="effectiveContour === 'SOURCE'">
             <li :class="{ ready: identityReady }">
               Signing identity: {{ identityReady ? 'готова' : 'не настроена' }}
             </li>
@@ -400,7 +417,7 @@ onMounted(() => {
         </button>
       </section>
 
-      <KeyManagementPanel :contour="settings.contour" @changed="loadReadiness" />
+      <KeyManagementPanel :contour="effectiveContour ?? settings.contour" @changed="loadReadiness" />
 
       <form class="card card--wide transfer-form" @submit.prevent="saveTransferSettings">
         <div>
