@@ -53,7 +53,17 @@ class SourceTrustPackageService:
             public = self.keys.signing_public_key()
         except KeyManagementError as exc:
             raise TrustPackageError(exc.code, exc.message) from exc
+        return self._build(public)
 
+    def build_pending(self) -> TrustPackageBuildResult:
+        self._require_source()
+        try:
+            public = self.keys.pending_signing_public_key()
+        except KeyManagementError as exc:
+            raise TrustPackageError(exc.code, exc.message) from exc
+        return self._build(public)
+
+    def _build(self, public) -> TrustPackageBuildResult:
         identity = {
             "algorithm": "Ed25519",
             "fingerprint": public.fingerprint,
