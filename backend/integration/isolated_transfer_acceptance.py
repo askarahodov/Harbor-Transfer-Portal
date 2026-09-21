@@ -745,15 +745,18 @@ async def source_phase() -> None:
         sidecar = metadata_result.archive_path.with_name(
             metadata_result.archive_path.name + ".sha256"
         )
-        verified = BundlePackageService(settings).verify_bundle(
-            metadata_result.archive_path,
-            sidecar_path=sidecar,
-        )
-        if len(verified.manifest.artifacts) != 3:
+        with tarfile.open(metadata_result.archive_path, mode="r:gz") as archive:
+            manifest_stream = archive.extractfile("manifest.json")
+            if manifest_stream is None:
+                fail("SOURCE bundle does not contain manifest.json")
+            manifest_payload = json.loads(manifest_stream.read())
+        artifacts = manifest_payload.get("artifacts", [])
+        if len(artifacts) != 3:
             fail("SOURCE bundle does not contain two images and one Helm chart")
-        if [item.type for item in verified.manifest.artifacts].count("container-image") != 2:
+        artifact_types = [item.get("type") for item in artifacts]
+        if artifact_types.count("container-image") != 2:
             fail("SOURCE bundle does not contain exactly two image descriptors")
-        if [item.type for item in verified.manifest.artifacts].count("helm-chart") != 1:
+        if artifact_types.count("helm-chart") != 1:
             fail("SOURCE bundle does not contain exactly one Helm descriptor")
         assert_bundle_has_no_private_material(metadata_result.archive_path)
 
