@@ -47,6 +47,18 @@ function response<T>(data: T): AxiosResponse<T> {
 async function mountSettings() {
   vi.spyOn(apiClient, 'get').mockImplementation((url) => {
     if (url === '/settings/transfer') return Promise.resolve(response(transferSettings))
+    if (url === '/harbor/connection') {
+      return Promise.resolve(response({ connected: true, version: '2.13.0', auth_mode: 'basic' }))
+    }
+    if (url === '/settings/keys') {
+      return Promise.resolve(
+        response({
+          contour: 'SOURCE',
+          signing_key: { configured: true, fingerprint: `sha256:${'a'.repeat(64)}` },
+          trusted_keys: [],
+        }),
+      )
+    }
     return Promise.resolve(response(safeSettings))
   })
   const wrapper = mount(SettingsView)
@@ -79,6 +91,10 @@ describe('Harbor settings view', () => {
       'source-a=target-a',
     )
     expect(wrapper.text()).toContain('Revision 3')
+    expect(wrapper.text()).toContain('First-run readiness')
+    expect(wrapper.text()).toContain('Harbor: доступен')
+    expect(wrapper.text()).toContain('Signing identity: готова')
+    expect(wrapper.text()).toContain('Trust package: можно скачать')
   })
 
   it('saves only non-secret Harbor settings through PATCH', async () => {
