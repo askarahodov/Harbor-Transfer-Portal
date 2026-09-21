@@ -232,7 +232,14 @@ def test_mixed_export_creates_one_signed_verified_bundle(tmp_path: Path) -> None
     }
 
     metadata = orchestrator.bundle_metadata(operation_id)
+    handoff = orchestrator.handoff_metadata(operation_id)
     assert metadata.archive_size == metadata.archive_path.stat().st_size
+    assert handoff.handoff_path.is_file()
+    assert handoff.delivery_id == operation.delivery_id
+    assert operation.handoff_filename == handoff.handoff_path.name
+    assert operation.handoff_sha256 == handoff.sha256
+    assert operation.handoff_size_bytes == handoff.handoff_size
+    assert operation.bundle_signing_key_fingerprint == handoff.signing_key_fingerprint
     assert metadata.archive_path.parent == settings.bundle_outgoing_root.resolve()
     sidecar = metadata.archive_path.with_name(metadata.archive_path.name + ".sha256")
     verified = package_service.verify_bundle(metadata.archive_path, sidecar_path=sidecar)

@@ -27,12 +27,15 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from app.config import PortalContour, Settings
 from app.db.base import Base
 from app.db.models import Operation as OperationModel
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.artifacts import ArtifactKind
-from app.domain.bundle import ArtifactStatus, OperationStatus
+from app.domain.bundle import ArtifactStatus, BundleManifest, OperationStatus
 from app.domain.imports import ImportPreviewState
 from app.schemas.exports import ExportArtifactSelection
 from app.schemas.imports import (
@@ -52,6 +55,7 @@ from app.services.import_destination_plan import ImportDestinationPlanOrchestrat
 from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.key_management import KeyManagementService
+from app.services.media_handoff import MediaHandoffError, MediaHandoffService
 from app.services.operation_manager import OperationManager
 from app.services.report_service import iter_operation_csv
 from app.services.skopeo_service import ImageReference, SkopeoService, TargetState
@@ -67,6 +71,7 @@ EXPECTED_SOURCE_FINGERPRINT = os.environ.get(
 BOOTSTRAP_TRUST_NAME = "bootstrap.htp-trust.tar.gz"
 ROTATION_TRUST_NAME = "rotation.htp-trust.tar.gz"
 OUT_OF_BAND_FINGERPRINT_NAME = "source-fingerprint.out-of-band.txt"
+HANDOFF_SUFFIX = ".htp-handoff.json"
 
 IMAGE_REPOSITORY = "team/images/app"
 IMAGE_TAG = "1.0.0"
@@ -372,7 +377,7 @@ def package_chart(settings: Settings) -> Path:
     return package
 
 
-def transfer_bundle() -> tuple[Path, Path, Path, Path]:
+def transfer_bundle() -> tuple[Path, Path, Path, Path, Path]:
     archives = sorted(
         path
         for path in TRANSFER_DIR.glob("*.htp.tar.gz")
@@ -384,11 +389,15 @@ def transfer_bundle() -> tuple[Path, Path, Path, Path]:
     sidecar = archive.with_name(archive.name + ".sha256")
     bootstrap = TRANSFER_DIR / BOOTSTRAP_TRUST_NAME
     rotation = TRANSFER_DIR / ROTATION_TRUST_NAME
+    delivery_id = archive.name.removesuffix(".htp.tar.gz")
+    handoff = TRANSFER_DIR / f"{delivery_id}{HANDOFF_SUFFIX}"
     if not sidecar.is_file():
         fail("physical transfer is missing bundle sidecar")
     if not bootstrap.is_file() or not rotation.is_file():
         fail("physical transfer is missing bootstrap/rotation trust package")
-    return archive, sidecar, bootstrap, rotation
+    if not handoff.is_file():
+        fail("physical transfer is missing signed handoff")
+    return archive, sidecar, bootstrap, rotation, handoff
 
 
 def stage_incoming(settings: Settings, archive: Path, sidecar: Path) -> None:
@@ -396,6 +405,10 @@ def stage_incoming(settings: Settings, archive: Path, sidecar: Path) -> None:
     incoming.mkdir(parents=True, exist_ok=True)
     shutil.copy2(archive, incoming / archive.name)
     shutil.copy2(sidecar, incoming / sidecar.name)
+    delivery_id = archive.name.removesuffix(".htp.tar.gz")
+    handoff = TRANSFER_DIR / f"{delivery_id}{HANDOFF_SUFFIX}"
+    if handoff.is_file():
+        shutil.copy2(handoff, incoming / handoff.name)
 
 
 async def discover_one(
@@ -754,6 +767,27 @@ async def source_phase() -> None:
         shutil.copy2(sidecar, transfer_sidecar)
         transfer_bootstrap.write_bytes(bootstrap_trust.payload)
         transfer_rotation.write_bytes(rotation_trust.payload)
+
+        manifest = BundleManifest.model_validate(manifest_payload)
+        loaded_private = serialization.load_pem_private_key(
+            settings.bundle_signing_private_key_file.read_bytes(),
+            password=None,
+        )
+        if not isinstance(loaded_private, Ed25519PrivateKey):
+            fail("SOURCE active signing key is not Ed25519")
+        physical_handoff = MediaHandoffService(settings).build(
+            manifest=manifest,
+            bundle_path=transfer_archive,
+            sidecar_path=transfer_sidecar,
+            private_key=loaded_private,
+            optional_files=(
+                ("source-trust-package", transfer_bootstrap),
+                ("pending-trust-package", transfer_rotation),
+            ),
+        )
+        transfer_handoff = TRANSFER_DIR / physical_handoff.filename
+        transfer_handoff.write_bytes(physical_handoff.payload)
+
         out_of_band_fingerprint.write_text(
             f"{generated_identity.fingerprint}\n",
             encoding="ascii",
@@ -763,6 +797,7 @@ async def source_phase() -> None:
             transfer_sidecar,
             transfer_bootstrap,
             transfer_rotation,
+            transfer_handoff,
             out_of_band_fingerprint,
         ):
             os.chmod(path, 0o644)
@@ -840,7 +875,7 @@ async def target_phase() -> None:
     if WORK_ROOT.exists():
         shutil.rmtree(WORK_ROOT)
     WORK_ROOT.mkdir(parents=True)
-    archive, sidecar, bootstrap_package, rotation_package = transfer_bundle()
+    archive, sidecar, bootstrap_package, rotation_package, handoff = transfer_bundle()
     if not EXPECTED_SOURCE_FINGERPRINT:
         fail("TARGET acceptance is missing out-of-band SOURCE fingerprint")
     settings = settings_for(WORK_ROOT, PortalContour.TARGET)
@@ -863,6 +898,43 @@ async def target_phase() -> None:
         or rotation.endorsing_fingerprint != EXPECTED_SOURCE_FINGERPRINT
     ):
         fail(f"TARGET chained SOURCE rotation verification failed: {rotation}")
+
+    incoming = settings.import_discovery_root
+    incoming.mkdir(parents=True, exist_ok=True)
+
+    # A signed handoff must detect media tamper before any import operation or
+    # registry mutation occurs.
+    for physical_file in (archive, sidecar, bootstrap_package, rotation_package):
+        shutil.copy2(physical_file, incoming / physical_file.name)
+    (incoming / archive.name).unlink()
+    (incoming / archive.name).write_bytes(b"tampered-physical-media\n")
+    try:
+        MediaHandoffService(settings).verify_from_discovery(handoff.read_bytes())
+    except MediaHandoffError as exc:
+        if exc.code != "handoff_file_mismatch":
+            raise
+    else:
+        fail("tampered physical media unexpectedly passed signed handoff verification")
+    if registry_manifest_digest(f"{IMAGE_TARGET_PROJECT}/images/app", IMAGE_TAG) is not None:
+        fail("handoff tamper verification mutated TARGET registry")
+    for physical_file in (archive, sidecar, bootstrap_package, rotation_package):
+        (incoming / physical_file.name).unlink(missing_ok=True)
+
+    for physical_file in (archive, sidecar, bootstrap_package, rotation_package):
+        shutil.copy2(physical_file, incoming / physical_file.name)
+    handoff_verified = MediaHandoffService(settings).verify_from_discovery(
+        handoff.read_bytes()
+    )
+    if handoff_verified.delivery_id != archive.name.removesuffix(".htp.tar.gz"):
+        fail("TARGET handoff delivery id does not match physical bundle")
+    if handoff_verified.signing_key_fingerprint != rotation.mutation.fingerprint:
+        fail("TARGET handoff signer is not the active rotated SOURCE identity")
+    # Keep the optional public trust packages in incoming because this combined
+    # acceptance handoff binds them as part of the same physical media set.
+    # Discovery claims bundle/sidecar/handoff per operation; trust packages remain
+    # immutable reference files across replay scenarios.
+    for physical_file in (archive, sidecar):
+        (incoming / physical_file.name).unlink()
 
     factory, manager = environment(settings)
     await manager.startup()
@@ -1139,19 +1211,22 @@ async def target_phase() -> None:
         if registry_manifest_digest(primary_target_repository, IMAGE_TAG) != conflict_digest:
             fail("blocked mapped conflict mutated TARGET image")
 
-        # Signed-bundle tamper remains fail-closed even after destination mapping.
+        # Bundle v1 signature tamper is an internal cryptographic failure distinct
+        # from physical-media handoff tamper. Verify it directly so media discovery
+        # remains reserved for complete bundle+sidecar+handoff sets.
         with tempfile.TemporaryDirectory(prefix="htp-tamper-") as temp_name:
             tampered = Path(temp_name) / "tampered.htp.tar.gz"
             tamper_signature(archive, tampered)
             tampered_sidecar = tampered.with_name(tampered.name + ".sha256")
-            stage_incoming(settings, tampered, tampered_sidecar)
-            tampered_id = await discover_one(manager, orchestrator)
-            tampered_operation = manager.get_operation(tampered_id)
-            if (
-                tampered_operation is None
-                or tampered_operation.status is not OperationStatus.REJECTED
-            ):
-                fail(f"tampered signed bundle was not REJECTED: {tampered_operation}")
+            try:
+                BundlePackageService(settings).verify_bundle(
+                    tampered,
+                    sidecar_path=tampered_sidecar,
+                )
+            except Exception:
+                pass
+            else:
+                fail("tampered Bundle v1 signature unexpectedly verified")
 
         if registry_manifest_digest(primary_target_repository, IMAGE_TAG) != conflict_digest:
             fail("tampered bundle mutated TARGET registry")

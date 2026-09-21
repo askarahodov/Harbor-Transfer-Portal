@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from alembic.config import Config
 from fastapi.testclient import TestClient
@@ -79,11 +80,17 @@ def test_incoming_discovery_uses_archive_limit_not_browser_upload_limit(
     archive.write_bytes(b"x" * (MIB + 1))
     sidecar = incoming / "large-media.htp.tar.gz.sha256"
     sidecar.write_text("placeholder\n", encoding="utf-8")
+    handoff = incoming / "large-media.htp-handoff.json"
+    handoff.write_text("{}\n", encoding="utf-8")
 
     request = Request({"type": "http", "app": app, "headers": []})
     orchestrator = get_import_orchestrator(request)
     monkeypatch.setattr(orchestrator, "_create_intake_operation", lambda **_kwargs: 123)
     monkeypatch.setattr(orchestrator, "_submit_preview", lambda _operation_id: None)
+    monkeypatch.setattr(
+        "app.services.import_orchestrator.MediaHandoffService.verify_from_discovery",
+        lambda _service, _payload: SimpleNamespace(delivery_id="large-media"),
+    )
 
     discovered = asyncio.run(
         orchestrator.discover_ready(
