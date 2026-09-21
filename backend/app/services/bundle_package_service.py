@@ -240,6 +240,11 @@ class BundlePackageService:
                     final_sidecar.unlink(missing_ok=True)
                     final_archive.unlink(missing_ok=True)
                     raise BundlePackageError(exc.code, exc.message) from exc
+                except OSError:
+                    final_handoff.unlink(missing_ok=True)
+                    final_sidecar.unlink(missing_ok=True)
+                    final_archive.unlink(missing_ok=True)
+                    raise
         except BundlePackageError:
             raise
         except OSError as exc:
