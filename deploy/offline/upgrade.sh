@@ -3,6 +3,27 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd -P)
 PREVIOUS_INPUT=${1:-$SCRIPT_DIR}
+old_quiesced=0
+target_tmp=
+
+cleanup() {
+  status=$?
+  if [ "$old_quiesced" -eq 1 ] && [ -n "${PREVIOUS_DIR:-}" ]; then
+    if docker compose --env-file "$PREVIOUS_DIR/.env" -f "$PREVIOUS_DIR/compose.yaml" \
+      unpause >/dev/null 2>&1; then
+      :
+    else
+      printf 'ERROR: failed to unpause previous Portal after aborted upgrade pre-start phase\n' >&2
+      [ "$status" -ne 0 ] || status=1
+    fi
+  fi
+  if [ -n "$target_tmp" ]; then
+    rm -f "$target_tmp"
+  fi
+  trap - 0 HUP INT TERM
+  exit "$status"
+}
+trap cleanup 0 HUP INT TERM
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -82,8 +103,11 @@ if [ "$PREVIOUS_DIR" != "$SCRIPT_DIR" ] && { [ -e "$SCRIPT_DIR/.env" ] || [ -L "
 fi
 
 printf 'Creating mandatory pre-upgrade backup of %s...\n' "$old_version"
-backup_archive=$(PORTAL_BACKUP_DIR="${PORTAL_BACKUP_DIR:-$PREVIOUS_DIR/backups}" sh "$SCRIPT_DIR/backup.sh" "$PREVIOUS_DIR")
+backup_archive=$(PORTAL_BACKUP_DIR="${PORTAL_BACKUP_DIR:-$PREVIOUS_DIR/backups}" \
+  PORTAL_BACKUP_LEAVE_PAUSED=1 \
+  sh "$SCRIPT_DIR/backup.sh" "$PREVIOUS_DIR")
 [ -f "$backup_archive" ] || fail 'backup script did not produce an archive'
+old_quiesced=1
 
 printf 'Loading prebuilt images for %s...\n' "$new_version"
 docker load -i images/backend.tar
@@ -98,7 +122,7 @@ for image in "$backend_image" "$frontend_image"; do
 done
 
 umask 077
-target_tmp="$SCRIPT_DIR/.env.upgrade.$"
+target_tmp=$(mktemp "$SCRIPT_DIR/.env.upgrade.XXXXXX")
 
 if ! awk -v version="$new_version" '
   BEGIN { seen = 0 }
@@ -112,11 +136,11 @@ if ! awk -v version="$new_version" '
   { print }
   END { if (seen == 0) exit 3 }
 ' "$source_env" > "$target_tmp"; then
-  rm -f "$target_tmp"
   fail 'failed to prepare upgraded .env'
 fi
 chmod 0600 "$target_tmp"
 mv "$target_tmp" "$SCRIPT_DIR/.env"
+target_tmp=
 
 timeout=${PORTAL_INSTALL_TIMEOUT_SECONDS:-180}
 case "$timeout" in
@@ -129,10 +153,13 @@ esac
 printf 'Starting Harbor Transfer Portal %s with persistent volume preserved...\n' "$new_version"
 if docker compose --env-file "$SCRIPT_DIR/.env" -f "$SCRIPT_DIR/compose.yaml" \
   up -d --no-build --pull never --wait --wait-timeout "$timeout"; then
+  old_quiesced=0
+  trap - 0 HUP INT TERM
   printf '\nUPGRADE_OK: %s -> %s\n' "$old_version" "$new_version"
   printf 'Pre-upgrade backup: %s\n' "$backup_archive"
   printf 'Persistent project/volume identity remains harbor-transfer-portal.\n'
 else
+  old_quiesced=0
   rm -f "$SCRIPT_DIR/.env"
   printf 'ERROR: startup of version %s failed; starting automatic matching-version rollback.\n' "$new_version" >&2
   printf 'ERROR: rollback source backup: %s\n' "$backup_archive" >&2
@@ -141,6 +168,7 @@ else
     printf 'ROLLBACK_OK: restored Harbor Transfer Portal %s from pre-upgrade backup.\n' "$old_version" >&2
     printf 'ROLLBACK_OK: active installation remains %s\n' "$PREVIOUS_DIR" >&2
     printf 'ROLLBACK_OK: backup preserved at %s\n' "$backup_archive" >&2
+    trap - 0 HUP INT TERM
     exit 2
   fi
 
