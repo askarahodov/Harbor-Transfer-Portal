@@ -164,8 +164,8 @@ docker run --rm \
       chmod 0444         "/physical/$HTP_BUNDLE_NAME"         "/physical/$HTP_BUNDLE_NAME.sha256"         "/physical/$HTP_HANDOFF_NAME"         /physical/bootstrap.htp-trust.tar.gz         /physical/rotation.htp-trust.tar.gz'
 
 physical_count=$(find "$PHYSICAL" -maxdepth 1 -type f | wc -l | tr -d ' ')
-[ "$physical_count" = 4 ] \
-  || fail 'physical transfer contains files outside bundle/sidecar/two trust packages'
+[ "$physical_count" = 5 ] \
+  || fail 'physical transfer contains files outside bundle/sidecar/handoff/two trust packages'
 [ ! -e "$PHYSICAL/source-fingerprint.out-of-band.txt" ] \
   || fail 'out-of-band SOURCE fingerprint leaked onto physical media'
 
