@@ -12,7 +12,14 @@ import {
 } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
-import type { ArtifactStatus, ImportPreviewState, OperationStatus } from '@/api/imports'
+import {
+  apiErrorInfo,
+  verifyPhysicalHandoff,
+  type ArtifactStatus,
+  type ImportPreviewState,
+  type MediaHandoffVerification,
+  type OperationStatus,
+} from '@/api/imports'
 import HarborProjectCreationPanel from '@/components/HarborProjectCreationPanel.vue'
 import ImportDestinationMapping from '@/components/ImportDestinationMapping.vue'
 import StatePlaceholder from '@/components/StatePlaceholder.vue'
@@ -29,7 +36,12 @@ const wizard = useImportWizardStore()
 const runtime = useRuntimeStore()
 const auth = useAuthStore()
 const fileInput = ref<HTMLInputElement | null>(null)
+const handoffInput = ref<HTMLInputElement | null>(null)
 const dragging = ref(false)
+const handoffBusy = ref(false)
+const handoffState = ref<'IDLE' | 'VERIFIED' | 'MISMATCH' | 'UNTRUSTED'>('IDLE')
+const handoffResult = ref<MediaHandoffVerification | null>(null)
+const handoffMessage = ref('')
 
 const steps = [
   { id: 1, label: 'Приём и проверка' },
@@ -110,6 +122,45 @@ function artifactLabel(item: { repository: string; reference?: string | null; na
 
 function chooseFile(): void {
   fileInput.value?.click()
+}
+
+function chooseHandoff(): void {
+  handoffInput.value?.click()
+}
+
+function groupedFingerprint(value: string | null | undefined): string {
+  if (!value) return '—'
+  const prefix = value.startsWith('sha256:') ? 'sha256:' : ''
+  const body = prefix ? value.slice(prefix.length) : value
+  const grouped = body.match(/.{1,8}/g)?.join(' ') ?? body
+  return `${prefix}${grouped}`
+}
+
+async function verifyHandoffFile(file: File | undefined): Promise<void> {
+  if (!file) return
+  handoffBusy.value = true
+  handoffState.value = 'IDLE'
+  handoffResult.value = null
+  handoffMessage.value = ''
+  try {
+    const result = await verifyPhysicalHandoff(file)
+    handoffResult.value = result
+    handoffState.value = 'VERIFIED'
+    handoffMessage.value = 'Подпись и фактический состав transfer media подтверждены.'
+  } catch (error) {
+    const info = apiErrorInfo(error, 'Не удалось проверить signed handoff.')
+    handoffMessage.value = info.message
+    handoffState.value =
+      info.code === 'handoff_signer_untrusted' ? 'UNTRUSTED' : 'MISMATCH'
+  } finally {
+    handoffBusy.value = false
+  }
+}
+
+async function onHandoffChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  await verifyHandoffFile(input.files?.[0])
+  input.value = ''
 }
 
 async function submitFile(file: File | undefined): Promise<void> {
@@ -257,11 +308,48 @@ onBeforeUnmount(() => {
 
           <article class="intake-card">
             <h3>Большой пакет / transfer media</h3>
-            <p>Скопируйте archive и финальный <code>.sha256</code> sidecar в configured incoming directory. Портал claim-ит только готовые пары.</p>
+            <p>Скопируйте archive, финальный <code>.sha256</code> и signed <code>.htp-handoff.json</code> в TARGET. Сначала проверьте handoff, затем запускайте discovery.</p>
+
+            <div class="handoff-box">
+              <div class="handoff-box__heading">
+                <div>
+                  <strong>Signed physical handoff</strong>
+                  <small>Проверка выполняется до import и не изменяет Harbor.</small>
+                </div>
+                <span :class="['handoff-state', `handoff-state--${handoffState.toLowerCase()}`]">
+                  {{ handoffState }}
+                </span>
+              </div>
+              <button
+                class="button button--secondary"
+                type="button"
+                :disabled="handoffBusy || wizard.busy !== null"
+                @click="chooseHandoff"
+              >
+                <ShieldCheck :size="18" aria-hidden="true" />
+                {{ handoffBusy ? 'Проверка…' : 'Проверить handoff' }}
+              </button>
+              <input
+                ref="handoffInput"
+                class="visually-hidden"
+                type="file"
+                accept=".json,.htp-handoff.json,application/json"
+                @change="onHandoffChange"
+              >
+              <p v-if="handoffMessage" class="handoff-message">{{ handoffMessage }}</p>
+              <dl v-if="handoffResult" class="handoff-metadata">
+                <div><dt>Delivery</dt><dd>{{ handoffResult.delivery_id }}</dd></div>
+                <div><dt>Created by</dt><dd>{{ handoffResult.created_by }}</dd></div>
+                <div><dt>UTC</dt><dd>{{ formatDate(handoffResult.created_at) }}</dd></div>
+                <div><dt>Signer</dt><dd><code>{{ groupedFingerprint(handoffResult.signing_key_fingerprint) }}</code></dd></div>
+                <div><dt>Bundle SHA-256</dt><dd><code>{{ groupedFingerprint(handoffResult.bundle_sha256) }}</code></dd></div>
+              </dl>
+            </div>
+
             <button
               class="button button--secondary"
               type="button"
-              :disabled="wizard.busy !== null"
+              :disabled="wizard.busy !== null || handoffState !== 'VERIFIED'"
               @click="wizard.discover"
             >
               <FolderSearch :size="18" aria-hidden="true" />
@@ -614,6 +702,17 @@ th { color: var(--color-text-muted); font-size: 12px; }
 .button--secondary { border-color: var(--color-border-control); background: var(--color-surface); color: var(--color-text); }
 .button--danger { background: var(--color-danger-text); color: var(--color-on-accent); }
 .icon-button { min-width: 40px; min-height: 40px; display: grid; place-items: center; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
+.handoff-box { display: grid; gap: var(--space-3); margin-bottom: var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.handoff-box__heading { display: flex; justify-content: space-between; gap: var(--space-3); align-items: flex-start; }
+.handoff-box__heading small { display: block; margin-top: var(--space-1); color: var(--color-text-muted); }
+.handoff-state { display: inline-flex; padding: var(--space-1) var(--space-2); border-radius: var(--radius-full); background: var(--color-surface-subtle); font-size: 12px; font-weight: 800; }
+.handoff-state--verified { background: var(--color-success-surface); color: var(--color-success-text); }
+.handoff-state--mismatch, .handoff-state--untrusted { background: var(--color-danger-surface); color: var(--color-danger-text); }
+.handoff-message { margin: 0; color: var(--color-text-muted); }
+.handoff-metadata { display: grid; gap: var(--space-2); margin: 0; }
+.handoff-metadata div { display: grid; gap: var(--space-1); }
+.handoff-metadata dt { color: var(--color-text-muted); font-size: 12px; text-transform: uppercase; }
+.handoff-metadata dd { margin: 0; overflow-wrap: anywhere; }
 .muted { color: var(--color-text-muted); }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 @media (max-width: 900px) {
