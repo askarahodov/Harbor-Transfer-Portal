@@ -14,6 +14,26 @@ import {
 export { apiErrorInfo, cancelOperation, getOperation }
 export type { ApiErrorInfo, ArtifactStatus, Operation, OperationStatus }
 
+export type BrowserPhysicalHandoffFiles = {
+  bundle: File
+  sidecar: File
+  handoff: File
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length))
+    binary += String.fromCharCode(...chunk)
+  }
+  return btoa(binary)
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  return bytesToBase64(new Uint8Array(await file.arrayBuffer()))
+}
+
 export type ImportIntakeMode = 'upload' | 'incoming'
 export type ImportPreviewState = 'NEW' | 'SAME' | 'CONFLICT' | 'UNKNOWN' | 'ERROR'
 
@@ -178,11 +198,18 @@ export async function verifyPhysicalHandoff(
 export async function uploadImportBundle(
   file: File,
   onProgress?: (loaded: number, total: number | null) => void,
+  physicalHandoff?: Pick<BrowserPhysicalHandoffFiles, 'sidecar' | 'handoff'>,
 ): Promise<ImportIntake> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/gzip',
+  }
+  if (physicalHandoff) {
+    headers['X-HTP-Bundle-Filename'] = file.name
+    headers['X-HTP-Sidecar-Base64'] = await fileToBase64(physicalHandoff.sidecar)
+    headers['X-HTP-Handoff-Base64'] = await fileToBase64(physicalHandoff.handoff)
+  }
   const response = await apiClient.post<ImportIntake>('/imports/upload', file, {
-    headers: {
-      'Content-Type': 'application/gzip',
-    },
+    headers,
     timeout: 0,
     onUploadProgress: (event: AxiosProgressEvent) => {
       onProgress?.(event.loaded, event.total ?? null)
