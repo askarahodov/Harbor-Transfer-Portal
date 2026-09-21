@@ -20,18 +20,21 @@ export type BrowserPhysicalHandoffFiles = {
   handoff: File
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const chunk = bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length))
-    binary += String.fromCharCode(...chunk)
-  }
-  return btoa(binary)
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  return bytesToBase64(new Uint8Array(await file.arrayBuffer()))
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error('Не удалось прочитать metadata file'))
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : ''
+      const separator = result.indexOf(',')
+      if (separator < 0) {
+        reject(new Error('Не удалось закодировать metadata file'))
+        return
+      }
+      resolve(result.slice(separator + 1))
+    }
+    reader.readAsDataURL(file)
+  })
 }
 
 export type ImportIntakeMode = 'upload' | 'incoming'
