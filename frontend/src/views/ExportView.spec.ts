@@ -18,6 +18,11 @@ function button(wrapper: VueWrapper, label: string) {
   return found
 }
 
+async function chooseOption(wrapper: VueWrapper, label: string, value: string): Promise<void> {
+  await wrapper.get(`select[aria-label="${label}"]`).setValue(value)
+  await flushPromises()
+}
+
 function mockHappyPath(): void {
   vi.spyOn(exportsApi, 'getHarborConnection').mockResolvedValue({
     connected: true,
@@ -151,12 +156,10 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
 
     expect(wrapper.get('h1').text()).toContain('Отправка артефактов')
-    expect(wrapper.get('#project-search').attributes('type')).toBe('search')
+    expect(wrapper.get('select[aria-label="Проект Harbor"]').exists()).toBe(true)
 
-    await button(wrapper, 'team').trigger('click')
-    await flushPromises()
-    await button(wrapper, 'apps/demo').trigger('click')
-    await flushPromises()
+    await chooseOption(wrapper, 'Проект Harbor', 'team')
+    await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
 
     expect(wrapper.text()).toContain('1.0.0')
     expect(wrapper.text()).toContain('1.0.1')
@@ -230,10 +233,8 @@ describe('SOURCE export wizard view', () => {
     })
     await flushPromises()
 
-    await button(wrapper, 'team').trigger('click')
-    await flushPromises()
-    await button(wrapper, 'apps/demo').trigger('click')
-    await flushPromises()
+    await chooseOption(wrapper, 'Проект Harbor', 'team')
+    await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
     await wrapper.findAll('input[type="checkbox"]')[0]!.setValue(true)
     await button(wrapper, 'Проверить выбранное').trigger('click')
     await flushPromises()
@@ -279,10 +280,8 @@ describe('SOURCE export wizard view', () => {
     })
     await flushPromises()
 
-    await button(wrapper, 'team').trigger('click')
-    await flushPromises()
-    await button(wrapper, 'apps/demo').trigger('click')
-    await flushPromises()
+    await chooseOption(wrapper, 'Проект Harbor', 'team')
+    await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
 
     expect(wrapper.text()).toContain('OCI (не поддерживается)')
     expect(wrapper.text()).toContain('Не поддерживается export v1')
@@ -293,7 +292,7 @@ describe('SOURCE export wizard view', () => {
     expect(button(wrapper, 'Проверить выбранное').attributes('disabled')).toBeDefined()
   })
 
-  it('searches automatically after debounce while explicit submit stays immediate', async () => {
+  it('filters artifacts automatically after debounce in the compact selector', async () => {
     vi.useFakeTimers()
     mockHappyPath()
     const runtime = useRuntimeStore(pinia)
@@ -306,37 +305,20 @@ describe('SOURCE export wizard view', () => {
     })
     await flushPromises()
 
-    const projectsSpy = vi.mocked(exportsApi.listHarborProjects)
-    projectsSpy.mockClear()
-    const input = wrapper.get('#project-search')
+    await chooseOption(wrapper, 'Проект Harbor', 'team')
+    await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
+    const artifactsSpy = vi.mocked(exportsApi.listHarborArtifacts)
+    artifactsSpy.mockClear()
+    const input = wrapper.get('input[aria-label="Фильтр версии, tag или digest"]')
 
-    await input.setValue('rep')
-    expect(projectsSpy).not.toHaveBeenCalled()
+    await input.setValue('1.0')
     await vi.advanceTimersByTimeAsync(299)
-    expect(projectsSpy).not.toHaveBeenCalled()
-
-    await input.setValue('report')
-    await vi.advanceTimersByTimeAsync(299)
-    expect(projectsSpy).not.toHaveBeenCalled()
+    expect(artifactsSpy).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(1)
     await flushPromises()
 
-    expect(projectsSpy).toHaveBeenCalledTimes(1)
-    expect(projectsSpy).toHaveBeenLastCalledWith(1, 25, 'report')
-
-    projectsSpy.mockClear()
-    await input.setValue('team')
-    const projectSearchForm = wrapper.findAll('form.search-row')[0]
-    if (!projectSearchForm) throw new Error('Project search form not found')
-    await projectSearchForm.trigger('submit')
-    await flushPromises()
-
-    expect(projectsSpy).toHaveBeenCalledTimes(1)
-    expect(projectsSpy).toHaveBeenLastCalledWith(1, 25, 'team')
-    await vi.advanceTimersByTimeAsync(300)
-    await flushPromises()
-    expect(projectsSpy).toHaveBeenCalledTimes(1)
-
+    expect(artifactsSpy).toHaveBeenCalledTimes(1)
+    expect(artifactsSpy).toHaveBeenLastCalledWith('team', 'apps/demo', 1, 25, '1.0')
     wrapper.unmount()
   })
 
@@ -354,6 +336,6 @@ describe('SOURCE export wizard view', () => {
 
     expect(wrapper.text()).toContain('Экспорт доступен только в контуре SOURCE')
     expect(connection).not.toHaveBeenCalled()
-    expect(wrapper.find('#project-search').exists()).toBe(false)
+    expect(wrapper.find('select[aria-label="Проект Harbor"]').exists()).toBe(false)
   })
 })
