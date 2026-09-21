@@ -513,6 +513,94 @@ def test_streaming_upload_limit_cleans_partial_file(tmp_path: Path) -> None:
     )
 
 
+def test_browser_physical_upload_verifies_triplet_before_preview(tmp_path: Path) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    _settings, manager, _skopeo, _helm, orchestrator = _target_environment(
+        tmp_path,
+        trusted_dir,
+    )
+
+    async def scenario() -> int:
+        await manager.startup()
+        started = await orchestrator.accept_upload(
+            _stream(bundle.archive_path.read_bytes()),
+            content_length=bundle.archive_path.stat().st_size,
+            actor_user_id=None,  # type: ignore[arg-type]
+            actor_username="target-operator",
+            filename=bundle.archive_path.name,
+            sidecar=bundle.sidecar_path.read_bytes(),
+            handoff=bundle.handoff_path.read_bytes(),
+        )
+        assert started.handoff_verification is not None
+        assert started.handoff_verification.delivery_id == DELIVERY_ID
+        assert started.handoff_verification.bundle_sha256 == bundle.archive_sha256
+        await manager.wait(started.operation_id)
+        await manager.shutdown()
+        return started.operation_id
+
+    operation_id = asyncio.run(scenario())
+    operation = manager.get_operation(operation_id)
+    assert operation is not None
+    assert operation.status is OperationStatus.READY
+    assert operation.bundle_filename == bundle.archive_path.name
+
+
+def test_browser_physical_upload_rejects_tampered_bundle_before_operation(
+    tmp_path: Path,
+) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    settings, _manager, _skopeo, _helm, orchestrator = _target_environment(
+        tmp_path,
+        trusted_dir,
+    )
+    tampered = bundle.archive_path.read_bytes() + b"tampered"
+
+    async def scenario() -> None:
+        with pytest.raises(ImportOrchestrationError) as exc_info:
+            await orchestrator.accept_upload(
+                _stream(tampered),
+                content_length=len(tampered),
+                actor_user_id=None,  # type: ignore[arg-type]
+                actor_username="target-operator",
+                filename=bundle.archive_path.name,
+                sidecar=bundle.sidecar_path.read_bytes(),
+                handoff=bundle.handoff_path.read_bytes(),
+            )
+        assert exc_info.value.code == "handoff_file_mismatch"
+
+    asyncio.run(scenario())
+    assert not settings.import_staging_root.exists() or not any(
+        settings.import_staging_root.iterdir()
+    )
+
+
+def test_browser_physical_upload_requires_complete_triplet(tmp_path: Path) -> None:
+    _private_key, trusted_dir = _write_keys(tmp_path)
+    settings, _manager, _skopeo, _helm, orchestrator = _target_environment(
+        tmp_path,
+        trusted_dir,
+    )
+
+    async def scenario() -> None:
+        with pytest.raises(ImportOrchestrationError) as exc_info:
+            await orchestrator.accept_upload(
+                _stream(b"bundle"),
+                content_length=6,
+                actor_user_id=None,  # type: ignore[arg-type]
+                actor_username="target-operator",
+                filename="DELIVERY-20260921-ABC123.htp.tar.gz",
+                sidecar=b"checksum\n",
+            )
+        assert exc_info.value.code == "browser_handoff_required"
+
+    asyncio.run(scenario())
+    assert not settings.import_staging_root.exists() or not any(
+        settings.import_staging_root.iterdir()
+    )
+
+
 def test_incoming_discovery_requires_readiness_sidecar_and_handoff(tmp_path: Path) -> None:
     private_key, trusted_dir = _write_keys(tmp_path)
     bundle = _build_bundle(tmp_path, private_key, trusted_dir)
