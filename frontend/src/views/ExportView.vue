@@ -364,7 +364,7 @@ onBeforeUnmount(() => {
 
         <div class="compact-selector" aria-label="Выбор артефакта Harbor">
           <SearchCombobox
-            label="1. Проект Harbor"
+            label="Проект Harbor"
             :model-value="wizard.selectedProject ?? ''"
             :search="wizard.projectSearch"
             :options="projectOptions"
@@ -379,7 +379,7 @@ onBeforeUnmount(() => {
           />
 
           <SearchCombobox
-            label="2. Репозиторий Harbor"
+            label="Репозиторий Harbor"
             :model-value="wizard.selectedRepository ?? ''"
             :search="wizard.repositorySearch"
             :options="repositoryOptions"
