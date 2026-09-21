@@ -35,6 +35,25 @@ describe('SearchCombobox', () => {
     expect(input.attributes('aria-expanded')).toBe('false')
   })
 
+  it('blocks stale selection while a new search is pending and caps input length', async () => {
+    const wrapper = mount(SearchCombobox, {
+      props: { label: 'Проект Harbor', modelValue: '', search: '', options },
+    })
+    const input = wrapper.get('[role="combobox"]')
+    expect(input.attributes('maxlength')).toBe('256')
+    await input.trigger('focus')
+    await input.setValue('bet')
+    expect(wrapper.text()).toContain('Поиск…')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('select')).toBeUndefined()
+
+    await wrapper.setProps({ loading: true, search: 'bet' })
+    await wrapper.setProps({ loading: false, options: [options[1]!] })
+    await input.trigger('keydown', { key: 'ArrowDown' })
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('select')?.[0]).toEqual(['beta'])
+  })
+
   it('exposes paged navigation without enabling unavailable directions', async () => {
     const wrapper = mount(SearchCombobox, {
       props: { label: 'Проект Harbor', modelValue: '', search: '', options, page: 2, total: 60, pageSize: 25 },
