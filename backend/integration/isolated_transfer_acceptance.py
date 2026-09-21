@@ -54,9 +54,11 @@ from app.services.helm_oci_service import (
 from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
 from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_orchestrator import ImportOrchestrationError
+from app.services.key_management import KeyManagementService
 from app.services.operation_manager import OperationManager
 from app.services.report_service import iter_operation_csv
 from app.services.skopeo_service import ImageReference, SkopeoService, TargetState
+from app.services.source_trust_package import SourceTrustPackageService
 
 REGISTRY_URL = os.environ.get("HTP_ACCEPTANCE_REGISTRY_URL", "").rstrip("/")
 TRANSFER_DIR = Path(os.environ.get("HTP_ACCEPTANCE_TRANSFER_DIR", "/transfer"))
@@ -320,7 +322,7 @@ def settings_for(
         bundle_outgoing_root=data / "outgoing",
         bundle_extract_root=data / "verified",
         bundle_signing_private_key_file=(
-            private_key or data / "keys" / "unused-private.pem"
+            private_key or data / "keys" / "source-signing-private.pem"
         ),
         bundle_trusted_public_keys_dir=trusted_dir or data / "keys" / "trusted",
         import_discovery_root=data / "incoming",
@@ -400,15 +402,22 @@ def package_chart(settings: Settings) -> Path:
 
 
 def transfer_bundle() -> tuple[Path, Path, Path]:
-    archives = sorted(TRANSFER_DIR.glob("*.htp.tar.gz"))
+    archives = sorted(
+        path
+        for path in TRANSFER_DIR.glob("*.htp.tar.gz")
+        if not path.name.endswith(".htp-trust.tar.gz")
+    )
     if len(archives) != 1:
         fail(f"expected exactly one physical bundle, got {len(archives)}")
     archive = archives[0]
     sidecar = archive.with_name(archive.name + ".sha256")
-    public_key = TRANSFER_DIR / "source-public.pem"
-    if not sidecar.is_file() or not public_key.is_file():
-        fail("physical transfer is missing sidecar or SOURCE public key")
-    return archive, sidecar, public_key
+    trust_packages = sorted(TRANSFER_DIR.glob("*.htp-trust.tar.gz"))
+    if len(trust_packages) != 1:
+        fail(f"expected exactly one SOURCE trust package, got {len(trust_packages)}")
+    trust_package = trust_packages[0]
+    if not sidecar.is_file():
+        fail("physical transfer is missing bundle sidecar")
+    return archive, sidecar, trust_package
 
 
 def stage_incoming(settings: Settings, archive: Path, sidecar: Path) -> None:
@@ -630,13 +639,11 @@ async def source_phase() -> None:
         shutil.rmtree(WORK_ROOT)
     WORK_ROOT.mkdir(parents=True)
     TRANSFER_DIR.mkdir(parents=True, exist_ok=True)
-    private_key, trusted_dir, public_key = write_keys(WORK_ROOT)
-    settings = settings_for(
-        WORK_ROOT,
-        PortalContour.SOURCE,
-        private_key=private_key,
-        trusted_dir=trusted_dir,
-    )
+    settings = settings_for(WORK_ROOT, PortalContour.SOURCE)
+    generated_identity = KeyManagementService(settings).generate_signing_private_key()
+    trust_package = SourceTrustPackageService(settings).build()
+    if trust_package.fingerprint != generated_identity.fingerprint:
+        fail("SOURCE trust package fingerprint does not match generated identity")
     factory, manager = environment(settings)
     await manager.startup()
     try:
@@ -752,11 +759,11 @@ async def source_phase() -> None:
 
         transfer_archive = TRANSFER_DIR / metadata_result.archive_path.name
         transfer_sidecar = TRANSFER_DIR / sidecar.name
-        transfer_public_key = TRANSFER_DIR / "source-public.pem"
+        transfer_trust_package = TRANSFER_DIR / trust_package.filename
         shutil.copy2(metadata_result.archive_path, transfer_archive)
         shutil.copy2(sidecar, transfer_sidecar)
-        shutil.copy2(public_key, transfer_public_key)
-        for path in (transfer_archive, transfer_sidecar, transfer_public_key):
+        transfer_trust_package.write_bytes(trust_package.payload)
+        for path in (transfer_archive, transfer_sidecar, transfer_trust_package):
             os.chmod(path, 0o644)
 
         print(
@@ -830,11 +837,13 @@ async def target_phase() -> None:
     if WORK_ROOT.exists():
         shutil.rmtree(WORK_ROOT)
     WORK_ROOT.mkdir(parents=True)
-    archive, sidecar, transferred_public_key = transfer_bundle()
-    trusted_dir = WORK_ROOT / "keys" / "trusted"
-    trusted_dir.mkdir(parents=True)
-    shutil.copy2(transferred_public_key, trusted_dir / "source.pem")
-    settings = settings_for(WORK_ROOT, PortalContour.TARGET, trusted_dir=trusted_dir)
+    archive, sidecar, transferred_trust_package = transfer_bundle()
+    settings = settings_for(WORK_ROOT, PortalContour.TARGET)
+    trust_mutation = SourceTrustPackageService(settings).import_package(
+        transferred_trust_package.read_bytes()
+    )
+    if trust_mutation.action != "added":
+        fail(f"fresh TARGET trust bootstrap was not create-only: {trust_mutation.action}")
     factory, manager = environment(settings)
     await manager.startup()
     try:
