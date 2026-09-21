@@ -42,6 +42,8 @@ const handoffBusy = ref(false)
 const handoffState = ref<'IDLE' | 'VERIFIED' | 'MISMATCH' | 'UNTRUSTED'>('IDLE')
 const handoffResult = ref<MediaHandoffVerification | null>(null)
 const handoffMessage = ref('')
+const browserSelectionError = ref('')
+const browserCompanionNames = ref<string[]>([])
 
 const steps = [
   { id: 1, label: 'Приём и проверка' },
@@ -163,20 +165,36 @@ async function onHandoffChange(event: Event): Promise<void> {
   input.value = ''
 }
 
-async function submitFile(file: File | undefined): Promise<void> {
-  if (!file) return
-  await wizard.upload(file)
+async function submitBrowserFiles(files: FileList | null | undefined): Promise<void> {
+  if (!files || files.length === 0) return
+  browserSelectionError.value = ''
+  const selected = Array.from(files)
+  const bundle = selected.find((file) => file.name.endsWith('.htp.tar.gz'))
+  if (!bundle) {
+    browserSelectionError.value = 'Выберите .htp.tar.gz, соответствующий .sha256 и signed .htp-handoff.json.'
+    return
+  }
+  const sidecar = selected.find((file) => file.name === `${bundle.name}.sha256`)
+  const deliveryId = bundle.name.slice(0, -'.htp.tar.gz'.length)
+  const handoff = selected.find((file) => file.name === `${deliveryId}.htp-handoff.json`)
+  if (!sidecar || !handoff || selected.length !== 3) {
+    browserSelectionError.value =
+      'Browser intake принимает ровно три файла одной доставки: bundle, .sha256 и .htp-handoff.json.'
+    return
+  }
+  browserCompanionNames.value = [sidecar.name, handoff.name]
+  await wizard.upload(bundle, sidecar, handoff)
 }
 
 async function onFileChange(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
-  await submitFile(input.files?.[0])
+  await submitBrowserFiles(input.files)
   input.value = ''
 }
 
 async function onDrop(event: DragEvent): Promise<void> {
   dragging.value = false
-  await submitFile(event.dataTransfer?.files?.[0])
+  await submitBrowserFiles(event.dataTransfer?.files)
 }
 
 function downloadReceipt(): void {
@@ -261,12 +279,12 @@ onBeforeUnmount(() => {
         <div class="intake-grid">
           <article class="intake-card">
             <h3>Загрузка через браузер</h3>
-            <p>Подходит для умеренных размеров. Файл отправляется raw stream; multipart и фиктивные demo rows не используются.</p>
+            <p>Выберите три файла одной физической доставки. Bundle передаётся raw stream, а checksum и signed handoff проверяются backend до preview.</p>
             <div
               :class="['drop-zone', { 'drop-zone--active': dragging }]"
               tabindex="0"
               role="button"
-              aria-label="Выбрать Offline Bundle для загрузки"
+              aria-label="Выбрать bundle, checksum и signed handoff для загрузки"
               aria-describedby="bundle-drop-help"
               @click="chooseFile"
               @keydown.enter.prevent="chooseFile"
@@ -277,14 +295,15 @@ onBeforeUnmount(() => {
               @drop.prevent="onDrop"
             >
               <Upload :size="28" aria-hidden="true" />
-              <strong>Перетащите .htp.tar.gz сюда</strong>
-              <span id="bundle-drop-help">или нажмите, Enter или Space для выбора файла</span>
+              <strong>Перетащите bundle + .sha256 + .htp-handoff.json</strong>
+              <span id="bundle-drop-help">или нажмите, Enter или Space и выберите сразу три файла</span>
             </div>
             <input
               ref="fileInput"
               class="visually-hidden"
               type="file"
-              accept=".gz,.htp.tar.gz,application/gzip"
+              multiple
+              accept=".gz,.htp.tar.gz,.sha256,.json,.htp-handoff.json,application/gzip,application/json"
               @change="onFileChange"
             >
             <div v-if="wizard.selectedFile" class="file-summary">
@@ -294,6 +313,12 @@ onBeforeUnmount(() => {
                 <span>{{ formatBytes(wizard.selectedFile.size) }}</span>
               </div>
             </div>
+            <p v-if="browserCompanionNames.length" class="handoff-message">
+              Companion files: {{ browserCompanionNames.join(' · ') }}
+            </p>
+            <p v-if="browserSelectionError" class="handoff-message" role="alert">
+              {{ browserSelectionError }}
+            </p>
             <div
               v-if="wizard.busy === 'upload' && wizard.uploadProgress"
               class="progress-block"
