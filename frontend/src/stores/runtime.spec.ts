@@ -16,6 +16,7 @@ function deferred<T>() {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  sessionStorage.clear()
   delete window.__HTP_CONFIG__
 })
 
