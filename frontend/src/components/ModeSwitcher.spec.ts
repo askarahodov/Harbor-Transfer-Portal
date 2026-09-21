@@ -24,12 +24,25 @@ describe('ModeSwitcher', () => {
     expect(wrapper.findAll('button').every((button) => button.attributes('disabled') !== undefined)).toBe(true)
   })
 
+
+  it('shows operations automatically cancelled by the successful switch', () => {
+    const wrapper = mount(ModeSwitcher, {
+      props: {
+        contour: 'TARGET',
+        cancelledOperationIds: [17, 18],
+      },
+    })
+
+    expect(wrapper.text()).toContain('Отменены незавершённые операции')
+    expect(wrapper.text()).toContain('#17, #18')
+  })
+
   it('shows a stable busy explanation without changing the selected mode', () => {
     const wrapper = mount(ModeSwitcher, {
       props: { contour: 'SOURCE', errorCode: 'runtime_mode_busy' },
     })
 
-    expect(wrapper.text()).toContain('Дождитесь завершения текущей операции')
+    expect(wrapper.text()).toContain('Не все незавершённые операции удалось безопасно остановить')
     expect(wrapper.findAll('button')[0]!.attributes('aria-pressed')).toBe('true')
   })
 })

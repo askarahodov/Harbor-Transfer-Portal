@@ -16,6 +16,7 @@ function deferred<T>() {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  sessionStorage.clear()
   delete window.__HTP_CONFIG__
 })
 
@@ -74,17 +75,27 @@ describe('runtime store', () => {
 
   it('changes contour only after backend confirms the requested mode', async () => {
     vi.spyOn(apiClient, 'put').mockResolvedValue({
-      data: { previous: 'SOURCE', current: 'TARGET', changed: true },
+      data: {
+        previous: 'SOURCE',
+        current: 'TARGET',
+        changed: true,
+        cancelled_operation_ids: [17, 18],
+      },
     } as unknown as AxiosResponse)
     setActivePinia(createPinia())
     const store = useRuntimeStore()
     store.setContour('SOURCE')
+    sessionStorage.setItem('htp.export.operation-id', '17')
+    sessionStorage.setItem('htp.import.operation-id', '18')
 
     expect(await store.switchMode('TARGET')).toBe(true)
 
     expect(apiClient.put).toHaveBeenCalledWith('/runtime/mode', { mode: 'TARGET' })
     expect(store.contour).toBe('TARGET')
     expect(store.switchErrorCode).toBeNull()
+    expect(store.lastCancelledOperationIds).toEqual([17, 18])
+    expect(sessionStorage.getItem('htp.export.operation-id')).toBeNull()
+    expect(sessionStorage.getItem('htp.import.operation-id')).toBeNull()
     expect(store.switching).toBe(false)
   })
 
@@ -112,7 +123,7 @@ describe('runtime store', () => {
   it('preserves old contour and exposes runtime_mode_busy from FastAPI detail', async () => {
     vi.spyOn(apiClient, 'put').mockRejectedValue({
       isAxiosError: true,
-      response: { data: { detail: { code: 'runtime_mode_busy', message: 'busy' } } },
+      response: { data: { error: { code: 'runtime_mode_busy', message: 'busy' } } },
     })
     setActivePinia(createPinia())
     const store = useRuntimeStore()

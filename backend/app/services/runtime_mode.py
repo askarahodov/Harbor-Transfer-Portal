@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+import secrets
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import RLock
@@ -18,6 +19,8 @@ _RUNTIME_MODE_DESCRIPTION = "Authoritative runtime SOURCE/TARGET mode"
 _RUNTIME_MODE_VERSION_KEY = "runtime.portal_mode_version"
 _RUNTIME_MODE_VERSION_DESCRIPTION = "Monotonic runtime mode revision"
 _MODE_LOCK = RLock()
+_PENDING_SWITCH_TOKEN: str | None = None
+_PENDING_SWITCH_TARGET: PortalContour | None = None
 
 BLOCKING_OPERATION_STATUSES = frozenset(
     {
@@ -56,6 +59,15 @@ class RuntimeModeSwitchResult:
     current: PortalContour
     changed: bool
     mode_version: int
+    cancelled_operation_ids: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeModeSwitchPreparation:
+    token: str | None
+    previous: RuntimeModeSnapshot
+    target: PortalContour
+    blocking_operation_ids: tuple[int, ...]
 
 
 class RuntimeModeService:
@@ -133,6 +145,7 @@ class RuntimeModeService:
         """
 
         with _MODE_LOCK:
+            self._require_no_pending_switch()
             snapshot = self.current_snapshot()
             if required_mode is not None and snapshot.mode is not required_mode:
                 message = (
@@ -156,8 +169,131 @@ class RuntimeModeService:
         with self.mode_guard(required_mode) as snapshot:
             yield snapshot
 
+    def begin_switch(self, target: PortalContour) -> RuntimeModeSwitchPreparation:
+        global _PENDING_SWITCH_TARGET, _PENDING_SWITCH_TOKEN
+
+        with _MODE_LOCK:
+            self._require_no_pending_switch()
+            previous = self.current_snapshot()
+            if target is previous.mode:
+                self.session.rollback()
+                return RuntimeModeSwitchPreparation(
+                    token=None,
+                    previous=previous,
+                    target=target,
+                    blocking_operation_ids=(),
+                )
+
+            token = secrets.token_hex(16)
+            blockers = self._blocking_operation_ids()
+            _PENDING_SWITCH_TOKEN = token
+            _PENDING_SWITCH_TARGET = target
+            self.session.rollback()
+            return RuntimeModeSwitchPreparation(
+                token=token,
+                previous=previous,
+                target=target,
+                blocking_operation_ids=blockers,
+            )
+
+    def complete_switch(
+        self,
+        preparation: RuntimeModeSwitchPreparation,
+        *,
+        actor: User,
+        cancelled_operation_ids: Sequence[int] = (),
+    ) -> RuntimeModeSwitchResult:
+        global _PENDING_SWITCH_TARGET, _PENDING_SWITCH_TOKEN
+
+        if preparation.token is None:
+            return RuntimeModeSwitchResult(
+                previous=preparation.previous.mode,
+                current=preparation.previous.mode,
+                changed=False,
+                mode_version=preparation.previous.version,
+            )
+
+        with _MODE_LOCK:
+            if (
+                _PENDING_SWITCH_TOKEN != preparation.token
+                or _PENDING_SWITCH_TARGET is not preparation.target
+            ):
+                raise RuntimeModeError(
+                    "runtime_mode_switch_invalid",
+                    "Runtime mode switch reservation больше не актуальна",
+                )
+
+            current = self.current_snapshot()
+            if current != preparation.previous:
+                raise RuntimeModeError(
+                    "runtime_mode_switch_stale",
+                    "Authoritative runtime mode изменился во время переключения",
+                )
+
+            remaining = self._blocking_operation_ids()
+            if remaining:
+                joined = ", ".join(f"#{operation_id}" for operation_id in remaining[:10])
+                raise RuntimeModeError(
+                    "runtime_mode_busy",
+                    f"Не удалось безопасно остановить незавершённые операции: {joined}",
+                )
+
+            next_version = current.version + 1
+            cancelled_ids = tuple(sorted(set(cancelled_operation_ids)))
+            metadata: dict[str, object] = {
+                "previous": current.mode.value,
+                "current": preparation.target.value,
+                "mode_version": next_version,
+            }
+            if cancelled_ids:
+                metadata["cancelled_operation_ids"] = list(cancelled_ids)
+
+            try:
+                self.metadata.set_value(
+                    _RUNTIME_MODE_KEY,
+                    preparation.target.value,
+                    description=_RUNTIME_MODE_DESCRIPTION,
+                )
+                self.metadata.set_value(
+                    _RUNTIME_MODE_VERSION_KEY,
+                    str(next_version),
+                    description=_RUNTIME_MODE_VERSION_DESCRIPTION,
+                )
+                AuditEventRepository(self.session).create(
+                    actor=actor,
+                    event_type="runtime_mode_changed",
+                    metadata=metadata,
+                )
+                self.session.commit()
+            except Exception:
+                self.session.rollback()
+                raise
+
+            self.settings.portal_contour = preparation.target
+            _PENDING_SWITCH_TOKEN = None
+            _PENDING_SWITCH_TARGET = None
+            return RuntimeModeSwitchResult(
+                previous=current.mode,
+                current=preparation.target,
+                changed=True,
+                mode_version=next_version,
+                cancelled_operation_ids=cancelled_ids,
+            )
+
+    def abort_switch(self, token: str | None) -> None:
+        global _PENDING_SWITCH_TARGET, _PENDING_SWITCH_TOKEN
+
+        if token is None:
+            return
+        with _MODE_LOCK:
+            if _PENDING_SWITCH_TOKEN == token:
+                _PENDING_SWITCH_TOKEN = None
+                _PENDING_SWITCH_TARGET = None
+            self.session.rollback()
+
     def switch(self, target: PortalContour, *, actor: User) -> RuntimeModeSwitchResult:
         with _MODE_LOCK:
+            self._require_no_pending_switch()
             previous = self.current_snapshot()
             if target is previous.mode:
                 return RuntimeModeSwitchResult(
@@ -206,6 +342,15 @@ class RuntimeModeService:
                 mode_version=next_version,
             )
 
+    def _blocking_operation_ids(self) -> tuple[int, ...]:
+        return tuple(
+            self.session.scalars(
+                select(Operation.id)
+                .where(Operation.status.in_(BLOCKING_OPERATION_STATUSES))
+                .order_by(Operation.id)
+            )
+        )
+
     def _has_blocking_operations(self) -> bool:
         count = self.session.scalar(
             select(func.count())
@@ -213,6 +358,15 @@ class RuntimeModeService:
             .where(Operation.status.in_(BLOCKING_OPERATION_STATUSES))
         )
         return bool(count)
+
+    @staticmethod
+    def _require_no_pending_switch() -> None:
+        if _PENDING_SWITCH_TOKEN is not None:
+            target = _PENDING_SWITCH_TARGET.value if _PENDING_SWITCH_TARGET is not None else "—"
+            raise RuntimeModeError(
+                "runtime_mode_switch_in_progress",
+                f"Переключение Portal в режим {target} уже выполняется",
+            )
 
     @staticmethod
     def _parse_mode(value: str) -> PortalContour:

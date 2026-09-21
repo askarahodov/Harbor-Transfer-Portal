@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import PortalContour
 
@@ -16,3 +16,4 @@ class RuntimeModeUpdateResponse(BaseModel):
     previous: PortalContour
     current: PortalContour
     changed: bool
+    cancelled_operation_ids: list[int] = Field(default_factory=list)

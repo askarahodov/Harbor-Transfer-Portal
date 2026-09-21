@@ -23,6 +23,8 @@ Runtime mode — это роль текущего Portal instance. Он **не �
 
 Operator/Admin может переключать mode через runtime mode switcher. Viewer видит текущий mode, но не может его менять.
 
+Перед switch UI явно предупреждает, что незавершённые EXPORT/IMPORT operations будут отменены. После успешного switch UI показывает IDs автоматически отменённых operations; их полный terminal state остаётся доступен в History.
+
 После backend-confirmed switch frontend использует authoritative runtime state и сразу меняет доступную навигацию/actions:
 
 - `SOURCE` — export workspace и SOURCE signing controls;
@@ -34,7 +36,14 @@ Stale frontend responses из предыдущего mode не должны во
 
 Переключение mode и создание mode-bound export/import operation входят в одну process-local serialization boundary для v1 single-backend-instance + SQLite deployment.
 
-Незавершённые операции блокируют switch. Shared non-terminal set включает состояния от initial validation/intake до packaging/import/target verification. Если operation start выигрывает race, switch получает `runtime_mode_busy`; если switch выигрывает race, operation start видит новый mode и завершается fail-closed contour error.
+Подтверждённый switch автоматически завершает незавершённые mode-bound operations как `CANCELLED`:
+
+- состояния без выполняющегося worker (`CREATED`, `UPLOADED`, `DISCOVERED`, `READY`) закрываются сразу;
+- выполняющиеся workers (`VALIDATING`, `RUNNING`, `PACKAGING`, `VERIFYING`, `IMPORTING`, `VERIFYING_TARGET`) получают cancellation, а authoritative mode меняется только после фактической остановки worker;
+- Skopeo/Helm subprocess при coroutine cancellation принудительно завершается и Portal дожидается process exit;
+- во время двухфазного switch действует pending-switch barrier: новый export/import старт получает `runtime_mode_switch_in_progress` и не может создать новую блокирующую operation.
+
+Portal не считает ещё работающий worker «отменённым» только ради смены UI mode. Если worker нельзя безопасно остановить, switch завершается ошибкой и старый authoritative mode остаётся активным.
 
 Каждая новая mode-bound operation сохраняет snapshot:
 
@@ -104,6 +113,8 @@ Lifecycle contract покрывается scoped tests:
 - bootstrap-only `PORTAL_CONTOUR` после restart;
 - database backup/restore с сохранением mode + revision;
 - concurrent switches без split-brain;
+- automatic cancellation of READY/in-flight blockers before switch;
+- pending-switch barrier against concurrent operation starts;
 - active-operation guard и operation snapshot tests;
 - SOURCE/TARGET API guards;
 - SOURCE -> TARGET -> SOURCE cycle в одном Portal process;
