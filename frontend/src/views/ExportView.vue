@@ -457,7 +457,18 @@ onBeforeUnmount(() => {
                   <p class="muted">{{ formatBytes(artifact.size) }}</p>
                 </div>
               </div>
-              <div v-if="artifact.kind === 'unknown-oci'" class="unsupported">Не поддерживается export v1</div>
+              <div v-if="artifact.kind === 'unknown-oci'" class="unsupported">
+                <div>Не поддерживается export v1</div>
+                <div
+                  v-if="wizard.referencesFor(artifact).length > 0"
+                  class="reference-list"
+                  aria-label="References неподдерживаемого OCI"
+                >
+                  <code v-for="reference in wizard.referencesFor(artifact)" :key="reference">
+                    {{ reference }}
+                  </code>
+                </div>
+              </div>
               <div v-else-if="wizard.referencesFor(artifact).length === 0" class="unsupported">Нет явной версии/tag</div>
               <div v-else class="reference-list">
                 <label v-for="reference in wizard.referencesFor(artifact)" :key="reference" class="reference-choice">
