@@ -67,9 +67,9 @@ def _require_env_file() -> None:
 
 
 def _git_revision(*, dry_run: bool = False) -> str:
-    git = _resolve_executable("git")
     if dry_run:
         return "dry-run-revision"
+    git = _resolve_executable("git")
     result = _run(
         [git, "rev-parse", "--verify", "HEAD"],
         capture_output=True,
@@ -100,8 +100,8 @@ def command_doctor(*, dry_run: bool = False) -> int:
     print(f"Python: {platform.python_version()}")
     print(f"Repository: {ROOT}")
 
-    git = _resolve_executable("git")
-    docker = _resolve_executable("docker")
+    git = "git" if dry_run else _resolve_executable("git")
+    docker = "docker" if dry_run else _resolve_executable("docker")
     _run([git, "--version"], dry_run=dry_run)
     _run([docker, "--version"], dry_run=dry_run)
     _run([docker, "compose", "version"], dry_run=dry_run)
