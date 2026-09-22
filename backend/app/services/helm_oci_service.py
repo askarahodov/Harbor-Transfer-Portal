@@ -19,7 +19,11 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.services.harbor_settings import EffectiveHarborSettings, HarborSettingsService
+from app.services.harbor_settings import (
+    DEFAULT_HARBOR_PROFILE_ID,
+    EffectiveHarborSettings,
+    HarborSettingsService,
+)
 
 _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
 _CHART_NAME_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
@@ -231,11 +235,13 @@ class HelmOciService:
         session: Session,
         settings: Settings,
         *,
+        profile_id: str | None = None,
         runner: HelmCommandRunner | None = None,
         progress: Callable[[HelmProgressEvent], None] | None = None,
         digest_resolver: Callable[[HelmChartReference], str | None] | None = None,
     ) -> None:
         self.settings = settings
+        self.harbor_profile_id = profile_id or DEFAULT_HARBOR_PROFILE_ID
         self.harbor_settings = HarborSettingsService(session, settings)
         self.runner = runner or AsyncioHelmCommandRunner()
         self.progress = progress
@@ -254,7 +260,7 @@ class HelmOciService:
             raise HelmServiceError("helm_source_not_found", "Helm chart/version не найден в Harbor")
         self._validate_optional_digest(source_digest)
 
-        harbor = self.harbor_settings.resolve()
+        harbor = self.harbor_settings.resolve_profile(self.harbor_profile_id)
         registry = self._registry_host(harbor)
         destination_path.mkdir(parents=True, exist_ok=True)
         with self._security_context(harbor) as security:
@@ -283,7 +289,7 @@ class HelmOciService:
         expected: HelmChartReference,
     ) -> HelmPackageMetadata:
         package_path = self._validate_package_path(package)
-        harbor = self.harbor_settings.resolve()
+        harbor = self.harbor_settings.resolve_profile(self.harbor_profile_id)
         with self._security_context(harbor) as security:
             return await self._validate_package(package_path, expected, security)
 
@@ -329,7 +335,7 @@ class HelmOciService:
             )
 
         package_path = self._validate_package_path(package)
-        harbor = self.harbor_settings.resolve()
+        harbor = self.harbor_settings.resolve_profile(self.harbor_profile_id)
         registry = self._registry_host(harbor)
         with self._security_context(harbor) as security:
             package_metadata = await self._validate_package(package_path, target, security)
