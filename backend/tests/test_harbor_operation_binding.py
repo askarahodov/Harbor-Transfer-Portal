@@ -126,6 +126,27 @@ def test_terminal_evidence_blocks_delete_and_detects_identity_drift(tmp_path: Pa
         assert delete_error.value.code == "harbor_profile_in_use"
 
 
+def test_active_selector_can_change_while_another_profile_is_pinned(
+    tmp_path: Path,
+) -> None:
+    settings, sessions, first_id, second_id = _environment(tmp_path)
+
+    with sessions() as session:
+        service = HarborProfileService(session, settings)
+        operation = _operation(session)
+        service.bind_operation_profile(operation, first_id)
+        session.commit()
+
+    with sessions() as session:
+        service = HarborProfileService(session, settings)
+        previous, active = service.activate(second_id)
+
+        assert previous.id == "default"
+        assert active.id == second_id
+        operation = session.query(Operation).one()
+        assert service.assert_operation_binding(operation).id == first_id
+
+
 def test_disabled_profile_is_rejected_for_new_binding(tmp_path: Path) -> None:
     settings, sessions, first_id, _second_id = _environment(tmp_path)
 
