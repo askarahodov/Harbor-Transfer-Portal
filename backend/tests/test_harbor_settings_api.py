@@ -13,8 +13,9 @@ from alembic import command
 from app.api.harbor import get_harbor_client
 from app.auth.security import hash_password
 from app.config import Settings
-from app.db.models import AuditEvent, UserRole
+from app.db.models import AuditEvent, Operation, UserRole
 from app.db.repositories import SettingMetadataRepository, UserRepository
+from app.domain.bundle import OperationStatus, OperationType
 from app.main import create_app
 from app.services.harbor_client import HarborClientError, HarborSystemInfo
 from app.services.harbor_settings import HARBOR_URL_KEY, HarborSettingsError, HarborSettingsService
@@ -270,3 +271,137 @@ def test_connection_test_returns_sanitized_success_auth_and_tls_results(tmp_path
     assert tls_failed.status_code == 200
     assert tls_failed.json()["code"] == "harbor_tls_failed"
     assert "certificate detail" not in tls_failed.text
+
+
+def test_harbor_profiles_crud_is_safe_and_secrets_are_not_returned(tmp_path: Path) -> None:
+    client, app, tokens = _app_client(tmp_path)
+    admin = _auth(tokens["admin"])
+    viewer = _auth(tokens["viewer"])
+
+    initial = client.get("/api/settings/harbor/profiles", headers=viewer)
+    assert initial.status_code == 200
+    assert initial.json()["items"] == [
+        {
+            "id": "default",
+            "name": "Default",
+            "url": "https://bootstrap.harbor.local",
+            "username": "bootstrap-user",
+            "verify_tls": True,
+            "enabled": True,
+            "credential_configured": True,
+            "custom_ca_configured": False,
+            "legacy_default": True,
+        }
+    ]
+    assert "bootstrap-" + "z" * 32 not in initial.text
+
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "DR",
+            "url": "https://dr.harbor.local",
+            "username": "svc-dr",
+            "verify_tls": True,
+        },
+        headers=admin,
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+    assert len(profile_id) == 32
+    assert created.json()["credential_configured"] is False
+
+    rotated = client.put(
+        f"/api/settings/harbor/profiles/{profile_id}/credential",
+        json={"secret": TEST_CREDENTIAL},
+        headers=admin,
+    )
+    assert rotated.status_code == 200
+
+    listed = client.get("/api/settings/harbor/profiles", headers=viewer)
+    assert listed.status_code == 200
+    dr = next(item for item in listed.json()["items"] if item["id"] == profile_id)
+    assert dr["name"] == "DR"
+    assert dr["credential_configured"] is True
+    assert TEST_CREDENTIAL not in listed.text
+
+    with app.state.session_factory() as session:
+        service = HarborSettingsService(session, app.state.settings)
+        resolved = service.resolve(profile_id)
+        assert resolved.url == "https://dr.harbor.local"
+        assert resolved.username == "svc-dr"
+        assert resolved.password == TEST_CREDENTIAL
+
+    denied = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "operator-cannot-create",
+            "url": "https://operator.harbor.local",
+        },
+        headers=_auth(tokens["operator"]),
+    )
+    assert denied.status_code == 403
+
+    deleted = client.delete(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        headers=admin,
+    )
+    assert deleted.status_code == 200
+
+
+def test_harbor_profile_mutation_is_blocked_while_operation_is_active(tmp_path: Path) -> None:
+    client, app, tokens = _app_client(tmp_path)
+    admin = _auth(tokens["admin"])
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Production",
+            "url": "https://prod.harbor.local",
+            "username": "svc-prod",
+            "verify_tls": True,
+        },
+        headers=admin,
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+
+    with app.state.session_factory() as session:
+        operation = Operation(
+            type=OperationType.EXPORT,
+            status=OperationStatus.CREATED,
+            actor_username="admin",
+            harbor_profile_id=profile_id,
+            harbor_profile_name="Production",
+            harbor_url="https://prod.harbor.local",
+        )
+        session.add(operation)
+        session.commit()
+        operation_id = operation.id
+
+    blocked = client.patch(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        json={"url": "https://changed.harbor.local"},
+        headers=admin,
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "harbor_profile_in_use"
+
+    blocked_credential = client.put(
+        f"/api/settings/harbor/profiles/{profile_id}/credential",
+        json={"secret": TEST_CREDENTIAL},
+        headers=admin,
+    )
+    assert blocked_credential.status_code == 409
+
+    with app.state.session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        operation.status = OperationStatus.COMPLETED
+        session.commit()
+
+    allowed = client.patch(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        json={"url": "https://changed.harbor.local"},
+        headers=admin,
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["url"] == "https://changed.harbor.local"
