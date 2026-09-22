@@ -176,6 +176,28 @@ describe('export wizard store', () => {
     expect(store.selectedCount).toBe(0)
   })
 
+  it('adds multi-selected aliases idempotently by immutable digest', () => {
+    const store = useExportWizardStore()
+    const aliased = artifact('1.0.0')
+    aliased.references = ['1.0.0', 'stable']
+
+    store.addArtifact(aliased, '1.0.0')
+    store.addArtifact(aliased, 'stable')
+
+    expect(store.selectedCount).toBe(1)
+    expect(store.selectedArtifacts[0]?.reference).toBe('stable')
+
+    const second = artifact('2.0.0')
+    second.digest = `sha256:${'b'.repeat(64)}`
+    store.addArtifact(second, '2.0.0')
+
+    expect(store.selectedCount).toBe(2)
+    expect(store.selectedArtifacts.map((item) => item.digest)).toEqual([
+      DIGEST,
+      second.digest,
+    ])
+  })
+
   it('keeps unknown OCI references visible while selection remains fail-closed', () => {
     const store = useExportWizardStore()
     const unknown: HarborArtifact = {
