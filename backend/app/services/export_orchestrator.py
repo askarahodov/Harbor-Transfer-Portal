@@ -119,7 +119,7 @@ class ExportOrchestrator:
         self,
         selections: Sequence[ExportArtifactSelection],
         *,
-        harbor_profile_id: str = DEFAULT_PROFILE_ID,
+        harbor_profile_id: str | None = None,
     ) -> tuple[ResolvedExportArtifact, ...]:
         self._require_source_contour()
         client = self._build_harbor_client(harbor_profile_id)
@@ -137,11 +137,13 @@ class ExportOrchestrator:
         actor_user_id: int,
         actor_username: str,
         comment: str | None,
-        harbor_profile_id: str = DEFAULT_PROFILE_ID,
+        harbor_profile_id: str | None = None,
     ) -> ExportStartResult:
         self._require_source_contour()
         self._require_signing_identity()
-        harbor_profile_id = harbor_profile_id.strip() or DEFAULT_PROFILE_ID
+        harbor_profile_id = (
+            harbor_profile_id.strip() if harbor_profile_id is not None else None
+        )
         selection_snapshot = tuple(selections)
         resolved, operation_id, delivery_id, artifact_ids = await asyncio.to_thread(
             self._prepare_export_operation,
@@ -175,7 +177,7 @@ class ExportOrchestrator:
         actor_user_id: int,
         actor_username: str,
         comment: str | None,
-        harbor_profile_id: str,
+        harbor_profile_id: str | None,
     ) -> tuple[tuple[ResolvedExportArtifact, ...], int, str, tuple[int, ...]]:
         # Hold one profile boundary from SOURCE resolution through persisted operation
         # creation. Activation can proceed before this section or after the operation
@@ -628,7 +630,7 @@ class ExportOrchestrator:
         artifact_id: int,
         operation_workspace: Path,
         helm_root: Path,
-        harbor_profile_id: str = DEFAULT_PROFILE_ID,
+        harbor_profile_id: str | None = None,
     ) -> PackageArtifactInput:
         """Compatibility hook; artifact materialization lives in the collaborator."""
         return await self.artifact_materializer.materialize(
@@ -639,7 +641,7 @@ class ExportOrchestrator:
             harbor_profile_id=harbor_profile_id,
         )
 
-    def _profile_snapshot(self, profile_id: str) -> HarborProfile:
+    def _profile_snapshot(self, profile_id: str | None) -> HarborProfile:
         try:
             with self.session_factory() as session:
                 return HarborProfileService(session, self.settings).operation_snapshot(profile_id)
