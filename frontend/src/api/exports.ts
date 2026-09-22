@@ -85,6 +85,7 @@ export type ExportSelection = {
 export type ExportSelectionRequest = {
   artifacts: ExportSelection[]
   comment: string | null
+  harbor_profile_id: string | null
 }
 
 export type ExportResolvedArtifact = {
@@ -161,6 +162,9 @@ export type Operation = {
   status: OperationStatus
   actor_username: string
   comment: string | null
+  harbor_profile_id?: string | null
+  harbor_profile_name?: string | null
+  harbor_url?: string | null
   started_at: string | null
   finished_at: string | null
   error_code: string | null
@@ -205,11 +209,17 @@ export type ExportDownloadTicket = {
   expires_in_seconds: number
 }
 
-function params(page: number, pageSize: number, search: string) {
+function params(
+  page: number,
+  pageSize: number,
+  search: string,
+  harborProfileId?: string | null,
+) {
   return {
     page,
     page_size: pageSize,
     ...(search.trim() ? { search: search.trim() } : {}),
+    ...(harborProfileId ? { harbor_profile_id: harborProfileId } : {}),
   }
 }
 
@@ -217,9 +227,10 @@ export async function listHarborProjects(
   page: number,
   pageSize: number,
   search: string,
+  harborProfileId?: string | null,
 ): Promise<PageResponse<HarborProject>> {
   const response = await apiClient.get<PageResponse<HarborProject>>('/harbor/projects', {
-    params: params(page, pageSize, search),
+    params: params(page, pageSize, search, harborProfileId),
   })
   return response.data
 }
@@ -229,10 +240,11 @@ export async function listHarborRepositories(
   page: number,
   pageSize: number,
   search: string,
+  harborProfileId?: string | null,
 ): Promise<PageResponse<HarborRepository>> {
   const response = await apiClient.get<PageResponse<HarborRepository>>(
     `/harbor/projects/${encodeURIComponent(project)}/repositories`,
-    { params: params(page, pageSize, search) },
+    { params: params(page, pageSize, search, harborProfileId) },
   )
   return response.data
 }
@@ -243,21 +255,26 @@ export async function listHarborArtifacts(
   page: number,
   pageSize: number,
   search: string,
+  harborProfileId?: string | null,
 ): Promise<PageResponse<HarborArtifact>> {
   const response = await apiClient.get<PageResponse<HarborArtifact>>(
     `/harbor/projects/${encodeURIComponent(project)}/artifacts`,
     {
       params: {
         repository,
-        ...params(page, pageSize, search),
+        ...params(page, pageSize, search, harborProfileId),
       },
     },
   )
   return response.data
 }
 
-export async function getHarborConnection(): Promise<HarborConnection> {
-  const response = await apiClient.get<HarborConnection>('/harbor/connection')
+export async function getHarborConnection(
+  harborProfileId?: string | null,
+): Promise<HarborConnection> {
+  const response = await apiClient.get<HarborConnection>('/harbor/connection', {
+    params: harborProfileId ? { harbor_profile_id: harborProfileId } : undefined,
+  })
   return response.data
 }
 
