@@ -35,6 +35,22 @@ async function selectVersion(wrapper: VueWrapper, value: string): Promise<void> 
 }
 
 function mockHappyPath(): void {
+  vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+    items: [
+      {
+        id: 'default',
+        name: 'Default Harbor',
+        url: 'https://harbor.local',
+        is_default: true,
+      },
+      {
+        id: 'profile-b',
+        name: 'Harbor B',
+        url: 'https://harbor-b.local',
+        is_default: false,
+      },
+    ],
+  })
   vi.spyOn(exportsApi, 'getHarborConnection').mockResolvedValue({
     connected: true,
     version: '2.14.0',
@@ -167,6 +183,8 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
 
     expect(wrapper.get('h1').text()).toContain('Отправка артефактов')
+    expect(wrapper.get('#export-harbor-profile').element).toBeInstanceOf(HTMLSelectElement)
+    expect(wrapper.get('#export-harbor-profile').element).toHaveProperty('value', 'default')
     expect(wrapper.get('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(true)
 
     await chooseOption(wrapper, 'Проект Harbor', 'team')
@@ -327,7 +345,7 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
 
     expect(artifactsSpy).toHaveBeenCalledTimes(1)
-    expect(artifactsSpy).toHaveBeenLastCalledWith('team', 'apps/demo', 1, 25, '1.0')
+    expect(artifactsSpy).toHaveBeenLastCalledWith('team', 'apps/demo', 1, 25, '1.0', 'default')
     wrapper.unmount()
   })
 
