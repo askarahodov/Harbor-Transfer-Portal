@@ -20,7 +20,7 @@ from app.schemas.harbor import (
     PageResponse,
 )
 from app.services.harbor_client import HarborArtifact, HarborClient, HarborClientError
-from app.services.harbor_profiles import DEFAULT_PROFILE_ID, HarborProfileService
+from app.services.harbor_profiles import HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
 
 router = APIRouter(prefix="/harbor", tags=["harbor"])
