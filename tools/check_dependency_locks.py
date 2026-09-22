@@ -63,124 +63,7 @@ def _product_version(root: Path) -> str | None:
     if not init_path.is_file():
         return None
     match = re.search(
-        r'^__version__ = "([^"]+)"    errors: list[str] = []
-    package_path = root / "frontend" / "package.json"
-    lock_path = root / "frontend" / "package-lock.json"
-    if not lock_path.is_file():
-        return ["frontend/package-lock.json is missing"]
-
-    try:
-        package = _load_json(package_path)
-        lock = _load_json(lock_path)
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
-        return [f"frontend lock metadata cannot be read: {exc}"]
-
-    product_version = _product_version(root)
-    if product_version is not None and package.get("version") != product_version:
-        errors.append(
-            f"frontend package version {package.get('version')!r} "
-            f"does not match product version {product_version!r}"
-        )
-
-    if lock.get("lockfileVersion") != 3:
-        errors.append("frontend/package-lock.json must use npm lockfileVersion 3")
-
-    packages = lock.get("packages")
-    if not isinstance(packages, dict):
-        return errors + ["frontend/package-lock.json packages must be an object"]
-    root_package = packages.get("")
-    if not isinstance(root_package, dict):
-        return errors + ["frontend/package-lock.json is missing packages[''] metadata"]
-
-    for field in ("name", "version", "dependencies", "devDependencies"):
-        expected = package.get(field, {}) if field.endswith("Dependencies") else package.get(field)
-        actual = root_package.get(field, {}) if field.endswith("Dependencies") else root_package.get(field)
-        if actual != expected:
-            errors.append(f"frontend lock root field {field!r} does not match package.json")
-
-    for location, metadata in packages.items():
-        if location == "" or not location.startswith("node_modules/"):
-            continue
-        if not isinstance(metadata, dict):
-            errors.append(f"frontend lock entry {location!r} must be an object")
-            continue
-        if not isinstance(metadata.get("version"), str):
-            errors.append(f"frontend lock entry {location!r} has no exact version")
-        resolved = metadata.get("resolved")
-        if isinstance(resolved, str) and resolved.startswith("https://registry.npmjs.org/"):
-            if not isinstance(metadata.get("integrity"), str):
-                errors.append(f"frontend lock entry {location!r} has no integrity hash")
-    return errors
-
-
-def _check_backend(root: Path) -> list[str]:
-    errors: list[str] = []
-    pyproject_path = root / "backend" / "pyproject.toml"
-    try:
-        pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        return [f"backend/pyproject.toml cannot be read: {exc}"]
-
-    project = pyproject.get("project")
-    if not isinstance(project, dict):
-        return ["backend/pyproject.toml has no [project] table"]
-
-    runtime_specs = project.get("dependencies", [])
-    optional = project.get("optional-dependencies", {})
-    dev_specs = optional.get("dev", []) if isinstance(optional, dict) else []
-    if not isinstance(runtime_specs, list) or not isinstance(dev_specs, list):
-        return ["backend dependency metadata has unexpected shape"]
-
-    try:
-        runtime_required = {_requirement_name(str(item)) for item in runtime_specs}
-        dev_required = runtime_required | {_requirement_name(str(item)) for item in dev_specs}
-    except ValueError as exc:
-        return [str(exc)]
-
-    runtime_lock, runtime_errors = _load_pins(root / "backend" / "requirements-runtime.lock")
-    dev_lock, dev_errors = _load_pins(root / "backend" / "requirements-dev.lock")
-    errors.extend(runtime_errors)
-    errors.extend(dev_errors)
-
-    runtime_required.add("hatchling")
-    dev_required.add("hatchling")
-    for name in sorted(runtime_required - runtime_lock.keys()):
-        errors.append(f"backend runtime lock is missing top-level package {name}")
-    for name in sorted(dev_required - dev_lock.keys()):
-        errors.append(f"backend dev lock is missing top-level package {name}")
-
-    for name, version in sorted(runtime_lock.items()):
-        dev_version = dev_lock.get(name)
-        if dev_version is None:
-            errors.append(f"backend dev lock is missing runtime package {name}")
-        elif dev_version != version:
-            errors.append(
-                f"backend lock mismatch for {name}: runtime={version}, dev={dev_version}"
-            )
-
-    local_name = _normalize_name(str(project.get("name", "")))
-    if local_name and (local_name in runtime_lock or local_name in dev_lock):
-        errors.append("backend locks must not pin the local project itself")
-    return errors
-
-
-def check_repository(root: Path = _REPOSITORY_ROOT) -> list[str]:
-    return _check_frontend(root) + _check_backend(root)
-
-
-def main() -> int:
-    errors = check_repository()
-    if errors:
-        for error in errors:
-            print(f"dependency-lock error: {error}", file=sys.stderr)
-        return 1
-    print("Dependency locks are structurally consistent with package metadata.")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-,
+        r'^__version__ = "([^"]+)"$',
         init_path.read_text(encoding="utf-8"),
         re.MULTILINE,
     )
@@ -199,6 +82,13 @@ def _check_frontend(root: Path) -> list[str]:
         lock = _load_json(lock_path)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         return [f"frontend lock metadata cannot be read: {exc}"]
+
+    product_version = _product_version(root)
+    if product_version is not None and package.get("version") != product_version:
+        errors.append(
+            f"frontend package version {package.get('version')!r} "
+            f"does not match product version {product_version!r}"
+        )
 
     if lock.get("lockfileVersion") != 3:
         errors.append("frontend/package-lock.json must use npm lockfileVersion 3")
