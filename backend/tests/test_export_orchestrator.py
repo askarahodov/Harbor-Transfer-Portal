@@ -290,6 +290,9 @@ def test_mixed_export_creates_one_signed_verified_bundle(tmp_path: Path) -> None
     assert operation is not None
     assert operation.status is OperationStatus.COMPLETED
     assert operation.delivery_id is not None
+    assert operation.harbor_profile_id == "default"
+    assert operation.harbor_profile_name == "Default Harbor"
+    assert operation.harbor_url == "https://harbor.source.local"
     assert [artifact.status for artifact in operation.artifacts] == [
         ArtifactStatus.VERIFIED,
         ArtifactStatus.VERIFIED,
