@@ -23,7 +23,6 @@ import {
 } from '@/api/exports'
 import ExportArtifactSelector from '@/components/ExportArtifactSelector.vue'
 import SearchCombobox from '@/components/SearchCombobox.vue'
-import StatePlaceholder from '@/components/StatePlaceholder.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
 import { useAuthStore } from '@/stores/auth'
 import { useExportWizardStore } from '@/stores/exportWizard'
