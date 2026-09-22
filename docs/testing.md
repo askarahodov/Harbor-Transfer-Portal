@@ -316,6 +316,10 @@ python -m pip install --no-deps --no-build-isolation ./backend
 
 Backend image аналогично использует runtime lock. В закрытом runtime contour package resolution не выполняется: versioned offline kit уже содержит prebuilt images.
 
+### Release identity
+
+Product release version задаётся backend `app.__version__` и используется release/offline-kit tooling. `frontend/package.json` и root metadata `frontend/package-lock.json` обязаны содержать ту же product version; `make dependency-locks-check` fail-closed проверяет этот invariant, чтобы internal npm metadata не расходилась с `/api/health` и release artifacts.
+
 ## 10. `quality-gate`
 
 `quality-gate` выполняется всегда и зависит от scope и всех потенциальных jobs.
