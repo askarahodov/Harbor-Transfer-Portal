@@ -79,5 +79,20 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertGreaterEqual(nginx.count('Cache-Control "no-store"'), 2)
         self.assertIn('Cache-Control "public, max-age=31536000, immutable"', nginx)
 
+    def test_source_compose_rebuilds_with_current_revision(self) -> None:
+        compose = (_REPOSITORY_ROOT / "compose.yaml").read_text(encoding="utf-8")
+        makefile = (_REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
+        dockerfile = (_REPOSITORY_ROOT / "frontend/Dockerfile").read_text(encoding="utf-8")
+        entrypoint = (
+            _REPOSITORY_ROOT / "frontend/docker-entrypoint.d/40-runtime-config.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertGreaterEqual(compose.count("RELEASE_VERSION: ${PORTAL_VERSION:-dev}"), 2)
+        self.assertGreaterEqual(compose.count("VCS_REF: ${PORTAL_VCS_REF:-unknown}"), 2)
+        self.assertIn("PORTAL_VCS_REF=$(git rev-parse --verify HEAD)", makefile)
+        self.assertIn("--build --force-recreate", makefile)
+        self.assertIn("ENV PORTAL_FRONTEND_REVISION=${VCS_REF}", dockerfile)
+        self.assertIn("revision: '$revision'", entrypoint)
+
 if __name__ == "__main__":
     unittest.main()
