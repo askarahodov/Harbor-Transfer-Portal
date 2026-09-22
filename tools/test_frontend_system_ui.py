@@ -134,6 +134,7 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
 
         self.assertIn("homepage: '/docs/README.md'", docs_index)
         self.assertIn("loadSidebar: true", docs_index)
+        self.assertIn("collapsibleSidebarGroups: true", docs_index)
         self.assertIn("'/.*/_sidebar.md': '/docs/_sidebar.md'", docs_index)
         self.assertIn("/docs/_portal/tokens.css", docs_index)
         self.assertIn("/docs/portal-docs.css", docs_index)
