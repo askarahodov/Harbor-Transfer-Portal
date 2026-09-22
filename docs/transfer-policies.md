@@ -28,6 +28,9 @@ PATCH /api/settings/transfer
 | `bundle_max_member_count` | максимальное число archive members | runtime |
 | `operation_disk_reserve_bytes` | обязательный свободный disk reserve перед operation | runtime |
 | `operation_max_concurrent` | число одновременно выполняемых background operations | **после restart backend** |
+| `export_bundle_retention_seconds` | срок хранения completed SOURCE publication | runtime |
+| `import_bundle_retention_seconds` | срок хранения failed/partial TARGET bundle для retry | runtime |
+| `storage_cleanup_interval_seconds` | интервал фоновой cleanup проверки | runtime |
 | `destination_container_image_project` | global fallback TARGET project для container images | для новых destination plans |
 | `destination_helm_chart_project` | global fallback TARGET project для Helm charts | для новых destination plans |
 | `destination_project_mappings` | global fallback `SOURCE project → TARGET project` | для новых destination plans |
@@ -102,7 +105,9 @@ import_max_upload_bytes <= bundle_max_archive_bytes <= bundle_max_extracted_byte
 - extracted: от 1 MiB до 2 TiB;
 - archive members: 4…1 000 000;
 - disk reserve: 0…1 TiB;
-- concurrent operations: 1…32.
+- concurrent operations: 1…32;
+- SOURCE/TARGET retention: от 1 часа до 365 суток;
+- cleanup interval: от 1 минуты до 24 часов.
 
 Невалидная комбинация отклоняется целиком с `422`; частичное сохранение не выполняется.
 
@@ -113,7 +118,11 @@ import_max_upload_bytes <= bundle_max_archive_bytes <= bundle_max_extracted_byte
 - overwrite policy;
 - browser upload limit;
 - archive/extracted/member limits;
-- disk reserve.
+- disk reserve;
+- SOURCE/TARGET retention;
+- cleanup interval.
+
+Retention service читает runtime-effective retention values при каждой cleanup итерации. Новый cleanup interval используется следующими итерациями periodic task; restart backend не требуется.
 
 Destination mapping defaults не копируются в process `Settings`: planner читает persistent snapshot при каждом новом `build_destination_plan`. Поэтому они также не требуют restart, но намеренно не воздействуют на уже сохранённый plan.
 
@@ -123,7 +132,17 @@ Destination mapping defaults не копируются в process `Settings`: pl
 
 ## Persistence и precedence
 
-`.env` остаётся bootstrap/default source для numeric/boolean transfer limits. Admin override хранится в SQLite `SettingMetadata` под namespace `transfer.*` и имеет приоритет для поддерживаемых policy fields.
+`.env` остаётся bootstrap/default source для numeric/boolean transfer limits, включая retention. Admin override хранится в SQLite `SettingMetadata` под namespace `transfer.*` и имеет приоритет для поддерживаемых policy fields.
+
+Для retention bootstrap defaults:
+
+```text
+EXPORT_BUNDLE_RETENTION_SECONDS=604800
+IMPORT_BUNDLE_RETENTION_SECONDS=604800
+STORAGE_CLEANUP_INTERVAL_SECONDS=3600
+```
+
+В admin UI они представлены в понятных единицах: SOURCE/TARGET retention — в сутках, cleanup interval — в минутах. API и persistent store продолжают использовать секунды, чтобы не менять backend lifecycle contract.
 
 Destination mapping policy хранится в том же persistent store под namespace `transfer.destination_mapping.*`; вместе с остальной SQLite БД она попадает в штатный backup/restore lifecycle.
 
@@ -160,12 +179,6 @@ Secret material в transfer policy store отсутствует. Mapping audit �
 PATCH без фактического изменения не создаёт audit event и не увеличивает mapping revision.
 
 ## Что намеренно не реализовано
-
-### Retention
-
-Current product пока не имеет полного automatic retention/cleanup lifecycle. Поэтому admin UI не предлагает декоративную retention policy, которая ничего не удаляет и не гарантирует lifecycle.
-
-Retention должен появиться только вместе с tested cleanup behavior, защитой READY/active workspaces, receipts/history policy и эксплуатационной документацией.
 
 ### Hot reload concurrency
 
