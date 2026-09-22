@@ -56,19 +56,22 @@ function shortDigest(digest: string | null): string {
         <h3 id="artifacts-title">Доступные версии</h3>
         <p>Digest остаётся источником точной идентичности; tag используется как удобное имя.</p>
       </div>
-      <StatePlaceholder
+      <component
+        :is="StatePlaceholder"
         v-if="!selectedRepository"
         compact
         kind="empty"
         title="Выберите проект и репозиторий"
       />
-      <StatePlaceholder
+      <component
+        :is="StatePlaceholder"
         v-else-if="busy"
         compact
         kind="loading"
         title="Загрузка версий"
       />
-      <StatePlaceholder
+      <component
+        :is="StatePlaceholder"
         v-else-if="artifacts.length === 0"
         compact
         kind="empty"
