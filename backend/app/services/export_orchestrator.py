@@ -661,7 +661,8 @@ class ExportOrchestrator:
                         "harbor_profile_binding_invalid",
                         "Export operation не содержит ожидаемый Harbor profile binding",
                     )
-                return HarborProfileService(session, self.settings).assert_operation_binding(operation)
+                service = HarborProfileService(session, self.settings)
+                return service.assert_operation_binding(operation)
         except HarborSettingsError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
 
