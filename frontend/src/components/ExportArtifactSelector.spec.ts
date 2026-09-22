@@ -25,24 +25,22 @@ const baseProps = {
 }
 
 describe('ExportArtifactSelector', () => {
-  it('keeps version combobox disabled until repository is selected', () => {
+  it('keeps version search disabled until repository is selected', () => {
     const wrapper = mount(ExportArtifactSelector, {
       props: { ...baseProps, artifacts: [], selectedRepository: null },
     })
-    expect(wrapper.get('input[role="combobox"][aria-label="Версия / tag"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('input[type="search"][aria-label="Версия / tag"]').attributes('disabled')).toBeDefined()
   })
 
   it('selects an exact reference and adds immutable artifact metadata', async () => {
     const wrapper = mount(ExportArtifactSelector, {
       props: { ...baseProps, artifacts: [artifact], selectedRepository: 'apps/demo', total: 1 },
     })
-    const input = wrapper.get('input[role="combobox"][aria-label="Версия / tag"]')
-    await input.trigger('focus')
     const options = wrapper.findAll('[role="option"]')
     expect(options).toHaveLength(2)
     expect(options[0]!.text()).toContain('1.0.0')
     expect(options[0]!.text()).toContain('Container image')
-    await options[0]!.trigger('mousedown')
+    await options[0]!.trigger('click')
     expect(wrapper.text()).toContain('1.0.0')
     expect(wrapper.text()).toContain('4.00 КиБ')
     await wrapper.get('button.artifact-selector__add').trigger('click')
@@ -53,7 +51,7 @@ describe('ExportArtifactSelector', () => {
     const wrapper = mount(ExportArtifactSelector, {
       props: { ...baseProps, artifacts: [artifact], selectedRepository: 'apps/demo', total: 1 },
     })
-    await wrapper.get('input[role="combobox"][aria-label="Версия / tag"]').setValue('1.0')
+    await wrapper.get('input[type="search"][aria-label="Версия / tag"]').setValue('1.0')
     expect(wrapper.emitted('update:search')?.at(-1)).toEqual(['1.0'])
   })
 
@@ -66,4 +64,13 @@ describe('ExportArtifactSelector', () => {
     expect(wrapper.text()).toContain('Неподдерживаемые OCI artifacts')
     expect(wrapper.findAll('[role="option"]')).toHaveLength(0)
   })
+  it('renders versions as a persistent full-width list instead of a combobox popup', () => {
+    const wrapper = mount(ExportArtifactSelector, {
+      props: { ...baseProps, artifacts: [artifact], selectedRepository: 'apps/demo', total: 2 },
+    })
+    expect(wrapper.find('input[role="combobox"][aria-label="Версия / tag"]').exists()).toBe(false)
+    expect(wrapper.get('[role="listbox"][aria-label="Доступные версии"]').isVisible()).toBe(true)
+    expect(wrapper.findAll('[role="option"]')).toHaveLength(2)
+  })
+
 })
