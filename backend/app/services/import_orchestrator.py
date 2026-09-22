@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import PortalContour, Settings
@@ -626,7 +627,7 @@ class ImportOrchestrator:
                     "Import завершён с ошибками отдельных артефактов; rollback не выполнялся",
                 )
             context.transition(OperationStatus.COMPLETED)
-            self._cleanup_storage(operation_id)
+            self._cleanup_storage_if_unreferenced(operation_id)
         finally:
             self._remove_path(extraction)
 
@@ -734,6 +735,34 @@ class ImportOrchestrator:
             return
         key = operation.import_storage_key
         if key and len(key) == 48 and all(ch in "0123456789abcdef" for ch in key):
+            shutil.rmtree(self.staging_root / key, ignore_errors=True)
+
+    def _cleanup_storage_if_unreferenced(self, operation_id: int) -> None:
+        try:
+            operation = self._get_import_operation(operation_id)
+        except ImportOrchestrationError:
+            return
+        key = operation.import_storage_key
+        if not key or len(key) != 48 or any(ch not in "0123456789abcdef" for ch in key):
+            return
+        terminal = (
+            OperationStatus.COMPLETED,
+            OperationStatus.FAILED,
+            OperationStatus.REJECTED,
+            OperationStatus.CANCELLED,
+        )
+        with self.session_factory() as session:
+            other_active = session.scalar(
+                select(Operation.id)
+                .where(
+                    Operation.type == OperationType.IMPORT,
+                    Operation.import_storage_key == key,
+                    Operation.id != operation_id,
+                    Operation.status.not_in(terminal),
+                )
+                .limit(1)
+            )
+        if other_active is None:
             shutil.rmtree(self.staging_root / key, ignore_errors=True)
 
     def _write_browser_metadata(self, path: Path, payload: bytes) -> None:
