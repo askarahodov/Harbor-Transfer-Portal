@@ -36,7 +36,7 @@ Harbor Transfer Portal предназначен для офлайн-переда
 │                         └→ SQLite / persistent state       │
 │                                      │                    │
 │                                      ▼                    │
-│                          signed .htp.tar.gz + .sha256      │
+│                 bundle + .sha256 + signed handoff         │
 └──────────────────────────────────────┬────────────────────┘
                                        │
                              физический перенос
@@ -106,8 +106,13 @@ API покрывает authentication/users/RBAC, health/readiness, local Harbor
 | `helm_oci_service.py` | Helm OCI pull/push и controlled workspace |
 | `bundle_package_service.py` | build/verify/publish/extract Offline Bundle v1 |
 | `operation_manager.py` | persistent background execution/cancel/restart |
-| `export_orchestrator.py` | SOURCE selection → transfer → package lifecycle |
-| `import_orchestrator.py` | TARGET intake → verify → classify → execute → receipt |
+| `export_orchestrator.py` | SOURCE operation/publication lifecycle и coordination |
+| `export_selection.py` | immutable SOURCE selection resolution, kind/digest drift и Harbor error mapping |
+| `export_artifact_materializer.py` | Skopeo/Helm materialization, stable bundle payload paths, Helm workspace lifecycle |
+| `import_orchestrator.py` | TARGET intake/verify/execute coordination |
+| `import_artifact_classifier.py` | TARGET Harbor inspection → NEW/SAME/CONFLICT/UNKNOWN/ERROR |
+| `import_persistence.py` | verified preview/execution state/receipt persistence boundary |
+| `import_bundle_storage.py` | fail-closed persisted staging path/sidecar validation |
 | report/audit services | history, immutable audit evidence, CSV/PDF/report projections |
 
 Payload transport делегируется Skopeo/Helm; portal не переimplementирует OCI registry copy protocol.
@@ -165,7 +170,7 @@ Operator/Admin
   → BundlePackageService build/sign/self-verify
   → no-replace publication
   → COMPLETED
-  → browser download bundle + .sha256
+  → browser download bundle + .sha256 + signed .htp-handoff.json
   → physical transfer
 ```
 
