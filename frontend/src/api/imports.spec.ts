@@ -59,7 +59,7 @@ describe('import destination API contract', () => {
       type: 'application/json',
     })
 
-    await uploadImportBundle(bundle, undefined, { sidecar, handoff })
+    await uploadImportBundle(bundle, undefined, { sidecar, handoff }, 'b'.repeat(32))
 
     expect(post).toHaveBeenCalledOnce()
     expect(post.mock.calls[0]?.[0]).toBe('/imports/upload')
@@ -72,6 +72,7 @@ describe('import destination API contract', () => {
           'X-HTP-Sidecar-Base64': btoa('sidecar'),
           'X-HTP-Handoff-Base64': btoa('handoff'),
         }),
+        params: { harbor_profile_id: 'b'.repeat(32) },
         timeout: 0,
       }),
     )
