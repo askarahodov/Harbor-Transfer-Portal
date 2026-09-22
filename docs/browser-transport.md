@@ -75,7 +75,7 @@ PORTAL_HTTP_PORT=8080
 PORTAL_BROWSER_SCHEME=https
 ```
 
-Не публикуйте backend `:8000` на host network.
+Backend `:8000` штатным Compose не публикуется на host; frontend обращается к нему только через внутреннюю Compose network по `backend:8000`.
 
 ## TLS terminator на отдельном доверенном узле
 
