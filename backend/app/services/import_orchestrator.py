@@ -711,17 +711,17 @@ class ImportOrchestrator:
             )
         with self.session_factory() as session:
             operation = session.get(Operation, operation_id)
-                if operation is None:
-                    raise ImportOrchestrationError(
-                        "import_operation_create_failed",
-                        "Не удалось создать import operation",
-                    )
-                operation.import_storage_key = storage_key
-                operation.import_intake_mode = mode.value
-                operation.bundle_filename = filename
-                operation.bundle_sha256 = sha256
-                operation.bundle_size_bytes = size_bytes
-                session.commit()
+            if operation is None:
+                raise ImportOrchestrationError(
+                    "import_operation_create_failed",
+                    "Не удалось создать import operation",
+                )
+            operation.import_storage_key = storage_key
+            operation.import_intake_mode = mode.value
+            operation.bundle_filename = filename
+            operation.bundle_sha256 = sha256
+            operation.bundle_size_bytes = size_bytes
+            session.commit()
         return operation_id
 
     def _bundle_paths(self, operation_id: int) -> tuple[Path, Path | None]:
