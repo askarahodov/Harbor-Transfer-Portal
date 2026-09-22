@@ -44,7 +44,7 @@ class ExportArtifactSelection(BaseModel):
 class ExportSelectionRequest(BaseModel):
     artifacts: list[ExportArtifactSelection] = Field(min_length=1, max_length=500)
     comment: str | None = Field(default=None, max_length=2000)
-    harbor_profile_id: str = Field(default="default", min_length=1, max_length=64)
+    harbor_profile_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @field_validator("comment")
     @classmethod
