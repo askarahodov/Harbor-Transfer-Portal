@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -224,6 +225,11 @@ class ExportOrchestrator:
             or not sidecar.is_file()
             or sidecar.is_symlink()
         ):
+            if self._bundle_retention_expired(operation):
+                raise ExportOrchestrationError(
+                    "export_bundle_expired",
+                    "Срок хранения export bundle истёк; история операции сохранена",
+                )
             raise ExportOrchestrationError(
                 "export_bundle_missing",
                 "Готовый export bundle или его checksum sidecar отсутствует",
@@ -246,6 +252,17 @@ class ExportOrchestrator:
             archive_size=archive_size,
             sha256=digest,
         )
+
+    def _bundle_retention_expired(self, operation: Operation) -> bool:
+        timestamp = operation.finished_at or operation.updated_at
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        else:
+            timestamp = timestamp.astimezone(UTC)
+        cutoff = datetime.now(UTC) - timedelta(
+            seconds=self.settings.export_bundle_retention_seconds
+        )
+        return timestamp <= cutoff
 
     def handoff_metadata(self, operation_id: int) -> ExportHandoffMetadata:
         bundle = self.bundle_metadata(operation_id)
