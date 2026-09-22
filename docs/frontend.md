@@ -42,6 +42,8 @@ Sidebar также contour-aware: SOURCE operator/admin видит «Отпра�
 
 ### Шаг 1 — выбор
 
+В начале шага отображается selector Harbor profile. Profiles загружаются из `GET /api/settings/harbor/profiles`; disabled или profile без URL недоступны. Смена profile до operation сбрасывает project/repository/artifacts/preview state и заново загружает connection + browse именно для выбранного Harbor.
+
 Wizard работает только с реальными Harbor browse endpoints. Верхний каскад использует reusable searchable comboboxes **Project → Repository**: repository недоступен до выбора project, а смена верхнего уровня сбрасывает зависимый browse state. Ниже расположен full-width **Version / tag** блок: server-backed search и постоянная таблица результатов с checkbox multi-select, reference, kind, digest, size и pushed time. Оператор может отметить несколько rows и одной кнопкой **«Добавить выбранное»** перенести их в transfer selection; уже добавленные artifacts отображаются отдельным списком и могут быть удалены до preview.
 
 Selection хранит `kind`, `project`, `repository`, `reference` и pinned `digest`; immutable identity строится по kind/project/repository/digest, поэтому несколько aliases одного digest не создают несколько transfer items. Browse search/pagination остаются server-backed и не теряют уже добавленный выбор. `unknown-oci` не selectable и остаётся диагностическим. Для untagged container image используется digest fallback; Helm artifact без явной версии выбрать нельзя.
@@ -79,6 +81,8 @@ Ready screen появляется только после terminal `COMPLETED` �
 Главное правило UI: frontend **не выполняет криптографическую проверку самостоятельно и не выводит её успех из HTTP status**. Он показывает только verifier-derived projection, сохранённую backend после единственного `BundlePackageService.verify_bundle()` path.
 
 ### Шаг 1 — intake и verification
+
+До intake оператор выбирает TARGET Harbor profile. `harbor_profile_id` передаётся в upload/discovery, сохраняется в operation snapshot и после создания operation selector становится read-only. Reload восстанавливает profile из persisted operation, а не из текущего dropdown.
 
 Поддерживаются два backend intake path.
 
@@ -210,6 +214,7 @@ frontend/src/
 - TARGET intake/preview/import backend + wizard — реализованы и используют реальные APIs;
 - admin user-management browser flow `/users` — реализован поверх admin-only `/api/users`;
 - обе стороны восстанавливают persistent operation после reload;
+- Export/Import поддерживают несколько Harbor profiles; выбранный profile pinned к operation и отображается как selector до старта;
 - history/audit/report UX реализован и покрывает current persisted operations/reports;
 - isolated SOURCE → physical transfer → TARGET acceptance и clean-host offline qualification входят в текущий CI/release gate.
 
