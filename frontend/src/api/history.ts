@@ -28,9 +28,9 @@ export type OperationSummary = {
   status: OperationStatus
   actor_username: string
   comment: string | null
-  harbor_profile_id: string | null
-  harbor_profile_name: string | null
-  harbor_profile_url: string | null
+  harbor_profile_id?: string | null
+  harbor_profile_name?: string | null
+  harbor_profile_url?: string | null
   retry_of_operation_id: number | null
   failure_policy: string | null
   created_at: string
