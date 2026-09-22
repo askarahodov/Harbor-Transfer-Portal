@@ -234,13 +234,20 @@ class HelmOciService:
         runner: HelmCommandRunner | None = None,
         progress: Callable[[HelmProgressEvent], None] | None = None,
         digest_resolver: Callable[[HelmChartReference], str | None] | None = None,
+        profile_id: str | None = None,
     ) -> None:
         self.settings = settings
         self.harbor_settings = HarborSettingsService(session, settings)
+        self.profile_id = profile_id
         self.runner = runner or AsyncioHelmCommandRunner()
         self.progress = progress
         self.workspace_root = settings.helm_workspace_root.resolve()
         self.digest_resolver = digest_resolver or self._resolve_harbor_digest
+
+    def _resolve_harbor(self) -> EffectiveHarborSettings:
+        if self.profile_id is None:
+            return self.harbor_settings.resolve()
+        return self.harbor_settings.resolve_profile(self.profile_id)
 
     async def pull_chart(
         self,
@@ -254,7 +261,7 @@ class HelmOciService:
             raise HelmServiceError("helm_source_not_found", "Helm chart/version не найден в Harbor")
         self._validate_optional_digest(source_digest)
 
-        harbor = self.harbor_settings.resolve()
+        harbor = self._resolve_harbor()
         registry = self._registry_host(harbor)
         destination_path.mkdir(parents=True, exist_ok=True)
         with self._security_context(harbor) as security:
@@ -283,7 +290,7 @@ class HelmOciService:
         expected: HelmChartReference,
     ) -> HelmPackageMetadata:
         package_path = self._validate_package_path(package)
-        harbor = self.harbor_settings.resolve()
+        harbor = self._resolve_harbor()
         with self._security_context(harbor) as security:
             return await self._validate_package(package_path, expected, security)
 
@@ -329,7 +336,7 @@ class HelmOciService:
             )
 
         package_path = self._validate_package_path(package)
-        harbor = self.harbor_settings.resolve()
+        harbor = self._resolve_harbor()
         registry = self._registry_host(harbor)
         with self._security_context(harbor) as security:
             package_metadata = await self._validate_package(package_path, target, security)
@@ -502,7 +509,11 @@ class HelmOciService:
 
     def _resolve_harbor_digest(self, chart: HelmChartReference) -> str | None:
         project, repository = self._harbor_api_coordinates(chart)
-        client = self.harbor_settings.build_client()
+        client = (
+            self.harbor_settings.build_client()
+            if self.profile_id is None
+            else self.harbor_settings.build_client_for_profile(self.profile_id)
+        )
         try:
             return client.reference_digest(project, repository, chart.version)
         finally:
