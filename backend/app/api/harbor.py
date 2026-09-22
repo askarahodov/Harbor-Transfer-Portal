@@ -15,9 +15,12 @@ from app.schemas.harbor import (
     HarborProjectsPage,
     HarborRepositoriesPage,
     HarborRepositoryResponse,
+    HarborSelectableProfileResponse,
+    HarborSelectableProfilesResponse,
     PageResponse,
 )
 from app.services.harbor_client import HarborArtifact, HarborClient, HarborClientError
+from app.services.harbor_profiles import DEFAULT_PROFILE_ID, HarborProfileService
 from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 
 router = APIRouter(prefix="/harbor", tags=["harbor"])
@@ -36,9 +39,13 @@ def _api_error(status_code: int, code: str, message: str) -> HTTPException:
 def get_harbor_client(
     request: Request,
     session: SessionDep,
+    harbor_profile_id: Annotated[str | None, Query(max_length=32)] = None,
 ) -> Generator[HarborClient, None, None]:
     try:
-        client = HarborSettingsService(session, request.app.state.settings).build_client()
+        client = HarborSettingsService(
+            session,
+            request.app.state.settings,
+        ).build_client_for_profile(harbor_profile_id or DEFAULT_PROFILE_ID)
     except HarborSettingsError as exc:
         raise _api_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code, exc.message) from exc
     try:
@@ -197,6 +204,25 @@ def _harbor_error(exc: HarborClientError) -> HTTPException:
         ),
     )
     return _api_error(status_code, code, message)
+
+
+@router.get("/profiles", response_model=HarborSelectableProfilesResponse)
+def selectable_profiles(
+    _user: CurrentUserDep,
+    request: Request,
+    session: SessionDep,
+) -> HarborSelectableProfilesResponse:
+    service = HarborProfileService(session, request.app.state.settings)
+    return HarborSelectableProfilesResponse(
+        items=[
+            HarborSelectableProfileResponse(
+                id=profile.id,
+                name=profile.name,
+                url=profile.url,
+            )
+            for profile in service.selectable_profiles()
+        ]
+    )
 
 
 @router.get("/connection", response_model=HarborConnectionResponse)
