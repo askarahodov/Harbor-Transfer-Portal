@@ -20,7 +20,6 @@ from app.schemas.imports import (
     ImportStartResponse,
     MediaHandoffVerificationResponse,
 )
-from app.services.harbor_profiles import DEFAULT_PROFILE_ID
 from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
 from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_mapping_audit import destination_plan_audit_metadata
