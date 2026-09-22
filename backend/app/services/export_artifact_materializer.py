@@ -47,6 +47,7 @@ class ExportArtifactMaterializer:
         artifact_id: int,
         operation_workspace: Path,
         helm_root: Path,
+        harbor_profile_id: str | None = None,
     ) -> PackageArtifactInput:
         if item.kind is ArtifactKind.CONTAINER_IMAGE:
             image = ImageReference(
@@ -55,7 +56,10 @@ class ExportArtifactMaterializer:
             )
             destination = operation_workspace / "images" / str(artifact_id)
             with self.session_factory() as session:
-                result = await self._skopeo_service(session).export_image(image, destination)
+                result = await self._skopeo_service(
+                    session,
+                    harbor_profile_id,
+                ).export_image(image, destination)
             if result.source_digest != item.digest:
                 raise SkopeoServiceError(
                     "export_source_changed",
@@ -72,7 +76,10 @@ class ExportArtifactMaterializer:
         chart = self._helm_reference(item)
         destination = helm_root / str(artifact_id)
         with self.session_factory() as session:
-            result = await self._helm_service(session).pull_chart(chart, destination)
+            result = await self._helm_service(
+                session,
+                harbor_profile_id,
+            ).pull_chart(chart, destination)
         if result.source_digest != item.digest:
             raise HelmServiceError(
                 "export_source_changed",
@@ -116,15 +123,23 @@ class ExportArtifactMaterializer:
         elif path.exists():
             shutil.rmtree(path)
 
-    def _skopeo_service(self, session: Session) -> SkopeoService:
+    def _skopeo_service(
+        self,
+        session: Session,
+        profile_id: str | None,
+    ) -> SkopeoService:
         if self.skopeo_factory is not None:
             return self.skopeo_factory(session)
-        return SkopeoService(session, self.settings)
+        return SkopeoService(session, self.settings, profile_id=profile_id)
 
-    def _helm_service(self, session: Session) -> HelmOciService:
+    def _helm_service(
+        self,
+        session: Session,
+        profile_id: str | None,
+    ) -> HelmOciService:
         if self.helm_factory is not None:
             return self.helm_factory(session)
-        return HelmOciService(session, self.settings)
+        return HelmOciService(session, self.settings, profile_id=profile_id)
 
     @staticmethod
     def _helm_reference(item: ResolvedExportArtifact) -> HelmChartReference:
