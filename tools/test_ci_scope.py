@@ -161,6 +161,16 @@ class CiScopeTest(TestCase):
             Scope(backend=True, security=True),
         )
 
+    def test_operation_profile_binding_runs_security_and_integration(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(
+                ["backend/app/services/harbor_operation_profile.py"],
+                root=root,
+            ),
+            Scope(backend=True, security=True, integration=True),
+        )
+
     def test_harbor_profile_and_settings_changes_run_security_and_integration(self):
         root = self._root()
         for path in (
