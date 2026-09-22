@@ -311,6 +311,21 @@ class CiScopeTest(TestCase):
             ),
         )
 
+    def test_scope_policy_change_self_tests_all_existing_areas(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["tools/ci_scope.py"], root=root),
+            Scope(
+                backend=True,
+                frontend=True,
+                protocol=True,
+                security=True,
+                integration=True,
+                compose=True,
+                docs=True,
+            ),
+        )
+
     def test_workflow_change_does_not_invent_missing_components(self):
         root = self._root(
             backend=False,
