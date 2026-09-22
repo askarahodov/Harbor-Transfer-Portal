@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Annotated
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.api.harbor import _harbor_error
+from app.api.harbor import HarborClientDep, _harbor_error
 from app.auth.dependencies import SessionDep, require_roles
 from app.config import PortalContour
 from app.db.models import Operation, User, UserRole
@@ -76,6 +77,7 @@ def create_project(
     request: Request,
     actor: AdminUserDep,
     session: SessionDep,
+    default_client: HarborClientDep,
 ) -> HarborProjectCreateResponse:
     """Explicit admin-only TARGET Harbor project creation.
 
@@ -85,18 +87,26 @@ def create_project(
     operation = _correlated_import(session, payload.operation_id)
     profile_id = operation.harbor_profile_id if operation is not None else None
     try:
-        client = HarborSettingsService(
-            session,
-            request.app.state.settings,
-        ).build_client(profile_id)
+        # Pre-profile operations have no snapshot and retain the historical injected
+        # Default client boundary. New operations always pin an id (including
+        # "default") and therefore resolve their exact profile here.
+        client = (
+            default_client
+            if profile_id is None
+            else HarborSettingsService(
+                session,
+                request.app.state.settings,
+            ).build_client(profile_id)
+        )
     except HarborSettingsError as exc:
         raise _api_error(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             exc.code,
             exc.message,
         ) from exc
+    client_context = nullcontext(client) if profile_id is None else client
     runtime = RuntimeModeService(session, request.app.state.settings)
-    with runtime.mode_guard(PortalContour.TARGET):
+    with client_context as client, runtime.mode_guard(PortalContour.TARGET):
         try:
             existing = _find_project(client, payload.name)
             if existing is not None:
@@ -158,4 +168,4 @@ def create_project(
             public=payload.public,
             created=True,
         )
-    # client ownership belongs to this request after profile-aware construction.
+
