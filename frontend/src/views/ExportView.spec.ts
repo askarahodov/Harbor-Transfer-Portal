@@ -35,6 +35,12 @@ async function selectVersion(wrapper: VueWrapper, value: string): Promise<void> 
 }
 
 function mockHappyPath(): void {
+  vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+    items: [
+      { id: 'default', name: 'Default Harbor', url: 'https://harbor-a.local', is_default: true },
+      { id: 'b'.repeat(32), name: 'Harbor B', url: 'https://harbor-b.local', is_default: false },
+    ],
+  })
   vi.spyOn(exportsApi, 'getHarborConnection').mockResolvedValue({
     connected: true,
     version: '2.14.0',
@@ -167,6 +173,8 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
 
     expect(wrapper.get('h1').text()).toContain('Отправка артефактов')
+    expect(wrapper.get('#export-harbor-profile').exists()).toBe(true)
+    expect(wrapper.get('#export-harbor-profile').element).toHaveProperty('value', 'default')
     expect(wrapper.get('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(true)
 
     await chooseOption(wrapper, 'Проект Harbor', 'team')
@@ -192,6 +200,34 @@ describe('SOURCE export wizard view', () => {
     expect(wrapper.text()).toContain('bbbbbbbbbbbbbbbb')
     expect(button(wrapper, 'Скачать bundle').attributes('type')).toBe('button')
     expect(button(wrapper, 'Скачать `.sha256`').attributes('type')).toBe('button')
+  })
+
+  it('switches profile before browse and sends the same id to export preview', async () => {
+    mockHappyPath()
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('#export-harbor-profile').setValue('b'.repeat(32))
+    await flushPromises()
+    expect(exportsApi.getHarborConnection).toHaveBeenLastCalledWith('b'.repeat(32))
+
+    await chooseOption(wrapper, 'Проект Harbor', 'team')
+    await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
+    await selectVersion(wrapper, '1.0.0')
+    await button(wrapper, 'Добавить').trigger('click')
+    await button(wrapper, 'Проверить выбранное').trigger('click')
+    await flushPromises()
+
+    expect(exportsApi.previewExport).toHaveBeenLastCalledWith(
+      expect.objectContaining({ harbor_profile_id: 'b'.repeat(32) }),
+    )
   })
 
   it('lets an admin generate missing signing identity and continue export', async () => {
@@ -327,7 +363,7 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
 
     expect(artifactsSpy).toHaveBeenCalledTimes(1)
-    expect(artifactsSpy).toHaveBeenLastCalledWith('team', 'apps/demo', 1, 25, '1.0')
+    expect(artifactsSpy).toHaveBeenLastCalledWith('team', 'apps/demo', 1, 25, '1.0', 'default')
     wrapper.unmount()
   })
 
