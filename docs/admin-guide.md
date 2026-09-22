@@ -318,11 +318,16 @@ Backend работает под UID/GID `10001`. Не используйте `do
 
 Physical transfer payloads имеют bounded lifecycle:
 
-- completed SOURCE publication хранится `EXPORT_BUNDLE_RETENTION_SECONDS` (по умолчанию 7 суток);
+- completed SOURCE publication по умолчанию хранится 7 суток;
 - successful TARGET import удаляет staging bundle сразу после `COMPLETED`;
-- failed/partial TARGET bundle хранится `IMPORT_BUNDLE_RETENTION_SECONDS` (по умолчанию 7 суток), чтобы deterministic retry мог использовать тот же payload;
+- failed/partial TARGET bundle по умолчанию хранится 7 суток, чтобы deterministic retry мог использовать тот же payload;
 - import extraction workspace удаляется после worker;
-- cleanup запускается при startup и затем каждые `STORAGE_CLEANUP_INTERVAL_SECONDS` (по умолчанию 1 час).
+- cleanup по умолчанию запускается каждый час.
+
+Эти три retention значения admin меняет в **Настройки → Политики переноса → Очистка transfer storage**.
+UI хранит override в SQLite и применяет его без restart backend. `EXPORT_BUNDLE_RETENTION_SECONDS=604800`,
+`IMPORT_BUNDLE_RETENTION_SECONDS=604800` и `STORAGE_CLEANUP_INTERVAL_SECONDS=3600` остаются только
+bootstrap/default значениями `.env`, пока admin не сохранил override.
 
 History, receipt, checksum/size metadata и audit events после physical cleanup сохраняются. Не заменяйте эту policy ручным удалением произвольных каталогов внутри `/app/data`.
 
