@@ -74,6 +74,7 @@ Root [README](../README.md) — пользовательская входная 
 | `schema/` | machine-readable Bundle schemas | **нормативный** |
 | [package-service.md](package-service.md) | Bundle build/verify implementation boundary | актуальный |
 | [operation-manager.md](operation-manager.md) | background execution/progress/cancel/restart | актуальный |
+| [storage-retention.md](storage-retention.md) | lifecycle и bounded cleanup transfer payload storage | актуальный |
 | [skopeo-service.md](skopeo-service.md) | container transfer service | актуальный |
 | [helm-oci-service.md](helm-oci-service.md) | Helm OCI transfer service | актуальный |
 | [harbor-browse-api.md](harbor-browse-api.md) | Harbor browse projection/policies | актуальный |

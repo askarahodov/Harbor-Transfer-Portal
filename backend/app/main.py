@@ -1,5 +1,6 @@
+import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import cast
 
 from fastapi import FastAPI
@@ -16,6 +17,10 @@ from app.services.correlated_operation_manager import CorrelatedOperationManager
 from app.services.export_recovery import reconcile_incomplete_export_publications
 from app.services.operation_audit import install_operation_audit_hooks
 from app.services.runtime_mode import RuntimeModeError, RuntimeModeService
+from app.services.storage_retention import (
+    cleanup_transfer_storage,
+    run_periodic_storage_cleanup,
+)
 from app.services.transfer_policy import TransferPolicyService
 from app.utils.errors import (
     http_exception_handler,
@@ -45,9 +50,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             TransferPolicyService(session, resolved_settings).apply_persisted_at_startup()
         reconcile_incomplete_export_publications(session_factory, resolved_settings)
         await operation_manager.startup()
+        await asyncio.to_thread(
+            cleanup_transfer_storage,
+            session_factory,
+            resolved_settings,
+        )
+        cleanup_task = asyncio.create_task(
+            run_periodic_storage_cleanup(session_factory, resolved_settings)
+        )
         try:
             yield
         finally:
+            cleanup_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await cleanup_task
             await operation_manager.shutdown()
 
     app = FastAPI(

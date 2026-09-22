@@ -117,6 +117,22 @@ class Settings(BaseSettings):
     )
     import_allow_overwrite: bool = False
 
+    export_bundle_retention_seconds: int = Field(
+        default=7 * 24 * 60 * 60,
+        ge=60 * 60,
+        le=365 * 24 * 60 * 60,
+    )
+    import_bundle_retention_seconds: int = Field(
+        default=7 * 24 * 60 * 60,
+        ge=60 * 60,
+        le=365 * 24 * 60 * 60,
+    )
+    storage_cleanup_interval_seconds: int = Field(
+        default=60 * 60,
+        ge=60,
+        le=24 * 60 * 60,
+    )
+
     operation_workspace_root: Path = Path("./data/tmp/operations")
     operation_max_concurrent: int = Field(default=2, ge=1, le=32)
     operation_disk_reserve_bytes: int = Field(default=512 * 1024**2, ge=0, le=1024**4)

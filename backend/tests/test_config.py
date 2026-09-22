@@ -50,3 +50,27 @@ def test_https_allows_explicit_non_loopback_bind() -> None:
 
     assert settings.portal_http_bind == "10.20.30.40"
     assert settings.portal_browser_scheme is BrowserScheme.HTTPS
+
+
+def test_transfer_storage_retention_defaults_are_bounded() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.export_bundle_retention_seconds == 7 * 24 * 60 * 60
+    assert settings.import_bundle_retention_seconds == 7 * 24 * 60 * 60
+    assert settings.storage_cleanup_interval_seconds == 60 * 60
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("export_bundle_retention_seconds", 3599),
+        ("import_bundle_retention_seconds", 3599),
+        ("storage_cleanup_interval_seconds", 59),
+    ],
+)
+def test_transfer_storage_retention_rejects_unbounded_low_values(
+    field: str,
+    value: int,
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})

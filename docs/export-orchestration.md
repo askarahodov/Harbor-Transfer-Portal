@@ -192,7 +192,8 @@ Packaging выполняется в worker thread через `asyncio.to_thread`
 - `export_artifact_unsupported` — неподдерживаемый type;
 - `export_aborted` — artifact остановлен fail-fast policy;
 - `export_not_ready` — bundle запрошен до `COMPLETED`;
-- `export_bundle_missing` — completed delivery отсутствует на диске;
+- `export_bundle_expired` — completed publication удалена штатной retention policy; API отвечает `410 Gone`;
+- `export_bundle_missing` — completed delivery неожиданно отсутствует на диске до истечения retention;
 - `export_bundle_metadata_invalid` — persisted/file/sidecar metadata расходятся;
 - `export_bundle_path_invalid` — path не соответствует controlled delivery location;
 - `download_auth_required` — native download вызван без bearer/ticket;
@@ -211,6 +212,8 @@ Export использует только server-controlled roots из `Settings`
 - BundlePackageService outgoing root.
 
 Download заново проверяет, что generated archive path остаётся внутри `bundle_outgoing_root`. Persisted filename обязан точно соответствовать `delivery_id`.
+
+Completed publication сохраняется только в течение `EXPORT_BUNDLE_RETENTION_SECONDS` (default 7 суток). Startup/periodic cleanup удаляет archive, sidecar и signed handoff как единый delivery set, но не удаляет Operation/history metadata. После expiry download metadata path сообщает `export_bundle_expired`. Подробнее: [storage-retention.md](storage-retention.md).
 
 ## Frontend integration
 

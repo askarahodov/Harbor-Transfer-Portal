@@ -1,4 +1,5 @@
 import hashlib
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -312,6 +313,41 @@ def test_download_ticket_is_owner_scoped_and_viewer_cannot_mint_it(tmp_path: Pat
     assert viewer_response.status_code == 403
     assert unauthenticated.status_code == 401
     assert unauthenticated.json()["error"]["code"] == "download_auth_required"
+
+
+def test_expired_completed_bundle_returns_gone_and_keeps_history(tmp_path: Path) -> None:
+    app, user_ids = _app_with_users(tmp_path, PortalContour.SOURCE)
+    with app.state.session_factory() as session:
+        operation = Operation(
+            delivery_id=DELIVERY_ID,
+            type=OperationType.EXPORT,
+            status=OperationStatus.COMPLETED,
+            actor_user_id=user_ids["operator"],
+            actor_username="operator",
+            bundle_filename=f"{DELIVERY_ID}.htp.tar.gz",
+            bundle_sha256="f" * 64,
+            bundle_size_bytes=123,
+            finished_at=datetime.now(UTC) - timedelta(days=8),
+        )
+        session.add(operation)
+        session.commit()
+        operation_id = operation.id
+
+    with TestClient(app) as client:
+        operator = _login(client, "operator")
+        response = client.get(
+            f"/api/exports/{operation_id}/bundle",
+            headers=_auth(operator),
+        )
+        history = client.get(
+            f"/api/operations/{operation_id}",
+            headers=_auth(operator),
+        )
+
+    assert response.status_code == 410
+    assert response.json()["error"]["code"] == "export_bundle_expired"
+    assert history.status_code == 200
+    assert history.json()["bundle"]["sha256"] == "f" * 64
 
 
 def test_generic_operation_status_projects_persisted_bundle_metadata(tmp_path: Path) -> None:

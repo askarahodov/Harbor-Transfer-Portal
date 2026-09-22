@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import PortalContour, Settings
@@ -493,138 +494,142 @@ class ImportOrchestrator:
         extraction = self.extract_root / f"import-{operation_id}"
         self._remove_path(extraction)
         try:
-            verified = await asyncio.to_thread(
-                self.package_factory().verify_bundle,
-                archive,
-                sidecar_path=sidecar,
-                extract_to=extraction,
-            )
-        except BundlePackageError as exc:
-            raise OperationTaskFailure(exc.code, exc.message) from exc
-        if (
-            verified.archive_sha256 != preview.bundle_sha256
-            or verified.manifest.delivery_id != preview.source_delivery_id
-        ):
-            raise OperationTaskFailure(
-                "import_bundle_changed",
-                "Bundle identity не совпадает с verified preview",
-            )
-        if verified.extracted_root is None:
-            raise OperationTaskFailure(
-                "import_extract_failed",
-                "Verified bundle не был извлечён",
-            )
-
-        artifacts = operation.artifacts
-        if len(artifacts) != len(verified.manifest.artifacts):
-            raise OperationTaskFailure(
-                "import_preview_artifacts_changed",
-                "Состав operation artifacts не совпадает с manifest",
-            )
-
-        failures = 0
-        context.set_progress(current=0, total=len(artifacts))
-        with self.session_factory() as session:
-            skopeo = self.skopeo_factory(session)
-            helm = self.helm_factory(session)
-            pairs = zip(artifacts, verified.manifest.artifacts, strict=True)
-            for index, (row, descriptor) in enumerate(pairs):
-                context.raise_if_cancelled()
-                try:
-                    outcome = await self._preflight_target(descriptor, skopeo, helm)
-                except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.FAILED,
-                        error_code=getattr(exc, "code", "import_target_inspection_failed"),
-                        error_message=str(exc),
-                    )
-                    failures += 1
-                    context.set_progress(current=index + 1, total=len(artifacts))
-                    continue
-
-                if outcome[0] is ImportPreviewState.SAME:
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.SKIPPED,
-                        target_digest=outcome[1],
-                    )
-                    context.set_progress(current=index + 1, total=len(artifacts))
-                    continue
-                if outcome[0] is ImportPreviewState.CONFLICT and not overwrite:
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.CONFLICT,
-                        target_digest=outcome[1],
-                    )
-                    failures += 1
-                    context.set_progress(current=index + 1, total=len(artifacts))
-                    continue
-                if outcome[0] in {ImportPreviewState.UNKNOWN, ImportPreviewState.ERROR}:
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.FAILED,
-                        error_code="import_target_state_unresolved",
-                        error_message="TARGET state нельзя безопасно разрешить перед mutation",
-                    )
-                    failures += 1
-                    context.set_progress(current=index + 1, total=len(artifacts))
-                    continue
-
-                context.set_artifact_status(row.id, ArtifactStatus.RUNNING)
-                payload = verified.extracted_root.joinpath(
-                    *PurePosixPath(descriptor.payload_path).parts
+            try:
+                verified = await asyncio.to_thread(
+                    self.package_factory().verify_bundle,
+                    archive,
+                    sidecar_path=sidecar,
+                    extract_to=extraction,
                 )
-                try:
-                    if isinstance(descriptor, ContainerImageArtifact):
-                        imported = await skopeo.import_image(
-                            payload,
-                            ImageReference(descriptor.repository, descriptor.reference),
-                            expected_digest=descriptor.source_digest,
-                        )
-                        target_digest = imported.target_digest
-                    else:
-                        pushed = await helm.push_chart(
-                            payload,
-                            HelmChartReference(
-                                descriptor.repository,
-                                descriptor.name,
-                                descriptor.version,
-                            ),
-                            source_digest=descriptor.source_digest,
-                            allow_existing=(
-                                overwrite and outcome[0] is ImportPreviewState.CONFLICT
-                            ),
-                        )
-                        if pushed.package.sha256 != descriptor.payload_sha256:
-                            raise HelmServiceError(
-                                "helm_payload_digest_mismatch",
-                                "Helm package SHA-256 не совпадает с signed bundle payload",
-                            )
-                        target_digest = pushed.target_digest
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.VERIFIED,
-                        target_digest=target_digest,
-                    )
-                except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
-                    context.set_artifact_status(
-                        row.id,
-                        ArtifactStatus.FAILED,
-                        error_code=getattr(exc, "code", "import_artifact_failed"),
-                        error_message=str(exc),
-                    )
-                    failures += 1
-                context.set_progress(current=index + 1, total=len(artifacts))
+            except BundlePackageError as exc:
+                raise OperationTaskFailure(exc.code, exc.message) from exc
+            if (
+                verified.archive_sha256 != preview.bundle_sha256
+                or verified.manifest.delivery_id != preview.source_delivery_id
+            ):
+                raise OperationTaskFailure(
+                    "import_bundle_changed",
+                    "Bundle identity не совпадает с verified preview",
+                )
+            if verified.extracted_root is None:
+                raise OperationTaskFailure(
+                    "import_extract_failed",
+                    "Verified bundle не был извлечён",
+                )
 
-        context.transition(OperationStatus.VERIFYING_TARGET)
-        self._write_receipt(operation_id, preview, overwrite, requested_at, failures)
-        if failures:
-            raise OperationTaskFailure(
-                "import_partial_failure",
-                "Import завершён с ошибками отдельных артефактов; rollback не выполнялся",
-            )
-        context.transition(OperationStatus.COMPLETED)
+            artifacts = operation.artifacts
+            if len(artifacts) != len(verified.manifest.artifacts):
+                raise OperationTaskFailure(
+                    "import_preview_artifacts_changed",
+                    "Состав operation artifacts не совпадает с manifest",
+                )
+
+            failures = 0
+            context.set_progress(current=0, total=len(artifacts))
+            with self.session_factory() as session:
+                skopeo = self.skopeo_factory(session)
+                helm = self.helm_factory(session)
+                pairs = zip(artifacts, verified.manifest.artifacts, strict=True)
+                for index, (row, descriptor) in enumerate(pairs):
+                    context.raise_if_cancelled()
+                    try:
+                        outcome = await self._preflight_target(descriptor, skopeo, helm)
+                    except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
+                        context.set_artifact_status(
+                            row.id,
+                            ArtifactStatus.FAILED,
+                            error_code=getattr(exc, "code", "import_target_inspection_failed"),
+                            error_message=str(exc),
+                        )
+                        failures += 1
+                        context.set_progress(current=index + 1, total=len(artifacts))
+                        continue
+
+                    if outcome[0] is ImportPreviewState.SAME:
+                        context.set_artifact_status(
+                            row.id,
+                            ArtifactStatus.SKIPPED,
+                            target_digest=outcome[1],
+                        )
+                        context.set_progress(current=index + 1, total=len(artifacts))
+                        continue
+                    if outcome[0] is ImportPreviewState.CONFLICT and not overwrite:
+                        context.set_artifact_status(
+                            row.id,
+                            ArtifactStatus.CONFLICT,
+                            target_digest=outcome[1],
+                        )
+                        failures += 1
+                        context.set_progress(current=index + 1, total=len(artifacts))
+                        continue
+                    if outcome[0] in {ImportPreviewState.UNKNOWN, ImportPreviewState.ERROR}:
+                        context.set_artifact_status(
+                            row.id,
+                            ArtifactStatus.FAILED,
+                            error_code="import_target_state_unresolved",
+                            error_message="TARGET state нельзя безопасно разрешить перед mutation",
+                        )
+                        failures += 1
+                        context.set_progress(current=index + 1, total=len(artifacts))
+                        continue
+
+                    context.set_artifact_status(row.id, ArtifactStatus.RUNNING)
+                    payload = verified.extracted_root.joinpath(
+                        *PurePosixPath(descriptor.payload_path).parts
+                    )
+                    try:
+                        if isinstance(descriptor, ContainerImageArtifact):
+                            imported = await skopeo.import_image(
+                                payload,
+                                ImageReference(descriptor.repository, descriptor.reference),
+                                expected_digest=descriptor.source_digest,
+                            )
+                            target_digest = imported.target_digest
+                        else:
+                            pushed = await helm.push_chart(
+                                payload,
+                                HelmChartReference(
+                                    descriptor.repository,
+                                    descriptor.name,
+                                    descriptor.version,
+                                ),
+                                source_digest=descriptor.source_digest,
+                                allow_existing=(
+                                    overwrite and outcome[0] is ImportPreviewState.CONFLICT
+                                ),
+                            )
+                            if pushed.package.sha256 != descriptor.payload_sha256:
+                                raise HelmServiceError(
+                                    "helm_payload_digest_mismatch",
+                                    "Helm package SHA-256 не совпадает с signed bundle payload",
+                                )
+                            target_digest = pushed.target_digest
+                        context.set_artifact_status(
+                            row.id,
+                            ArtifactStatus.VERIFIED,
+                            target_digest=target_digest,
+                        )
+                    except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
+                        context.set_artifact_status(
+                            row.id,
+                            ArtifactStatus.FAILED,
+                            error_code=getattr(exc, "code", "import_artifact_failed"),
+                            error_message=str(exc),
+                        )
+                        failures += 1
+                    context.set_progress(current=index + 1, total=len(artifacts))
+
+            context.transition(OperationStatus.VERIFYING_TARGET)
+            self._write_receipt(operation_id, preview, overwrite, requested_at, failures)
+            if failures:
+                raise OperationTaskFailure(
+                    "import_partial_failure",
+                    "Import завершён с ошибками отдельных артефактов; rollback не выполнялся",
+                )
+            context.transition(OperationStatus.COMPLETED)
+            self._cleanup_storage_if_unreferenced(operation_id)
+        finally:
+            self._remove_path(extraction)
 
     async def _preflight_target(
         self,
@@ -730,6 +735,34 @@ class ImportOrchestrator:
             return
         key = operation.import_storage_key
         if key and len(key) == 48 and all(ch in "0123456789abcdef" for ch in key):
+            shutil.rmtree(self.staging_root / key, ignore_errors=True)
+
+    def _cleanup_storage_if_unreferenced(self, operation_id: int) -> None:
+        try:
+            operation = self._get_import_operation(operation_id)
+        except ImportOrchestrationError:
+            return
+        key = operation.import_storage_key
+        if not key or len(key) != 48 or any(ch not in "0123456789abcdef" for ch in key):
+            return
+        terminal = (
+            OperationStatus.COMPLETED,
+            OperationStatus.FAILED,
+            OperationStatus.REJECTED,
+            OperationStatus.CANCELLED,
+        )
+        with self.session_factory() as session:
+            other_active = session.scalar(
+                select(Operation.id)
+                .where(
+                    Operation.type == OperationType.IMPORT,
+                    Operation.import_storage_key == key,
+                    Operation.id != operation_id,
+                    Operation.status.not_in(terminal),
+                )
+                .limit(1)
+            )
+        if other_active is None:
             shutil.rmtree(self.staging_root / key, ignore_errors=True)
 
     def _write_browser_metadata(self, path: Path, payload: bytes) -> None:

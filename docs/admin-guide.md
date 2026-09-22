@@ -314,6 +314,20 @@ Release Compose использует stable named volume `harbor-transfer-portal
 
 Backend работает под UID/GID `10001`. Не используйте `docker compose down -v` как обычный restart: `-v` удаляет persistent volume.
 
+### Retention transfer payloads
+
+Physical transfer payloads имеют bounded lifecycle:
+
+- completed SOURCE publication хранится `EXPORT_BUNDLE_RETENTION_SECONDS` (по умолчанию 7 суток);
+- successful TARGET import удаляет staging bundle сразу после `COMPLETED`;
+- failed/partial TARGET bundle хранится `IMPORT_BUNDLE_RETENTION_SECONDS` (по умолчанию 7 суток), чтобы deterministic retry мог использовать тот же payload;
+- import extraction workspace удаляется после worker;
+- cleanup запускается при startup и затем каждые `STORAGE_CLEANUP_INTERVAL_SECONDS` (по умолчанию 1 час).
+
+History, receipt, checksum/size metadata и audit events после physical cleanup сохраняются. Не заменяйте эту policy ручным удалением произвольных каталогов внутри `/app/data`.
+
+Подробнее: [storage-retention.md](storage-retention.md).
+
 ## 13. Backup
 
 Для offline installation используйте shipped:
