@@ -141,6 +141,7 @@ class ExportOrchestrator:
     ) -> ExportStartResult:
         self._require_source_contour()
         self._require_signing_identity()
+        harbor_profile_id = harbor_profile_id.strip() or DEFAULT_PROFILE_ID
         selection_snapshot = tuple(selections)
         resolved, operation_id, delivery_id, artifact_ids = await asyncio.to_thread(
             self._prepare_export_operation,
