@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { defineStore } from 'pinia'
+import { defineStore, storeToRefs } from 'pinia'
 
 import {
   apiErrorInfo,
@@ -21,6 +21,7 @@ import {
   type Operation,
   type OperationStatus,
 } from '@/api/imports'
+import { useHarborProfilesStore } from '@/stores/harborProfiles'
 
 const OPERATION_STORAGE_KEY = 'htp.import.operation-id'
 const POLL_INTERVAL_MS = 1500
@@ -47,6 +48,7 @@ export type DiscoveredImport = {
 
 function emptyMappingRequest(): ImportDestinationPlanRequest {
   return {
+    harbor_profile_id: null,
     container_image_project: null,
     helm_chart_project: null,
     project_mappings: {},
@@ -74,6 +76,14 @@ function savedOperationId(): number | null {
 }
 
 export const useImportWizardStore = defineStore('import-wizard', () => {
+  const harborProfilesStore = useHarborProfilesStore()
+  const {
+    profiles: harborProfiles,
+    selectedId: selectedHarborProfileId,
+    selectedProfile: selectedHarborProfile,
+    loading: harborProfilesLoading,
+    error: harborProfilesError,
+  } = storeToRefs(harborProfilesStore)
   const step = ref<ImportWizardStep>(1)
   const selectedFile = ref<UploadSelection | null>(null)
   const uploadProgress = ref<UploadProgress | null>(null)
@@ -152,6 +162,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
       (VERIFYING_STATES.has(operation.value.status) || IMPORTING_STATES.has(operation.value.status)) &&
       !operation.value.cancel_requested,
   )
+  const harborProfileLocked = computed(() => operation.value !== null)
 
   function clearError(): void {
     error.value = null
@@ -216,7 +227,18 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     busy.value = 'destination-plan'
     clearError()
     try {
-      const plan = await buildImportDestinationPlan(operation.value.id, mappingDraft.value)
+      const profileId = operation.value.harbor_profile_id ?? selectedHarborProfileId.value
+      if (!profileId) {
+        error.value = {
+          code: 'harbor_profile_required',
+          message: 'Harbor profile не закреплён за import operation.',
+        }
+        return false
+      }
+      const plan = await buildImportDestinationPlan(operation.value.id, {
+        ...mappingDraft.value,
+        harbor_profile_id: profileId,
+      })
       destinationPlan.value = plan
       mappingDirty.value = false
       overwriteConfirmed.value = false
@@ -263,6 +285,13 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
       throw new Error('Saved operation is not an import operation')
     }
     operation.value = current
+    if (current.harbor_profile_id) {
+      harborProfilesStore.select(current.harbor_profile_id)
+      mappingDraft.value = {
+        ...mappingDraft.value,
+        harbor_profile_id: current.harbor_profile_id,
+      }
+    }
 
     if (VERIFYING_STATES.has(current.status)) {
       step.value = 1
@@ -335,9 +364,22 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     receipt.value = null
     resetMapping()
     try {
-      const intake = await uploadImportBundle(file, (loaded, total) => {
-        uploadProgress.value = { loaded, total: total ?? file.size }
-      })
+      const profileId = selectedHarborProfileId.value
+      if (!profileId) {
+        error.value = {
+          code: 'harbor_profile_required',
+          message: 'Выберите TARGET Harbor profile перед загрузкой.',
+        }
+        return false
+      }
+      const intake = await uploadImportBundle(
+        file,
+        (loaded, total) => {
+          uploadProgress.value = { loaded, total: total ?? file.size }
+        },
+        undefined,
+        profileId,
+      )
       await selectOperation(intake.operation_id)
       return true
     } catch (requestError) {
@@ -371,12 +413,21 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     receipt.value = null
     resetMapping()
     try {
+      const profileId = selectedHarborProfileId.value
+      if (!profileId) {
+        error.value = {
+          code: 'harbor_profile_required',
+          message: 'Выберите TARGET Harbor profile перед загрузкой.',
+        }
+        return false
+      }
       const intake = await uploadImportBundle(
         bundle,
         (loaded, total) => {
           uploadProgress.value = { loaded, total: total ?? bundle.size }
         },
         { sidecar, handoff },
+        profileId,
       )
       await selectOperation(intake.operation_id)
       return true
@@ -395,7 +446,15 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     busy.value = 'discover'
     clearError()
     try {
-      const response = await discoverImportBundles()
+      const profileId = selectedHarborProfileId.value
+      if (!profileId) {
+        error.value = {
+          code: 'harbor_profile_required',
+          message: 'Выберите TARGET Harbor profile перед discovery.',
+        }
+        return
+      }
+      const response = await discoverImportBundles(profileId)
       const resolved = await Promise.all(
         response.operations.map(async (intake) => ({
           intake,
@@ -482,13 +541,46 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     }
   }
 
+  async function loadHarborProfiles(): Promise<boolean> {
+    const loaded = await harborProfilesStore.load()
+    if (!loaded && harborProfilesError.value) {
+      error.value = harborProfilesError.value
+    }
+    return loaded
+  }
+
+  function selectHarborProfile(profileId: string): void {
+    if (harborProfileLocked.value || profileId === selectedHarborProfileId.value) return
+    if (!harborProfilesStore.select(profileId)) return
+    selectedFile.value = null
+    uploadProgress.value = null
+    discovered.value = []
+    preview.value = null
+    receipt.value = null
+    resetMapping()
+    mappingDraft.value = {
+      ...mappingDraft.value,
+      harbor_profile_id: profileId,
+    }
+    clearError()
+  }
+
   async function initialize(): Promise<void> {
-    const operationId = savedOperationId()
-    if (!operationId) return
     busy.value = 'initialize'
     clearError()
     try {
-      await selectOperation(operationId)
+      const profilesReady = await loadHarborProfiles()
+      if (!profilesReady) return
+      if (selectedHarborProfileId.value) {
+        mappingDraft.value = {
+          ...mappingDraft.value,
+          harbor_profile_id: selectedHarborProfileId.value,
+        }
+      }
+      const operationId = savedOperationId()
+      if (operationId) {
+        await selectOperation(operationId)
+      }
     } finally {
       busy.value = null
     }
@@ -511,6 +603,11 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
 
   return {
     step,
+    harborProfiles,
+    selectedHarborProfileId,
+    selectedHarborProfile,
+    harborProfilesLoading,
+    harborProfileLocked,
     selectedFile,
     uploadProgress,
     discovered,
@@ -531,6 +628,8 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     canExecuteDefault,
     canExecuteOverwrite,
     canCancel,
+    loadHarborProfiles,
+    selectHarborProfile,
     upload,
     uploadPhysicalHandoff,
     discover,
