@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.services.harbor_client import HarborClientError
-from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
+from app.services.harbor_profiles import DEFAULT_PROFILE_ID, HarborProfileService
+from app.services.harbor_settings import HarborSettingsError
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,10 +35,17 @@ class DestinationValidator(Protocol):
 class HarborDestinationValidator:
     """Validate TARGET project existence and repository push capability without mutation."""
 
-    def __init__(self, session: Session, settings: Settings) -> None:
+    def __init__(
+        self,
+        session: Session,
+        settings: Settings,
+        *,
+        harbor_profile_id: str = DEFAULT_PROFILE_ID,
+    ) -> None:
         self.settings = settings
-        self.harbor_settings = HarborSettingsService(session, settings)
-        resolved = self.harbor_settings.resolve()
+        self.harbor_profiles = HarborProfileService(session, settings)
+        self.harbor_profile_id = harbor_profile_id
+        resolved = self.harbor_profiles.resolve(harbor_profile_id)
         if not resolved.url:
             raise HarborSettingsError("harbor_not_configured", "Локальный Harbor не настроен")
         self._resolved = resolved
@@ -86,7 +94,7 @@ class HarborDestinationValidator:
         cached = self._project_cache.get(project)
         if cached is not None:
             return cached
-        with self.harbor_settings.build_client() as client:
+        with self.harbor_profiles.build_client(self.harbor_profile_id) as client:
             page = client.list_projects_page(1, 100, search_needle=project)
         exists = any(item.name == project for item in page.items)
         self._project_cache[project] = exists
