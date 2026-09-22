@@ -108,11 +108,17 @@ wait_runtime() {
 
 verify_port_publication() {
   kit=$1
-  frontend_published=$(docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" port frontend 8080)
-  [ -n "$frontend_published" ] || fail 'offline runtime did not publish frontend port 8080'
-  backend_published=$(docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" port backend 8000 2>/dev/null) || backend_published=''
-  [ -z "$backend_published" ] \
-    || fail "offline runtime unexpectedly publishes backend port 8000: $backend_published"
+  frontend_id=$(docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" ps -q frontend)
+  backend_id=$(docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" ps -q backend)
+  frontend_bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$frontend_id")
+  backend_bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$backend_id")
+  case "$frontend_bindings" in
+    *'"8080/tcp"'*) ;;
+    *) fail "offline runtime did not publish frontend port 8080: $frontend_bindings" ;;
+  esac
+  case "$backend_bindings" in
+    *'"8000/tcp"'*) fail "offline runtime unexpectedly publishes backend port 8000: $backend_bindings" ;;
+  esac
 }
 
 verify_install() {
