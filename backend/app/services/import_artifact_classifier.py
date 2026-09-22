@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.domain.bundle import ContainerImageArtifact, HelmChartArtifact
 from app.domain.imports import ImportPreviewState
 from app.schemas.imports import ImportArtifactPreviewResponse
-from app.services.harbor_settings import DEFAULT_HARBOR_PROFILE_ID
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmOciService,
@@ -36,7 +35,7 @@ class ImportArtifactClassifier:
         self,
         artifacts: Sequence[ContainerImageArtifact | HelmChartArtifact],
         *,
-        harbor_profile_id: str = DEFAULT_HARBOR_PROFILE_ID,
+        harbor_profile_id: str | None = None,
     ) -> list[ImportArtifactPreviewResponse]:
         result: list[ImportArtifactPreviewResponse] = []
         with self.session_factory() as session:
