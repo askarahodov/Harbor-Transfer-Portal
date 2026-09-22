@@ -68,6 +68,9 @@ class Operation(TimestampMixin, Base):
     )
     runtime_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     runtime_mode_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    harbor_profile_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    harbor_profile_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    harbor_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     actor_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -152,6 +155,17 @@ class SettingMetadata(TimestampMixin, Base):
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class HarborProfile(TimestampMixin, Base):
+    __tablename__ = "harbor_profiles"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    username: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    verify_tls: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class AuditEvent(TimestampMixin, Base):
