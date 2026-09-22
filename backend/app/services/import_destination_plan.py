@@ -39,6 +39,8 @@ from app.services.destination_plan_integrity import (
     colliding_artifact_indices,
     validated_source_repository,
 )
+from app.services.harbor_profile_runtime import harbor_profile_boundary
+from app.services.harbor_profiles import HarborProfileService
 from app.services.harbor_destination_validator import (
     DestinationCapability,
     DestinationValidator,
@@ -104,9 +106,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.destination_validator_factory = destination_validator_factory or (
-            lambda session: HarborDestinationValidator(session, self.settings)
-        )
+        self.destination_validator_factory = destination_validator_factory
         self._execution_operation_id: ContextVar[int | None] = ContextVar(
             "import_destination_operation_id",
             default=None,
@@ -159,6 +159,25 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 "import_not_ready",
                 "Destination plan можно строить только после verified preview",
             )
+
+        try:
+            with harbor_profile_boundary():
+                with self.session_factory() as profile_session:
+                    persisted = profile_session.get(Operation, operation_id)
+                    if persisted is None or persisted.type is not OperationType.IMPORT:
+                        raise ImportOrchestrationError(
+                            "import_operation_not_found",
+                            "Import-операция не найдена",
+                        )
+                    profile = HarborProfileService(
+                        profile_session,
+                        self.settings,
+                    ).bind_operation_profile(persisted, mapping.harbor_profile_id)
+                    mapping = mapping.model_copy(update={"harbor_profile_id": profile.id})
+                    profile_session.commit()
+        except HarborSettingsError as exc:
+            raise ImportOrchestrationError(exc.code, exc.message) from exc
+
         preview = ImportPreviewResponse.model_validate_json(operation.import_preview_json)
         planner_username = actor_username or operation.actor_username
         if not planner_username:
@@ -177,7 +196,15 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
 
         with self.session_factory() as session:
             try:
-                validator = self.destination_validator_factory(session)
+                validator = (
+                    self.destination_validator_factory(session)
+                    if self.destination_validator_factory is not None
+                    else HarborDestinationValidator(
+                        session,
+                        self.settings,
+                        harbor_profile_id=profile.id,
+                    )
+                )
             except (HarborSettingsError, ValueError) as exc:
                 raise ImportOrchestrationError(
                     getattr(exc, "code", "import_destination_validation_failed"),
@@ -185,6 +212,10 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 ) from exc
             skopeo = self.skopeo_factory(session)
             helm = self.helm_factory(session)
+            if isinstance(skopeo, SkopeoService):
+                skopeo.harbor_profile_id = profile.id
+            if isinstance(helm, HelmOciService):
+                helm.harbor_profile_id = profile.id
             planned = [
                 await self._plan_artifact(
                     item,
@@ -517,6 +548,8 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         destination_plan_id: str | None = None,
     ) -> None:
         self._require_target()
+        operation_profile = self._get_import_operation(operation_id)
+        self._assert_operation_profile(operation_profile)
         plan = self._persisted_destination_plan(operation_id)
         if plan is None:
             raise ImportOrchestrationError(
