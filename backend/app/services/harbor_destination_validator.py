@@ -13,11 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.services.harbor_client import HarborClientError
-from app.services.harbor_settings import (
-    DEFAULT_HARBOR_PROFILE_ID,
-    HarborSettingsError,
-    HarborSettingsService,
-)
+from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,12 +39,16 @@ class HarborDestinationValidator:
         session: Session,
         settings: Settings,
         *,
-        harbor_profile_id: str = DEFAULT_HARBOR_PROFILE_ID,
+        harbor_profile_id: str | None = None,
     ) -> None:
         self.settings = settings
         self.harbor_settings = HarborSettingsService(session, settings)
         self.harbor_profile_id = harbor_profile_id
-        resolved = self.harbor_settings.resolve_profile(harbor_profile_id)
+        resolved = (
+            self.harbor_settings.resolve()
+            if harbor_profile_id is None
+            else self.harbor_settings.resolve_profile(harbor_profile_id)
+        )
         if not resolved.url:
             raise HarborSettingsError("harbor_not_configured", "Локальный Harbor не настроен")
         self._resolved = resolved
@@ -97,7 +97,12 @@ class HarborDestinationValidator:
         cached = self._project_cache.get(project)
         if cached is not None:
             return cached
-        with self.harbor_settings.build_client_for_profile(self.harbor_profile_id) as client:
+        client_context = (
+            self.harbor_settings.build_client()
+            if self.harbor_profile_id is None
+            else self.harbor_settings.build_client_for_profile(self.harbor_profile_id)
+        )
+        with client_context as client:
             page = client.list_projects_page(1, 100, search_needle=project)
         exists = any(item.name == project for item in page.items)
         self._project_cache[project] = exists
