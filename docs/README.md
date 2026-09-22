@@ -90,7 +90,7 @@ Root [README](../README.md) — пользовательская входная 
 | [skopeo-service.md](skopeo-service.md) | container transfer service | актуальный |
 | [helm-oci-service.md](helm-oci-service.md) | Helm OCI transfer service | актуальный |
 | [harbor-browse-api.md](harbor-browse-api.md) | Harbor browse projection/policies | актуальный |
-| [harbor-profiles.md](harbor-profiles.md) | multi-Harbor management, active-profile safety и target immutable operation binding | актуальный active-profile contract; immutable binding ещё не завершён |
+| [harbor-profiles.md](harbor-profiles.md) | multi-Harbor management, explicit workflow selection и immutable operation binding | актуальный end-to-end contract |
 | [history-audit-api.md](history-audit-api.md) | history/audit backend API | актуальный |
 | [history-ui.md](history-ui.md) | user-facing history UX | актуальный |
 | [reports-receipts.md](reports-receipts.md) | CSV/PDF reports и immutable import receipt | актуальный |
