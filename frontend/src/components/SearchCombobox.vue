@@ -8,10 +8,13 @@ export type SearchComboboxOption = {
   description?: string
 }
 
+let comboboxSequence = 0
+
 const props = withDefaults(
   defineProps<{
     label: string
     modelValue: string
+    displayValue?: string
     search: string
     options: SearchComboboxOption[]
     placeholder?: string
@@ -22,7 +25,7 @@ const props = withDefaults(
     pageSize?: number
     maxLength?: number
   }>(),
-  { placeholder: 'Поиск…', disabled: false, loading: false, page: 1, total: 0, pageSize: 25, maxLength: 256 },
+  { placeholder: 'Поиск…', displayValue: '', disabled: false, loading: false, page: 1, total: 0, pageSize: 25, maxLength: 256 },
 )
 
 const emit = defineEmits<{
@@ -36,7 +39,7 @@ const open = ref(false)
 const activeIndex = ref(-1)
 const queryPending = ref(false)
 const input = ref<HTMLInputElement | null>(null)
-const listboxId = `combobox-${Math.random().toString(36).slice(2)}`
+const listboxId = `combobox-${++comboboxSequence}`
 const hasPrevious = computed(() => props.page > 1)
 const hasNext = computed(() => props.page * props.pageSize < props.total)
 const activeId = computed(() => activeIndex.value >= 0 ? `${listboxId}-${activeIndex.value}` : undefined)
@@ -69,6 +72,12 @@ function onInput(event: Event): void {
   activeIndex.value = -1
 }
 
+function onFocusout(event: FocusEvent): void {
+  const next = event.relatedTarget
+  if (next instanceof Node && (event.currentTarget as HTMLElement).contains(next)) return
+  open.value = false
+}
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
     open.value = false
@@ -99,7 +108,7 @@ async function toggle(): Promise<void> {
 </script>
 
 <template>
-  <div class="search-combobox">
+  <div class="search-combobox" @focusout="onFocusout">
     <label class="search-combobox__label">{{ label }}</label>
     <div class="search-combobox__control">
       <Search :size="16" aria-hidden="true" />
@@ -108,12 +117,14 @@ async function toggle(): Promise<void> {
         role="combobox"
         type="search"
         :value="search"
-        :placeholder="modelValue || placeholder"
+        :placeholder="displayValue || modelValue || placeholder"
         :disabled="disabled"
         :maxlength="maxLength"
         :aria-label="label"
         :aria-expanded="open"
         :aria-controls="listboxId"
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
         :aria-activedescendant="activeId"
         autocomplete="off"
         @focus="show"

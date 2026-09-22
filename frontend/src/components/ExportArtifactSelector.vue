@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { Box, Search, ShipWheel } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
 
 import type { HarborArtifact } from '@/api/exports'
+import SearchCombobox, { type SearchComboboxOption } from '@/components/SearchCombobox.vue'
 import StatePlaceholder from '@/components/StatePlaceholder.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
 
-defineProps<{
+const props = defineProps<{
   artifacts: HarborArtifact[]
   selectedRepository: string | null
   search: string
@@ -13,130 +14,123 @@ defineProps<{
   page: number
   total: number
   referencesFor: (artifact: HarborArtifact) => string[]
-  isSelected: (artifact: HarborArtifact, reference: string) => boolean
 }>()
 
 const emit = defineEmits<{
   'update:search': [value: string]
-  toggle: [artifact: HarborArtifact, reference: string]
+  add: [artifact: HarborArtifact, reference: string]
   page: [page: number]
 }>()
+
+type VersionChoice = {
+  key: string
+  artifact: HarborArtifact
+  reference: string
+}
+
+const candidateKey = ref('')
+const choices = computed<VersionChoice[]>(() =>
+  props.artifacts.flatMap((artifact) =>
+    artifact.kind === 'unknown-oci'
+      ? []
+      : props.referencesFor(artifact).map((reference) => ({
+          key: [artifact.kind, artifact.project, artifact.repository, artifact.digest, reference].join('|'),
+          artifact,
+          reference,
+        })),
+  ),
+)
+const options = computed<SearchComboboxOption[]>(() =>
+  choices.value.map(({ key, artifact, reference }) => ({
+    value: key,
+    label: reference,
+    description: `${kindLabel(artifact.kind)} · ${shortDigest(artifact.digest)} · ${formatBytes(artifact.size)}`,
+  })),
+)
+const candidate = computed(() => choices.value.find((item) => item.key === candidateKey.value) ?? null)
+const unsupported = computed(() => props.artifacts.filter((artifact) => artifact.kind === 'unknown-oci'))
+
+watch(() => props.selectedRepository, () => { candidateKey.value = '' })
+watch(() => props.search, () => {
+  if (candidateKey.value) candidateKey.value = ''
+})
 
 function kindLabel(kind: string): string {
   if (kind === 'container-image') return 'Container image'
   if (kind === 'helm-chart') return 'Helm chart'
-  return 'OCI (не поддерживается)'
+  return 'OCI'
 }
 
 function shortDigest(digest: string | null): string {
   return formatShortDigest(digest, { maxLength: 24, headLength: 18, tailLength: 8 })
 }
+
+function selectCandidate(value: string): void {
+  candidateKey.value = value
+}
+
+function addCandidate(): void {
+  if (!candidate.value) return
+  emit('add', candidate.value.artifact, candidate.value.reference)
+  candidateKey.value = ''
+  emit('update:search', '')
+}
 </script>
 
 <template>
   <div class="artifact-selector">
-    <label class="artifact-selector__search">
-      <span>Версия / tag</span>
-      <span class="artifact-selector__input">
-        <Search :size="17" aria-hidden="true" />
-        <input
-          :value="search"
-          type="search"
-          placeholder="Фильтр version, tag или digest"
-          maxlength="256"
-          :disabled="!selectedRepository"
-          aria-label="Фильтр версии, tag или digest"
-          @input="emit('update:search', ($event.target as HTMLInputElement).value)"
-        />
-      </span>
-    </label>
+    <SearchCombobox
+      label="Версия / tag"
+      :model-value="candidateKey"
+      :display-value="candidate?.reference ?? ''"
+      :search="search"
+      :options="options"
+      placeholder="Найти version, tag или digest"
+      :disabled="!selectedRepository"
+      :loading="busy"
+      :page="page"
+      :total="total"
+      @update:search="emit('update:search', $event)"
+      @select="selectCandidate"
+      @previous="emit('page', page - 1)"
+      @next="emit('page', page + 1)"
+    />
 
-    <section class="artifact-selector__panel" aria-labelledby="artifacts-title">
-      <div class="artifact-selector__heading">
-        <h3 id="artifacts-title">Доступные версии</h3>
-        <p>Digest остаётся источником точной идентичности; tag используется как удобное имя.</p>
+    <div v-if="candidate" class="artifact-selector__candidate" aria-live="polite">
+      <div>
+        <strong>{{ candidate.reference }}</strong>
+        <span>{{ kindLabel(candidate.artifact.kind) }} · {{ formatBytes(candidate.artifact.size) }}</span>
+        <code :title="candidate.artifact.digest">{{ shortDigest(candidate.artifact.digest) }}</code>
       </div>
-      <component
-        :is="StatePlaceholder"
-        v-if="!selectedRepository"
-        compact
-        kind="empty"
-        title="Выберите проект и репозиторий"
-      />
-      <component
-        :is="StatePlaceholder"
-        v-else-if="busy"
-        compact
-        kind="loading"
-        title="Загрузка версий"
-      />
-      <component
-        :is="StatePlaceholder"
-        v-else-if="artifacts.length === 0"
-        compact
-        kind="empty"
-        title="Версии не найдены"
-      />
-      <div v-else class="artifact-selector__list">
-        <article v-for="artifact in artifacts" :key="artifact.digest" class="artifact-selector__card">
-          <div class="artifact-selector__main">
-            <div class="artifact-selector__kind" aria-hidden="true">
-              <Box v-if="artifact.kind === 'container-image'" :size="20" />
-              <ShipWheel v-else :size="20" />
-            </div>
-            <div>
-              <strong>{{ kindLabel(artifact.kind) }}</strong>
-              <p class="digest" :title="artifact.digest">{{ shortDigest(artifact.digest) }}</p>
-              <p class="muted">{{ formatBytes(artifact.size) }}</p>
-            </div>
-          </div>
-          <div v-if="artifact.kind === 'unknown-oci'" class="unsupported">
-            <div>Не поддерживается export v1</div>
-            <div v-if="referencesFor(artifact).length" class="reference-list" aria-label="References неподдерживаемого OCI">
-              <code v-for="reference in referencesFor(artifact)" :key="reference">{{ reference }}</code>
-            </div>
-          </div>
-          <div v-else-if="referencesFor(artifact).length === 0" class="unsupported">Нет явной версии/tag</div>
-          <div v-else class="reference-list">
-            <label v-for="reference in referencesFor(artifact)" :key="reference" class="reference-choice">
-              <input type="checkbox" :checked="isSelected(artifact, reference)" @change="emit('toggle', artifact, reference)" />
-              <span>{{ reference }}</span>
-            </label>
-          </div>
-        </article>
-      </div>
-      <div v-if="total > 25" class="artifact-selector__pagination" aria-label="Страницы артефактов">
-        <button type="button" :disabled="page <= 1" @click="emit('page', page - 1)">Назад</button>
-        <span>{{ page }} / {{ Math.ceil(total / 25) }}</span>
-        <button type="button" :disabled="page * 25 >= total" @click="emit('page', page + 1)">Далее</button>
-      </div>
-    </section>
+      <button type="button" class="artifact-selector__add" @click="addCandidate">Добавить</button>
+    </div>
+
+    <component
+      :is="StatePlaceholder"
+      v-if="!selectedRepository"
+      compact
+      kind="empty"
+      title="Выберите проект и репозиторий"
+    />
+
+    <div v-if="unsupported.length" class="artifact-selector__unsupported" role="status">
+      <strong>Неподдерживаемые OCI artifacts</strong>
+      <span>OCI (не поддерживается) · Не поддерживается export v1</span>
+      <span v-for="artifact in unsupported" :key="artifact.digest">
+        {{ shortDigest(artifact.digest) }}
+        <template v-if="referencesFor(artifact).length"> · {{ referencesFor(artifact).join(', ') }}</template>
+      </span>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .artifact-selector { min-width: 0; }
-.artifact-selector__search { display: block; max-width: 440px; margin-bottom: var(--space-3); }
-.artifact-selector__search > span:first-child { display: block; margin-bottom: var(--space-1); font-size: 12px; font-weight: 700; color: var(--color-text-muted); }
-.artifact-selector__input { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; padding: 0 var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); }
-.artifact-selector__input:focus-within { outline: 2px solid var(--color-focus-ring); outline-offset: 1px; }
-.artifact-selector__input input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--color-text); }
-.artifact-selector__panel { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
-.artifact-selector__heading { margin-bottom: var(--space-3); }
-.artifact-selector__heading h3, .artifact-selector__heading p { margin: 0; }
-.artifact-selector__heading p { margin-top: var(--space-1); color: var(--color-text-muted); font-size: 13px; }
-.artifact-selector__list { display: grid; gap: var(--space-2); }
-.artifact-selector__card { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 2fr); gap: var(--space-3); align-items: center; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
-.artifact-selector__main { display: flex; gap: var(--space-2); align-items: center; min-width: 0; }
-.artifact-selector__main p { margin: 2px 0 0; }
-.digest { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
-.muted { color: var(--color-text-muted); }
-.reference-list { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
-.reference-choice { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 38px; padding: var(--space-1) var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-full); background: var(--color-surface-subtle); cursor: pointer; }
-.reference-choice:has(input:checked) { border-color: var(--color-action); background: var(--color-info-surface); }
-.unsupported { max-width: 240px; color: var(--color-text-muted); font-size: 13px; text-align: right; }
-.artifact-selector__kind { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; border-radius: var(--radius-md); background: var(--color-background); }
-.artifact-selector__pagination { display: flex; justify-content: center; align-items: center; gap: var(--space-3); margin-top: var(--space-3); }
-.artifact-selector__pagination button { border: 0; background: transparent; color: var(--color-action); cursor: pointer; }
-@media (max-width: 760px) { .artifact-selector__card { grid-template-columns: 1fr; } .reference-list { justify-content: flex-start; } .unsupported { max-width: none; text-align: left; } }
+.artifact-selector__candidate { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
+.artifact-selector__candidate > div { display: flex; min-width: 0; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); }
+.artifact-selector__candidate span { color: var(--color-text-muted); font-size: 12px; }
+.artifact-selector__candidate code { overflow-wrap: anywhere; font-size: 12px; }
+.artifact-selector__add { min-height: 36px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); border: 1px solid var(--color-action); font-weight: 700; cursor: pointer; }
+.artifact-selector__unsupported { display: grid; gap: var(--space-1); margin-top: var(--space-2); color: var(--color-text-muted); font-size: 12px; }
+@media (max-width: 760px) { .artifact-selector__candidate { align-items: stretch; flex-direction: column; } }
 </style>
