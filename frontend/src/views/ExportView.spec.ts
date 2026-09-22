@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiClient } from '@/api/client'
 import * as exportsApi from '@/api/exports'
+import * as harborProfilesApi from '@/api/harborProfiles'
 import { useAuthStore } from '@/stores/auth'
 import { useRuntimeStore } from '@/stores/runtime'
 
@@ -145,6 +146,17 @@ beforeEach(() => {
   sessionStorage.clear()
   pinia = createPinia()
   setActivePinia(pinia)
+  vi.spyOn(harborProfilesApi, 'listHarborProfiles').mockResolvedValue([{
+  id: 'default',
+  name: 'Default',
+  url: 'https://harbor.local',
+  username: 'svc-transfer',
+  verify_tls: true,
+  enabled: true,
+  credential_configured: true,
+  custom_ca_configured: false,
+  legacy_default: true,
+}])
 })
 
 afterEach(() => {
