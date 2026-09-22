@@ -37,6 +37,14 @@ def _service(request: Request, session: SessionDep) -> HarborSettingsService:
     return HarborSettingsService(session, request.app.state.settings)
 
 
+def _profile_error_status(exc: HarborSettingsError) -> int:
+    return (
+        status.HTTP_409_CONFLICT
+        if exc.code == "harbor_profile_in_use"
+        else status.HTTP_422_UNPROCESSABLE_CONTENT
+    )
+
+
 def _profile_response(profile: HarborProfileInfo) -> HarborProfileResponse:
     return HarborProfileResponse(
         id=profile.id,
@@ -109,7 +117,12 @@ def create_harbor_profile(
         )
     except HarborSettingsError as exc:
         raise _api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code, exc.message) from exc
-    _audit(session, admin, "harbor.profile.created", ["name", "url", "username", "verify_tls"])
+    _audit(
+        session,
+        admin,
+        "harbor.profile.created",
+        ["name", "url", "username", "verify_tls"],
+    )
     session.commit()
     return _profile_response(profile)
 
@@ -127,12 +140,15 @@ def update_harbor_profile(
     for field in ("name", "url", "username", "verify_tls", "enabled"):
         if field in payload.model_fields_set:
             value = getattr(payload, field)
-            kwargs[field] = str(value).rstrip("/") if field == "url" and value is not None else value
+            kwargs[field] = (
+                str(value).rstrip("/")
+                if field == "url" and value is not None
+                else value
+            )
     try:
         profile = service.update_profile(profile_id, **kwargs)
     except HarborSettingsError as exc:
-        code = status.HTTP_409_CONFLICT if exc.code == "harbor_profile_in_use" else status.HTTP_422_UNPROCESSABLE_CONTENT
-        raise _api_error(code, exc.code, exc.message) from exc
+        raise _api_error(_profile_error_status(exc), exc.code, exc.message) from exc
     if kwargs:
         _audit(session, admin, "harbor.profile.updated", list(kwargs))
     session.commit()
@@ -150,8 +166,7 @@ def delete_harbor_profile(
     try:
         service.delete_profile(profile_id)
     except HarborSettingsError as exc:
-        code = status.HTTP_409_CONFLICT if exc.code == "harbor_profile_in_use" else status.HTTP_422_UNPROCESSABLE_CONTENT
-        raise _api_error(code, exc.code, exc.message) from exc
+        raise _api_error(_profile_error_status(exc), exc.code, exc.message) from exc
     _audit(session, admin, "harbor.profile.deleted", ["profile"])
     session.commit()
     return HarborMutationResponse(changed_fields=["profile"])
@@ -169,8 +184,7 @@ def rotate_harbor_profile_credential(
     try:
         service.rotate_credential(payload.secret.get_secret_value(), profile_id)
     except HarborSettingsError as exc:
-        code = status.HTTP_409_CONFLICT if exc.code == "harbor_profile_in_use" else status.HTTP_422_UNPROCESSABLE_CONTENT
-        raise _api_error(code, exc.code, exc.message) from exc
+        raise _api_error(_profile_error_status(exc), exc.code, exc.message) from exc
     _audit(session, admin, "harbor.profile.credential.rotated", ["credential"])
     session.commit()
     return HarborMutationResponse(changed_fields=["credential"])
@@ -188,8 +202,7 @@ def install_harbor_profile_ca(
     try:
         service.install_ca(payload.certificate_pem, profile_id)
     except HarborSettingsError as exc:
-        code = status.HTTP_409_CONFLICT if exc.code == "harbor_profile_in_use" else status.HTTP_422_UNPROCESSABLE_CONTENT
-        raise _api_error(code, exc.code, exc.message) from exc
+        raise _api_error(_profile_error_status(exc), exc.code, exc.message) from exc
     _audit(session, admin, "harbor.profile.ca.updated", ["custom_ca"])
     session.commit()
     return HarborMutationResponse(changed_fields=["custom_ca"])
@@ -206,8 +219,7 @@ def remove_harbor_profile_ca(
     try:
         service.remove_managed_ca(profile_id)
     except HarborSettingsError as exc:
-        code = status.HTTP_409_CONFLICT if exc.code == "harbor_profile_in_use" else status.HTTP_422_UNPROCESSABLE_CONTENT
-        raise _api_error(code, exc.code, exc.message) from exc
+        raise _api_error(_profile_error_status(exc), exc.code, exc.message) from exc
     _audit(session, admin, "harbor.profile.ca.removed", ["custom_ca"])
     session.commit()
     return HarborMutationResponse(changed_fields=["custom_ca"])
