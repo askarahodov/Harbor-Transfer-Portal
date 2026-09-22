@@ -164,5 +164,33 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
                 self.assertTrue(target.is_file(), f"Docsify route {route!r} has no target {target}")
 
 
+    def test_contextual_documentation_targets_exist_and_anchors_are_stable(self) -> None:
+        router = (_REPOSITORY_ROOT / "frontend/src/router/index.ts").read_text(encoding="utf-8")
+        targets = re.findall(
+            r"documentation: '(/docs/[A-Za-z0-9._/-]+(?:\\?id=[A-Za-z0-9._-]+)?)'",
+            router,
+        )
+
+        self.assertEqual(len(targets), 7)
+        self.assertIn("/docs/user-guide?id=login", targets)
+        self.assertIn("/docs/user-guide?id=source-export", targets)
+        self.assertIn("/docs/user-guide?id=target-import", targets)
+        self.assertIn("/docs/settings", targets)
+
+        for target in targets:
+            path, separator, anchor = target.partition("?id=")
+            relative = path.removeprefix("/docs/")
+            markdown = _REPOSITORY_ROOT / "docs" / f"{relative}.md"
+            with self.subTest(target=target):
+                self.assertTrue(markdown.is_file(), f"Documentation target is missing: {markdown}")
+                if separator:
+                    source = markdown.read_text(encoding="utf-8")
+                    self.assertIn(
+                        f":id={anchor}",
+                        source,
+                        f"Contextual anchor {anchor!r} is not declared in {markdown}",
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()
