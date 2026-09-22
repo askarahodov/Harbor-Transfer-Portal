@@ -18,6 +18,9 @@ const summary: OperationSummary = {
   status: 'COMPLETED',
   actor_username: 'operator',
   comment: null,
+  harbor_profile_id: 'profile-a',
+  harbor_profile_name: 'Harbor A',
+  harbor_profile_url: 'https://harbor-a.local',
   retry_of_operation_id: null,
   failure_policy: null,
   created_at: '2026-09-14T05:00:00Z',
@@ -40,6 +43,9 @@ const detail: Operation = {
   status: 'COMPLETED',
   actor_username: 'operator',
   comment: null,
+  harbor_profile_id: 'profile-a',
+  harbor_profile_name: 'Harbor A',
+  harbor_profile_url: 'https://harbor-a.local',
   retry_of_operation_id: null,
   failure_policy: null,
   started_at: '2026-09-14T05:01:00Z',
@@ -218,12 +224,15 @@ describe('HistoryView', () => {
 
     expect(wrapper.text()).toContain('История операций')
     expect(wrapper.text()).toContain('DELIVERY-7')
+    expect(wrapper.text()).toContain('Harbor A')
+    expect(wrapper.text()).toContain('harbor-a.local')
     expect(wrapper.find('select').exists()).toBe(true)
 
     await wrapper.get('.link-button').trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).toContain('Bundle metadata')
+    expect(wrapper.text()).toContain('https://harbor-a.local')
     expect(wrapper.text()).toContain('project/app:1.0.0')
     expect(wrapper.text()).toContain('Отчёты операции')
     expect(wrapper.text()).not.toContain('Отменить операцию')
