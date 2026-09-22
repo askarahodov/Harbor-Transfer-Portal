@@ -42,7 +42,7 @@ describe('ExportView accessibility states', () => {
     expect(
       wrapper.get('input[role="combobox"][aria-label="Репозиторий Harbor"]').attributes('disabled'),
     ).toBeDefined()
-    expect(wrapper.get('input[aria-label="Фильтр версии, tag или digest"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('input[role="combobox"][aria-label="Версия / tag"]').attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('Выберите проект и репозиторий')
   })
 })
