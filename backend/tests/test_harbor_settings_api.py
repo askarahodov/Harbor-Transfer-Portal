@@ -348,6 +348,46 @@ def test_harbor_profiles_crud_is_safe_and_secrets_are_not_returned(tmp_path: Pat
     assert deleted.status_code == 200
 
 
+def test_default_harbor_mutation_is_blocked_by_legacy_unpinned_operation(tmp_path: Path) -> None:
+    client, app, tokens = _app_client(tmp_path)
+    admin = _auth(tokens["admin"])
+
+    with app.state.session_factory() as session:
+        operation = Operation(
+            type=OperationType.IMPORT,
+            status=OperationStatus.READY,
+            actor_username="admin",
+            harbor_profile_id=None,
+            harbor_profile_name=None,
+            harbor_url=None,
+        )
+        session.add(operation)
+        session.commit()
+        operation_id = operation.id
+
+    blocked = client.patch(
+        "/api/settings/harbor",
+        json={"url": "https://changed.harbor.local"},
+        headers=admin,
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "harbor_profile_in_use"
+
+    with app.state.session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        operation.status = OperationStatus.COMPLETED
+        session.commit()
+
+    allowed = client.patch(
+        "/api/settings/harbor",
+        json={"url": "https://changed.harbor.local"},
+        headers=admin,
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["url"] == "https://changed.harbor.local"
+
+
 def test_harbor_profile_mutation_is_blocked_while_operation_is_active(tmp_path: Path) -> None:
     client, app, tokens = _app_client(tmp_path)
     admin = _auth(tokens["admin"])
