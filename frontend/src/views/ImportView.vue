@@ -16,13 +16,13 @@ import {
   apiErrorInfo,
   verifyPhysicalHandoff,
   type ArtifactStatus,
-  type ImportPreviewState,
   type MediaHandoffVerification,
   type OperationStatus,
 } from '@/api/imports'
 import HarborProjectCreationPanel from '@/components/HarborProjectCreationPanel.vue'
 import ImportVerificationCard from '@/components/ImportVerificationCard.vue'
 import ImportDestinationMapping from '@/components/ImportDestinationMapping.vue'
+import ImportReceiptDestinations from '@/components/ImportReceiptDestinations.vue'
 import StatePlaceholder from '@/components/StatePlaceholder.vue'
 import WizardStepper from '@/components/WizardStepper.vue'
 import {
@@ -80,22 +80,11 @@ const artifactStatusLabels: Record<ArtifactStatus, string> = {
   VERIFIED: 'Импортирован и проверен',
 }
 
-const classificationLabels: Record<ImportPreviewState, string> = {
-  NEW: 'NEW — будет импортирован',
-  SAME: 'SAME — уже есть, будет пропущен',
-  CONFLICT: 'CONFLICT — другой digest, заблокирован',
-  UNKNOWN: 'UNKNOWN — состояние нельзя доказать',
-  ERROR: 'ERROR — проверка TARGET не удалась',
-}
-
 const activeFilename = computed(
   () => wizard.selectedFile?.name ?? wizard.operation?.bundle?.filename ?? wizard.preview?.bundle_filename ?? '—',
 )
 const activeSize = computed(
   () => wizard.selectedFile?.size ?? wizard.operation?.bundle?.size_bytes ?? wizard.preview?.bundle_size_bytes ?? null,
-)
-const previewArtifacts = computed(() =>
-  wizard.destinationPlan ? wizard.effectiveArtifacts : (wizard.preview?.artifacts ?? []),
 )
 const uploadPercent = computed(() => {
   const progress = wizard.uploadProgress
@@ -441,35 +430,6 @@ onBeforeUnmount(() => {
         <ImportDestinationMapping />
         <HarborProjectCreationPanel />
 
-        <div class="classification-summary">
-          <span v-for="state in (['NEW', 'SAME', 'CONFLICT', 'UNKNOWN', 'ERROR'] as ImportPreviewState[])" :key="state">
-            {{ state }}: {{ previewArtifacts.filter((item) => item.classification === state).length }}
-          </span>
-        </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Артефакт</th>
-                <th>Класс</th>
-                <th>Expected digest</th>
-                <th>TARGET digest</th>
-                <th>Размер</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in previewArtifacts" :key="item.index">
-                <td>{{ artifactLabel(item) }}</td>
-                <td><span :class="['classification', `classification--${item.classification.toLowerCase()}`]">{{ classificationLabels[item.classification] }}</span></td>
-                <td :title="item.expected_digest ?? undefined">{{ shortDigest(item.expected_digest) }}</td>
-                <td :title="item.target_digest ?? undefined">{{ shortDigest(item.target_digest) }}</td>
-                <td>{{ formatBytes(item.payload_size) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
         <div v-if="wizard.unresolved.length > 0" class="notice notice--danger" role="alert">
           <XCircle :size="20" aria-hidden="true" />
           <div>
@@ -584,6 +544,7 @@ onBeforeUnmount(() => {
             <div><dt>Actor</dt><dd>{{ wizard.receipt.actor_username }}</dd></div>
             <div><dt>Завершён</dt><dd>{{ formatDate(wizard.receipt.finished_at) }}</dd></div>
           </dl>
+          <ImportReceiptDestinations :receipt="wizard.receipt" />
           <div class="actions">
             <button class="button button--secondary" type="button" @click="downloadReceipt">
               <Download :size="18" aria-hidden="true" />
@@ -652,11 +613,6 @@ progress { width: 100%; height: 12px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: var(--space-3); border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: top; }
 th { color: var(--color-text-muted); font-size: 12px; }
-.classification-summary { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.classification-summary span, .classification { padding: var(--space-1) var(--space-2); border-radius: var(--radius-full); background: var(--color-surface-subtle); font-size: 12px; font-weight: 700; }
-.classification--new, .classification--same { background: var(--color-success-surface); color: var(--color-success-text); }
-.classification--conflict { background: var(--color-warning-surface); color: var(--color-warning-text); }
-.classification--unknown, .classification--error { background: var(--color-danger-surface); color: var(--color-danger-text); }
 .conflict-box { display: grid; gap: var(--space-3); }
 .overwrite-confirmation { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-danger-text); border-radius: var(--radius-md); }
 .comment-box { padding: var(--space-4); border-left: 4px solid var(--color-action); background: var(--color-surface-subtle); }

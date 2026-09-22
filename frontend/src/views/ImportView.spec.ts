@@ -126,10 +126,11 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.get('h1').text()).toContain('Приём и импорт Offline Bundle')
     expect(wrapper.text()).toContain('harbor.source.local')
     expect(wrapper.text()).toContain('critical offline delivery')
-    expect(wrapper.text()).toContain('CONFLICT — другой digest, заблокирован')
     expect(wrapper.text()).toContain('package verified')
     expect(wrapper.text()).toContain('не означает')
+    expect(wrapper.findAll('#mapping-title')).toHaveLength(1)
     expect(wrapper.get('#mapping-title').text()).toContain('Куда будут импортированы артефакты')
+    expect(wrapper.text()).toContain('Что получится')
 
     const confirmPlanButton = wrapper.findAll('button').find((item) =>
       item.text().includes('Проверить TARGET'),
@@ -271,6 +272,53 @@ describe('TARGET import wizard view', () => {
     await discoverButton!.trigger('click')
     await flushPromises()
     expect(discover).toHaveBeenCalledOnce()
+  })
+
+  it('renders receipt destinations once inside the canonical result view', async () => {
+    sessionStorage.setItem('htp.import.operation-id', '51')
+    vi.spyOn(importsApi, 'getOperation').mockResolvedValue(operation('COMPLETED'))
+    vi.spyOn(importsApi, 'getImportReceipt').mockResolvedValue({
+      operation_id: 51,
+      source_delivery_id: 'DELIVERY-20260914-IMPORT01',
+      bundle_sha256: 'c'.repeat(64),
+      actor_username: 'operator',
+      started_at: '2026-09-14T05:00:00Z',
+      finished_at: '2026-09-14T05:05:00Z',
+      overwrite_conflicts: false,
+      destination_plan_id: 'plan-51',
+      result: 'COMPLETED',
+      artifacts: [
+        {
+          index: 0,
+          artifact_type: 'container-image',
+          repository: 'project/app',
+          name: null,
+          reference: '1.0.0',
+          version: null,
+          expected_digest: `sha256:${'a'.repeat(64)}`,
+          target_digest: `sha256:${'a'.repeat(64)}`,
+          target_repository: 'target/app',
+          final_reference: 'target/app:1.0.0',
+          status: 'VERIFIED',
+          error_code: null,
+          error_message: null,
+        },
+      ],
+    })
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('TARGET')
+
+    const wrapper = mount(ImportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('.receipt-destinations')).toHaveLength(1)
+    expect(wrapper.text()).toContain('Фактические TARGET destinations')
+    expect(wrapper.text()).toContain('target/app:1.0.0')
   })
 
   it('renders SOURCE fallback and does not restore TARGET operations', async () => {
