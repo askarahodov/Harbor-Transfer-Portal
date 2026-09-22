@@ -27,6 +27,13 @@ async function chooseOption(wrapper: VueWrapper, label: string, value: string): 
   await flushPromises()
 }
 
+async function selectVersion(wrapper: VueWrapper, value: string): Promise<void> {
+  const row = wrapper.findAll('tbody tr').find((item) => item.text().includes(value))
+  if (!row) throw new Error(`Version row not found: ${value}`)
+  await row.get('input[type="checkbox"]').setValue(true)
+  await flushPromises()
+}
+
 function mockHappyPath(): void {
   vi.spyOn(exportsApi, 'getHarborConnection').mockResolvedValue({
     connected: true,
@@ -165,7 +172,7 @@ describe('SOURCE export wizard view', () => {
     await chooseOption(wrapper, 'Проект Harbor', 'team')
     await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
 
-    await chooseOption(wrapper, 'Версия / tag', '1.0.0')
+    await selectVersion(wrapper, '1.0.0')
     expect(wrapper.text()).toContain('1.0.0')
     expect(wrapper.text()).toContain('4.00 КиБ')
     await button(wrapper, 'Добавить').trigger('click')
@@ -236,7 +243,7 @@ describe('SOURCE export wizard view', () => {
 
     await chooseOption(wrapper, 'Проект Harbor', 'team')
     await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
-    await chooseOption(wrapper, 'Версия / tag', '1.0.0')
+    await selectVersion(wrapper, '1.0.0')
     await button(wrapper, 'Добавить').trigger('click')
     await button(wrapper, 'Проверить выбранное').trigger('click')
     await flushPromises()
@@ -311,7 +318,7 @@ describe('SOURCE export wizard view', () => {
     await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
     const artifactsSpy = vi.mocked(exportsApi.listHarborArtifacts)
     artifactsSpy.mockClear()
-    const input = wrapper.get('input[role="combobox"][aria-label="Версия / tag"]')
+    const input = wrapper.get('input[type="search"][aria-label="Версия / tag"]')
 
     await input.setValue('1.0')
     await vi.advanceTimersByTimeAsync(299)
