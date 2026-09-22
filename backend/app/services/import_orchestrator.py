@@ -144,7 +144,6 @@ class ImportOrchestrator:
         harbor_profile_id: str | None = None,
     ) -> ImportIntakeResult:
         self._require_target()
-        profile = self._harbor_profile_snapshot(harbor_profile_id)
         if content_length is not None:
             if content_length < 1:
                 raise ImportOrchestrationError("import_upload_empty", "Upload не содержит bundle")
@@ -215,6 +214,10 @@ class ImportOrchestrator:
                     )
 
             self._fsync_directory(storage_dir)
+            # Validate untrusted upload/handoff bytes before resolving mutable Harbor
+            # configuration. The selected profile is still pinned before the operation
+            # is created, so every subsequent preview/import step uses one snapshot.
+            profile = self._harbor_profile_snapshot(harbor_profile_id)
             operation_id = self._create_intake_operation(
                 actor_user_id=actor_user_id,
                 actor_username=actor_username,
