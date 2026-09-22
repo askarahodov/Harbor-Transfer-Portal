@@ -67,13 +67,7 @@ class HarborProfileService:
         if current.id == target.id:
             return current, target
 
-        blockers = tuple(
-            self.session.scalars(
-                select(Operation.id)
-                .where(Operation.status.in_(BLOCKING_OPERATION_STATUSES))
-                .order_by(Operation.id)
-            )
-        )
+        blockers = self._blocking_operation_ids()
         if blockers:
             joined = ", ".join(f"#{operation_id}" for operation_id in blockers[:10])
             raise HarborSettingsError(
@@ -143,6 +137,7 @@ class HarborProfileService:
 
         profiles = self._load_additional()
         current = self.get(profile_id)
+        self.require_mutation_safe(current.id)
         next_name = self._normalize_name(name) if name is not None else current.name
         self._assert_unique_name(next_name, profiles, exclude_id=current.id)
 
@@ -193,26 +188,10 @@ class HarborProfileService:
             pass
 
     def build_client(self, profile_id: str) -> HarborClient:
-        if profile_id == DEFAULT_PROFILE_ID:
-            return self.legacy.build_client()
-
         profile = self.get(profile_id)
         if not profile.enabled:
             raise HarborSettingsError("harbor_profile_disabled", "Профиль Harbor отключён")
-        credential = self._read_secret(self._credential_path(profile))
-        profile_ca = self._ca_path(profile)
-        ca_file = profile_ca if profile.verify_tls and profile_ca.is_file() else None
-        verify: bool | str = profile.verify_tls
-        if ca_file is not None:
-            verify = str(ca_file)
-        return HarborClient(
-            base_url=profile.url,
-            username=profile.username,
-            password=credential,
-            verify=verify,
-            connect_timeout=self.settings.harbor_connect_timeout_seconds,
-            read_timeout=self.settings.harbor_read_timeout_seconds,
-        )
+        return self.legacy.build_client_for_profile(profile.id)
 
     def credential_configured(self, profile: HarborProfile) -> bool:
         if profile.is_default:
@@ -226,6 +205,7 @@ class HarborProfileService:
 
     def rotate_credential(self, profile_id: str, secret: str) -> None:
         profile = self.get(profile_id)
+        self.require_mutation_safe(profile.id)
         if profile.is_default:
             self.legacy.rotate_credential(secret)
             return
@@ -235,6 +215,7 @@ class HarborProfileService:
 
     def install_ca(self, profile_id: str, certificate_pem: str) -> None:
         profile = self.get(profile_id)
+        self.require_mutation_safe(profile.id)
         if profile.is_default:
             self.legacy.install_ca(certificate_pem)
             return
@@ -275,13 +256,35 @@ class HarborProfileService:
 
     def remove_ca(self, profile_id: str) -> None:
         profile = self.get(profile_id)
+        self.require_mutation_safe(profile.id)
         if profile.is_default:
             self.legacy.remove_managed_ca()
             return
         self._ca_path(profile).unlink(missing_ok=True)
 
+    def require_mutation_safe(self, profile_id: str) -> None:
+        if profile_id != self.active_profile_id():
+            return
+        blockers = self._blocking_operation_ids()
+        if not blockers:
+            return
+        joined = ", ".join(f"#{operation_id}" for operation_id in blockers[:10])
+        raise HarborSettingsError(
+            "harbor_profile_busy",
+            f"Нельзя изменять active Harbor profile при незавершённых операциях: {joined}",
+        )
+
+    def _blocking_operation_ids(self) -> tuple[int, ...]:
+        return tuple(
+            self.session.scalars(
+                select(Operation.id)
+                .where(Operation.status.in_(BLOCKING_OPERATION_STATUSES))
+                .order_by(Operation.id)
+            )
+        )
+
     def _default_profile(self) -> HarborProfile:
-        resolved = self.legacy.resolve()
+        resolved = self.legacy.resolve_profile(DEFAULT_PROFILE_ID)
         return HarborProfile(
             id=DEFAULT_PROFILE_ID,
             name="Default Harbor",
