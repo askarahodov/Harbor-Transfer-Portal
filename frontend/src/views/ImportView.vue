@@ -21,6 +21,7 @@ import {
   type OperationStatus,
 } from '@/api/imports'
 import HarborProjectCreationPanel from '@/components/HarborProjectCreationPanel.vue'
+import ImportVerificationCard from '@/components/ImportVerificationCard.vue'
 import ImportDestinationMapping from '@/components/ImportDestinationMapping.vue'
 import StatePlaceholder from '@/components/StatePlaceholder.vue'
 import WizardStepper from '@/components/WizardStepper.vue'
@@ -394,59 +395,18 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <article v-if="wizard.operation" class="verification-card" aria-labelledby="verification-title">
-          <div class="verification-card__title">
-            <div>
-              <p class="eyebrow">Операция #{{ wizard.operation.id }}</p>
-              <h3 id="verification-title">{{ phaseLabels[wizard.operation.status] }}</h3>
-            </div>
-            <button
-              class="icon-button"
-              type="button"
-              aria-label="Обновить состояние операции"
-              @click="wizard.refreshOperation()"
-            >
-              <RefreshCw :size="18" aria-hidden="true" />
-            </button>
-          </div>
-          <dl class="metadata-grid">
-            <div><dt>Файл</dt><dd>{{ activeFilename }}</dd></div>
-            <div><dt>Размер</dt><dd>{{ formatBytes(activeSize) }}</dd></div>
-            <div><dt>Intake</dt><dd>{{ wizard.preview?.intake_mode ?? 'проверяется' }}</dd></div>
-          </dl>
-          <div class="verification-list" role="status" aria-live="polite" aria-label="Результаты проверки bundle">
-            <div class="verification-row">
-              <CheckCircle2 v-if="wizard.preview?.checksum_verified" :size="20" aria-hidden="true" />
-              <RefreshCw v-else-if="wizard.operation.status === 'VERIFYING'" :size="20" aria-hidden="true" />
-              <XCircle v-else-if="wizard.operation.status === 'REJECTED'" :size="20" aria-hidden="true" />
-              <span>SHA-256 integrity</span>
-              <strong>{{ wizard.preview?.checksum_verified ? 'подтверждена' : wizard.operation.status === 'VERIFYING' ? 'проверяется' : 'не подтверждена' }}</strong>
-            </div>
-            <div class="verification-row">
-              <CheckCircle2 v-if="wizard.preview?.schema_verified" :size="20" aria-hidden="true" />
-              <RefreshCw v-else-if="wizard.operation.status === 'VERIFYING'" :size="20" aria-hidden="true" />
-              <XCircle v-else-if="wizard.operation.status === 'REJECTED'" :size="20" aria-hidden="true" />
-              <span>Bundle v1 schema/canonical manifest</span>
-              <strong>{{ wizard.preview?.schema_verified ? 'совместима' : wizard.operation.status === 'VERIFYING' ? 'проверяется' : 'не подтверждена' }}</strong>
-            </div>
-            <div class="verification-row">
-              <CheckCircle2 v-if="wizard.preview?.signature_verified" :size="20" aria-hidden="true" />
-              <RefreshCw v-else-if="wizard.operation.status === 'VERIFYING'" :size="20" aria-hidden="true" />
-              <XCircle v-else-if="wizard.operation.status === 'REJECTED'" :size="20" aria-hidden="true" />
-              <span>Ed25519 signature trust</span>
-              <strong>{{ wizard.preview?.signature_verified ? 'подпись доверена' : wizard.operation.status === 'VERIFYING' ? 'проверяется' : 'не подтверждена' }}</strong>
-            </div>
-          </div>
-          <button
-            v-if="wizard.canCancel"
-            class="button button--danger"
-            type="button"
-            :disabled="wizard.busy !== null"
-            @click="wizard.cancel"
-          >
-            Отменить проверку
-          </button>
-        </article>
+        <ImportVerificationCard
+          v-if="wizard.operation"
+          :operation="wizard.operation"
+          :preview="wizard.preview"
+          :phase-label="phaseLabels[wizard.operation.status]"
+          :active-filename="activeFilename"
+          :active-size="activeSize"
+          :can-cancel="wizard.canCancel"
+          :busy="wizard.busy !== null"
+          @refresh="wizard.refreshOperation()"
+          @cancel="wizard.cancel"
+        />
       </section>
 
       <section v-else-if="wizard.step === 2 && wizard.preview" class="panel" aria-labelledby="preview-title">
@@ -664,9 +624,9 @@ onBeforeUnmount(() => {
 h1, h2, h3, p { margin-top: 0; }
 .lead { max-width: 850px; color: var(--color-text-muted); line-height: 1.6; }
 .panel { display: grid; gap: var(--space-6); padding: var(--space-6); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); }
-.panel__header, .verification-card__title { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.panel__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
 .intake-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
-.intake-card, .verification-card, .receipt-card { padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.intake-card, .receipt-card { padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .drop-zone { display: grid; place-items: center; gap: var(--space-2); min-height: 180px; margin: var(--space-4) 0; padding: var(--space-4); border: 2px dashed var(--color-border-control); border-radius: var(--radius-md); text-align: center; cursor: pointer; }
 .drop-zone:hover, .drop-zone:focus-visible, .drop-zone--active { border-color: var(--color-action); background: var(--color-info-surface); }
 .browser-file-list { display: grid; gap: var(--space-2); }
@@ -675,8 +635,6 @@ h1, h2, h3, p { margin-top: 0; }
 .discovery-list { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
 .discovered-item { display: grid; gap: var(--space-1); text-align: left; padding: var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
 .discovered-item:hover, .discovered-item:focus-visible { border-color: var(--color-action); }
-.verification-list { display: grid; gap: var(--space-2); margin: var(--space-4) 0; }
-.verification-row { display: grid; grid-template-columns: auto 1fr auto; gap: var(--space-3); align-items: center; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .metadata-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: 0; }
 .metadata-grid--wide { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .metadata-grid div { min-width: 0; padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
@@ -727,8 +685,6 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 }
 @media (max-width: 640px) {
   .intake-grid, .metadata-grid, .metadata-grid--wide { grid-template-columns: 1fr; }
-  .verification-row { grid-template-columns: auto 1fr; }
-  .verification-row strong { grid-column: 2; }
   .panel { padding: var(--space-4); }
 }
 </style>
