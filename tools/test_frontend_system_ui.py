@@ -56,5 +56,63 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
 
 
 
+    def test_import_route_has_single_canonical_mapping_owner(self) -> None:
+        router = (_REPOSITORY_ROOT / "frontend/src/router/index.ts").read_text(encoding="utf-8")
+        import_view = (_REPOSITORY_ROOT / "frontend/src/views/ImportView.vue").read_text(encoding="utf-8")
+        project_panel = (
+            _REPOSITORY_ROOT / "frontend/src/components/HarborProjectCreationPanel.vue"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("component: () => import('@/views/ImportView.vue')", router)
+        self.assertNotIn("ImportWorkspaceView.vue", router)
+        self.assertEqual(import_view.count("<ImportDestinationMapping />"), 1)
+        self.assertNotIn("ImportDestinationMapping", project_panel)
+        self.assertFalse(
+            (_REPOSITORY_ROOT / "frontend/src/views/ImportWorkspaceView.vue").exists()
+        )
+
+    def test_nginx_does_not_cache_application_shell(self) -> None:
+        nginx = (_REPOSITORY_ROOT / "frontend/nginx.conf").read_text(encoding="utf-8")
+
+        self.assertIn("location = /index.html", nginx)
+        self.assertIn("location = /runtime-config.js", nginx)
+        self.assertGreaterEqual(nginx.count('Cache-Control "no-store"'), 2)
+        self.assertIn('Cache-Control "public, max-age=31536000, immutable"', nginx)
+
+    def test_application_compose_uses_portable_bridge_networking(self) -> None:
+        for relative_path in ("compose.yaml", "deploy/offline/compose.yaml"):
+            with self.subTest(relative_path=relative_path):
+                compose = (_REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertNotIn("network_mode: host", compose)
+                self.assertEqual(compose.count("    ports:\n"), 1)
+                self.assertIn(
+                    '"${PORTAL_HTTP_BIND:-127.0.0.1}:${PORTAL_HTTP_PORT:-8080}:8080"',
+                    compose,
+                )
+                self.assertIn("      - 0.0.0.0\n      - --port\n      - \"8000\"", compose)
+
+        nginx = (_REPOSITORY_ROOT / "frontend/nginx.conf").read_text(encoding="utf-8")
+        self.assertIn("listen 0.0.0.0:8080;", nginx)
+        self.assertIn("proxy_pass http://backend:8000;", nginx)
+        self.assertNotIn("proxy_pass http://127.0.0.1:8000;", nginx)
+
+    def test_source_compose_rebuilds_with_current_revision(self) -> None:
+        compose = (_REPOSITORY_ROOT / "compose.yaml").read_text(encoding="utf-8")
+        makefile = (_REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
+        launcher = (_REPOSITORY_ROOT / "tools/dev.py").read_text(encoding="utf-8")
+        dockerfile = (_REPOSITORY_ROOT / "frontend/Dockerfile").read_text(encoding="utf-8")
+        entrypoint = (
+            _REPOSITORY_ROOT / "frontend/docker-entrypoint.d/40-runtime-config.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertGreaterEqual(compose.count("RELEASE_VERSION: ${PORTAL_VERSION:-dev}"), 2)
+        self.assertGreaterEqual(compose.count("VCS_REF: ${PORTAL_VCS_REF:-unknown}"), 2)
+        self.assertIn("python3 tools/dev.py up", makefile)
+        self.assertIn('env["PORTAL_VCS_REF"] = _git_revision', launcher)
+        self.assertIn('"--build"', launcher)
+        self.assertIn('"--force-recreate"', launcher)
+        self.assertIn("ENV PORTAL_FRONTEND_REVISION=${VCS_REF}", dockerfile)
+        self.assertIn("revision: '$revision'", entrypoint)
+
 if __name__ == "__main__":
     unittest.main()

@@ -527,7 +527,7 @@ BUNDLE_MAX_EXTRACTED_BYTES
 - при необходимости уменьшите concurrency;
 - пересмотрите limits только после capacity/security оценки.
 
-Автоматическая retention/auto-delete policy не считается реализованной, пока для неё нет отдельного tested lifecycle.
+Автоматическая retention policy реализована: completed SOURCE publications и retained terminal TARGET bundles очищаются по `EXPORT_BUNDLE_RETENTION_SECONDS`/`IMPORT_BUNDLE_RETENTION_SECONDS`, а cleanup запускается при startup и периодически. Перед ручным удалением сверяйтесь с [storage-retention.md](storage-retention.md).
 
 ### Когда эскалировать
 

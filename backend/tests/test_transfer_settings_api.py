@@ -77,6 +77,9 @@ def test_transfer_policy_is_admin_only_and_defaults_to_no_overwrite(tmp_path: Pa
     assert response.status_code == 200
     assert response.json()["import_allow_overwrite"] is False
     assert response.json()["operation_max_concurrent"] == 2
+    assert response.json()["export_bundle_retention_seconds"] == 604800
+    assert response.json()["import_bundle_retention_seconds"] == 604800
+    assert response.json()["storage_cleanup_interval_seconds"] == 3600
     assert response.json()["effective_operation_max_concurrent"] == 2
     assert response.json()["restart_required_fields"] == []
 
@@ -151,6 +154,72 @@ def test_hot_transfer_policy_changes_are_effective_and_audited(tmp_path: Path) -
     assert metadata["before"]["import_allow_overwrite"] is False
     assert metadata["after"]["import_allow_overwrite"] is True
     assert metadata["restart_required_fields"] == []
+
+
+def test_retention_policy_hot_applies_persists_and_is_audited(tmp_path: Path) -> None:
+    app = _build_app(tmp_path)
+    client = TestClient(app)
+    admin = _login(client, "admin")
+    payload = {
+        "export_bundle_retention_seconds": 10 * 24 * 60 * 60,
+        "import_bundle_retention_seconds": 3 * 24 * 60 * 60,
+        "storage_cleanup_interval_seconds": 15 * 60,
+    }
+
+    changed = client.patch(
+        "/api/settings/transfer",
+        json=payload,
+        headers=_auth(admin),
+    )
+
+    assert changed.status_code == 200
+    for field, value in payload.items():
+        assert changed.json()[field] == value
+        assert getattr(app.state.settings, field) == value
+    assert changed.json()["restart_required_fields"] == []
+
+    with app.state.session_factory() as session:
+        event = session.scalar(
+            select(AuditEvent)
+            .where(AuditEvent.event_type == "transfer.policy.updated")
+            .order_by(AuditEvent.id.desc())
+        )
+        assert event is not None
+        metadata = json.loads(event.metadata_json)
+    assert metadata["changed_fields"] == sorted(payload)
+    assert metadata["before"]["export_bundle_retention_seconds"] == 604800
+    assert metadata["after"]["storage_cleanup_interval_seconds"] == 15 * 60
+
+    restarted_app = _build_app(tmp_path)
+    with TestClient(restarted_app) as restarted:
+        restarted_admin = _login(restarted, "admin")
+        current = restarted.get(
+            "/api/settings/transfer",
+            headers=_auth(restarted_admin),
+        )
+        assert current.status_code == 200
+        for field, value in payload.items():
+            assert current.json()[field] == value
+            assert getattr(restarted_app.state.settings, field) == value
+
+
+def test_retention_policy_rejects_values_below_safe_bounds(tmp_path: Path) -> None:
+    app = _build_app(tmp_path)
+    client = TestClient(app)
+    admin = _login(client, "admin")
+
+    for field, value in (
+        ("export_bundle_retention_seconds", 3599),
+        ("import_bundle_retention_seconds", 3599),
+        ("storage_cleanup_interval_seconds", 59),
+    ):
+        response = client.patch(
+            "/api/settings/transfer",
+            json={field: value},
+            headers=_auth(admin),
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "validation_error"
 
 
 def test_transfer_policy_rejects_inconsistent_limits_atomically(tmp_path: Path) -> None:

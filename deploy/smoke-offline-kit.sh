@@ -165,6 +165,11 @@ grep -Fx 'name: harbor-transfer-portal' "$KIT/compose.yaml" >/dev/null || \
   fail 'offline compose must use a stable project name'
 [ "$(grep -c '^[[:space:]]*pull_policy: never$' "$KIT/compose.yaml")" -eq 2 ] || \
   fail 'offline compose must disable pulling for both services'
+if grep -F 'network_mode: host' "$KIT/compose.yaml" >/dev/null; then
+  fail 'offline compose must not depend on host network mode'
+fi
+grep -F '"${PORTAL_HTTP_BIND:-127.0.0.1}:${PORTAL_HTTP_PORT:-8080}:8080"' "$KIT/compose.yaml" >/dev/null || \
+  fail 'offline compose must publish only the frontend browser port'
 grep -Eq '^[0-9a-f]{64}  docs/user-guide\.md$' "$KIT/CHECKSUMS.sha256" || \
   fail 'operator user guide must be covered by CHECKSUMS.sha256'
 grep -Eq '^[0-9a-f]{64}  docs/browser-transport\.md$' "$KIT/CHECKSUMS.sha256" || \

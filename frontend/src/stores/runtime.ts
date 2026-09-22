@@ -47,6 +47,14 @@ function readInjectedContour(): PortalContour | null {
   return isPortalContour(contour) ? contour : null
 }
 
+function readInjectedRevision(): string | null {
+  if (typeof window === 'undefined') return null
+  const revision = window.__HTP_CONFIG__?.revision
+  return typeof revision === 'string' && revision.trim() && revision !== 'unknown'
+    ? revision.trim()
+    : null
+}
+
 function cancelledOperationIds(value: unknown): number[] {
   if (!Array.isArray(value)) return []
   return value.filter(
@@ -63,6 +71,7 @@ function modeSwitchErrorCode(error: unknown): string {
 
 export const useRuntimeStore = defineStore('runtime', () => {
   const contour = ref<PortalContour | null>(readInjectedContour())
+  const frontendRevision = ref<string | null>(readInjectedRevision())
   const version = ref<string | null>(null)
   const loading = ref(false)
   const errorCode = ref<string | null>(null)
@@ -147,6 +156,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
   return {
     contour,
     contourLabel,
+    frontendRevision,
     version,
     loading,
     errorCode,

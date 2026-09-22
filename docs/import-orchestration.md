@@ -180,6 +180,10 @@ Frontend может получить небольшой receipt через `GET 
 | `IMPORT_MAX_UPLOAD_BYTES` | `50 GiB` | hard intake size limit |
 | `IMPORT_STREAM_CHUNK_BYTES` | `1 MiB` | рекомендуемый application chunk size для файловых операций |
 | `IMPORT_ALLOW_OVERWRITE` | `false` | server-side permission для explicit conflict overwrite |
+| `IMPORT_BUNDLE_RETENTION_SECONDS` | `604800` | retention terminal failed/partial bundle для retry/диагностики |
+| `STORAGE_CLEANUP_INTERVAL_SECONDS` | `3600` | период startup/periodic storage cleanup |
+
+После успешного import staging bundle удаляется сразу, extraction workspace удаляется после worker независимо от результата. Failed/partial bundle сохраняется до retention, чтобы retry мог повторно проверить и распаковать исходный physical payload. Shared `storage_key` не удаляется, пока хотя бы одна связанная operation non-terminal. Подробнее: [storage-retention.md](storage-retention.md).
 
 Bundle archive/extraction/member/compression limits дополнительно задаются общими `BUNDLE_*` settings и применяются verifier path.
 

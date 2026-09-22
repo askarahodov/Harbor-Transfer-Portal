@@ -45,6 +45,7 @@ describe('PageShell release identity', () => {
     setActivePinia(localPinia)
     const runtime = useRuntimeStore()
     runtime.version = '1.0.0'
+    runtime.frontendRevision = 'e77f800850f79bae44533e23d17357cf909dfa43'
     runtime.setContour('SOURCE')
 
     const localRouter = createRouter({
@@ -59,6 +60,10 @@ describe('PageShell release identity', () => {
     })
 
     expect(wrapper.find('.release-version').text()).toBe('v1.0.0')
+    expect(wrapper.find('.release-revision').text()).toBe('UI e77f800850f7')
+    expect(wrapper.find('.release-revision').attributes('title')).toContain(
+      'e77f800850f79bae44533e23d17357cf909dfa43',
+    )
   })
 })
 

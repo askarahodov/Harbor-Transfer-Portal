@@ -70,6 +70,28 @@ chore: update developer tooling
 
 Скопируйте `.env.example` в `.env`. Файл `.env` намеренно игнорируется Git. Значения в `.env.example` являются только безопасными placeholders и не должны использоваться как production credentials.
 
+## Запуск локального Compose после обновления исходников
+
+Canonical developer launcher — `tools/dev.py`; он одинаков для Linux и Windows и не использует shell-конкатенацию. Подробности и platform boundary: [docs/development.md](docs/development.md).
+
+Linux:
+
+```bash
+git pull
+python3 tools/dev.py up
+```
+
+Windows PowerShell:
+
+```powershell
+git pull
+.\dev.ps1 up
+```
+
+Linux `make up` остаётся convenience alias и делегирует ту же Python orchestration. Windows не требует GNU Make, WSL или Git Bash.
+
+`up` передаёт текущий Git revision в Docker build, пересобирает images и принудительно recreate-ит контейнеры. В верхней панели рядом с product version отображается короткий `UI <revision>`; после обновления source он должен соответствовать первым 12 символам `git rev-parse HEAD`.
+
 ## Проверка распространения ошибок
 
 Make-цели намеренно строгие. Пример ручной проверки:

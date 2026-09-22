@@ -6,6 +6,8 @@
 
 Все endpoints ниже требуют действующий bearer token портала. Роли `viewer`, `operator` и `admin` могут читать каталог артефактов. Изменение Harbor-конфигурации в этот API не входит.
 
+Backend выбирает Harbor не из query/path браузера, а из persisted **active Harbor profile**. Профиль меняется только через admin Settings API. Поэтому все browse endpoints одного request используют тот же server-side profile contract, который затем потребляют export/import adapters.
+
 ## Endpoints
 
 ### `GET /api/harbor/connection`
@@ -41,6 +43,8 @@ Harbor может вернуть имя repository в виде `project/nested/r
 ### `GET /api/harbor/projects/{project}/artifacts?repository=nested/repo`
 
 `repository` передаётся query-параметром, поэтому вложенные имена с `/` не зависят от неоднозначного path routing. Дополнительно поддерживаются `page`, `page_size` и `search`; поиск сопоставляется с digest и tag/reference.
+
+При обращении backend к Harbor API project-relative repository преобразуется в Harbor-совместимый path parameter с двойным percent-encoding. Например, `appt/appointment-api` передаётся upstream как `appt%252Fappointment-api`. Одинарное `appt%2Fappointment-api` декодируется routing-слоем Harbor слишком рано и для вложенного repository может дать `404`, который портал нормализует в `harbor_not_found`.
 
 Нормализованный артефакт содержит:
 

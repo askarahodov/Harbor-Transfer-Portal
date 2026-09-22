@@ -54,6 +54,8 @@ Installer:
 
 Release Compose использует стабильное имя проекта `harbor-transfer-portal`. Поэтому named volume `portal-data` имеет одну и ту же Compose identity независимо от versioned каталога, в который распакован kit. Это важно для безопасного lifecycle.
 
+Application services работают в стандартной Compose bridge network. Backend `:8000` не публикуется на host; frontend обращается к нему по service name `backend:8000`. На host публикуется только frontend `:8080` с bind/port из `PORTAL_HTTP_BIND` и `PORTAL_HTTP_PORT`.
+
 ### Browser transport после установки
 
 Raw HTTP listener Portal по умолчанию публикуется только на loopback:

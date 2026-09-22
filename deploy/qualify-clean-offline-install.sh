@@ -44,13 +44,8 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
 
-frontend_base() {
-  env_file=$1
-  bind=$(sed -n 's/^PORTAL_HTTP_BIND=//p' "$env_file" | head -n 1)
-  port=$(sed -n 's/^PORTAL_HTTP_PORT=//p' "$env_file" | head -n 1)
-  [ -n "$bind" ] || bind=127.0.0.1
-  [ -n "$port" ] || port=8080
-  printf 'http://%s:%s\n' "$bind" "$port"
+frontend_container_base() {
+  printf '%s\n' 'http://127.0.0.1:8080'
 }
 
 for command in docker tar sha256sum stat; do
@@ -96,7 +91,7 @@ assert_release_image_identity() {
 
 wait_runtime() {
   kit=$1
-  base=$(frontend_base "$kit/.env")
+  base=$(frontend_container_base)
   attempts=0
   while [ "$attempts" -lt 30 ]; do
     if docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
@@ -111,10 +106,25 @@ wait_runtime() {
   fail 'offline-installed runtime did not become healthy'
 }
 
+verify_port_publication() {
+  kit=$1
+  frontend_id=$(docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" ps -q frontend)
+  backend_id=$(docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" ps -q backend)
+  frontend_bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$frontend_id")
+  backend_bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$backend_id")
+  case "$frontend_bindings" in
+    *'"8080/tcp"'*) ;;
+    *) fail "offline runtime did not publish frontend port 8080: $frontend_bindings" ;;
+  esac
+  case "$backend_bindings" in
+    *'"8000/tcp"'*) fail "offline runtime unexpectedly publishes backend port 8000: $backend_bindings" ;;
+  esac
+}
+
 verify_install() {
   contour=$1
   kit=$2
-  base=$(frontend_base "$kit/.env")
+  base=$(frontend_container_base)
 
   [ -f "$kit/.env" ] && [ ! -L "$kit/.env" ] || fail 'installer did not create a regular .env'
   mode=$(stat -c '%a' "$kit/.env")
@@ -135,6 +145,10 @@ verify_install() {
   assert_release_image_identity
 
   wait_runtime "$kit"
+  verify_port_publication "$kit"
+  docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
+    exec -T frontend wget -q -O - "http://backend:8000/api/health" \
+    | grep -F '"status":"ok"' >/dev/null
   health=$(docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
     exec -T frontend wget -q -O - "$base/api/health")
   printf '%s' "$health" | grep -F '"status":"ok"' >/dev/null

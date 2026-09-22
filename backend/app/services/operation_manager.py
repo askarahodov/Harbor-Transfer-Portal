@@ -20,6 +20,7 @@ from app.config import Settings
 from app.db.models import ArtifactResult, Operation
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.domain.operations import TERMINAL_STATES, validate_transition
+from app.services.harbor_profile_runtime import harbor_profile_boundary
 
 logger = logging.getLogger(__name__)
 
@@ -255,40 +256,41 @@ class OperationManager:
             else OperationStatus.UPLOADED
         )
         self._validate_initial_status(operation_type, status)
-        with self.session_factory() as session:
-            operation = Operation(
-                delivery_id=delivery_id,
-                type=operation_type,
-                status=status,
-                actor_user_id=actor_user_id,
-                actor_username=actor_username,
-                comment=comment,
-                progress_current=0,
-                progress_total=len(artifacts),
-                total_artifacts=len(artifacts),
-                successful_artifacts=0,
-                failed_artifacts=0,
-                skipped_artifacts=0,
-                conflict_artifacts=0,
-            )
-            session.add(operation)
-            session.flush()
-            for spec in artifacts:
-                session.add(
-                    ArtifactResult(
-                        operation_id=operation.id,
-                        artifact_type=spec.artifact_type,
-                        repository=spec.repository,
-                        name=spec.name,
-                        reference=spec.reference,
-                        version=spec.version,
-                        source_digest=spec.source_digest,
-                        size_bytes=spec.size_bytes,
-                        status=ArtifactStatus.PENDING,
-                    )
+        with harbor_profile_boundary():
+            with self.session_factory() as session:
+                operation = Operation(
+                    delivery_id=delivery_id,
+                    type=operation_type,
+                    status=status,
+                    actor_user_id=actor_user_id,
+                    actor_username=actor_username,
+                    comment=comment,
+                    progress_current=0,
+                    progress_total=len(artifacts),
+                    total_artifacts=len(artifacts),
+                    successful_artifacts=0,
+                    failed_artifacts=0,
+                    skipped_artifacts=0,
+                    conflict_artifacts=0,
                 )
-            session.commit()
-            return operation.id
+                session.add(operation)
+                session.flush()
+                for spec in artifacts:
+                    session.add(
+                        ArtifactResult(
+                            operation_id=operation.id,
+                            artifact_type=spec.artifact_type,
+                            repository=spec.repository,
+                            name=spec.name,
+                            reference=spec.reference,
+                            version=spec.version,
+                            source_digest=spec.source_digest,
+                            size_bytes=spec.size_bytes,
+                            status=ArtifactStatus.PENDING,
+                        )
+                    )
+                session.commit()
+                return operation.id
 
     def create_and_submit(
         self,

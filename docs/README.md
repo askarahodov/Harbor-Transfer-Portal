@@ -13,8 +13,8 @@
 | installer / platform engineer | [../deploy/offline/README.md](../deploy/offline/README.md) |
 | support / incident responder | [troubleshooting.md](troubleshooting.md) |
 | security reviewer | [security.md](security.md) |
-| developer / architect | [architecture.md](architecture.md), затем component docs |
-| contributor | [../CONTRIBUTING.md](../CONTRIBUTING.md) и [testing.md](testing.md) |
+| developer / architect | [development.md](development.md), [architecture.md](architecture.md), затем component docs |
+| contributor | [development.md](development.md), [../CONTRIBUTING.md](../CONTRIBUTING.md) и [testing.md](testing.md) |
 | руководитель / новый участник проекта | [project-passport.md](project-passport.md) |
 
 Root [README](../README.md) — пользовательская входная страница продукта с кратким flow и отдельной developer-секцией.
@@ -51,6 +51,7 @@ Root [README](../README.md) — пользовательская входная 
 | Документ | Для чего | Статус |
 |---|---|---|
 | [project-passport.md](project-passport.md) | простое описание продукта, ролей и целевого процесса | актуальный product overview |
+| [development.md](development.md) | source build/run на Windows и Linux, Docker Desktop/Engine boundary | актуальный developer workflow |
 | [user-guide.md](user-guide.md) | пошаговый browser flow SOURCE → physical transfer → TARGET | актуальный |
 | [admin-guide.md](admin-guide.md) | bootstrap, Harbor, users/policies/keys, lifecycle, limits | актуальный |
 | [runtime-mode.md](runtime-mode.md) | persistent SOURCE/TARGET role, switch, restart, migration, backup/restore | актуальный runtime/admin contract |
@@ -73,9 +74,11 @@ Root [README](../README.md) — пользовательская входная 
 | `schema/` | machine-readable Bundle schemas | **нормативный** |
 | [package-service.md](package-service.md) | Bundle build/verify implementation boundary | актуальный |
 | [operation-manager.md](operation-manager.md) | background execution/progress/cancel/restart | актуальный |
+| [storage-retention.md](storage-retention.md) | lifecycle и bounded cleanup transfer payload storage | актуальный |
 | [skopeo-service.md](skopeo-service.md) | container transfer service | актуальный |
 | [helm-oci-service.md](helm-oci-service.md) | Helm OCI transfer service | актуальный |
 | [harbor-browse-api.md](harbor-browse-api.md) | Harbor browse projection/policies | актуальный |
+| [harbor-profiles.md](harbor-profiles.md) | multi-Harbor profile management и staged operation binding | актуальный backend foundation |
 | [history-audit-api.md](history-audit-api.md) | history/audit backend API | актуальный |
 | [history-ui.md](history-ui.md) | user-facing history UX | актуальный |
 | [reports-receipts.md](reports-receipts.md) | CSV/PDF reports и immutable import receipt | актуальный |

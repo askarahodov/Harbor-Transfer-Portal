@@ -10,6 +10,8 @@ from app.db.repositories import SettingMetadataRepository
 
 _MIB: Final = 1024**2
 _TIB: Final = 1024**4
+_HOUR: Final = 60 * 60
+_DAY: Final = 24 * _HOUR
 
 POLICY_FIELDS: Final[tuple[str, ...]] = (
     "import_allow_overwrite",
@@ -19,6 +21,9 @@ POLICY_FIELDS: Final[tuple[str, ...]] = (
     "bundle_max_member_count",
     "operation_disk_reserve_bytes",
     "operation_max_concurrent",
+    "export_bundle_retention_seconds",
+    "import_bundle_retention_seconds",
+    "storage_cleanup_interval_seconds",
 )
 
 RESTART_REQUIRED_FIELDS: Final[frozenset[str]] = frozenset({"operation_max_concurrent"})
@@ -34,6 +39,9 @@ _BOUNDS: Final[dict[str, tuple[int, int]]] = {
     "bundle_max_member_count": (4, 1_000_000),
     "operation_disk_reserve_bytes": (0, _TIB),
     "operation_max_concurrent": (1, 32),
+    "export_bundle_retention_seconds": (_HOUR, 365 * _DAY),
+    "import_bundle_retention_seconds": (_HOUR, 365 * _DAY),
+    "storage_cleanup_interval_seconds": (60, _DAY),
 }
 
 
@@ -46,6 +54,9 @@ class TransferPolicySnapshot:
     bundle_max_member_count: int
     operation_disk_reserve_bytes: int
     operation_max_concurrent: int
+    export_bundle_retention_seconds: int
+    import_bundle_retention_seconds: int
+    storage_cleanup_interval_seconds: int
     effective_operation_max_concurrent: int
     restart_required_fields: tuple[str, ...]
 
@@ -88,6 +99,15 @@ class TransferPolicyService:
             bundle_max_member_count=int(configured["bundle_max_member_count"]),
             operation_disk_reserve_bytes=int(configured["operation_disk_reserve_bytes"]),
             operation_max_concurrent=int(configured["operation_max_concurrent"]),
+            export_bundle_retention_seconds=int(
+                configured["export_bundle_retention_seconds"]
+            ),
+            import_bundle_retention_seconds=int(
+                configured["import_bundle_retention_seconds"]
+            ),
+            storage_cleanup_interval_seconds=int(
+                configured["storage_cleanup_interval_seconds"]
+            ),
             effective_operation_max_concurrent=self.settings.operation_max_concurrent,
             restart_required_fields=tuple(restart_required),
         )

@@ -48,7 +48,7 @@
 | администрируете Portal / Harbor | [Руководство администратора](docs/admin-guide.md) |
 | устанавливаете Portal в закрытом контуре | [Offline installation guide](deploy/offline/README.md) |
 | устраняете проблему | [Troubleshooting](docs/troubleshooting.md) |
-| разрабатываете или сопровождаете проект | [Карту документации](docs/README.md) и [CONTRIBUTING.md](CONTRIBUTING.md) |
+| разрабатываете или сопровождаете проект | [Локальная разработка Windows/Linux](docs/development.md), [карту документации](docs/README.md) и [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 Для штатного переноса оператору не нужно вручную работать с `skopeo`, `helm`, `tar`, `sha256sum` или Harbor CLI.
 
@@ -89,7 +89,7 @@ Harbor TARGET
 | Обзор продукта | [Паспорт проекта](docs/project-passport.md) |
 | Установка и эксплуатация | [Offline guide](deploy/offline/README.md), [Admin guide](docs/admin-guide.md) |
 | Runtime SOURCE/TARGET и ключи | [Runtime mode](docs/runtime-mode.md), [Key management](docs/key-management.md) |
-| Архитектура и разработка | [docs/README.md](docs/README.md), [Architecture](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Архитектура и разработка | [Windows/Linux development](docs/development.md), [docs/README.md](docs/README.md), [Architecture](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Тестирование и CI | [Testing](docs/testing.md) |
 | Релиз | [Release notes v1.0.0](docs/release-notes-v1.0.0.md), [CHANGELOG.md](CHANGELOG.md) |
 

@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -17,6 +19,7 @@ from app.schemas.exports import ExportArtifactSelection
 from app.services.bundle_package_service import BundlePackageError, BundlePackageService
 from app.services.export_orchestrator import ExportOrchestrator
 from app.services.harbor_client import HarborArtifact
+from app.services.harbor_profile_runtime import harbor_profile_boundary
 from app.services.helm_oci_service import (
     HelmPackageMetadata,
     HelmPullResult,
@@ -42,6 +45,24 @@ class FakeHarborClient:
 
     def close(self) -> None:
         pass
+
+
+class BlockingHarborClient(FakeHarborClient):
+    def __init__(
+        self,
+        artifacts: dict[tuple[str, str, str], HarborArtifact],
+        entered: Event,
+        release: Event,
+    ) -> None:
+        super().__init__(artifacts)
+        self.entered = entered
+        self.release = release
+
+    def get_artifact(self, project: str, repository: str, reference: str) -> HarborArtifact:
+        self.entered.set()
+        if not self.release.wait(timeout=2):
+            raise RuntimeError("test did not release Harbor preview")
+        return super().get_artifact(project, repository, reference)
 
 
 class FakeSkopeoService:
@@ -199,6 +220,54 @@ def _selections() -> tuple[ExportArtifactSelection, ExportArtifactSelection]:
 def _outgoing_is_empty(settings: Settings) -> bool:
     root = settings.bundle_outgoing_root
     return not root.exists() or not any(root.iterdir())
+
+
+def test_export_preview_and_operation_creation_share_profile_boundary(tmp_path: Path) -> None:
+    settings, manager, harbor, package_service, _orchestrator = _environment(tmp_path)
+    preview_entered = Event()
+    release_preview = Event()
+    boundary_acquired = Event()
+    blocking_harbor = BlockingHarborClient(
+        harbor.artifacts,
+        preview_entered,
+        release_preview,
+    )
+    orchestrator = ExportOrchestrator(
+        manager.session_factory,
+        settings,
+        manager,
+        harbor_client_factory=lambda: blocking_harbor,
+        skopeo_factory=lambda _session: FakeSkopeoService(),
+        helm_factory=lambda _session: FakeHelmService(),
+        package_factory=lambda: package_service,
+    )
+
+    def acquire_profile_boundary() -> None:
+        with harbor_profile_boundary():
+            boundary_acquired.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        prepared = pool.submit(
+            orchestrator._prepare_export_operation,
+            (_selections()[0],),
+            None,  # type: ignore[arg-type]
+            "operator",
+            None,
+        )
+        assert preview_entered.wait(timeout=1)
+        competing_switch = pool.submit(acquire_profile_boundary)
+        assert not boundary_acquired.wait(timeout=0.1)
+
+        release_preview.set()
+        resolved, operation_id, _delivery_id, artifact_ids = prepared.result(timeout=2)
+        assert boundary_acquired.wait(timeout=1)
+        competing_switch.result(timeout=2)
+
+    assert len(resolved) == 1
+    assert len(artifact_ids) == 1
+    operation = manager.get_operation(operation_id)
+    assert operation is not None
+    assert operation.status is OperationStatus.CREATED
 
 
 def test_mixed_export_creates_one_signed_verified_bundle(tmp_path: Path) -> None:

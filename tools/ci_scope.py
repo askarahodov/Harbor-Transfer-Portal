@@ -33,6 +33,8 @@ _SECURITY_SERVICE_FILES = {
     "export_orchestrator.py",
     "export_publication_guard.py",
     "harbor_client.py",
+    "harbor_profiles.py",
+    "harbor_settings.py",
     "import_helm_service.py",
     "import_orchestrator.py",
     "key_management.py",
@@ -53,6 +55,7 @@ _SECURITY_TEST_PREFIXES = (
     "test_export_",
     "test_exports_api",
     "test_harbor_client",
+    "test_harbor_profiles",
     "test_harbor_project_creation",
     "test_import_",
     "test_key_management_",
@@ -66,6 +69,8 @@ _INTEGRATION_SERVICE_FILES = {
     "bundle_package_service.py",
     "export_orchestrator.py",
     "export_publication_guard.py",
+    "harbor_profiles.py",
+    "harbor_settings.py",
     "import_helm_service.py",
     "import_orchestrator.py",
     "operation_manager.py",
@@ -188,6 +193,16 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
     if _under(path, "backend") or path_text == "Makefile":
         areas.add("backend")
 
+    if path_text in {
+        ".env.example",
+        "compose.yaml",
+        "deploy/offline/compose.yaml",
+        "frontend/nginx.conf",
+    }:
+        # Backend regression tests assert the browser/runtime trust boundary
+        # across these deployment files, so changes must execute that suite.
+        areas.add("backend")
+
     if path_text in _BACKEND_RUNTIME_DEPENDENCY_FILES:
         # Runtime dependency graph changes can alter crypto and transfer behavior
         # without touching application source, so qualify both boundaries.
@@ -195,6 +210,9 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
 
     if _under(path, "frontend") or path_text == "Makefile":
         areas.add("frontend")
+
+    if path_text in {"tools/dev.py", "tools/test_dev.py", "dev.ps1"}:
+        areas.update({"frontend", "compose", "docs"})
 
     if (
         _starts_with(path, "backend", "app", "domain")
@@ -220,6 +238,7 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
         in {
             "compose.yaml",
             ".dockerignore",
+            "Makefile",
             "backend/Dockerfile",
             "frontend/Dockerfile",
             "frontend/nginx.conf",
