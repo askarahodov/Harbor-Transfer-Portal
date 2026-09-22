@@ -59,6 +59,72 @@ class HarborProfileService:
     def active_profile(self) -> HarborProfile:
         return self.get(self.active_profile_id())
 
+    def selectable_profiles(self) -> list[HarborProfile]:
+        return [profile for profile in self.list_profiles() if profile.enabled and profile.url]
+
+    def operation_snapshot(self, profile_id: str | None) -> HarborProfile:
+        selected_id = (profile_id or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        profile = self.get(selected_id)
+        if not profile.enabled or not profile.url:
+            raise HarborSettingsError(
+                "harbor_profile_disabled",
+                "Профиль Harbor недоступен для новой операции",
+            )
+        return profile
+
+    def bind_operation_profile(
+        self,
+        operation: Operation,
+        profile_id: str | None,
+    ) -> HarborProfile:
+        selected = self.operation_snapshot(profile_id)
+        persisted = (
+            operation.harbor_profile_id,
+            operation.harbor_profile_name,
+            operation.harbor_profile_url,
+        )
+        if persisted == (None, None, None):
+            operation.harbor_profile_id = selected.id
+            operation.harbor_profile_name = selected.name
+            operation.harbor_profile_url = selected.url
+            self.session.flush()
+            return selected
+        if any(value is None for value in persisted):
+            raise HarborSettingsError(
+                "harbor_profile_binding_invalid",
+                "Harbor profile snapshot операции повреждён",
+            )
+        if operation.harbor_profile_id != selected.id:
+            raise HarborSettingsError(
+                "harbor_profile_selection_locked",
+                "Harbor profile уже закреплён за этой operation",
+            )
+        return self.assert_operation_binding(operation)
+
+    def assert_operation_binding(self, operation: Operation) -> HarborProfile:
+        if (
+            operation.harbor_profile_id is None
+            and operation.harbor_profile_name is None
+            and operation.harbor_profile_url is None
+        ):
+            return self.operation_snapshot(DEFAULT_PROFILE_ID)
+        if (
+            operation.harbor_profile_id is None
+            or operation.harbor_profile_name is None
+            or operation.harbor_profile_url is None
+        ):
+            raise HarborSettingsError(
+                "harbor_profile_binding_invalid",
+                "Harbor profile snapshot операции повреждён",
+            )
+        profile = self.operation_snapshot(operation.harbor_profile_id)
+        if profile.name != operation.harbor_profile_name or profile.url != operation.harbor_profile_url:
+            raise HarborSettingsError(
+                "harbor_profile_changed",
+                "Harbor profile изменился после закрепления за operation",
+            )
+        return profile
+
     def activate(self, profile_id: str) -> tuple[HarborProfile, HarborProfile]:
         current = self.active_profile()
         target = self.get(profile_id)
@@ -178,6 +244,14 @@ class HarborProfileService:
                 "harbor_profile_active_protected",
                 "Active Harbor profile нельзя удалить; сначала выберите другой профиль",
             )
+        referenced = self.session.scalar(
+            select(Operation.id).where(Operation.harbor_profile_id == current.id).limit(1)
+        )
+        if referenced is not None:
+            raise HarborSettingsError(
+                "harbor_profile_in_use",
+                "Профиль Harbor используется сохранёнными operations и не может быть удалён",
+            )
         self._save_additional([item for item in profiles if item.id != current.id])
         self._credential_path(current).unlink(missing_ok=True)
         self._ca_path(current).unlink(missing_ok=True)
@@ -263,15 +337,28 @@ class HarborProfileService:
         self._ca_path(profile).unlink(missing_ok=True)
 
     def require_mutation_safe(self, profile_id: str) -> None:
-        if profile_id != self.active_profile_id():
-            return
-        blockers = self._blocking_operation_ids()
+        normalized = profile_id.strip()
+        statement = select(Operation.id).where(
+            Operation.status.in_(BLOCKING_OPERATION_STATUSES),
+            Operation.harbor_profile_id == normalized,
+        )
+        if normalized == self.active_profile_id():
+            # Legacy operations created before profile snapshots still depend on the
+            # installation-global active profile. Preserve #368 safety for those rows.
+            statement = select(Operation.id).where(
+                Operation.status.in_(BLOCKING_OPERATION_STATUSES),
+                (
+                    (Operation.harbor_profile_id == normalized)
+                    | (Operation.harbor_profile_id.is_(None))
+                ),
+            )
+        blockers = tuple(self.session.scalars(statement.order_by(Operation.id)))
         if not blockers:
             return
         joined = ", ".join(f"#{operation_id}" for operation_id in blockers[:10])
         raise HarborSettingsError(
             "harbor_profile_busy",
-            f"Нельзя изменять active Harbor profile при незавершённых операциях: {joined}",
+            f"Нельзя изменять Harbor profile при незавершённых операциях: {joined}",
         )
 
     def _blocking_operation_ids(self) -> tuple[int, ...]:
