@@ -2,7 +2,6 @@
 import { Box, Search, ShipWheel } from 'lucide-vue-next'
 
 import type { HarborArtifact } from '@/api/exports'
-import StatePlaceholder from './StatePlaceholder.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
 
 defineProps<{
@@ -56,9 +55,9 @@ function shortDigest(digest: string | null): string {
         <h3 id="artifacts-title">Доступные версии</h3>
         <p>Digest остаётся источником точной идентичности; tag используется как удобное имя.</p>
       </div>
-      <StatePlaceholder v-if="!selectedRepository" compact kind="empty" title="Выберите проект и репозиторий" />
-      <StatePlaceholder v-else-if="busy" compact kind="loading" title="Загрузка версий" />
-      <StatePlaceholder v-else-if="artifacts.length === 0" compact kind="empty" title="Версии не найдены" />
+      <div v-if="!selectedRepository" class="artifact-selector__state" role="status">Выберите проект и репозиторий</div>
+      <div v-else-if="busy" class="artifact-selector__state" role="status">Загрузка версий</div>
+      <div v-else-if="artifacts.length === 0" class="artifact-selector__state" role="status">Версии не найдены</div>
       <div v-else class="artifact-selector__list">
         <article v-for="artifact in artifacts" :key="artifact.digest" class="artifact-selector__card">
           <div class="artifact-selector__main">
@@ -104,6 +103,7 @@ function shortDigest(digest: string | null): string {
 .artifact-selector__input:focus-within { outline: 2px solid var(--color-focus-ring); outline-offset: 1px; }
 .artifact-selector__input input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--color-text); }
 .artifact-selector__panel { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
+.artifact-selector__state { padding: var(--space-4); border: 1px dashed var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-muted); text-align: center; }
 .artifact-selector__heading { margin-bottom: var(--space-3); }
 .artifact-selector__heading h3, .artifact-selector__heading p { margin: 0; }
 .artifact-selector__heading p { margin-top: var(--space-1); color: var(--color-text-muted); font-size: 13px; }
