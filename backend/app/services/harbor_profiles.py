@@ -63,7 +63,11 @@ class HarborProfileService:
         return [profile for profile in self.list_profiles() if profile.enabled and profile.url]
 
     def operation_snapshot(self, profile_id: str | None) -> HarborProfile:
-        selected_id = (profile_id or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        selected_id = (
+            profile_id.strip()
+            if profile_id is not None and profile_id.strip()
+            else self.active_profile_id()
+        )
         profile = self.get(selected_id)
         if not profile.url:
             code = "harbor_not_configured" if profile.is_default else "harbor_profile_disabled"
