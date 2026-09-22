@@ -55,6 +55,9 @@ class HarborSettingsService:
             return self._resolve_default()
         return self._resolve_additional_profile(active_profile_id)
 
+    def resolve_default(self) -> EffectiveHarborSettings:
+        return self._resolve_default()
+
     def active_profile_id(self) -> str:
         stored = self.metadata.get_value(HARBOR_ACTIVE_PROFILE_ID_KEY)
         if stored is None or not stored.strip():
@@ -174,7 +177,12 @@ class HarborSettingsService:
         )
 
     def build_client(self) -> HarborClient:
-        resolved = self.resolve()
+        return self._build_client(self.resolve())
+
+    def build_default_client(self) -> HarborClient:
+        return self._build_client(self.resolve_default())
+
+    def _build_client(self, resolved: EffectiveHarborSettings) -> HarborClient:
         if not resolved.url:
             raise HarborSettingsError("harbor_not_configured", "Локальный Harbor не настроен")
         if resolved.ca_file is not None and not resolved.ca_file.is_file():
