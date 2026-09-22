@@ -40,9 +40,9 @@ Sidebar также contour-aware: SOURCE operator/admin видит «Отпра�
 
 ### Шаг 1 — выбор
 
-Wizard работает только с реальными Harbor browse endpoints. Компактный каскадный selector использует reusable searchable comboboxes **Project → Repository → Version/Tag**: repository недоступен до выбора project, а version/tag — до repository. Смена верхнего уровня сбрасывает зависимый browse state. После выбора точной reference UI показывает kind, size и digest; оператор явно нажимает **«Добавить»**. Добавленные artifacts отображаются отдельным списком и могут быть удалены до preview.
+Wizard работает только с реальными Harbor browse endpoints. Верхний каскад использует reusable searchable comboboxes **Project → Repository**: repository недоступен до выбора project, а смена верхнего уровня сбрасывает зависимый browse state. Ниже расположен full-width **Version / tag** блок: server-backed search и постоянная таблица результатов с checkbox multi-select, reference, kind, digest, size и pushed time. Оператор может отметить несколько rows и одной кнопкой **«Добавить выбранное»** перенести их в transfer selection; уже добавленные artifacts отображаются отдельным списком и могут быть удалены до preview.
 
-Selection хранит `kind`, `project`, `repository`, `reference` и pinned `digest`; immutable identity строится по kind/project/repository/digest, поэтому alias одного digest не создаёт дубликат transfer item. Выбор не теряется при search/pagination. `unknown-oci` не selectable и остаётся диагностическим. Для untagged container image используется digest fallback; Helm artifact без явной версии выбрать нельзя.
+Selection хранит `kind`, `project`, `repository`, `reference` и pinned `digest`; immutable identity строится по kind/project/repository/digest, поэтому несколько aliases одного digest не создают несколько transfer items. Browse search/pagination остаются server-backed и не теряют уже добавленный выбор. `unknown-oci` не selectable и остаётся диагностическим. Для untagged container image используется digest fallback; Helm artifact без явной версии выбрать нельзя.
 
 ### Шаг 2 — preview
 
@@ -146,7 +146,7 @@ Frontend не ослабляет backend policy: execute endpoint заново �
 
 Browser reload/reconnect восстанавливает активную import operation из `sessionStorage`. Для `COMPLETED` и partial `FAILED` frontend пытается получить `GET /api/imports/{id}/receipt`.
 
-Receipt показывается как immutable backend result и может быть сохранён оператором как небольшой JSON. Это не заменяет persisted receipt file backend. UI также предлагает переход к `/history`, но реализация полной history table остаётся отдельной задачей.
+Receipt показывается как immutable backend result и может быть сохранён оператором как небольшой JSON. Это не заменяет persisted receipt file backend. UI также предлагает переход к `/history`; History table, filters, receipt actions и CSV/PDF reports входят в current baseline.
 
 При partial failure UI **не сообщает о rollback**: явно сказано, что уже успешно импортированные независимые artifacts автоматически не откатываются.
 
@@ -183,6 +183,11 @@ frontend/src/
 │   ├── imports.ts
 │   └── users.ts
 ├── components/
+│   ├── WizardStepper.vue
+│   ├── ExportArtifactSelector.vue
+│   ├── ExportReadyCard.vue
+│   ├── ImportVerificationCard.vue
+│   └── ...
 ├── router/index.ts
 ├── stores/
 │   ├── auth.ts
