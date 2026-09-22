@@ -20,6 +20,10 @@ const canSwitchMode = computed(
   () => auth.user?.role === 'admin' || auth.user?.role === 'operator',
 )
 
+const frontendRevisionShort = computed(() =>
+  runtime.frontendRevision ? runtime.frontendRevision.slice(0, 12) : null,
+)
+
 function switchConfirmation(target: PortalContour): string {
   const workspace = target === 'SOURCE' ? 'Отправка' : 'Приём'
   return `Переключить Portal в режим ${target} (${workspace})? Все незавершённые EXPORT/IMPORT операции будут отменены. Текущие настройки Harbor и ключи не изменятся.`
@@ -66,6 +70,13 @@ async function logout(): Promise<void> {
         <div class="topbar__identity">
           <strong>Harbor Transfer Portal</strong>
           <span v-if="runtime.version" class="release-version">v{{ runtime.version }}</span>
+          <span
+            v-if="frontendRevisionShort"
+            class="release-revision"
+            :title="`Frontend source revision ${runtime.frontendRevision}`"
+          >
+            UI {{ frontendRevisionShort }}
+          </span>
         </div>
         <div class="topbar__session">
           <span v-if="auth.user" class="current-user">
@@ -105,6 +116,7 @@ async function logout(): Promise<void> {
 .topbar { min-height: var(--layout-header); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-2) var(--space-6); border-bottom: 1px solid var(--color-border); background: var(--color-surface); }
 .topbar__identity { display: flex; align-items: baseline; gap: var(--space-2); }
 .release-version { color: var(--color-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.release-revision { color: var(--color-text-muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .topbar__session { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; justify-content: flex-end; }
 .current-user { color: var(--color-text-muted); font-size: 14px; }
 .logout-button { min-height: 40px; display: inline-flex; align-items: center; gap: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--color-surface); color: var(--color-text); cursor: pointer; }

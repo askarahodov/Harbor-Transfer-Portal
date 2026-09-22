@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: backend/Dockerfile
       args:
+        RELEASE_VERSION: ${PORTAL_VERSION:-dev}
+        VCS_REF: ${PORTAL_VCS_REF:-unknown}
         SKOPEO_DEBIAN_VERSION: 1.9.3+ds1-1+b10
         HELM_VERSION: v3.22.0
     image: harbor-transfer-portal-backend:${PORTAL_VERSION:-dev}
@@ -42,6 +44,9 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        RELEASE_VERSION: ${PORTAL_VERSION:-dev}
+        VCS_REF: ${PORTAL_VCS_REF:-unknown}
     image: harbor-transfer-portal-frontend:${PORTAL_VERSION:-dev}
     network_mode: host
     environment:

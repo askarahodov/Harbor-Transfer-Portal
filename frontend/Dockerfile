@@ -17,6 +17,8 @@ LABEL org.opencontainers.image.title="Harbor Transfer Portal frontend" \
       org.opencontainers.image.version="${RELEASE_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}"
 
+ENV PORTAL_FRONTEND_REVISION=${VCS_REF}
+
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 COPY frontend/docker-entrypoint.d/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh

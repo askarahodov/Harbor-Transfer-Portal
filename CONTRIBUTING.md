@@ -70,6 +70,19 @@ chore: update developer tooling
 
 Скопируйте `.env.example` в `.env`. Файл `.env` намеренно игнорируется Git. Значения в `.env.example` являются только безопасными placeholders и не должны использоваться как production credentials.
 
+## Запуск локального Compose после обновления исходников
+
+Для source checkout используйте:
+
+```bash
+git pull
+make up
+```
+
+`make up` передаёт текущий Git revision в Docker build, пересобирает images и принудительно recreate-ит контейнеры. Это важно для frontend: простой `docker compose up -d` может оставить ранее собранный image с тем же тегом и визуально показать старый UI.
+
+В верхней панели рядом с product version отображается короткий `UI <revision>`. После обновления исходников он должен соответствовать первым 12 символам `git rev-parse HEAD`. `index.html` и `runtime-config.js` отдаются с `Cache-Control: no-store`, поэтому browser shell не должен удерживать предыдущую сборку после recreate.
+
 ## Проверка распространения ошибок
 
 Make-цели намеренно строгие. Пример ручной проверки:

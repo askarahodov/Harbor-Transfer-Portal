@@ -4,7 +4,7 @@ SHELL := /bin/sh
 
 help:
 	@printf '%s\n' \
-	  'make up             Собрать и запустить локальный стек' \
+	  'make up             Пересобрать и recreate локальный стек из текущего Git revision' \
 	  'make down           Остановить стек, сохранив persistent volume' \
 	  'make logs           Показывать логи локального стека' \
 	  'make fmt            Форматировать backend и frontend' \
@@ -27,7 +27,7 @@ help:
 
 up:
 	@test -f .env || { echo 'Требуется .env; сначала скопируйте .env.example в .env'; exit 2; }
-	docker compose up -d --build
+	PORTAL_VCS_REF=$$(git rev-parse --verify HEAD) docker compose up -d --build --force-recreate
 
 down:
 	docker compose down
