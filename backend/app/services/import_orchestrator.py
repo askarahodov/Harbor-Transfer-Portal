@@ -448,8 +448,12 @@ class ImportOrchestrator:
             verified_at=datetime.now(UTC),
             artifacts=await self.artifact_classifier.classify(verified.manifest.artifacts),
         )
-        self.persistence.persist_preview(operation_id, preview)
+        self._persist_preview(operation_id, preview)
         context.transition(OperationStatus.READY)
+
+    def _persist_preview(self, operation_id: int, preview: ImportPreviewResponse) -> None:
+        """Extension hook for preview enrichment; persistence lives in the collaborator."""
+        self.persistence.persist_preview(operation_id, preview)
 
     async def _import_worker(self, context: OperationContext, operation_id: int) -> None:
         context.transition(OperationStatus.IMPORTING)
