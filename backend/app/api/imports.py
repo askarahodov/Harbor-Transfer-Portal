@@ -310,7 +310,7 @@ async def upload_bundle(
     request: Request,
     actor: ImportActorDep,
     orchestrator: ImportOrchestratorDep,
-    profile_id: str = Query(default=DEFAULT_PROFILE_ID, min_length=1, max_length=64),
+    profile_id: str | None = Query(default=None, min_length=1, max_length=64),
 ) -> ImportIntakeResponse:
     try:
         started = await orchestrator.accept_upload(
