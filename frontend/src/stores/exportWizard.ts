@@ -8,6 +8,7 @@ import {
   getHarborConnection,
   getOperation,
   listHarborArtifacts,
+  listHarborProfiles,
   listHarborProjects,
   listHarborRepositories,
   previewExport,
@@ -18,6 +19,7 @@ import {
   type ExportSelection,
   type HarborArtifact,
   type HarborConnection,
+  type HarborProfileOption,
   type HarborProject,
   type HarborRepository,
   type Operation,
@@ -27,6 +29,7 @@ import {
 const PAGE_SIZE = 25
 const SEARCH_DEBOUNCE_MS = 300
 const OPERATION_STORAGE_KEY = 'htp.export.operation-id'
+const HARBOR_PROFILE_STORAGE_KEY = 'htp.harbor.profile-id'
 const ACTIVE_EXPORT_STATUSES = new Set<OperationStatus>([
   'CREATED',
   'VALIDATING',
@@ -65,9 +68,19 @@ function saveOperationId(operationId: number | null): void {
   }
 }
 
+function savedHarborProfileId(): string {
+  return storageOrNull()?.getItem(HARBOR_PROFILE_STORAGE_KEY) || 'default'
+}
+
+function saveHarborProfileId(profileId: string): void {
+  storageOrNull()?.setItem(HARBOR_PROFILE_STORAGE_KEY, profileId)
+}
+
 export const useExportWizardStore = defineStore('export-wizard', () => {
   const step = ref<ExportWizardStep>(1)
   const connection = ref<HarborConnection | null>(null)
+  const harborProfiles = ref<HarborProfileOption[]>([])
+  const selectedHarborProfileId = ref(savedHarborProfileId())
   const projects = ref<HarborProject[]>([])
   const repositories = ref<HarborRepository[]>([])
   const artifacts = ref<HarborArtifact[]>([])
@@ -98,6 +111,9 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   let repositoryRequestGeneration = 0
   let artifactRequestGeneration = 0
 
+  const selectedHarborProfile = computed(
+    () => harborProfiles.value.find((profile) => profile.id === selectedHarborProfileId.value) ?? null,
+  )
   const selectedArtifacts = computed(() => Object.values(selected.value))
   const selectedCount = computed(() => selectedArtifacts.value.length)
   const selectedKnownBytes = computed(() =>
@@ -187,7 +203,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
 
   async function loadConnection(): Promise<void> {
     try {
-      connection.value = await getHarborConnection()
+      connection.value = await getHarborConnection(selectedHarborProfileId.value)
     } catch (requestError) {
       error.value = apiErrorInfo(
         requestError,
@@ -203,7 +219,12 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     busy.value = 'projects'
     clearError()
     try {
-      const result = await listHarborProjects(page, PAGE_SIZE, search)
+      const result = await listHarborProjects(
+        page,
+        PAGE_SIZE,
+        search,
+        selectedHarborProfileId.value,
+      )
       if (requestGeneration !== projectRequestGeneration) return
       projects.value = result.items
       projectPage.value = result.pagination.page
@@ -245,7 +266,13 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     busy.value = 'repositories'
     clearError()
     try {
-      const result = await listHarborRepositories(project, page, PAGE_SIZE, search)
+      const result = await listHarborRepositories(
+        project,
+        page,
+        PAGE_SIZE,
+        search,
+        selectedHarborProfileId.value,
+      )
       if (
         requestGeneration !== repositoryRequestGeneration ||
         selectedProject.value !== project
@@ -295,7 +322,14 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     busy.value = 'artifacts'
     clearError()
     try {
-      const result = await listHarborArtifacts(project, repository, page, PAGE_SIZE, search)
+      const result = await listHarborArtifacts(
+        project,
+        repository,
+        page,
+        PAGE_SIZE,
+        search,
+        selectedHarborProfileId.value,
+      )
       if (
         requestGeneration !== artifactRequestGeneration ||
         selectedProject.value !== project ||
@@ -394,6 +428,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
         digest: artifact.digest,
       })),
       comment: comment.value.trim() || null,
+      harbor_profile_id: selectedHarborProfileId.value,
     }
   }
 
@@ -537,14 +572,74 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     return operation.value !== null
   }
 
+  async function loadHarborProfiles(): Promise<void> {
+    try {
+      const response = await listHarborProfiles()
+      harborProfiles.value = response.items
+      const saved = selectedHarborProfileId.value
+      const selected = response.items.find((profile) => profile.id === saved)
+      const fallback =
+        response.items.find((profile) => profile.is_default) ?? response.items[0] ?? null
+      if (!selected && fallback) {
+        selectedHarborProfileId.value = fallback.id
+        saveHarborProfileId(fallback.id)
+      }
+      if (!fallback && response.items.length === 0) {
+        error.value = {
+          code: 'harbor_profile_required',
+          message: 'Нет доступных Harbor profiles. Обратитесь к администратору.',
+        }
+      }
+    } catch (requestError) {
+      error.value = apiErrorInfo(requestError, 'Не удалось загрузить Harbor profiles.')
+    }
+  }
+
+  async function selectHarborProfile(profileId: string): Promise<void> {
+    if (profileId === selectedHarborProfileId.value) return
+    if (!harborProfiles.value.some((profile) => profile.id === profileId)) return
+
+    cancelSearchDebounces()
+    projectRequestGeneration += 1
+    repositoryRequestGeneration += 1
+    artifactRequestGeneration += 1
+    selectedHarborProfileId.value = profileId
+    saveHarborProfileId(profileId)
+    connection.value = null
+    projects.value = []
+    repositories.value = []
+    artifacts.value = []
+    selectedProject.value = null
+    selectedRepository.value = null
+    selected.value = {}
+    preview.value = null
+    projectPage.value = 1
+    repositoryPage.value = 1
+    artifactPage.value = 1
+    projectTotal.value = 0
+    repositoryTotal.value = 0
+    artifactTotal.value = 0
+    clearError()
+    await loadConnection()
+    await loadProjects(1)
+  }
+
   async function initialize(): Promise<void> {
     busy.value = 'initialize'
     clearError()
-    await loadConnection()
+    await loadHarborProfiles()
     const resumed = await resumeSavedOperation()
-    if (!resumed) {
-      await loadProjects(1)
+    if (resumed) {
+      const boundProfileId = operation.value?.harbor_profile_id
+      if (boundProfileId && harborProfiles.value.some((profile) => profile.id === boundProfileId)) {
+        selectedHarborProfileId.value = boundProfileId
+        saveHarborProfileId(boundProfileId)
+      }
+      busy.value = null
+      return
     }
+    await loadConnection()
+    await loadProjects(1)
     busy.value = null
   }
 
@@ -573,6 +668,9 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   return {
     step,
     connection,
+    harborProfiles,
+    selectedHarborProfileId,
+    selectedHarborProfile,
     projects,
     repositories,
     artifacts,
@@ -601,6 +699,8 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     canCancel,
     isTerminalFailure,
     failedArtifacts,
+    loadHarborProfiles,
+    selectHarborProfile,
     loadProjects,
     chooseProject,
     loadRepositories,
