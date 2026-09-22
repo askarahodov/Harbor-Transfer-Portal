@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import * as exportsApi from '@/api/exports'
 import * as importsApi from '@/api/imports'
 import type { ImportDestinationPlan, ImportPreview, Operation } from '@/api/imports'
 
@@ -145,6 +146,12 @@ function destinationPlan(
 beforeEach(() => {
   setActivePinia(createPinia())
   sessionStorage.clear()
+  vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+    items: [
+      { id: 'default', name: 'Default Harbor', url: 'https://harbor-a.local', is_default: true },
+      { id: 'b'.repeat(32), name: 'Harbor B', url: 'https://harbor-b.local', is_default: false },
+    ],
+  })
 })
 
 afterEach(() => {
@@ -167,7 +174,7 @@ describe('import wizard store', () => {
 
     expect(await store.upload(file)).toBe(true)
 
-    expect(uploadSpy).toHaveBeenCalledWith(file, expect.any(Function))
+    expect(uploadSpy).toHaveBeenCalledWith(file, expect.any(Function), undefined, 'default')
     expect(store.selectedFile).toEqual({ name: 'transfer.htp.tar.gz', size: 6 })
     expect(sessionStorage.getItem('htp.import.operation-id')).toBe('51')
     expect(store.step).toBe(2)
@@ -190,8 +197,11 @@ describe('import wizard store', () => {
     vi.useFakeTimers()
     const store = useImportWizardStore()
 
+    await store.loadHarborProfiles()
+    store.selectHarborProfile('b'.repeat(32))
     await store.discover()
 
+    expect(importsApi.discoverImportBundles).toHaveBeenCalledWith('b'.repeat(32))
     expect(store.discovered.map((item) => item.intake.operation_id)).toEqual([61, 62])
     expect(store.operation).toBeNull()
     await store.selectOperation(62)
