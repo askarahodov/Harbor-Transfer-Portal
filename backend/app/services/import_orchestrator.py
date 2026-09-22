@@ -455,6 +455,24 @@ class ImportOrchestrator:
         """Extension hook for preview enrichment; persistence lives in the collaborator."""
         self.persistence.persist_preview(operation_id, preview)
 
+
+    def _write_receipt(
+        self,
+        operation_id: int,
+        preview: ImportPreviewResponse,
+        overwrite: bool,
+        requested_at: datetime,
+        failures: int,
+    ) -> None:
+        """Extension hook for destination-plan lineage; storage lives in the collaborator."""
+        self.persistence.write_receipt(
+            operation_id,
+            preview,
+            overwrite,
+            requested_at,
+            failures,
+        )
+
     async def _import_worker(self, context: OperationContext, operation_id: int) -> None:
         context.transition(OperationStatus.IMPORTING)
         operation, preview, overwrite, requested_at = self.persistence.load_execution_state(
@@ -596,7 +614,7 @@ class ImportOrchestrator:
                 context.set_progress(current=index + 1, total=len(artifacts))
 
         context.transition(OperationStatus.VERIFYING_TARGET)
-        self.persistence.write_receipt(operation_id, preview, overwrite, requested_at, failures)
+        self._write_receipt(operation_id, preview, overwrite, requested_at, failures)
         if failures:
             raise OperationTaskFailure(
                 "import_partial_failure",
