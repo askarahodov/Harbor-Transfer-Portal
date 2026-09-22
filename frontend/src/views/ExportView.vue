@@ -391,7 +391,8 @@ onBeforeUnmount(() => {
             @next="wizard.loadRepositories(wizard.repositoryPage + 1)"
           />
 
-          <ExportArtifactSelector
+          <div class="compact-selector__versions">
+            <ExportArtifactSelector
             :artifacts="wizard.artifacts"
             :selected-repository="wizard.selectedRepository"
             :search="wizard.artifactSearch"
@@ -402,7 +403,8 @@ onBeforeUnmount(() => {
             @update:search="wizard.artifactSearch = $event"
             @add="wizard.addArtifact"
             @page="wizard.loadArtifacts"
-          />
+            />
+          </div>
         </div>
 
         <div class="selection-context" aria-live="polite">
@@ -674,8 +676,8 @@ h3 { margin-bottom: var(--space-2); font-size: 16px; }
 .selected-artifact span { color: var(--color-text-muted); font-size: 12px; }
 .selected-artifact code { overflow-wrap: anywhere; font-size: 12px; }
 .browser-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
-.compact-selector { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(220px, 1fr) minmax(260px, 1.2fr); gap: var(--space-3); align-items: end; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
-.compact-field { display: grid; gap: var(--space-2); min-width: 0; font-weight: 700; }
+.compact-selector { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr); gap: var(--space-3); align-items: end; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
+.compact-selector__versions { grid-column: 1 / -1; margin-top: var(--space-2); }\n.compact-field { display: grid; gap: var(--space-2); min-width: 0; font-weight: 700; }
 .compact-pagination { display: flex; align-items: center; justify-content: center; gap: var(--space-1); font-size: 12px; color: var(--color-text-muted); }
 .compact-pagination button { border: 0; background: transparent; color: var(--color-action); cursor: pointer; }
 .select-shell { position: relative; display: block; }

@@ -25,25 +25,23 @@ const baseProps = {
 }
 
 describe('ExportArtifactSelector', () => {
-  it('keeps version combobox disabled until repository is selected', () => {
+  it('keeps version search disabled until repository is selected', () => {
     const wrapper = mount(ExportArtifactSelector, {
       props: { ...baseProps, artifacts: [], selectedRepository: null },
     })
-    expect(wrapper.get('input[role="combobox"][aria-label="Версия / tag"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('input[type="search"][aria-label="Версия / tag"]').attributes('disabled')).toBeDefined()
   })
 
   it('selects an exact reference and adds immutable artifact metadata', async () => {
     const wrapper = mount(ExportArtifactSelector, {
       props: { ...baseProps, artifacts: [artifact], selectedRepository: 'apps/demo', total: 1 },
     })
-    const input = wrapper.get('input[role="combobox"][aria-label="Версия / tag"]')
-    await input.trigger('focus')
-    const options = wrapper.findAll('[role="option"]')
-    expect(options).toHaveLength(2)
-    expect(options[0]!.text()).toContain('1.0.0')
-    expect(options[0]!.text()).toContain('Container image')
-    await options[0]!.trigger('mousedown')
-    expect(wrapper.text()).toContain('1.0.0')
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.text()).toContain('1.0.0')
+    expect(rows[0]!.text()).toContain('Container image')
+    await rows[0]!.get('input[type="checkbox"]').setValue(true)
+    expect(wrapper.text()).toContain('Выбрано: 1')
     expect(wrapper.text()).toContain('4.00 КиБ')
     await wrapper.get('button.artifact-selector__add').trigger('click')
     expect(wrapper.emitted('add')?.[0]).toEqual([artifact, '1.0.0'])
@@ -53,7 +51,7 @@ describe('ExportArtifactSelector', () => {
     const wrapper = mount(ExportArtifactSelector, {
       props: { ...baseProps, artifacts: [artifact], selectedRepository: 'apps/demo', total: 1 },
     })
-    await wrapper.get('input[role="combobox"][aria-label="Версия / tag"]').setValue('1.0')
+    await wrapper.get('input[type="search"][aria-label="Версия / tag"]').setValue('1.0')
     expect(wrapper.emitted('update:search')?.at(-1)).toEqual(['1.0'])
   })
 
@@ -64,6 +62,51 @@ describe('ExportArtifactSelector', () => {
     })
     expect(wrapper.text()).toContain('release-2026.09')
     expect(wrapper.text()).toContain('Неподдерживаемые OCI artifacts')
-    expect(wrapper.findAll('[role="option"]')).toHaveLength(0)
+    expect(wrapper.findAll('tbody tr')).toHaveLength(0)
   })
+  it('renders versions as a persistent full-width table instead of a combobox popup', () => {
+    const wrapper = mount(ExportArtifactSelector, {
+      props: { ...baseProps, artifacts: [artifact], selectedRepository: 'apps/demo', total: 2 },
+    })
+    expect(wrapper.find('input[role="combobox"][aria-label="Версия / tag"]').exists()).toBe(false)
+    expect(wrapper.get('table.artifact-selector__table').isVisible()).toBe(true)
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2)
+  })
+
+  it('adds multiple checked references in one explicit action', async () => {
+    const wrapper = mount(ExportArtifactSelector, {
+      props: { ...baseProps, artifacts: [artifact], selectedRepository: 'apps/demo', total: 2 },
+    })
+    const checks = wrapper.findAll('tbody input[type="checkbox"]')
+    await checks[0]!.setValue(true)
+    await checks[1]!.setValue(true)
+    await wrapper.get('button.artifact-selector__add').trigger('click')
+    expect(wrapper.emitted('add')).toEqual([
+      [artifact, '1.0.0'],
+      [artifact, 'latest'],
+    ])
+  })
+
+  it('keeps paging available when rendered references outnumber Harbor artifacts', async () => {
+    const manyReferences = {
+      ...artifact,
+      references: Array.from({ length: 30 }, (_, index) => `v1.${index}`),
+    }
+    const wrapper = mount(ExportArtifactSelector, {
+      props: {
+        ...baseProps,
+        artifacts: [manyReferences],
+        selectedRepository: 'apps/demo',
+        total: 26,
+      },
+    })
+
+    const pagination = wrapper.get('[aria-label="Страницы версий"]')
+    expect(pagination.text()).toContain('Страница 1')
+    expect(pagination.findAll('button')[1]!.attributes('disabled')).toBeUndefined()
+
+    await pagination.findAll('button')[1]!.trigger('click')
+    expect(wrapper.emitted('page')?.at(-1)).toEqual([2])
+  })
+
 })
