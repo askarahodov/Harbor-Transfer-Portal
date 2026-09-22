@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db.models import Operation
 from app.db.repositories import SettingMetadataRepository
-from app.services.runtime_mode import BLOCKING_OPERATION_STATUSES
 from app.services.harbor_client import HarborClient
 from app.services.harbor_settings import (
     DEFAULT_HARBOR_PROFILE_ID,
@@ -23,6 +22,7 @@ from app.services.harbor_settings import (
     HarborSettingsError,
     HarborSettingsService,
 )
+from app.services.runtime_mode import BLOCKING_OPERATION_STATUSES
 
 PROFILES_KEY = HARBOR_PROFILES_KEY
 DEFAULT_PROFILE_ID = DEFAULT_HARBOR_PROFILE_ID
