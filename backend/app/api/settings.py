@@ -59,7 +59,10 @@ def _audit(
     )
 
 
-def _profile_response(service: HarborProfileService, profile: HarborProfile) -> HarborProfileResponse:
+def _profile_response(
+    service: HarborProfileService,
+    profile: HarborProfile,
+) -> HarborProfileResponse:
     return HarborProfileResponse(
         id=profile.id,
         name=profile.name,
