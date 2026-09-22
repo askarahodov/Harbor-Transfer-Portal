@@ -3,6 +3,7 @@ import axios from 'axios'
 import { computed, onMounted, ref, watch } from 'vue'
 
 import { apiClient } from '@/api/client'
+import HarborProfilesPanel from '@/components/HarborProfilesPanel.vue'
 import KeyManagementPanel from '@/components/KeyManagementPanel.vue'
 import { useRuntimeStore } from '@/stores/runtime'
 
@@ -337,6 +338,8 @@ onMounted(() => {
 
     <p v-if="loading">Загрузка настроек…</p>
     <div v-else-if="settings && transferSettings" class="settings__grid">
+      <HarborProfilesPanel @changed="loadReadiness" />
+
       <section class="card card--wide readiness-card" aria-labelledby="first-run-readiness-title">
         <div class="readiness-heading">
           <div>
@@ -371,7 +374,8 @@ onMounted(() => {
       </section>
 
       <form class="card" @submit.prevent="saveSettings">
-        <h2>Подключение</h2>
+        <h2>Default Harbor profile</h2>
+        <p class="status">Bootstrap/default профиль для обратной совместимости. Активный профиль выбирается выше.</p>
         <label for="harbor-url">URL локального Harbor</label>
         <input id="harbor-url" v-model="url" type="url" placeholder="https://harbor.local" autocomplete="url" />
 
