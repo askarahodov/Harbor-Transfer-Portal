@@ -188,6 +188,16 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
     if _under(path, "backend") or path_text == "Makefile":
         areas.add("backend")
 
+    if path_text in {
+        ".env.example",
+        "compose.yaml",
+        "deploy/offline/compose.yaml",
+        "frontend/nginx.conf",
+    }:
+        # Backend regression tests assert the browser/runtime trust boundary
+        # across these deployment files, so changes must execute that suite.
+        areas.add("backend")
+
     if path_text in _BACKEND_RUNTIME_DEPENDENCY_FILES:
         # Runtime dependency graph changes can alter crypto and transfer behavior
         # without touching application source, so qualify both boundaries.
