@@ -273,6 +273,24 @@ def test_connection_test_returns_sanitized_success_auth_and_tls_results(tmp_path
     assert "certificate detail" not in tls_failed.text
 
 
+def test_harbor_profile_create_rejects_blank_name_without_server_error(tmp_path: Path) -> None:
+    client, _app, tokens = _app_client(tmp_path)
+
+    response = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "   ",
+            "url": "https://prod.harbor.local",
+            "username": "svc-prod",
+            "verify_tls": True,
+        },
+        headers=_auth(tokens["admin"]),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
 def test_harbor_profiles_crud_is_safe_and_secrets_are_not_returned(tmp_path: Path) -> None:
     client, app, tokens = _app_client(tmp_path)
     admin = _auth(tokens["admin"])
