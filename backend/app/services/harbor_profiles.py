@@ -122,7 +122,10 @@ class HarborProfileService:
             and operation.harbor_profile_name is None
             and operation.harbor_profile_url is None
         ):
-            return self.operation_snapshot(DEFAULT_PROFILE_ID)
+            # Legacy rows predate immutable snapshots and historically followed
+            # the installation-global active profile. Preserve that behavior only for
+            # fully-null legacy evidence; every new operation is pinned.
+            return self.operation_snapshot(None)
         if (
             operation.harbor_profile_id is None
             or operation.harbor_profile_name is None
@@ -133,7 +136,10 @@ class HarborProfileService:
                 "Harbor profile snapshot операции повреждён",
             )
         profile = self.operation_snapshot(operation.harbor_profile_id)
-        if profile.name != operation.harbor_profile_name or profile.url != operation.harbor_profile_url:
+        if (
+            profile.name != operation.harbor_profile_name
+            or profile.url != operation.harbor_profile_url
+        ):
             raise HarborSettingsError(
                 "harbor_profile_changed",
                 "Harbor profile изменился после закрепления за operation",
