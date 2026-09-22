@@ -13,6 +13,10 @@ class DependencyLockCheckTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
         (root / "backend").mkdir()
+        (root / "backend" / "app").mkdir()
+        (root / "backend" / "app" / "__init__.py").write_text(
+            '__version__ = "1.0.0"\n', encoding="utf-8"
+        )
         (root / "frontend").mkdir()
         (root / "backend" / "pyproject.toml").write_text(
             "[project]\n"
@@ -77,6 +81,26 @@ class DependencyLockCheckTests(unittest.TestCase):
         errors = check_repository(root)
 
         self.assertTrue(any("dependencies" in error for error in errors), errors)
+
+    def test_frontend_product_version_drift_is_rejected(self) -> None:
+        temporary, root = self._repository()
+        self.addCleanup(temporary.cleanup)
+        package_path = root / "frontend" / "package.json"
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+        package["version"] = "0.9.0"
+        package_path.write_text(json.dumps(package), encoding="utf-8")
+        lock_path = root / "frontend" / "package-lock.json"
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+        lock["version"] = "0.9.0"
+        lock["packages"][""]["version"] = "0.9.0"
+        lock_path.write_text(json.dumps(lock), encoding="utf-8")
+
+        errors = check_repository(root)
+
+        self.assertIn(
+            "frontend package version '0.9.0' does not match product version '1.0.0'",
+            errors,
+        )
 
     def test_missing_backend_top_level_pin_is_rejected(self) -> None:
         temporary, root = self._repository()
