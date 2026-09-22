@@ -68,6 +68,7 @@ class ImportPreviewProjectionOrchestrator(ImportOrchestrator):
         *,
         actor_user_id: int,
         actor_username: str,
+        harbor_profile_id: str | None = None,
     ) -> tuple[ImportIntakeResult, ...]:
         # Browser upload and physical incoming are intentionally separate intake paths.
         # The base orchestrator historically reused import_max_upload_bytes for both;
@@ -80,6 +81,7 @@ class ImportPreviewProjectionOrchestrator(ImportOrchestrator):
             return await super().discover_ready(
                 actor_user_id=actor_user_id,
                 actor_username=actor_username,
+                harbor_profile_id=harbor_profile_id,
             )
         finally:
             self.settings = runtime_settings
