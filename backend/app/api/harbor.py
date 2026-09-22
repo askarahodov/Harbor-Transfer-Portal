@@ -51,6 +51,13 @@ def get_harbor_client(
             if exc.code == "harbor_profile_not_found"
             else status.HTTP_409_CONFLICT
             if exc.code == "harbor_profile_disabled"
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+            if exc.code in {
+                "harbor_not_configured",
+                "harbor_ca_unavailable",
+                "harbor_active_profile_invalid",
+                "harbor_profiles_invalid",
+            }
             else status.HTTP_422_UNPROCESSABLE_CONTENT
         )
         raise _api_error(status_code, exc.code, exc.message) from exc
