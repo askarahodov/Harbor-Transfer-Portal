@@ -24,6 +24,9 @@ type TransferSettings = {
   bundle_max_member_count: number
   operation_disk_reserve_bytes: number
   operation_max_concurrent: number
+  export_bundle_retention_seconds: number
+  import_bundle_retention_seconds: number
+  storage_cleanup_interval_seconds: number
   effective_operation_max_concurrent: number
   restart_required_fields: string[]
   destination_mapping_revision: number
@@ -46,6 +49,8 @@ type KeyReadiness = {
 }
 
 const MIB = 1024 ** 2
+const DAY_SECONDS = 24 * 60 * 60
+const MINUTE_SECONDS = 60
 const runtime = useRuntimeStore()
 const settings = ref<HarborSettings | null>(null)
 const transferSettings = ref<TransferSettings | null>(null)
@@ -60,6 +65,9 @@ const extractedMiB = ref(0)
 const memberCount = ref(0)
 const diskReserveMiB = ref(0)
 const maxConcurrent = ref(0)
+const exportRetentionDays = ref(7)
+const importRetentionDays = ref(7)
+const cleanupIntervalMinutes = ref(60)
 const destinationImageProject = ref('')
 const destinationHelmProject = ref('')
 const destinationMappingsText = ref('')
@@ -146,6 +154,9 @@ function applyTransferSettings(value: TransferSettings): void {
   memberCount.value = value.bundle_max_member_count
   diskReserveMiB.value = value.operation_disk_reserve_bytes / MIB
   maxConcurrent.value = value.operation_max_concurrent
+  exportRetentionDays.value = value.export_bundle_retention_seconds / DAY_SECONDS
+  importRetentionDays.value = value.import_bundle_retention_seconds / DAY_SECONDS
+  cleanupIntervalMinutes.value = value.storage_cleanup_interval_seconds / MINUTE_SECONDS
   destinationImageProject.value = value.destination_container_image_project ?? ''
   destinationHelmProject.value = value.destination_helm_chart_project ?? ''
   destinationMappingsText.value = formatProjectMappings(value.destination_project_mappings)
@@ -201,6 +212,11 @@ async function saveTransferSettings(): Promise<void> {
       bundle_max_member_count: memberCount.value,
       operation_disk_reserve_bytes: Math.round(diskReserveMiB.value * MIB),
       operation_max_concurrent: maxConcurrent.value,
+      export_bundle_retention_seconds: Math.round(exportRetentionDays.value * DAY_SECONDS),
+      import_bundle_retention_seconds: Math.round(importRetentionDays.value * DAY_SECONDS),
+      storage_cleanup_interval_seconds: Math.round(
+        cleanupIntervalMinutes.value * MINUTE_SECONDS,
+      ),
       destination_container_image_project: destinationImageProject.value.trim() || null,
       destination_helm_chart_project: destinationHelmProject.value.trim() || null,
       destination_project_mappings: projectMappings,
@@ -467,7 +483,56 @@ onMounted(() => {
           </label>
         </div>
 
-        <section class="mapping-policy" aria-labelledby="mapping-policy-title">
+        <section class="policy-section" aria-labelledby="storage-retention-title">
+          <div>
+            <h3 id="storage-retention-title">Очистка transfer storage</h3>
+            <p class="status">
+              Управляет сроком хранения физических пакетов в persistent volume. История,
+              receipts и audit после очистки сохраняются.
+            </p>
+          </div>
+          <div class="policy-grid">
+            <label for="transfer-export-retention-days">
+              Готовые SOURCE пакеты, суток
+              <input
+                id="transfer-export-retention-days"
+                v-model.number="exportRetentionDays"
+                type="number"
+                min="0.0416666667"
+                max="365"
+                step="0.0416666667"
+              />
+            </label>
+            <label for="transfer-import-retention-days">
+              Failed/partial TARGET пакеты, суток
+              <input
+                id="transfer-import-retention-days"
+                v-model.number="importRetentionDays"
+                type="number"
+                min="0.0416666667"
+                max="365"
+                step="0.0416666667"
+              />
+            </label>
+            <label for="transfer-cleanup-interval-minutes">
+              Проверка очистки, минут
+              <input
+                id="transfer-cleanup-interval-minutes"
+                v-model.number="cleanupIntervalMinutes"
+                type="number"
+                min="1"
+                max="1440"
+                step="1"
+              />
+            </label>
+          </div>
+          <p class="status">
+            По умолчанию: SOURCE 7 суток, failed/partial TARGET 7 суток, cleanup каждые 60 минут.
+            Изменения применяются без restart backend.
+          </p>
+        </section>
+
+        <section class="policy-section" aria-labelledby="mapping-policy-title">
           <div>
             <h3 id="mapping-policy-title">TARGET mapping defaults</h3>
             <p class="status">
@@ -550,8 +615,8 @@ onMounted(() => {
 .checkbox-row { display: flex; gap: var(--space-2); align-items: center; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 .policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
-.mapping-policy { display: grid; gap: var(--space-3); margin-top: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
-.mapping-policy label { display: grid; gap: var(--space-2); }
+.policy-section { display: grid; gap: var(--space-3); margin-top: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.policy-section label { display: grid; gap: var(--space-2); }
 .status { margin: 0; color: var(--color-text-muted); }
 .readiness-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 .readiness-list { display: grid; gap: var(--space-2); margin: 0; padding-left: var(--space-5); }
