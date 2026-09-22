@@ -82,6 +82,7 @@ function addCandidate(): void {
     <SearchCombobox
       label="Версия / tag"
       :model-value="candidateKey"
+      :display-value="candidate?.reference ?? ''"
       :search="search"
       :options="options"
       placeholder="Найти version, tag или digest"
