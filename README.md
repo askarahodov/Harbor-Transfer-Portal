@@ -29,7 +29,7 @@ Harbor SOURCE
     ↓
 Portal (SOURCE)
     ↓
-подписанный Offline Bundle v1 + .sha256
+подписанный Offline Bundle v1 + `.sha256` + signed handoff
     ↓
 разрешённый физический носитель
     ↓
@@ -40,7 +40,7 @@ Portal (TARGET)
 Harbor TARGET
 ```
 
-Оператор выбирает точные версии image/chart на SOURCE, переносит bundle и `.sha256` вместе, а на TARGET выполняет проверку и разрешённый импорт. Подробный сценарий описан в [пользовательском руководстве](docs/user-guide.md).
+Оператор выбирает точные версии image/chart на SOURCE. Для browser physical handoff он переносит комплект одной delivery: bundle, `.sha256` и подписанный `.htp-handoff.json`; на TARGET handoff проверяется до Bundle v1 preview и разрешённого импорта. Подробный сценарий описан в [пользовательском руководстве](docs/user-guide.md).
 
 ## Ключевые гарантии
 

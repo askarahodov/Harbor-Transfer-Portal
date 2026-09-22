@@ -98,13 +98,16 @@ Wizard состоит из четырёх этапов:
 
 Последовательно:
 
-1. выберите Harbor project;
-2. выберите repository;
-3. выберите точный tag/version для нужного container image или Helm chart;
-4. при необходимости используйте поиск по project/repository/tag/version/digest;
-5. проверьте список выбранных элементов и их digest.
+1. в компактной строке выбора найдите и выберите Harbor project;
+2. выберите repository — этот уровень становится доступен только после project;
+3. выберите точный tag/version для нужного container image или Helm chart — этот уровень становится доступен только после repository;
+4. при необходимости используйте встроенный поиск по project/repository/tag/version/digest;
+5. проверьте показанные тип, размер и digest кандидата и нажмите **«Добавить»**;
+6. повторите выбор для остальных artifacts; уже добавленные элементы остаются в списке выбранного и могут быть удалены до preview.
 
-Portal не предлагает unsupported OCI artifact как поддерживаемый export v1. Артефакт без явной версии/tag также нельзя выбрать как обычный transfer item.
+При смене project/repository зависимый выбор сбрасывается, чтобы устаревшая версия не попала в операцию. Повторное добавление alias того же immutable digest не создаёт второй transfer item.
+
+Portal не предлагает unsupported OCI artifact как поддерживаемый export v1 и показывает его только диагностически. Для container image без tag selector использует digest как точную reference; это позволяет сохранить проверяемую immutable identity.
 
 Для переноса важна именно **точная версия**, а не только имя repository. Digest используется как ожидаемая идентичность содержимого.
 
