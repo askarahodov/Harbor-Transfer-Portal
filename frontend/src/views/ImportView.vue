@@ -255,6 +255,27 @@ onBeforeUnmount(() => {
           <ShieldCheck :size="28" aria-hidden="true" />
         </div>
 
+        <label class="harbor-profile-select">
+          <span>TARGET Harbor profile</span>
+          <select
+            :value="wizard.selectedHarborProfileId ?? ''"
+            :disabled="wizard.operation !== null || wizard.busy === 'initialize' || wizard.harborProfiles.length === 0"
+            @change="wizard.chooseHarborProfile(($event.target as HTMLSelectElement).value)"
+          >
+            <option
+              v-for="profile in wizard.harborProfiles"
+              :key="profile.id"
+              :value="profile.id"
+              :disabled="!profile.enabled || !profile.url"
+            >
+              {{ profile.name }} · {{ profile.url || 'не настроен' }}
+            </option>
+          </select>
+          <small>
+            Профиль фиксируется при intake и используется для preview, TARGET validation и import.
+          </small>
+        </label>
+
         <div class="intake-grid">
           <article class="intake-card">
             <h3>Физическая поставка через браузер</h3>
@@ -585,6 +606,9 @@ onBeforeUnmount(() => {
 h1, h2, h3, p { margin-top: 0; }
 .lead { max-width: 850px; color: var(--color-text-muted); line-height: 1.6; }
 .panel { display: grid; gap: var(--space-6); padding: var(--space-6); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); }
+.harbor-profile-select { display: grid; gap: var(--space-2); max-width: 680px; font-weight: 700; }
+.harbor-profile-select select { min-height: 42px; width: 100%; padding: 0 var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; font-weight: 400; }
+.harbor-profile-select small { color: var(--color-text-muted); font-weight: 400; line-height: 1.4; }
 .panel__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
 .intake-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 .intake-card, .receipt-card { padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
