@@ -113,6 +113,10 @@ check-foundation:
 	@test -f docs/README.md
 	@test -f docs/decisions.md
 	@test -f tools/check_doc_links.py
+	@test -f tools/dev.py
+	@test -f tools/test_dev.py
+	@test -f dev.ps1
+	@test -f docs/development.md
 	@test -f tools/ci_scope.py
 	@test -f tools/test_ci_scope.py
 	@test -f tools/check_dependency_locks.py
