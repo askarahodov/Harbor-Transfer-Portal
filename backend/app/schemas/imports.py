@@ -79,8 +79,9 @@ class ImportArtifactDestinationOverride(BaseModel):
 
 
 class ImportDestinationPlanRequest(BaseModel):
-    # Optional because intake already pins a profile for new clients. Legacy/unbound
-    # operations default to "default" when first bound server-side.
+    # Optional because intake pins a profile for new clients. If an older/unbound
+    # caller omits it, the server resolves the current active profile once and persists
+    # that profile id/name/url on the operation before TARGET inspection or mutation.
     harbor_profile_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     # Server-owned snapshot marker. Client values are overwritten by the policy-aware
