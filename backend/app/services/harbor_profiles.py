@@ -314,13 +314,17 @@ class HarborProfileService:
             for item in payload:
                 if not isinstance(item, dict):
                     raise TypeError
+                if not isinstance(item.get("verify_tls"), bool) or not isinstance(
+                    item.get("enabled"), bool
+                ):
+                    raise TypeError
                 profile = HarborProfile(
                     id=str(item["id"]),
                     name=self._normalize_name(str(item["name"])),
                     url=HarborSettingsService._validated_url(str(item["url"])) or "",
                     username=self._normalize_username(item.get("username")),
-                    verify_tls=bool(item["verify_tls"]),
-                    enabled=bool(item["enabled"]),
+                    verify_tls=item["verify_tls"],
+                    enabled=item["enabled"],
                 )
                 if (
                     not profile.id
