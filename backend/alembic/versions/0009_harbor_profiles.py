@@ -5,7 +5,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0009_harbor_profiles"
-down_revision = "0008_artifact_destination_snapshot"
+down_revision = "0008_import_retry_semantics"
 branch_labels = None
 depends_on = None
 
