@@ -51,12 +51,18 @@ function change(event: Event): void {
       :disabled="disabled || locked || profiles.length === 0"
       @change="change"
     >
-      <option v-if="profiles.length === 0" value="" disabled>Нет доступных profiles</option>
+      <option v-if="locked && !modelValue" value="" disabled>
+        Legacy fallback · operation без profile snapshot
+      </option>
+      <option v-else-if="profiles.length === 0" value="" disabled>Нет доступных profiles</option>
       <option v-for="profile in profiles" :key="profile.id" :value="profile.id">
         {{ profile.name }} · {{ host(profile.url) }}
       </option>
     </select>
-    <small v-if="selectedProfile">
+    <small v-if="locked && !modelValue">
+      Legacy operation использует server-side fallback; новый profile выбрать нельзя.
+    </small>
+    <small v-else-if="selectedProfile">
       <template v-if="locked">
         Закреплён за operation: <strong>{{ selectedProfile.name }}</strong> · {{ host(selectedProfile.url) }}
       </template>
