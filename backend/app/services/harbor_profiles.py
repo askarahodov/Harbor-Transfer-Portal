@@ -195,15 +195,15 @@ class HarborProfileService:
             )
         profiles = self._load_additional()
         current = self.get(profile_id)
-        if self._profile_has_operation_evidence(current.id):
-            raise HarborSettingsError(
-                "harbor_profile_referenced",
-                "Harbor profile используется persisted operation history и не может быть удалён",
-            )
         if current.id == self.active_profile_id():
             raise HarborSettingsError(
                 "harbor_profile_active_protected",
                 "Active Harbor profile нельзя удалить; сначала выберите другой профиль",
+            )
+        if self._profile_has_operation_evidence(current.id):
+            raise HarborSettingsError(
+                "harbor_profile_referenced",
+                "Harbor profile используется persisted operation history и не может быть удалён",
             )
         self._save_additional([item for item in profiles if item.id != current.id])
         self._credential_path(current).unlink(missing_ok=True)
