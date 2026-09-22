@@ -189,7 +189,10 @@ def preview_export(
     orchestrator: ExportOrchestratorDep,
 ) -> ExportPreviewResponse:
     try:
-        resolved = orchestrator.preview(payload.artifacts)
+        resolved = orchestrator.preview(
+            payload.artifacts,
+            harbor_profile_id=payload.harbor_profile_id,
+        )
     except ExportOrchestrationError as exc:
         raise _export_error(exc) from exc
     return ExportPreviewResponse(
@@ -220,6 +223,7 @@ async def start_export(
             actor_user_id=actor.id,
             actor_username=actor.username,
             comment=payload.comment,
+            harbor_profile_id=payload.harbor_profile_id,
         )
     except ExportOrchestrationError as exc:
         raise _export_error(exc) from exc
