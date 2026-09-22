@@ -67,6 +67,19 @@ describe('PageShell release identity', () => {
   })
 })
 
+describe('PageShell documentation', () => {
+  it('links the current workspace to its documentation page', async () => {
+    const wrapper = await mountShell('admin', 'SOURCE', '/history')
+
+    expect(wrapper.get('.docs-button').attributes('href')).toBe('/docs/#/docs/history-ui')
+
+    await router.push('/settings')
+    await flushPromises()
+
+    expect(wrapper.get('.docs-button').attributes('href')).toBe('/docs/#/docs/admin-guide')
+  })
+})
+
 describe('PageShell runtime mode switching', () => {
   it('confirms switch, updates navigation and leaves an invalid live route', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)

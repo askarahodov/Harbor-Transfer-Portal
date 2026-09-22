@@ -114,5 +114,41 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertIn("ENV PORTAL_FRONTEND_REVISION=${VCS_REF}", dockerfile)
         self.assertIn("revision: '$revision'", entrypoint)
 
+    def test_docsify_is_bundled_for_offline_runtime(self) -> None:
+        dockerfile = (_REPOSITORY_ROOT / "frontend/Dockerfile").read_text(encoding="utf-8")
+        docs_index = (_REPOSITORY_ROOT / "docs/index.html").read_text(encoding="utf-8")
+        sidebar = (_REPOSITORY_ROOT / "docs/_sidebar.md").read_text(encoding="utf-8")
+
+        self.assertIn("ARG DOCSIFY_VERSION=5.0.0", dockerfile)
+        self.assertIn('npm pack --ignore-scripts --silent "docsify@${DOCSIFY_VERSION}"', dockerfile)
+        self.assertIn("COPY docs/ /usr/share/nginx/html/docs/", dockerfile)
+        self.assertIn("/vendor/package/dist/docsify.min.js", dockerfile)
+        self.assertIn("/vendor/package/dist/plugins/search.min.js", dockerfile)
+        self.assertIn("/vendor/package/dist/themes/core.min.css", dockerfile)
+
+        self.assertIn("homepage: '/docs/README.md'", docs_index)
+        self.assertIn("loadSidebar: '/docs/_sidebar.md'", docs_index)
+        self.assertIn("/docs/_vendor/docsify.min.js", docs_index)
+        self.assertIn("/docs/_vendor/search.min.js", docs_index)
+        self.assertNotIn("cdn.jsdelivr", docs_index)
+        self.assertNotIn("unpkg.com", docs_index)
+
+        route_targets = {
+            "#/docs/dashboard": "docs/dashboard.md",
+            "#/docs/user-guide": "docs/user-guide.md",
+            "#/docs/admin-guide": "docs/admin-guide.md",
+            "#/docs/history-ui": "docs/history-ui.md",
+            "#/docs/admin-user-management": "docs/admin-user-management.md",
+            "#/deploy/README": "deploy/README.md",
+            "#/deploy/offline/README": "deploy/offline/README.md",
+            "#/README": "README.md",
+            "#/CONTRIBUTING": "CONTRIBUTING.md",
+            "#/CHANGELOG": "CHANGELOG.md",
+        }
+        for route, target in route_targets.items():
+            self.assertIn(f"]({route})", sidebar)
+            self.assertTrue((_REPOSITORY_ROOT / target).is_file())
+
+
 if __name__ == "__main__":
     unittest.main()
