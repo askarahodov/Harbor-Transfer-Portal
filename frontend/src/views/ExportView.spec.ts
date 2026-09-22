@@ -339,7 +339,7 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
 
     expect(artifactsSpy).toHaveBeenCalledTimes(1)
-    expect(artifactsSpy).toHaveBeenLastCalledWith('team', 'apps/demo', 1, 25, '1.0')
+    expect(artifactsSpy).toHaveBeenLastCalledWith('team', 'apps/demo', 1, 25, '1.0', 'default')
     wrapper.unmount()
   })
 
