@@ -161,7 +161,7 @@ class ImportHelmOciService(HelmOciService):
             )
 
         package_path = self._validate_package_path(package)
-        harbor = self.harbor_settings.resolve_profile(self.harbor_profile_id)
+        harbor = self._resolve_harbor()
         registry = self._registry_host(harbor)
         with self._security_context(harbor) as security:
             package_metadata = await self._validate_package(package_path, target, security)
