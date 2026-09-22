@@ -103,7 +103,7 @@ export type ImportArtifactDestinationOverride = {
 }
 
 export type ImportDestinationPlanRequest = {
-  harbor_profile_id: string | null
+  harbor_profile_id?: string | null
   container_image_project: string | null
   helm_chart_project: string | null
   project_mappings: Record<string, string>
