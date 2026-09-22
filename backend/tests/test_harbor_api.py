@@ -12,6 +12,7 @@ from app.db.repositories import UserRepository
 from app.main import create_app
 from app.services.harbor_client import (
     HarborArtifact,
+    HarborClient,
     HarborClientError,
     HarborPage,
     HarborProject,
@@ -19,6 +20,7 @@ from app.services.harbor_client import (
     HarborSystemInfo,
     HarborTag,
 )
+from app.services.harbor_profiles import HarborProfileService
 
 JWT_SECRET = "test-jwt-secret-not-for-production-123456"
 
@@ -280,6 +282,42 @@ def test_artifact_search_uses_upstream_tag_or_digest_filter(tmp_path: Path) -> N
     assert by_digest.status_code == 200
     assert [item["kind"] for item in by_digest.json()["items"]] == ["helm-chart"]
     assert harbor.artifact_page_calls[-1] == (1, 50, "bbbb", True)
+
+
+def test_browse_connection_uses_explicit_profile_without_global_active(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, token = _client(tmp_path)
+    app = client.app
+    with app.state.session_factory() as session:
+        service = HarborProfileService(session, app.state.settings)
+        profile = service.create(
+            name="Harbor B",
+            url="https://harbor-b.local",
+            username=None,
+            verify_tls=True,
+            enabled=True,
+        )
+        session.commit()
+        profile_id = profile.id
+
+    def fake_system_info(self: HarborClient) -> HarborSystemInfo:
+        return HarborSystemInfo(harbor_version=self.base_url, auth_mode="test")
+
+    monkeypatch.setattr(HarborClient, "system_info", fake_system_info)
+
+    default = client.get("/api/harbor/connection", headers=_auth(token))
+    selected = client.get(
+        "/api/harbor/connection",
+        params={"harbor_profile_id": profile_id},
+        headers=_auth(token),
+    )
+
+    assert default.status_code == 200
+    assert selected.status_code == 200
+    assert default.json()["version"] == "https://harbor.local"
+    assert selected.json()["version"] == "https://harbor-b.local"
 
 
 def test_connection_response_is_safe_and_contains_no_credentials(tmp_path: Path) -> None:
