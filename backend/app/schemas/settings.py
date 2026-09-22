@@ -33,9 +33,17 @@ class HarborProfileCreate(BaseModel):
             raise ValueError("url is required")
         return validated
 
-    @field_validator("name", "username")
+    @field_validator("name")
     @classmethod
-    def normalize_text(cls, value: str | None) -> str | None:
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name must not be blank")
+        return normalized
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, value: str | None) -> str | None:
         if value is None:
             return None
         normalized = value.strip()
