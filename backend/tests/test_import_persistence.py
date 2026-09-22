@@ -48,7 +48,7 @@ def create_import(manager: OperationManager) -> int:
         operation_type=OperationType.IMPORT,
         actor_user_id=None,
         actor_username="target-operator",
-        initial_status=OperationStatus.READY,
+        initial_status=OperationStatus.UPLOADED,
     )
 
 
