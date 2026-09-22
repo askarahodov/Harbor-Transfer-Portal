@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 
 import type { HarborArtifact } from '@/api/exports'
 import SearchCombobox, { type SearchComboboxOption } from '@/components/SearchCombobox.vue'
+import StatePlaceholder from '@/components/StatePlaceholder.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
 
 const props = defineProps<{
@@ -103,8 +104,16 @@ function addCandidate(): void {
       <button type="button" class="artifact-selector__add" @click="addCandidate">Добавить</button>
     </div>
 
+    <component
+      :is="StatePlaceholder"
+      v-if="!selectedRepository"
+      compact
+      kind="empty"
+      title="Выберите проект и репозиторий"
+    />
+
     <div v-if="unsupported.length" class="artifact-selector__unsupported" role="status">
-      <strong>Неподдерживаемые OCI artifacts</strong>
+      <strong>OCI (не поддерживается) · Не поддерживается export v1</strong>
       <span v-for="artifact in unsupported" :key="artifact.digest">
         {{ shortDigest(artifact.digest) }}
         <template v-if="referencesFor(artifact).length"> · {{ referencesFor(artifact).join(', ') }}</template>
