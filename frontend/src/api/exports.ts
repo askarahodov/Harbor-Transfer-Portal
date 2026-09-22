@@ -173,9 +173,9 @@ export type Operation = {
   status: OperationStatus
   actor_username: string
   comment: string | null
-  harbor_profile_id: string | null
-  harbor_profile_name: string | null
-  harbor_url: string | null
+  harbor_profile_id?: string | null
+  harbor_profile_name?: string | null
+  harbor_url?: string | null
   started_at: string | null
   finished_at: string | null
   error_code: string | null
