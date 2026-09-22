@@ -76,17 +76,24 @@ docker compose up -d --build
 wait_backend
 wait_frontend
 
-frontend_published=$(docker compose port frontend 8080)
-[ -n "$frontend_published" ] || {
-    echo 'Frontend port 8080 должен быть опубликован на host.' >&2
-    exit 1
-}
-backend_published=$(docker compose port backend 8000 2>/dev/null) || backend_published=''
-if [ -n "$backend_published" ]; then
-    echo "Backend port 8000 не должен публиковаться на host: $backend_published" >&2
-    exit 1
-fi
-unset frontend_published backend_published
+frontend_id=$(docker compose ps -q frontend)
+backend_id=$(docker compose ps -q backend)
+frontend_bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$frontend_id")
+backend_bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$backend_id")
+case "$frontend_bindings" in
+    *'"8080/tcp"'*) ;;
+    *)
+        echo "Frontend port 8080 должен быть опубликован на host: $frontend_bindings" >&2
+        exit 1
+        ;;
+esac
+case "$backend_bindings" in
+    *'"8000/tcp"'*)
+        echo "Backend port 8000 не должен публиковаться на host: $backend_bindings" >&2
+        exit 1
+        ;;
+esac
+unset frontend_id backend_id frontend_bindings backend_bindings
 docker compose exec -T frontend wget -q -O - "http://backend:8000/api/health" | grep -F '"status":"ok"' >/dev/null
 
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/api/health" | grep -F '"status":"ok"' >/dev/null
