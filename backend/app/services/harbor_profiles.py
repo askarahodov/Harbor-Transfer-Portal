@@ -4,7 +4,10 @@ import json
 import os
 import ssl
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from threading import Lock
+from collections.abc import Iterator
 from pathlib import Path
 from uuid import uuid4
 
@@ -26,6 +29,15 @@ from app.services.runtime_mode import BLOCKING_OPERATION_STATUSES
 
 PROFILES_KEY = HARBOR_PROFILES_KEY
 DEFAULT_PROFILE_ID = DEFAULT_HARBOR_PROFILE_ID
+_HARBOR_PROFILE_LOCK = Lock()
+
+
+@contextmanager
+def harbor_profile_boundary() -> Iterator[None]:
+    """Serialize active-profile switching with creation of profile-bound operations."""
+    with _HARBOR_PROFILE_LOCK:
+        yield
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,32 +72,33 @@ class HarborProfileService:
         return self.get(self.active_profile_id())
 
     def activate(self, profile_id: str) -> tuple[HarborProfile, HarborProfile]:
-        current = self.active_profile()
-        target = self.get(profile_id)
-        if not target.enabled:
-            raise HarborSettingsError("harbor_profile_disabled", "Профиль Harbor отключён")
-        if current.id == target.id:
-            return current, target
+        with harbor_profile_boundary():
+            current = self.active_profile()
+            target = self.get(profile_id)
+            if not target.enabled:
+                raise HarborSettingsError("harbor_profile_disabled", "Профиль Harbor отключён")
+            if current.id == target.id:
+                return current, target
 
-        blockers = tuple(
-            self.session.scalars(
-                select(Operation.id)
-                .where(Operation.status.in_(BLOCKING_OPERATION_STATUSES))
-                .order_by(Operation.id)
+            blockers = tuple(
+                self.session.scalars(
+                    select(Operation.id)
+                    .where(Operation.status.in_(BLOCKING_OPERATION_STATUSES))
+                    .order_by(Operation.id)
+                )
             )
-        )
-        if blockers:
-            joined = ", ".join(f"#{operation_id}" for operation_id in blockers[:10])
-            raise HarborSettingsError(
-                "harbor_profile_busy",
-                f"Нельзя переключить Harbor profile при незавершённых операциях: {joined}",
+            if blockers:
+                joined = ", ".join(f"#{operation_id}" for operation_id in blockers[:10])
+                raise HarborSettingsError(
+                    "harbor_profile_busy",
+                    f"Нельзя переключить Harbor profile при незавершённых операциях: {joined}",
+                )
+            self.metadata.set_value(
+                HARBOR_ACTIVE_PROFILE_ID_KEY,
+                target.id,
+                description="Authoritative active Harbor profile",
             )
-        self.metadata.set_value(
-            HARBOR_ACTIVE_PROFILE_ID_KEY,
-            target.id,
-            description="Authoritative active Harbor profile",
-        )
-        return current, target
+            return current, target
 
     def get(self, profile_id: str) -> HarborProfile:
         normalized = profile_id.strip()
