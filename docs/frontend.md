@@ -34,6 +34,8 @@ Sidebar также contour-aware: SOURCE operator/admin видит «Отпра�
 
 `runtime` Pinia store загружает contour и используется навигацией, route guards и transfer views. Страница не должна разрешать SOURCE/TARGET workflow только на основании URL route.
 
+Для диагностики фактически запущенной сборки frontend image передаёт свой Git `VCS_REF` через offline-safe `runtime-config.js`. Верхняя панель показывает product version из backend health и короткий `UI <revision>` из самого frontend image. Это позволяет отличить новый backend от старого browser/frontend bundle при одинаковом product version. Для source checkout `make up` всегда выполняет build + force recreate текущего revision.
+
 ## SOURCE export wizard
 
 `ExportView.vue` реализует пользовательский flow задачи #18 поверх backend orchestration #17. State machine находится в `stores/exportWizard.ts`, typed API contract — в `api/exports.ts`.
