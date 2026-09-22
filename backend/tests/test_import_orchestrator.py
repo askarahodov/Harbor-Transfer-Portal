@@ -217,6 +217,7 @@ def _target_environment(
     settings = Settings(
         _env_file=None,
         portal_contour=contour,
+        harbor_url="https://harbor.target.local",
         database_url=f"sqlite:///{tmp_path / 'target.db'}",
         operation_workspace_root=data / "tmp" / "operations",
         operation_disk_reserve_bytes=0,
@@ -264,6 +265,8 @@ async def _upload_and_preview(
     manager: OperationManager,
     orchestrator: ImportOrchestrator,
     payload: bytes,
+    *,
+    harbor_profile_id: str | None = None,
 ) -> int:
     await manager.startup()
     started = await orchestrator.accept_upload(
@@ -271,6 +274,7 @@ async def _upload_and_preview(
         content_length=len(payload),
         actor_user_id=None,  # type: ignore[arg-type]
         actor_username="target-operator",
+        harbor_profile_id=harbor_profile_id,
     )
     await manager.wait(started.operation_id)
     return started.operation_id
