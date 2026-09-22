@@ -39,10 +39,12 @@ def _api_error(status_code: int, code: str, message: str) -> HTTPException:
 def get_harbor_client(
     request: Request,
     session: SessionDep,
-    profile_id: str = Query(default=DEFAULT_PROFILE_ID, min_length=1, max_length=64),
+    profile_id: str | None = Query(default=None, min_length=1, max_length=64),
 ) -> Generator[HarborClient, None, None]:
     try:
-        client = HarborProfileService(session, request.app.state.settings).build_client(profile_id)
+        service = HarborProfileService(session, request.app.state.settings)
+        selected_id = profile_id or service.active_profile_id()
+        client = service.build_client(selected_id)
     except HarborSettingsError as exc:
         status_code = (
             status.HTTP_404_NOT_FOUND
