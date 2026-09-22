@@ -50,10 +50,18 @@ class HarborSettingsService:
         self.metadata = SettingMetadataRepository(session)
 
     def resolve(self) -> EffectiveHarborSettings:
-        active_profile_id = self.active_profile_id()
-        if active_profile_id == DEFAULT_HARBOR_PROFILE_ID:
+        return self.resolve_profile(self.active_profile_id())
+
+    def resolve_profile(self, profile_id: str) -> EffectiveHarborSettings:
+        normalized = profile_id.strip()
+        if normalized == DEFAULT_HARBOR_PROFILE_ID:
             return self._resolve_default()
-        return self._resolve_additional_profile(active_profile_id)
+        if _HARBOR_PROFILE_ID.fullmatch(normalized) is None:
+            raise HarborSettingsError(
+                "harbor_profile_not_found",
+                "Профиль Harbor не найден",
+            )
+        return self._resolve_additional_profile(normalized)
 
     def active_profile_id(self) -> str:
         stored = self.metadata.get_value(HARBOR_ACTIVE_PROFILE_ID_KEY)
@@ -174,7 +182,10 @@ class HarborSettingsService:
         )
 
     def build_client(self) -> HarborClient:
-        resolved = self.resolve()
+        return self.build_client_for_profile(self.active_profile_id())
+
+    def build_client_for_profile(self, profile_id: str) -> HarborClient:
+        resolved = self.resolve_profile(profile_id)
         if not resolved.url:
             raise HarborSettingsError("harbor_not_configured", "Локальный Harbor не настроен")
         if resolved.ca_file is not None and not resolved.ca_file.is_file():
