@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { LogOut } from 'lucide-vue-next'
+import { BookOpen, LogOut } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -19,6 +19,10 @@ const navigation = computed(() =>
 const canSwitchMode = computed(
   () => auth.user?.role === 'admin' || auth.user?.role === 'operator',
 )
+const documentationHref = computed(() => {
+  const target = router.currentRoute.value.meta.documentation
+  return typeof target === 'string' ? `/docs/#${target}` : '/docs/'
+})
 
 const frontendRevisionShort = computed(() =>
   runtime.frontendRevision ? runtime.frontendRevision.slice(0, 12) : null,
@@ -91,6 +95,16 @@ async function logout(): Promise<void> {
             @switch="switchMode"
           />
           <ContourBadge v-else :contour="runtime.contour" />
+          <a
+            class="docs-button"
+            :href="documentationHref"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Открыть документацию текущего раздела"
+          >
+            <BookOpen :size="18" aria-hidden="true" />
+            <span>Документация</span>
+          </a>
           <button class="logout-button" type="button" aria-label="Выйти из портала" @click="logout">
             <LogOut :size="18" aria-hidden="true" />
             <span>Выйти</span>
@@ -119,8 +133,9 @@ async function logout(): Promise<void> {
 .release-revision { color: var(--color-text-muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .topbar__session { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; justify-content: flex-end; }
 .current-user { color: var(--color-text-muted); font-size: 14px; }
-.logout-button { min-height: 40px; display: inline-flex; align-items: center; gap: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
-.logout-button:hover, .logout-button:focus-visible { border-color: var(--color-action); }
+.docs-button, .logout-button { min-height: 40px; display: inline-flex; align-items: center; gap: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.docs-button { text-decoration: none; }
+.docs-button:hover, .docs-button:focus-visible, .logout-button:hover, .logout-button:focus-visible { border-color: var(--color-action); }
 .content { width: min(100%, var(--layout-content-max)); margin: 0 auto; padding: var(--space-8) var(--space-6); }
 @media (max-width: 760px) {
   .app-shell { grid-template-columns: 1fr; }

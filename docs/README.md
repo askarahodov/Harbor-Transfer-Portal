@@ -4,6 +4,17 @@
 
 Документация проекта ведётся на русском языке; API fields, environment variables, enum, paths и CLI commands сохраняются в исходном виде.
 
+## Локальный Docsify portal
+
+После запуска frontend вся эта Markdown-документация доступна как локальный web-site по
+`/docs/` на том же host/port, что и Portal. Например, для стандартной development
+конфигурации: `http://127.0.0.1:8080/docs/`.
+
+Docsify и search plugin упакованы во frontend image; runtime не обращается к CDN. Markdown
+файлы в репозитории остаются единственным source of truth, а Docsify только отображает их.
+Инструкция по запуску, структуре sidebar и добавлению контекстных ссылок из UI:
+[docsify.md](docsify.md).
+
 ## С чего начать по роли
 
 | Вы работаете как… | Начните здесь |

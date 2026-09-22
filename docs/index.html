@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="Локальная документация Harbor Transfer Portal" />
+    <title>Harbor Transfer Portal — Документация</title>
+    <link rel="stylesheet" href="/docs/_vendor/core.min.css" />
+    <style>
+      :root {
+        --theme-color: #2563eb;
+        --content-max-width: 980px;
+      }
+      .app-name-link { font-weight: 700; }
+      .sidebar-nav > ul > li > strong { display: block; margin-top: 1rem; }
+      .markdown-section { max-width: var(--content-max-width); }
+    </style>
+  </head>
+  <body>
+    <div id="app">Загрузка документации…</div>
+    <script>
+      window.$docsify = {
+        name: 'Harbor Transfer Portal',
+        homepage: '/docs/README.md',
+        basePath: '/',
+        loadSidebar: '/docs/_sidebar.md',
+        auto2top: true,
+        relativePath: true,
+        maxLevel: 3,
+        subMaxLevel: 2,
+        search: {
+          paths: 'auto',
+          placeholder: 'Поиск по документации',
+          noData: 'Ничего не найдено',
+          depth: 4,
+        },
+      }
+    </script>
+    <script src="/docs/_vendor/docsify.min.js"></script>
+    <script src="/docs/_vendor/search.min.js"></script>
+  </body>
+</html>
