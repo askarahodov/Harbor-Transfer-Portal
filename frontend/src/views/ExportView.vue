@@ -391,6 +391,18 @@ onBeforeUnmount(() => {
             @next="wizard.loadRepositories(wizard.repositoryPage + 1)"
           />
 
+          <ExportArtifactSelector
+            :artifacts="wizard.artifacts"
+            :selected-repository="wizard.selectedRepository"
+            :search="wizard.artifactSearch"
+            :busy="wizard.busy === 'artifacts'"
+            :page="wizard.artifactPage"
+            :total="wizard.artifactTotal"
+            :references-for="wizard.referencesFor"
+            @update:search="wizard.artifactSearch = $event"
+            @add="wizard.addArtifact"
+            @page="wizard.loadArtifacts"
+          />
         </div>
 
         <div class="selection-context" aria-live="polite">
@@ -408,9 +420,8 @@ onBeforeUnmount(() => {
           :page="wizard.artifactPage"
           :total="wizard.artifactTotal"
           :references-for="wizard.referencesFor"
-          :is-selected="wizard.isSelected"
           @update:search="wizard.artifactSearch = $event"
-          @toggle="wizard.toggleArtifact"
+          @add="wizard.addArtifact"
           @page="wizard.loadArtifacts"
         />
 
