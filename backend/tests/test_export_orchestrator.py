@@ -20,6 +20,7 @@ from app.services.bundle_package_service import BundlePackageError, BundlePackag
 from app.services.export_orchestrator import ExportOrchestrator
 from app.services.harbor_client import HarborArtifact
 from app.services.harbor_profile_runtime import harbor_profile_boundary
+from app.services.harbor_profiles import HarborProfileService
 from app.services.helm_oci_service import (
     HelmPackageMetadata,
     HelmPullResult,
@@ -253,6 +254,7 @@ def test_export_preview_and_operation_creation_share_profile_boundary(tmp_path: 
             None,  # type: ignore[arg-type]
             "operator",
             None,
+            None,
         )
         assert preview_entered.wait(timeout=1)
         competing_switch = pool.submit(acquire_profile_boundary)
@@ -268,6 +270,39 @@ def test_export_preview_and_operation_creation_share_profile_boundary(tmp_path: 
     operation = manager.get_operation(operation_id)
     assert operation is not None
     assert operation.status is OperationStatus.CREATED
+
+
+def test_export_persists_explicit_harbor_profile_snapshot(tmp_path: Path) -> None:
+    _settings, manager, _harbor, _package_service, orchestrator = _environment(tmp_path)
+    with manager.session_factory() as session:
+        profile = HarborProfileService(session, orchestrator.settings).create(
+            name="Harbor B",
+            url="https://harbor-b.local",
+            username="svc-b",
+            verify_tls=True,
+            enabled=True,
+        )
+        session.commit()
+        profile_id = profile.id
+
+    async def scenario() -> int:
+        await manager.startup()
+        started = await orchestrator.start_export(
+            (_selections()[0],),
+            actor_user_id=None,  # type: ignore[arg-type]
+            actor_username="operator",
+            comment=None,
+            harbor_profile_id=profile_id,
+        )
+        await manager.wait(started.operation_id)
+        await manager.shutdown()
+        return started.operation_id
+
+    operation = manager.get_operation(asyncio.run(scenario()))
+    assert operation is not None
+    assert operation.harbor_profile_id == profile_id
+    assert operation.harbor_profile_name == "Harbor B"
+    assert operation.harbor_profile_url == "https://harbor-b.local"
 
 
 def test_mixed_export_creates_one_signed_verified_bundle(tmp_path: Path) -> None:
