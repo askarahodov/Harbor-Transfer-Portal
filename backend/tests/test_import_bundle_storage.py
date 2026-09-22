@@ -11,7 +11,12 @@ from app.services.import_bundle_storage import (
 )
 
 
-def _archive(tmp_path: Path, *, key: str = "a" * 48, filename: str = "bundle.htp.tar.gz") -> tuple[Path, str, str]:
+def _archive(
+    tmp_path: Path,
+    *,
+    key: str = "a" * 48,
+    filename: str = "bundle.htp.tar.gz",
+) -> tuple[Path, str, str]:
     root = tmp_path / "staging"
     directory = root / key
     directory.mkdir(parents=True)
