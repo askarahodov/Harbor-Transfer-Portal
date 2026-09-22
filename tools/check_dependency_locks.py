@@ -58,6 +58,18 @@ def _load_pins(path: Path) -> tuple[dict[str, str], list[str]]:
     return pins, errors
 
 
+def _product_version(root: Path) -> str | None:
+    init_path = root / "backend" / "app" / "__init__.py"
+    if not init_path.is_file():
+        return None
+    match = re.search(
+        r'^__version__ = "([^"]+)"$',
+        init_path.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    return match.group(1) if match else None
+
+
 def _check_frontend(root: Path) -> list[str]:
     errors: list[str] = []
     package_path = root / "frontend" / "package.json"
@@ -70,6 +82,13 @@ def _check_frontend(root: Path) -> list[str]:
         lock = _load_json(lock_path)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         return [f"frontend lock metadata cannot be read: {exc}"]
+
+    product_version = _product_version(root)
+    if product_version is not None and package.get("version") != product_version:
+        errors.append(
+            f"frontend package version {package.get('version')!r} "
+            f"does not match product version {product_version!r}"
+        )
 
     if lock.get("lockfileVersion") != 3:
         errors.append("frontend/package-lock.json must use npm lockfileVersion 3")
