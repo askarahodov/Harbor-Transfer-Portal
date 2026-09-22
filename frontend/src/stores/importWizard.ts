@@ -168,6 +168,21 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     error.value = null
   }
 
+  async function requireHarborProfile(message: string): Promise<string | null> {
+    if (!selectedHarborProfileId.value) {
+      await loadHarborProfiles()
+    }
+    const profileId = selectedHarborProfileId.value
+    if (!profileId) {
+      error.value = {
+        code: 'harbor_profile_required',
+        message,
+      }
+      return null
+    }
+    return profileId
+  }
+
   function stopPolling(): void {
     if (pollTimer !== null) {
       clearInterval(pollTimer)
@@ -364,14 +379,10 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     receipt.value = null
     resetMapping()
     try {
-      const profileId = selectedHarborProfileId.value
-      if (!profileId) {
-        error.value = {
-          code: 'harbor_profile_required',
-          message: 'Выберите TARGET Harbor profile перед загрузкой.',
-        }
-        return false
-      }
+      const profileId = await requireHarborProfile(
+        'Выберите TARGET Harbor profile перед загрузкой.',
+      )
+      if (!profileId) return false
       const intake = await uploadImportBundle(
         file,
         (loaded, total) => {
@@ -446,14 +457,10 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     busy.value = 'discover'
     clearError()
     try {
-      const profileId = selectedHarborProfileId.value
-      if (!profileId) {
-        error.value = {
-          code: 'harbor_profile_required',
-          message: 'Выберите TARGET Harbor profile перед discovery.',
-        }
-        return
-      }
+      const profileId = await requireHarborProfile(
+        'Выберите TARGET Harbor profile перед discovery.',
+      )
+      if (!profileId) return
       const response = await discoverImportBundles(profileId)
       const resolved = await Promise.all(
         response.operations.map(async (intake) => ({
