@@ -262,6 +262,9 @@ def test_active_profile_cannot_be_disabled_deleted_or_switched_while_busy(tmp_pa
                 type=OperationType.EXPORT,
                 status=OperationStatus.RUNNING,
                 actor_username="admin",
+                harbor_profile_id=profile_id,
+                harbor_profile_name="Active Harbor",
+                harbor_url="https://active.harbor.local",
             )
         )
         session.commit()
@@ -293,6 +296,82 @@ def test_active_profile_cannot_be_disabled_deleted_or_switched_while_busy(tmp_pa
     )
     assert inactive_default_patch.status_code == 200
     assert inactive_default_patch.json()["url"] == "https://prepared-default.harbor.local"
+
+
+def test_authenticated_profile_options_are_safe_and_enabled_only(tmp_path: Path) -> None:
+    client, _app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+
+    enabled = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Transfer A",
+            "url": "https://transfer-a.local",
+            "username": "svc-a",
+            "verify_tls": True,
+            "enabled": True,
+        },
+        headers=headers,
+    )
+    disabled = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Disabled B",
+            "url": "https://disabled-b.local",
+            "username": "svc-b",
+            "verify_tls": True,
+            "enabled": False,
+        },
+        headers=headers,
+    )
+    assert enabled.status_code == 201
+    assert disabled.status_code == 201
+
+    for role in ("admin", "operator", "viewer"):
+        response = client.get("/api/harbor/profiles", headers=_auth(tokens[role]))
+        assert response.status_code == 200
+        items = response.json()["items"]
+        assert {item["name"] for item in items} == {"Default Harbor", "Transfer A"}
+        assert all(set(item) == {"id", "name", "url", "is_default"} for item in items)
+        assert "credential" not in response.text.lower()
+        assert "username" not in response.text.lower()
+
+
+def test_profile_delete_is_blocked_when_history_references_snapshot(tmp_path: Path) -> None:
+    client, app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Historical Harbor",
+            "url": "https://history.harbor.local",
+            "verify_tls": True,
+            "enabled": True,
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+
+    with app.state.session_factory() as session:
+        session.add(
+            Operation(
+                type=OperationType.EXPORT,
+                status=OperationStatus.COMPLETED,
+                actor_username="admin",
+                harbor_profile_id=profile_id,
+                harbor_profile_name="Historical Harbor",
+                harbor_url="https://history.harbor.local",
+            )
+        )
+        session.commit()
+
+    deleted = client.delete(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        headers=headers,
+    )
+    assert deleted.status_code == 409
+    assert deleted.json()["error"]["code"] == "harbor_profile_referenced"
 
 
 def test_profile_credentials_and_ca_are_isolated_by_profile(tmp_path: Path) -> None:
