@@ -316,6 +316,7 @@ describe('export wizard store', () => {
       .mockImplementationOnce(() => latestSuccess.promise)
 
     const store = useExportWizardStore()
+    await store.loadHarborProfiles()
 
     store.projectSearch = 'old'
     const oldRequest = store.loadProjects(1)
