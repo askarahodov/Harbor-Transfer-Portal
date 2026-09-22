@@ -40,6 +40,20 @@ PORTAL_CONTOUR=TARGET
 
 ### Development/runtime Compose
 
+Source Compose поддерживается на Linux с Docker Engine и на Windows с Docker Desktop в режиме Linux containers. Canonical cross-platform launcher: [docs/development.md](../docs/development.md). На Windows для этого workflow не требуются WSL, Git Bash или GNU Make.
+
+Linux:
+
+```bash
+python3 tools/dev.py up
+```
+
+Windows PowerShell:
+
+```powershell
+.\dev.ps1 up
+```
+
 Корневой `compose.yaml` содержит `build:` sections. Backend image build может получать pinned Helm archive и OS/Python dependencies, frontend build — npm dependencies. Поэтому `docker compose up -d --build` допустим только там, где build environment имеет необходимые разрешённые источники.
 
 ### Offline release

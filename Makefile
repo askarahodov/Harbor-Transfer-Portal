@@ -1,9 +1,11 @@
 SHELL := /bin/sh
 
-.PHONY: help up down logs fmt lint lint-backend typecheck-backend test test-backend test-frontend test-ci-scope dependency-locks-check test-registry-integration test-offline-kit docs-check migrate build compose-config smoke-compose check-foundation
+.PHONY: help doctor images up down logs fmt lint lint-backend typecheck-backend test test-backend test-frontend test-ci-scope dependency-locks-check test-registry-integration test-offline-kit docs-check migrate build compose-config smoke-compose check-foundation
 
 help:
 	@printf '%s\n' \
+	  'make doctor         Проверить cross-platform dev prerequisites' \
+	  'make images         Собрать Docker images из текущего Git revision' \
 	  'make up             Пересобрать и recreate локальный стек из текущего Git revision' \
 	  'make down           Остановить стек, сохранив persistent volume' \
 	  'make logs           Показывать логи локального стека' \
@@ -25,15 +27,20 @@ help:
 	  'make smoke-compose  Проверить offline kit, собрать стек и выполнить Compose smoke test' \
 	  'make check-foundation Проверить базовую структуру репозитория'
 
+doctor:
+	python3 tools/dev.py doctor
+
+images:
+	python3 tools/dev.py build
+
 up:
-	@test -f .env || { echo 'Требуется .env; сначала скопируйте .env.example в .env'; exit 2; }
-	PORTAL_VCS_REF=$$(git rev-parse --verify HEAD) docker compose up -d --build --force-recreate
+	python3 tools/dev.py up
 
 down:
-	docker compose down
+	python3 tools/dev.py down
 
 logs:
-	docker compose logs -f
+	python3 tools/dev.py logs
 
 fmt:
 	@test -f backend/pyproject.toml || { echo 'backend/pyproject.toml отсутствует'; exit 2; }
@@ -92,8 +99,7 @@ build:
 	cd frontend && npm run build
 
 compose-config:
-	@test -f .env || { echo 'Требуется .env; сначала скопируйте .env.example в .env'; exit 2; }
-	docker compose config >/dev/null
+	python3 tools/dev.py compose-config >/dev/null
 
 smoke-compose: test-offline-kit
 	./deploy/smoke-compose.sh
@@ -107,6 +113,10 @@ check-foundation:
 	@test -f docs/README.md
 	@test -f docs/decisions.md
 	@test -f tools/check_doc_links.py
+	@test -f tools/dev.py
+	@test -f tools/test_dev.py
+	@test -f dev.ps1
+	@test -f docs/development.md
 	@test -f tools/ci_scope.py
 	@test -f tools/test_ci_scope.py
 	@test -f tools/check_dependency_locks.py
