@@ -27,7 +27,7 @@ help:
 
 up:
 	@test -f .env || { echo 'Требуется .env; сначала скопируйте .env.example в .env'; exit 2; }
-	PORTAL_VCS_REF=$(git rev-parse --verify HEAD) docker compose up -d --build --force-recreate
+	PORTAL_VCS_REF=$$(git rev-parse --verify HEAD) docker compose up -d --build --force-recreate
 
 down:
 	docker compose down
