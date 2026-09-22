@@ -39,6 +39,13 @@ class HarborProfile:
     is_default: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class HarborProfileSnapshot:
+    id: str
+    name: str
+    url: str
+
+
 class HarborProfileService:
     """Persistent Harbor profiles layered over the legacy single-Harbor settings contract."""
 
@@ -52,6 +59,21 @@ class HarborProfileService:
         profiles = [self._default_profile()]
         profiles.extend(self._load_additional())
         return profiles
+
+    def snapshot(self, profile_id: str | None = None) -> HarborProfileSnapshot:
+        normalized = (profile_id or DEFAULT_PROFILE_ID).strip()
+        profile = self.get(normalized)
+        if not profile.enabled or not profile.url:
+            raise HarborSettingsError(
+                "harbor_profile_disabled",
+                "Выбранный Harbor profile отключён или не настроен",
+            )
+        # Resolve through the canonical settings layer as a fail-closed validation of
+        # credential/TLS/path metadata before binding the profile to an operation.
+        resolved = self.legacy.resolve_profile(profile.id)
+        if not resolved.url:
+            raise HarborSettingsError("harbor_not_configured", "Локальный Harbor не настроен")
+        return HarborProfileSnapshot(id=profile.id, name=profile.name, url=resolved.url)
 
     def active_profile_id(self) -> str:
         return self.legacy.active_profile_id()
@@ -173,6 +195,11 @@ class HarborProfileService:
             )
         profiles = self._load_additional()
         current = self.get(profile_id)
+        if self._profile_has_operation_evidence(current.id):
+            raise HarborSettingsError(
+                "harbor_profile_referenced",
+                "Harbor profile используется persisted operation history и не может быть удалён",
+            )
         if current.id == self.active_profile_id():
             raise HarborSettingsError(
                 "harbor_profile_active_protected",
@@ -263,25 +290,36 @@ class HarborProfileService:
         self._ca_path(profile).unlink(missing_ok=True)
 
     def require_mutation_safe(self, profile_id: str) -> None:
-        if profile_id != self.active_profile_id():
-            return
-        blockers = self._blocking_operation_ids()
+        blockers = self._blocking_operation_ids(profile_id)
         if not blockers:
             return
         joined = ", ".join(f"#{operation_id}" for operation_id in blockers[:10])
         raise HarborSettingsError(
             "harbor_profile_busy",
-            f"Нельзя изменять active Harbor profile при незавершённых операциях: {joined}",
+            f"Нельзя изменять Harbor profile при незавершённых операциях: {joined}",
         )
 
-    def _blocking_operation_ids(self) -> tuple[int, ...]:
-        return tuple(
-            self.session.scalars(
-                select(Operation.id)
-                .where(Operation.status.in_(BLOCKING_OPERATION_STATUSES))
-                .order_by(Operation.id)
-            )
+    def _blocking_operation_ids(self, profile_id: str | None = None) -> tuple[int, ...]:
+        query = select(Operation.id).where(
+            Operation.status.in_(BLOCKING_OPERATION_STATUSES)
         )
+        if profile_id is not None:
+            if profile_id == DEFAULT_PROFILE_ID:
+                query = query.where(
+                    (Operation.harbor_profile_id == DEFAULT_PROFILE_ID)
+                    | Operation.harbor_profile_id.is_(None)
+                )
+            else:
+                query = query.where(Operation.harbor_profile_id == profile_id)
+        return tuple(self.session.scalars(query.order_by(Operation.id)))
+
+    def _profile_has_operation_evidence(self, profile_id: str) -> bool:
+        operation_id = self.session.scalar(
+            select(Operation.id)
+            .where(Operation.harbor_profile_id == profile_id)
+            .limit(1)
+        )
+        return operation_id is not None
 
     def _default_profile(self) -> HarborProfile:
         resolved = self.legacy.resolve_profile(DEFAULT_PROFILE_ID)
