@@ -33,7 +33,8 @@ const profiles = ref<HarborProfile[]>([])
 const selectedId = ref('')
 const loading = ref(true)
 const busy = ref(false)
-const creating = ref(false)
+const savingProfile = ref(false)
+const editingId = ref<string | null>(null)
 const testingId = ref<string | null>(null)
 const message = ref('')
 const error = ref('')
@@ -88,40 +89,69 @@ async function activate(): Promise<void> {
   }
 }
 
-async function createProfile(): Promise<void> {
+function resetEditor(): void {
+  editingId.value = null
+  name.value = ''
+  url.value = ''
+  username.value = ''
+  credential.value = ''
+  verifyTls.value = true
+}
+
+function editProfile(profile: HarborProfile): void {
+  if (profile.is_default) return
+  editingId.value = profile.id
+  name.value = profile.name
+  url.value = profile.url
+  username.value = profile.username ?? ''
+  credential.value = ''
+  verifyTls.value = profile.verify_tls
+  error.value = ''
+  message.value = ''
+}
+
+async function saveProfile(): Promise<void> {
   if (!name.value.trim() || !url.value.trim()) {
     error.value = 'Для нового профиля обязательны имя и URL.'
     return
   }
-  creating.value = true
+  savingProfile.value = true
   error.value = ''
   message.value = ''
   try {
-    const response = await apiClient.post<HarborProfile>('/settings/harbor/profiles', {
+    const payload = {
       name: name.value.trim(),
       url: url.value.trim(),
       username: username.value.trim() || null,
       verify_tls: verifyTls.value,
       enabled: true,
-    })
+    }
+    const response = editingId.value
+      ? await apiClient.patch<HarborProfile>(
+          `/settings/harbor/profiles/${encodeURIComponent(editingId.value)}`,
+          payload,
+        )
+      : await apiClient.post<HarborProfile>('/settings/harbor/profiles', payload)
     if (credential.value) {
       await apiClient.put(
         `/settings/harbor/profiles/${encodeURIComponent(response.data.id)}/credential`,
         { secret: credential.value },
       )
     }
-    name.value = ''
-    url.value = ''
-    username.value = ''
-    credential.value = ''
-    verifyTls.value = true
+    const wasEditing = editingId.value !== null
+    resetEditor()
     await load()
     selectedId.value = response.data.id
-    message.value = 'Harbor profile создан. Проверьте подключение и сделайте его активным.'
+    message.value = wasEditing
+      ? 'Harbor profile обновлён.'
+      : 'Harbor profile создан. Проверьте подключение и сделайте его активным.'
   } catch (reason) {
-    error.value = safeError('Не удалось создать Harbor profile.', reason)
+    error.value = safeError(
+      editingId.value ? 'Не удалось обновить Harbor profile.' : 'Не удалось создать Harbor profile.',
+      reason,
+    )
   } finally {
-    creating.value = false
+    savingProfile.value = false
   }
 }
 
@@ -219,6 +249,15 @@ onMounted(() => void load())
             <button
               v-if="!profile.is_default"
               type="button"
+              class="secondary"
+              :disabled="busy"
+              @click="editProfile(profile)"
+            >
+              Изменить
+            </button>
+            <button
+              v-if="!profile.is_default"
+              type="button"
               class="secondary danger"
               :disabled="busy || profile.is_active"
               @click="deleteProfile(profile)"
@@ -229,8 +268,13 @@ onMounted(() => void load())
         </article>
       </div>
 
-      <form class="create-form" @submit.prevent="createProfile">
-        <h3>Добавить Harbor</h3>
+      <form class="create-form" @submit.prevent="saveProfile">
+        <div class="editor-heading">
+          <h3>{{ editingId ? 'Изменить Harbor profile' : 'Добавить Harbor' }}</h3>
+          <button v-if="editingId" type="button" class="secondary" @click="resetEditor">
+            Отмена
+          </button>
+        </div>
         <div class="form-grid">
           <label>
             Имя профиля
@@ -250,7 +294,7 @@ onMounted(() => void load())
               v-model="credential"
               type="password"
               autocomplete="new-password"
-              placeholder="необязательно при создании"
+              :placeholder="editingId ? 'оставьте пустым, чтобы не менять' : 'необязательно при создании'"
             />
           </label>
         </div>
@@ -258,8 +302,8 @@ onMounted(() => void load())
           <input v-model="verifyTls" type="checkbox" />
           Проверять TLS-сертификат
         </label>
-        <button type="submit" :disabled="creating">
-          {{ creating ? 'Создание…' : 'Добавить профиль' }}
+        <button type="submit" :disabled="savingProfile">
+          {{ savingProfile ? 'Сохранение…' : editingId ? 'Сохранить изменения' : 'Добавить профиль' }}
         </button>
       </form>
     </template>
@@ -284,6 +328,7 @@ select, input { min-height: 42px; border: 1px solid var(--color-border-control);
 .profile-row small { color: var(--color-text-muted); }
 .row-actions { display: flex; gap: var(--space-2); }
 .create-form { display: grid; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.editor-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
 .form-grid label { display: grid; gap: var(--space-2); }
 .checkbox-row { display: flex; gap: var(--space-2); align-items: center; }
