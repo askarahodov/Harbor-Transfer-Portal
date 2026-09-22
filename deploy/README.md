@@ -56,6 +56,8 @@ Windows PowerShell:
 
 Корневой `compose.yaml` содержит `build:` sections. Backend image build может получать pinned Helm archive и OS/Python dependencies, frontend build — npm dependencies. Поэтому `docker compose up -d --build` допустим только там, где build environment имеет необходимые разрешённые источники.
 
+Runtime использует стандартную Compose bridge network: backend не публикует `:8000` на host и доступен frontend только как `backend:8000`; frontend один публикует container `:8080` через `PORTAL_HTTP_BIND:PORTAL_HTTP_PORT`. Поэтому source workflow не требует Docker host-network feature ни на Linux, ни на Docker Desktop.
+
 ### Offline release
 
 Release build выполняется заранее в контролируемой среде:
