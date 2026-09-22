@@ -1,5 +1,5 @@
 import { computed, onScopeDispose, ref, watch } from 'vue'
-import { defineStore } from 'pinia'
+import { defineStore, storeToRefs } from 'pinia'
 
 import {
   apiErrorInfo,
@@ -66,6 +66,14 @@ function saveOperationId(operationId: number | null): void {
 }
 
 export const useExportWizardStore = defineStore('export-wizard', () => {
+  const harborProfilesStore = useHarborProfilesStore()
+  const {
+    profiles: harborProfiles,
+    selectedId: selectedHarborProfileId,
+    selectedProfile: selectedHarborProfile,
+    loading: harborProfilesLoading,
+    error: harborProfilesError,
+  } = storeToRefs(harborProfilesStore)
   const step = ref<ExportWizardStep>(1)
   const connection = ref<HarborConnection | null>(null)
   const projects = ref<HarborProject[]>([])
@@ -117,6 +125,9 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   )
   const failedArtifacts = computed(
     () => operation.value?.artifacts.filter((item) => item.status === 'FAILED') ?? [],
+  )
+  const harborProfileLocked = computed(
+    () => operation.value !== null || preview.value !== null || step.value !== 1,
   )
 
   function clearError(): void {
@@ -186,8 +197,10 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadConnection(): Promise<void> {
+    const profileId = selectedHarborProfileId.value
+    if (!profileId) return
     try {
-      connection.value = await getHarborConnection()
+      connection.value = await getHarborConnection(profileId)
     } catch (requestError) {
       error.value = apiErrorInfo(
         requestError,
@@ -203,7 +216,9 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     busy.value = 'projects'
     clearError()
     try {
-      const result = await listHarborProjects(page, PAGE_SIZE, search)
+      const profileId = selectedHarborProfileId.value
+      if (!profileId) return
+      const result = await listHarborProjects(page, PAGE_SIZE, search, profileId)
       if (requestGeneration !== projectRequestGeneration) return
       projects.value = result.items
       projectPage.value = result.pagination.page
@@ -245,7 +260,9 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     busy.value = 'repositories'
     clearError()
     try {
-      const result = await listHarborRepositories(project, page, PAGE_SIZE, search)
+      const profileId = selectedHarborProfileId.value
+      if (!profileId) return
+      const result = await listHarborRepositories(project, page, PAGE_SIZE, search, profileId)
       if (
         requestGeneration !== repositoryRequestGeneration ||
         selectedProject.value !== project
@@ -295,7 +312,16 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     busy.value = 'artifacts'
     clearError()
     try {
-      const result = await listHarborArtifacts(project, repository, page, PAGE_SIZE, search)
+      const profileId = selectedHarborProfileId.value
+      if (!profileId) return
+      const result = await listHarborArtifacts(
+        project,
+        repository,
+        page,
+        PAGE_SIZE,
+        search,
+        profileId,
+      )
       if (
         requestGeneration !== artifactRequestGeneration ||
         selectedProject.value !== project ||
@@ -385,6 +411,10 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   function requestPayload() {
+    const profileId = selectedHarborProfileId.value
+    if (!profileId) {
+      throw new Error('Harbor profile is required')
+    }
     return {
       artifacts: selectedArtifacts.value.map((artifact) => ({
         kind: artifact.kind,
@@ -394,10 +424,18 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
         digest: artifact.digest,
       })),
       comment: comment.value.trim() || null,
+      harbor_profile_id: profileId,
     }
   }
 
   async function preparePreview(): Promise<boolean> {
+    if (!selectedHarborProfileId.value) {
+      error.value = {
+        code: 'harbor_profile_required',
+        message: 'Выберите Harbor profile перед продолжением.',
+      }
+      return false
+    }
     if (selectedCount.value === 0) {
       error.value = {
         code: 'selection_required',
@@ -478,6 +516,9 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
         throw new Error('Saved operation is not an export operation')
       }
       operation.value = current
+      if (current.harbor_profile_id) {
+        harborProfilesStore.select(current.harbor_profile_id)
+      }
       if (current.status === 'COMPLETED') {
         stopPolling()
         await loadBundle(current.id)
@@ -537,15 +578,58 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     return operation.value !== null
   }
 
+  async function loadHarborProfiles(): Promise<boolean> {
+    const loaded = await harborProfilesStore.load()
+    if (!loaded && harborProfilesError.value) {
+      error.value = harborProfilesError.value
+    }
+    return loaded
+  }
+
+  async function selectHarborProfile(profileId: string): Promise<void> {
+    if (harborProfileLocked.value || profileId === selectedHarborProfileId.value) return
+    if (!harborProfilesStore.select(profileId)) return
+
+    cancelSearchDebounces()
+    projectRequestGeneration += 1
+    repositoryRequestGeneration += 1
+    artifactRequestGeneration += 1
+    connection.value = null
+    projects.value = []
+    repositories.value = []
+    artifacts.value = []
+    selectedProject.value = null
+    selectedRepository.value = null
+    projectSearch.value = ''
+    repositorySearch.value = ''
+    artifactSearch.value = ''
+    projectPage.value = 1
+    repositoryPage.value = 1
+    artifactPage.value = 1
+    projectTotal.value = 0
+    repositoryTotal.value = 0
+    artifactTotal.value = 0
+    selected.value = {}
+    preview.value = null
+    clearError()
+    await loadConnection()
+    await loadProjects(1)
+  }
+
   async function initialize(): Promise<void> {
     busy.value = 'initialize'
     clearError()
-    await loadConnection()
-    const resumed = await resumeSavedOperation()
-    if (!resumed) {
-      await loadProjects(1)
+    try {
+      const profilesReady = await loadHarborProfiles()
+      if (!profilesReady) return
+      const resumed = await resumeSavedOperation()
+      if (!resumed) {
+        await loadConnection()
+        await loadProjects(1)
+      }
+    } finally {
+      busy.value = null
     }
-    busy.value = null
   }
 
   function reset(): void {
@@ -573,6 +657,11 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   return {
     step,
     connection,
+    harborProfiles,
+    selectedHarborProfileId,
+    selectedHarborProfile,
+    harborProfilesLoading,
+    harborProfileLocked,
     projects,
     repositories,
     artifacts,
@@ -601,6 +690,8 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     canCancel,
     isTerminalFailure,
     failedArtifacts,
+    loadHarborProfiles,
+    selectHarborProfile,
     loadProjects,
     chooseProject,
     loadRepositories,
