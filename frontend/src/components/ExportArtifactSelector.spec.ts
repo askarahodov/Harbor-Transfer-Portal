@@ -87,4 +87,26 @@ describe('ExportArtifactSelector', () => {
     ])
   })
 
+  it('keeps paging available when rendered references outnumber Harbor artifacts', async () => {
+    const manyReferences = {
+      ...artifact,
+      references: Array.from({ length: 30 }, (_, index) => `v1.${index}`),
+    }
+    const wrapper = mount(ExportArtifactSelector, {
+      props: {
+        ...baseProps,
+        artifacts: [manyReferences],
+        selectedRepository: 'apps/demo',
+        total: 26,
+      },
+    })
+
+    const pagination = wrapper.get('[aria-label="Страницы версий"]')
+    expect(pagination.text()).toContain('Страница 1')
+    expect(pagination.findAll('button')[1]!.attributes('disabled')).toBeUndefined()
+
+    await pagination.findAll('button')[1]!.trigger('click')
+    expect(wrapper.emitted('page')?.at(-1)).toEqual([2])
+  })
+
 })
