@@ -57,7 +57,12 @@ image. Отдельный Docsify container или дополнительный 
 
 ## Навигация
 
-Sidebar определён в [_sidebar.md](_sidebar.md) и группирует:
+Sidebar определён в [_sidebar.md](_sidebar.md) и является общей навигацией для всех
+Docsify routes. Конфигурация `loadSidebar: true` использует единый sidebar также для
+repository-level страниц (`README`, `CONTRIBUTING`, deployment guides), поэтому переход
+между каталогами не должен приводить к исчезновению меню.
+
+Навигация группирует:
 
 - пользовательскую и административную документацию;
 - SOURCE/TARGET transfer flow;
@@ -67,7 +72,30 @@ Sidebar определён в [_sidebar.md](_sidebar.md) и группирует
 - repository-level README/CONTRIBUTING/CHANGELOG;
 - исторический reference.
 
+На desktop справа отображается блок **На этой странице** по заголовкам `H2/H3`.
+У каждого такого заголовка есть заметная permalink-ссылка. Anchor использует
+Docsify-compatible URL вида `#/docs/dashboard?id=проверки`, поэтому ссылка сохраняет
+текущий документ и ведёт на конкретный блок.
+
 Search plugin индексирует открываемые Markdown pages в браузере.
+
+## Визуальная оболочка
+
+Documentation shell следует дизайн-системе Portal:
+
+- верхняя панель показывает Harbor Transfer Portal, текущий документ и кнопку
+  **Назад в портал**;
+- sidebar использует тот же brand surface и active/hover pattern, что основная
+  навигация Portal;
+- статья, таблицы, code blocks, focus ring и responsive breakpoints используют
+  semantic design tokens frontend;
+- `frontend/src/styles/tokens.css` остаётся источником истины и при Docker build
+  копируется в `/docs/_portal/tokens.css`; отдельная палитра документации не
+  поддерживается;
+- на узких экранах правый TOC скрывается, а Docsify sidebar остаётся доступным через
+  штатный mobile toggle.
+
+Кастомные стили находятся в [portal-docs.css](portal-docs.css).
 
 ## Контекстные ссылки из Portal
 
@@ -92,7 +120,9 @@ Authenticated layout показывает кнопку **Документаци�
 2. Добавьте страницу в [_sidebar.md](_sidebar.md), если она должна быть видна в общей навигации.
 3. Для нового UI route задайте `meta.documentation` в frontend router.
 4. Обновите documentation impact в той же итерации, что и код.
-5. Запустите `make docs-check` и scoped frontend tests.
+5. Если меняется navigation shell, anchors или packaging, обновите regression checks в
+   `tools/test_frontend_system_ui.py` и Compose smoke.
+6. Запустите `make docs-check` и scoped frontend/Compose tests.
 
 Docsify не меняет правило source-of-truth: если rendered site и Markdown расходятся,
 дефект находится в packaging/navigation, а не решается копированием текста в отдельное
