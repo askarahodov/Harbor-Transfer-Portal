@@ -113,4 +113,4 @@ docker compose version
 UI <revision>
 ```
 
-На Windows Docker Desktop должен быть переключён в Linux containers mode. Если `docker compose build` пытается использовать Windows containers, переключите Docker Desktop в Linux containers и повторите `doctor` / `build`.
+На Windows Docker Desktop должен быть переключён в Linux containers mode. `doctor` проверяет `docker info` и завершится ошибкой, если Docker сообщает другой `OSType`; после переключения повторите `doctor` / `build`.
