@@ -72,16 +72,25 @@ chore: update developer tooling
 
 ## Запуск локального Compose после обновления исходников
 
-Для source checkout используйте:
+Canonical developer launcher — `tools/dev.py`; он одинаков для Linux и Windows и не использует shell-конкатенацию. Подробности и platform boundary: [docs/development.md](docs/development.md).
+
+Linux:
 
 ```bash
 git pull
-make up
+python3 tools/dev.py up
 ```
 
-`make up` передаёт текущий Git revision в Docker build, пересобирает images и принудительно recreate-ит контейнеры. Это важно для frontend: простой `docker compose up -d` может оставить ранее собранный image с тем же тегом и визуально показать старый UI.
+Windows PowerShell:
 
-В верхней панели рядом с product version отображается короткий `UI <revision>`. После обновления исходников он должен соответствовать первым 12 символам `git rev-parse HEAD`. `index.html` и `runtime-config.js` отдаются с `Cache-Control: no-store`, поэтому browser shell не должен удерживать предыдущую сборку после recreate.
+```powershell
+git pull
+.\dev.ps1 up
+```
+
+Linux `make up` остаётся convenience alias и делегирует ту же Python orchestration. Windows не требует GNU Make, WSL или Git Bash.
+
+`up` передаёт текущий Git revision в Docker build, пересобирает images и принудительно recreate-ит контейнеры. В верхней панели рядом с product version отображается короткий `UI <revision>`; после обновления source он должен соответствовать первым 12 символам `git rev-parse HEAD`.
 
 ## Проверка распространения ошибок
 
