@@ -23,6 +23,20 @@ describe('SearchCombobox', () => {
     expect(input.attributes('aria-expanded')).toBe('false')
   })
 
+  it('closes when keyboard focus leaves the control', async () => {
+    const wrapper = mount(SearchCombobox, {
+      props: { label: 'Версия / tag', modelValue: '', search: '', options },
+      attachTo: document.body,
+    })
+    const input = wrapper.get('[role="combobox"]')
+    await input.trigger('focus')
+    expect(input.attributes('aria-autocomplete')).toBe('list')
+    expect(input.attributes('aria-haspopup')).toBe('listbox')
+    await input.trigger('focusout', { relatedTarget: document.body })
+    expect(input.attributes('aria-expanded')).toBe('false')
+    wrapper.unmount()
+  })
+
   it('emits search text and closes with Escape', async () => {
     const wrapper = mount(SearchCombobox, {
       props: { label: 'Репозиторий Harbor', modelValue: '', search: '', options },
