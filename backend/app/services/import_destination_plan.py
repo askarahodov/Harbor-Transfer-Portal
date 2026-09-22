@@ -105,7 +105,11 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
     ) -> None:
         super().__init__(*args, **kwargs)
         self.destination_validator_factory = destination_validator_factory or (
-            lambda session: HarborDestinationValidator(session, self.settings)
+            lambda session: HarborDestinationValidator(
+                session,
+                self.settings,
+                profile_id=self._harbor_profile_context.get(),
+            )
         )
         self._execution_operation_id: ContextVar[int | None] = ContextVar(
             "import_destination_operation_id",
@@ -175,27 +179,32 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 f"Per-artifact override ссылается на неизвестный index {unknown_overrides[0]}",
             )
 
-        with self.session_factory() as session:
-            try:
-                validator = self.destination_validator_factory(session)
-            except (HarborSettingsError, ValueError) as exc:
-                raise ImportOrchestrationError(
-                    getattr(exc, "code", "import_destination_validation_failed"),
-                    str(exc),
-                ) from exc
-            skopeo = self.skopeo_factory(session)
-            helm = self.helm_factory(session)
-            planned = [
-                await self._plan_artifact(
-                    item,
-                    mapping,
-                    overrides,
-                    validator,
-                    skopeo,
-                    helm,
-                )
-                for item in preview.artifacts
-            ]
+        profile = self._operation_harbor_profile(operation)
+        token = self._harbor_profile_context.set(profile.id)
+        try:
+            with self.session_factory() as session:
+                try:
+                    validator = self.destination_validator_factory(session)
+                except (HarborSettingsError, ValueError) as exc:
+                    raise ImportOrchestrationError(
+                        getattr(exc, "code", "import_destination_validation_failed"),
+                        str(exc),
+                    ) from exc
+                skopeo = self.skopeo_factory(session)
+                helm = self.helm_factory(session)
+                planned = [
+                    await self._plan_artifact(
+                        item,
+                        mapping,
+                        overrides,
+                        validator,
+                        skopeo,
+                        helm,
+                    )
+                    for item in preview.artifacts
+                ]
+        finally:
+            self._harbor_profile_context.reset(token)
 
         collisions = colliding_artifact_indices(planned)
         if collisions:
