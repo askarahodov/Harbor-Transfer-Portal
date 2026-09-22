@@ -412,6 +412,28 @@ onBeforeUnmount(() => {
           <span v-else class="muted">Сначала выберите проект и репозиторий.</span>
         </div>
 
+        <div v-if="wizard.selectedArtifacts.length" class="selected-artifacts" aria-label="Выбранные артефакты">
+          <div
+            v-for="artifact in wizard.selectedArtifacts"
+            :key="[artifact.kind, artifact.project, artifact.repository, artifact.digest].join('|')"
+            class="selected-artifact"
+          >
+            <div>
+              <strong>{{ artifact.project }}/{{ artifact.repository }}:{{ artifact.reference }}</strong>
+              <span>{{ kindLabel(artifact.kind) }} · {{ formatBytes(artifact.size_bytes) }}</span>
+              <code :title="artifact.digest">{{ shortDigest(artifact.digest) }}</code>
+            </div>
+            <button
+              type="button"
+              class="text-button"
+              :aria-label="`Удалить ${artifact.reference}`"
+              @click="wizard.toggleArtifact(artifact, artifact.reference)"
+            >
+              Удалить
+            </button>
+          </div>
+        </div>
+
         <div class="actions actions--end">
           <button class="primary-button" type="button" :disabled="wizard.selectedCount === 0 || wizard.busy === 'preview'" @click="wizard.preparePreview">
             Проверить выбранное
@@ -646,6 +668,11 @@ h3 { margin-bottom: var(--space-2); font-size: 16px; }
 .stepper__number { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--color-surface-subtle); font-weight: 800; }
 .wizard-card { display: grid; gap: var(--space-6); padding: var(--space-6); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); }
 .selection-summary { padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--color-info-surface); color: var(--color-info-text); }
+.selected-artifacts { display: grid; gap: var(--space-2); }
+.selected-artifact { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
+.selected-artifact > div { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); }
+.selected-artifact span { color: var(--color-text-muted); font-size: 12px; }
+.selected-artifact code { overflow-wrap: anywhere; font-size: 12px; }
 .browser-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
 .compact-selector { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(220px, 1fr) minmax(260px, 1.2fr); gap: var(--space-3); align-items: end; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
 .compact-field { display: grid; gap: var(--space-2); min-width: 0; font-weight: 700; }
