@@ -1,5 +1,7 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from threading import Event
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,7 @@ from app.db.base import Base
 from app.db.models import ArtifactResult, Operation
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
+from app.services.harbor_profile_runtime import harbor_profile_boundary
 from app.services.operation_manager import (
     OperationArtifactSpec,
     OperationContext,
@@ -66,6 +69,25 @@ def _new_export(manager: OperationManager, *, artifacts: int = 0) -> int:
         actor_username="operator",
         artifacts=specs,
     )
+
+
+def test_operation_creation_waits_for_harbor_profile_boundary(tmp_path: Path) -> None:
+    manager = _manager(tmp_path)
+    attempted = Event()
+
+    def create_operation() -> int:
+        attempted.set()
+        return _new_export(manager)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with harbor_profile_boundary():
+            future = pool.submit(create_operation)
+            assert attempted.wait(timeout=1)
+            assert not future.done()
+        operation_id = future.result(timeout=2)
+
+    operation = _operation(manager, operation_id)
+    assert operation.status is OperationStatus.CREATED
 
 
 def test_worker_persists_progress_and_artifact_results(tmp_path: Path) -> None:
