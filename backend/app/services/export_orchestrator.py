@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,9 +18,12 @@ from app.services.bundle_package_service import (
     BundleBuildResult,
     BundlePackageError,
     BundlePackageService,
-    ContainerImagePackageInput,
-    HelmChartPackageInput,
     PackageArtifactInput,
+)
+from app.services.export_artifact_materializer import (
+    ExportArtifactMaterializer,
+    HelmFactory,
+    SkopeoFactory,
 )
 from app.services.export_selection import (
     ExportSelectionResolutionError,
@@ -30,11 +32,7 @@ from app.services.export_selection import (
 )
 from app.services.harbor_client import HarborClient
 from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
-from app.services.helm_oci_service import (
-    HelmChartReference,
-    HelmOciService,
-    HelmServiceError,
-)
+from app.services.helm_oci_service import HelmServiceError
 from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.operation_manager import (
     OperationArtifactSpec,
@@ -43,7 +41,7 @@ from app.services.operation_manager import (
     OperationManagerError,
     OperationTaskFailure,
 )
-from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoServiceError
+from app.services.skopeo_service import SkopeoServiceError
 
 
 @dataclass(slots=True)
@@ -81,8 +79,6 @@ class ExportHandoffMetadata:
 
 
 HarborClientFactory = Callable[[], HarborClient]
-SkopeoFactory = Callable[[Session], SkopeoService]
-HelmFactory = Callable[[Session], HelmOciService]
 PackageFactory = Callable[[], BundlePackageService]
 
 
@@ -105,6 +101,12 @@ class ExportOrchestrator:
         self.skopeo_factory = skopeo_factory
         self.helm_factory = helm_factory
         self.package_factory = package_factory
+        self.artifact_materializer = ExportArtifactMaterializer(
+            session_factory,
+            settings,
+            skopeo_factory=skopeo_factory,
+            helm_factory=helm_factory,
+        )
 
     def preview(
         self,
@@ -570,43 +572,12 @@ class ExportOrchestrator:
         operation_workspace: Path,
         helm_root: Path,
     ) -> PackageArtifactInput:
-        if item.kind is ArtifactKind.CONTAINER_IMAGE:
-            image = ImageReference(
-                repository=item.full_repository,
-                reference=item.reference,
-            )
-            destination = operation_workspace / "images" / str(artifact_id)
-            with self.session_factory() as session:
-                result = await self._skopeo_service(session).export_image(image, destination)
-            if result.source_digest != item.digest:
-                raise SkopeoServiceError(
-                    "export_source_changed",
-                    "SOURCE artifact digest изменился после validation",
-                )
-            return ContainerImagePackageInput(
-                repository=item.full_repository,
-                reference=item.reference,
-                source_digest=item.digest,
-                source_path=result.payload_path,
-                payload_path=f"images/{artifact_id}",
-            )
-
-        chart = self._helm_reference(item)
-        destination = helm_root / str(artifact_id)
-        with self.session_factory() as session:
-            result = await self._helm_service(session).pull_chart(chart, destination)
-        if result.source_digest != item.digest:
-            raise HelmServiceError(
-                "export_source_changed",
-                "SOURCE Helm digest изменился после validation",
-            )
-        return HelmChartPackageInput(
-            repository=chart.repository,
-            name=chart.name,
-            version=chart.version,
-            source_digest=item.digest,
-            source_path=result.package.path,
-            payload_path=f"charts/{artifact_id}.tgz",
+        """Compatibility hook; artifact materialization lives in the collaborator."""
+        return await self.artifact_materializer.materialize(
+            item,
+            artifact_id=artifact_id,
+            operation_workspace=operation_workspace,
+            helm_root=helm_root,
         )
 
     def _build_harbor_client(self) -> HarborClient:
@@ -630,16 +601,6 @@ class ExportOrchestrator:
                 "Локальный Harbor не настроен",
             )
         return resolved.url
-
-    def _skopeo_service(self, session: Session) -> SkopeoService:
-        if self.skopeo_factory is not None:
-            return self.skopeo_factory(session)
-        return SkopeoService(session, self.settings)
-
-    def _helm_service(self, session: Session) -> HelmOciService:
-        if self.helm_factory is not None:
-            return self.helm_factory(session)
-        return HelmOciService(session, self.settings)
 
     def _package_service(self) -> BundlePackageService:
         if self.package_factory is not None:
@@ -672,48 +633,13 @@ class ExportOrchestrator:
             size_bytes=item.size_bytes,
         )
 
-    @staticmethod
-    def _helm_reference(item: ResolvedExportArtifact) -> HelmChartReference:
-        parts = item.full_repository.split("/")
-        if len(parts) < 2:
-            raise HelmServiceError(
-                "export_helm_repository_invalid",
-                "Helm repository должен включать project и chart name",
-            )
-        return HelmChartReference(
-            repository="/".join(parts[:-1]),
-            name=parts[-1],
-            version=item.reference,
-        )
-
     def _prepare_helm_root(self, operation_id: int) -> Path:
-        workspace_root = self.settings.helm_workspace_root.resolve()
-        target = (
-            workspace_root / "export-operations" / f"operation-{operation_id}"
-        ).resolve()
-        try:
-            target.relative_to(workspace_root)
-        except ValueError as exc:
-            raise OperationTaskFailure(
-                "export_workspace_invalid",
-                "Helm export workspace вышел за разрешённый root",
-            ) from exc
-        if target.exists():
-            if target.is_symlink() or not target.is_dir():
-                raise OperationTaskFailure(
-                    "export_workspace_unsafe",
-                    "Helm export workspace имеет небезопасный тип",
-                )
-            shutil.rmtree(target)
-        target.mkdir(parents=True, mode=0o700)
-        return target
+        """Compatibility hook; workspace ownership lives in the materializer."""
+        return self.artifact_materializer.prepare_helm_root(operation_id)
 
-    @staticmethod
-    def _cleanup_helm_root(path: Path) -> None:
-        if path.is_symlink():
-            path.unlink(missing_ok=True)
-        elif path.exists():
-            shutil.rmtree(path)
+    def _cleanup_helm_root(self, path: Path) -> None:
+        """Compatibility hook; workspace ownership lives in the materializer."""
+        self.artifact_materializer.cleanup_helm_root(path)
 
     @staticmethod
     def _fail_artifacts(
