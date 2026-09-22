@@ -79,7 +79,7 @@ profile selection
   → retry
 ```
 
-Retry наследует profile snapshot исходной operation.
+Retry наследует profile id исходной operation, но создаёт новый name/URL snapshot из текущей конфигурации этого profile. Это позволяет после terminal failure безопасно исправить endpoint/credential и при этом сохраняет правдивый audit новой retry operation.
 
 ## Защита от изменения profile во время transfer
 
