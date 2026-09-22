@@ -30,7 +30,7 @@ from app.schemas.imports import (
 )
 from app.services.bundle_package_service import BundlePackageError, BundlePackageService
 from app.services.harbor_profile_runtime import harbor_profile_boundary
-from app.services.harbor_profiles import DEFAULT_PROFILE_ID, HarborProfile, HarborProfileService
+from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
 from app.services.helm_oci_service import (
     HelmChartReference,
@@ -126,7 +126,7 @@ class ImportOrchestrator:
         bundle_filename: str | None = None,
         sidecar_payload: bytes | None = None,
         handoff_payload: bytes | None = None,
-        harbor_profile_id: str = DEFAULT_PROFILE_ID,
+        harbor_profile_id: str | None = None,
     ) -> ImportIntakeResult:
         self._require_target()
         if content_length is not None:
@@ -222,7 +222,7 @@ class ImportOrchestrator:
         *,
         actor_user_id: int,
         actor_username: str,
-        harbor_profile_id: str = DEFAULT_PROFILE_ID,
+        harbor_profile_id: str | None = None,
     ) -> tuple[ImportIntakeResult, ...]:
         self._require_target()
         self.discovery_root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -689,7 +689,7 @@ class ImportOrchestrator:
         filename: str,
         sha256: str,
         size_bytes: int,
-        harbor_profile_id: str,
+        harbor_profile_id: str | None,
     ) -> int:
         with harbor_profile_boundary():
             try:
