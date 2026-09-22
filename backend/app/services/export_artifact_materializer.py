@@ -57,7 +57,10 @@ class ExportArtifactMaterializer:
             )
             destination = operation_workspace / "images" / str(artifact_id)
             with self.session_factory() as session:
-                result = await self._skopeo_service(session, harbor_profile_id).export_image(image, destination)
+                result = await self._skopeo_service(
+                    session,
+                    harbor_profile_id,
+                ).export_image(image, destination)
             if result.source_digest != item.digest:
                 raise SkopeoServiceError(
                     "export_source_changed",
@@ -74,7 +77,10 @@ class ExportArtifactMaterializer:
         chart = self._helm_reference(item)
         destination = helm_root / str(artifact_id)
         with self.session_factory() as session:
-            result = await self._helm_service(session, harbor_profile_id).pull_chart(chart, destination)
+            result = await self._helm_service(
+                session,
+                harbor_profile_id,
+            ).pull_chart(chart, destination)
         if result.source_digest != item.digest:
             raise HelmServiceError(
                 "export_source_changed",
