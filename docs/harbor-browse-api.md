@@ -44,6 +44,8 @@ Harbor может вернуть имя repository в виде `project/nested/r
 
 `repository` передаётся query-параметром, поэтому вложенные имена с `/` не зависят от неоднозначного path routing. Дополнительно поддерживаются `page`, `page_size` и `search`; поиск сопоставляется с digest и tag/reference.
 
+При обращении backend к Harbor API project-relative repository преобразуется в Harbor-совместимый path parameter с двойным percent-encoding. Например, `appt/appointment-api` передаётся upstream как `appt%252Fappointment-api`. Одинарное `appt%2Fappointment-api` декодируется routing-слоем Harbor слишком рано и для вложенного repository может дать `404`, который портал нормализует в `harbor_not_found`.
+
 Нормализованный артефакт содержит:
 
 - `kind`: `container-image`, `helm-chart` или `unknown-oci`;
