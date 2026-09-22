@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Annotated
 from urllib.parse import urlsplit
 
@@ -13,6 +14,8 @@ from app.db.repositories import AuditEventRepository
 from app.domain.bundle import OperationType
 from app.schemas.harbor import HarborProjectCreateRequest, HarborProjectCreateResponse
 from app.services.harbor_client import HarborClient, HarborClientError, HarborProject
+from app.services.harbor_operation_profile import operation_binding
+from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 from app.services.runtime_mode import RuntimeModeService
 
 router = APIRouter(prefix="/harbor", tags=["harbor"])
@@ -28,9 +31,9 @@ def _find_project(client: HarborClient, project: str) -> HarborProject | None:
     return next((item for item in page.items if item.name == project), None)
 
 
-def _correlated_import(session: SessionDep, operation_id: int | None) -> None:
+def _correlated_import(session: SessionDep, operation_id: int | None) -> Operation | None:
     if operation_id is None:
-        return
+        return None
     operation = session.get(Operation, operation_id)
     if operation is None or operation.type is not OperationType.IMPORT:
         raise _api_error(
@@ -38,6 +41,7 @@ def _correlated_import(session: SessionDep, operation_id: int | None) -> None:
             "import_operation_not_found",
             "Import-операция для project creation correlation не найдена",
         )
+    return operation
 
 
 def _audit_project_create(
@@ -81,9 +85,21 @@ def create_project(
     This endpoint never starts or resumes an import. The caller must rebuild destination
     validation after a successful or idempotent result.
     """
-    _correlated_import(session, payload.operation_id)
+    operation = _correlated_import(session, payload.operation_id)
+    client_context = nullcontext(client)
+    if operation is not None:
+        try:
+            binding = operation_binding(session, request.app.state.settings, operation)
+            client_context = HarborSettingsService(
+                session,
+                request.app.state.settings,
+            ).build_client_for_profile(binding.id)
+        except HarborSettingsError as exc:
+            raise _api_error(status.HTTP_409_CONFLICT, exc.code, exc.message) from exc
+
     runtime = RuntimeModeService(session, request.app.state.settings)
-    with runtime.mode_guard(PortalContour.TARGET):
+    with client_context as bound_client, runtime.mode_guard(PortalContour.TARGET):
+        client = bound_client
         try:
             existing = _find_project(client, payload.name)
             if existing is not None:
