@@ -336,6 +336,17 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <HarborProfileSelector
+        id="export-harbor-profile"
+        label="SOURCE Harbor profile"
+        :profiles="wizard.harborProfiles"
+        :model-value="wizard.operation && !wizard.operation.harbor_profile_id ? null : wizard.selectedHarborProfileId"
+        :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
+        :locked="wizard.harborProfileLocked"
+        hint="Browse, preview и export будут закреплены за выбранным Harbor."
+        @update:model-value="wizard.selectHarborProfile"
+      />
+
       <section v-if="wizard.step === 1" class="wizard-card" aria-labelledby="selection-title">
         <div class="section-heading">
           <div>
@@ -349,17 +360,6 @@ onBeforeUnmount(() => {
             </span>
           </div>
         </div>
-
-        <HarborProfileSelector
-          id="export-harbor-profile"
-          label="SOURCE Harbor profile"
-          :profiles="wizard.harborProfiles"
-          :model-value="wizard.selectedHarborProfileId"
-          :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
-          :locked="wizard.harborProfileLocked"
-          hint="Browse, preview и export будут закреплены за выбранным Harbor."
-          @update:model-value="wizard.selectHarborProfile"
-        />
 
         <div class="compact-selector" aria-label="Выбор артефакта Harbor">
           <SearchCombobox
