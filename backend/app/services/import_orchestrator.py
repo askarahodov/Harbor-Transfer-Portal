@@ -45,6 +45,7 @@ from app.services.import_bundle_storage import (
     ImportBundleStorageError,
     resolve_persisted_bundle_paths,
 )
+from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_persistence import ImportOperationPersistence
 from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.media_handoff import MediaHandoffError, MediaHandoffService
