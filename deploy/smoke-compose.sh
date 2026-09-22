@@ -23,10 +23,6 @@ case "$current_contour" in
         ;;
 esac
 
-frontend_bind=$(grep '^PORTAL_HTTP_BIND=' .env | tail -n 1 | cut -d= -f2-)
-frontend_port=$(grep '^PORTAL_HTTP_PORT=' .env | tail -n 1 | cut -d= -f2-)
-frontend_bind=${frontend_bind:-127.0.0.1}
-frontend_port=${frontend_port:-8080}
 frontend_container_base="http://127.0.0.1:8080"
 
 cleanup() {
