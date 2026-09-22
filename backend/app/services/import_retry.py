@@ -163,13 +163,13 @@ class ImportRetryService:
                         "Retry Harbor profile не совпадает с исходной operation",
                     )
                 retry_operation = Operation(
-                        type=OperationType.IMPORT,
+                    type=OperationType.IMPORT,
                     status=OperationStatus.READY,
                     runtime_mode=snapshot.runtime_mode,
                     runtime_mode_version=snapshot.runtime_mode_version,
-                    harbor_profile_id=snapshot.harbor_profile_id,
-                    harbor_profile_name=snapshot.harbor_profile_name,
-                    harbor_url=snapshot.harbor_url,
+                    harbor_profile_id=current_binding.id,
+                    harbor_profile_name=current_binding.name,
+                    harbor_url=current_binding.url,
                     actor_user_id=actor_user_id,
                     actor_username=actor_username,
                     comment=(
