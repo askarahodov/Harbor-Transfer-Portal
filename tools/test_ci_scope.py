@@ -150,6 +150,18 @@ class CiScopeTest(TestCase):
             with self.subTest(path=path):
                 self.assertEqual(classify_paths([path], root=root), expected)
 
+    def test_harbor_profile_secret_paths_run_security_regression(self):
+        root = self._root()
+        for path in (
+            "backend/app/services/harbor_profiles.py",
+            "backend/tests/test_harbor_profiles_api.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    classify_paths([path], root=root),
+                    Scope(backend=True, security=True),
+                )
+
     def test_harbor_project_mutation_paths_run_security_regression(self):
         root = self._root()
         for path in (
