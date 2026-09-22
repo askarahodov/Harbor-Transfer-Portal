@@ -111,9 +111,11 @@ class ExportOrchestrator:
     def preview(
         self,
         selections: Sequence[ExportArtifactSelection],
+        *,
+        harbor_profile_id: str | None = None,
     ) -> tuple[ResolvedExportArtifact, ...]:
         self._require_source_contour()
-        client = self._build_harbor_client()
+        client = self._build_harbor_client(harbor_profile_id)
         try:
             return tuple(resolve_export_selection(client, selection) for selection in selections)
         except ExportSelectionResolutionError as exc:
@@ -128,11 +130,17 @@ class ExportOrchestrator:
         actor_user_id: int,
         actor_username: str,
         comment: str | None,
+        harbor_profile_id: str | None = None,
     ) -> ExportStartResult:
         self._require_source_contour()
         self._require_signing_identity()
+        profile = self._harbor_profile_snapshot(harbor_profile_id)
         selection_snapshot = tuple(selections)
-        resolved = await asyncio.to_thread(self.preview, selection_snapshot)
+        resolved = await asyncio.to_thread(
+            self.preview,
+            selection_snapshot,
+            harbor_profile_id=profile.id,
+        )
         estimated_bytes = sum(item.size_bytes or 0 for item in resolved)
         try:
             self.operation_manager.require_disk(estimated_bytes)
@@ -146,6 +154,9 @@ class ExportOrchestrator:
             actor_username=actor_username,
             comment=comment,
             delivery_id=delivery_id,
+            harbor_profile_id=profile.id,
+            harbor_profile_name=profile.name,
+            harbor_url=profile.url,
             artifacts=tuple(self._operation_spec(item) for item in resolved),
         )
         operation = self.operation_manager.get_operation(operation_id)
@@ -170,6 +181,7 @@ class ExportOrchestrator:
                 delivery_id=delivery_id,
                 actor_username=actor_username,
                 comment=comment,
+                harbor_profile_id=profile.id,
             )
 
         try:
@@ -309,6 +321,7 @@ class ExportOrchestrator:
         delivery_id: str,
         actor_username: str,
         comment: str | None,
+        harbor_profile_id: str | None,
     ) -> None:
         context.transition(OperationStatus.VALIDATING)
         try:
@@ -335,6 +348,7 @@ class ExportOrchestrator:
                         artifact_id=artifact_id,
                         operation_workspace=workspace,
                         helm_root=helm_root,
+                        harbor_profile_id=harbor_profile_id,
                     )
                 except (SkopeoServiceError, HelmServiceError) as exc:
                     context.set_artifact_status(
@@ -357,7 +371,7 @@ class ExportOrchestrator:
             context.transition(OperationStatus.PACKAGING)
             source = BundleSource(
                 contour="SOURCE",
-                harbor=self._effective_harbor_url(),
+                harbor=self._effective_harbor_url(harbor_profile_id),
                 portal_version=self.settings.app_version,
             )
             try:
@@ -571,6 +585,7 @@ class ExportOrchestrator:
         artifact_id: int,
         operation_workspace: Path,
         helm_root: Path,
+        harbor_profile_id: str | None = None,
     ) -> PackageArtifactInput:
         """Compatibility hook; artifact materialization lives in the collaborator."""
         return await self.artifact_materializer.materialize(
@@ -578,21 +593,22 @@ class ExportOrchestrator:
             artifact_id=artifact_id,
             operation_workspace=operation_workspace,
             helm_root=helm_root,
+            harbor_profile_id=harbor_profile_id,
         )
 
-    def _build_harbor_client(self) -> HarborClient:
+    def _build_harbor_client(self, profile_id: str | None = None) -> HarborClient:
         if self.harbor_client_factory is not None:
             return self.harbor_client_factory()
         try:
             with self.session_factory() as session:
-                return HarborSettingsService(session, self.settings).build_client()
+                return HarborSettingsService(session, self.settings).build_client(profile_id)
         except HarborSettingsError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
 
-    def _effective_harbor_url(self) -> str:
+    def _effective_harbor_url(self, profile_id: str | None = None) -> str:
         try:
             with self.session_factory() as session:
-                resolved = HarborSettingsService(session, self.settings).resolve()
+                resolved = HarborSettingsService(session, self.settings).resolve(profile_id)
         except HarborSettingsError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
         if not resolved.url:
@@ -601,6 +617,13 @@ class ExportOrchestrator:
                 "Локальный Harbor не настроен",
             )
         return resolved.url
+
+    def _harbor_profile_snapshot(self, profile_id: str | None):
+        try:
+            with self.session_factory() as session:
+                return HarborSettingsService(session, self.settings).profile_snapshot(profile_id)
+        except HarborSettingsError as exc:
+            raise ExportOrchestrationError(exc.code, exc.message) from exc
 
     def _package_service(self) -> BundlePackageService:
         if self.package_factory is not None:
