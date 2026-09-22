@@ -73,6 +73,7 @@ def _profile_response(
         credential_configured=service.credential_configured(profile),
         custom_ca_configured=service.custom_ca_configured(profile),
         is_default=profile.is_default,
+        is_active=profile.id == service.active_profile_id(),
     )
 
 
@@ -84,6 +85,9 @@ def _profile_error(exc: HarborSettingsError) -> HTTPException:
         "harbor_profile_default_protected",
         "harbor_profile_default_managed_elsewhere",
         "harbor_profile_disabled",
+        "harbor_profile_active_protected",
+        "harbor_profile_busy",
+        "harbor_active_profile_invalid",
     }:
         return _api_error(status.HTTP_409_CONFLICT, exc.code, exc.message)
     return _api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code, exc.message)
@@ -256,6 +260,33 @@ def create_harbor_profile(
     _audit_profile(session, admin, "harbor.profile.created", profile=profile)
     session.commit()
     return _profile_response(service, profile)
+
+
+@router.put("/profiles/{profile_id}/activate", response_model=HarborProfileResponse)
+def activate_harbor_profile(
+    profile_id: str,
+    request: Request,
+    admin: AdminDep,
+    session: SessionDep,
+) -> HarborProfileResponse:
+    service = HarborProfileService(session, request.app.state.settings)
+    try:
+        previous, active = service.activate(profile_id)
+    except HarborSettingsError as exc:
+        raise _profile_error(exc) from exc
+    if previous.id != active.id:
+        AuditEventRepository(session).create(
+            actor=admin,
+            event_type="harbor.profile.activated",
+            metadata={
+                "previous_profile_id": previous.id,
+                "previous_profile_name": previous.name,
+                "active_profile_id": active.id,
+                "active_profile_name": active.name,
+            },
+        )
+    session.commit()
+    return _profile_response(service, active)
 
 
 @router.patch("/profiles/{profile_id}", response_model=HarborProfileResponse)

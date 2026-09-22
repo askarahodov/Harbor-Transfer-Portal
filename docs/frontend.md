@@ -36,6 +36,14 @@ Sidebar также contour-aware: SOURCE operator/admin видит «Отпра�
 
 Для диагностики фактически запущенной сборки frontend image передаёт свой Git `VCS_REF` через offline-safe `runtime-config.js`. Верхняя панель показывает product version из backend health и короткий `UI <revision>` из самого frontend image. Это позволяет отличить новый backend от старого browser/frontend bundle при одинаковом product version. Для source checkout `make up` всегда выполняет build + force recreate текущего revision.
 
+## Harbor profiles в Settings
+
+Admin Settings содержит отдельную широкую карточку **Harbor profiles**. Она загружает `GET /api/settings/harbor/profiles`, показывает active profile и предоставляет компактный selector enabled profiles. `PUT /api/settings/harbor/profiles/{profile_id}/activate` меняет active profile только если backend подтверждает safe switch; при незавершённых transfer operations UI показывает server-side conflict и не подменяет его локальным состоянием.
+
+Новый profile создаётся через тот же экран с name/URL/username/TLS и optional credential. Credential отправляется отдельным request и после submission очищается из frontend state. Connection test выполняется per-profile. Legacy connection form ниже явно подписана **Default Harbor profile** и остаётся bootstrap/backward-compatible настройкой default profile.
+
+После смены active profile Settings заново проверяет Harbor readiness. Export/import не принимают profile id от браузера: они используют server-side authoritative active profile, поэтому frontend не может произвольно подменить registry для отдельной операции.
+
 ## SOURCE export wizard
 
 `ExportView.vue` реализует пользовательский flow задачи #18 поверх backend orchestration #17. State machine находится в `stores/exportWizard.ts`, typed API contract — в `api/exports.ts`.
