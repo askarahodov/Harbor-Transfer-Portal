@@ -247,6 +247,9 @@ class OperationManager:
         initial_status: OperationStatus | None = None,
         comment: str | None = None,
         delivery_id: str | None = None,
+        harbor_profile_id: str | None = None,
+        harbor_profile_name: str | None = None,
+        harbor_url: str | None = None,
         artifacts: Sequence[OperationArtifactSpec] = (),
     ) -> int:
         status = initial_status or (
@@ -263,6 +266,9 @@ class OperationManager:
                 actor_user_id=actor_user_id,
                 actor_username=actor_username,
                 comment=comment,
+                harbor_profile_id=harbor_profile_id,
+                harbor_profile_name=harbor_profile_name,
+                harbor_url=harbor_url,
                 progress_current=0,
                 progress_total=len(artifacts),
                 total_artifacts=len(artifacts),
@@ -300,6 +306,9 @@ class OperationManager:
         initial_status: OperationStatus | None = None,
         comment: str | None = None,
         delivery_id: str | None = None,
+        harbor_profile_id: str | None = None,
+        harbor_profile_name: str | None = None,
+        harbor_url: str | None = None,
         artifacts: Sequence[OperationArtifactSpec] = (),
     ) -> OperationHandle:
         operation_id = self.create_operation(
@@ -309,6 +318,9 @@ class OperationManager:
             initial_status=initial_status,
             comment=comment,
             delivery_id=delivery_id,
+            harbor_profile_id=harbor_profile_id,
+            harbor_profile_name=harbor_profile_name,
+            harbor_url=harbor_url,
             artifacts=artifacts,
         )
         self.submit(operation_id, worker)
