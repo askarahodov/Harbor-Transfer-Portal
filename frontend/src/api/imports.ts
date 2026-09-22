@@ -202,6 +202,7 @@ export async function uploadImportBundle(
   file: File,
   onProgress?: (loaded: number, total: number | null) => void,
   physicalHandoff?: Pick<BrowserPhysicalHandoffFiles, 'sidecar' | 'handoff'>,
+  harborProfileId?: string | null,
 ): Promise<ImportIntake> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/gzip',
@@ -213,6 +214,7 @@ export async function uploadImportBundle(
   }
   const response = await apiClient.post<ImportIntake>('/imports/upload', file, {
     headers,
+    params: harborProfileId ? { harbor_profile_id: harborProfileId } : undefined,
     timeout: 0,
     onUploadProgress: (event: AxiosProgressEvent) => {
       onProgress?.(event.loaded, event.total ?? null)
@@ -221,8 +223,14 @@ export async function uploadImportBundle(
   return response.data
 }
 
-export async function discoverImportBundles(): Promise<ImportDiscovery> {
-  const response = await apiClient.post<ImportDiscovery>('/imports/discover')
+export async function discoverImportBundles(
+  harborProfileId?: string | null,
+): Promise<ImportDiscovery> {
+  const response = await apiClient.post<ImportDiscovery>(
+    '/imports/discover',
+    undefined,
+    { params: harborProfileId ? { harbor_profile_id: harborProfileId } : undefined },
+  )
   return response.data
 }
 
