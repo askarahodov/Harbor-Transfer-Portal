@@ -180,6 +180,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             )
 
         profile_token = self._harbor_profile_context.set(operation.harbor_profile_id)
+        session_context = None
         try:
             session_context = self.session_factory()
             session = session_context.__enter__()
@@ -204,7 +205,8 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 for item in preview.artifacts
             ]
         finally:
-            session_context.__exit__(None, None, None)
+            if session_context is not None:
+                session_context.__exit__(None, None, None)
             self._harbor_profile_context.reset(profile_token)
 
         collisions = colliding_artifact_indices(planned)
