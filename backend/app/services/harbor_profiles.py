@@ -8,12 +8,18 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.db.models import Operation
 from app.db.repositories import SettingMetadataRepository
 from app.services.harbor_client import HarborClient
-from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
+from app.services.harbor_settings import (
+    EffectiveHarborSettings,
+    HarborSettingsError,
+    HarborSettingsService,
+)
 
 PROFILES_KEY = "harbor.profiles.v1"
 DEFAULT_PROFILE_ID = "default"
@@ -52,6 +58,55 @@ class HarborProfileService:
             if profile.id == normalized:
                 return profile
         raise HarborSettingsError("harbor_profile_not_found", "Профиль Harbor не найден")
+
+    def selectable_profiles(self) -> list[HarborProfile]:
+        return [profile for profile in self.list_profiles() if profile.enabled and profile.url]
+
+    def resolve(self, profile_id: str) -> EffectiveHarborSettings:
+        if profile_id == DEFAULT_PROFILE_ID:
+            resolved = self.legacy.resolve()
+            if not resolved.url:
+                raise HarborSettingsError("harbor_not_configured", "Локальный Harbor не настроен")
+            return resolved
+
+        profile = self.get(profile_id)
+        if not profile.enabled:
+            raise HarborSettingsError("harbor_profile_disabled", "Профиль Harbor отключён")
+        if not profile.url:
+            raise HarborSettingsError("harbor_not_configured", "URL профиля Harbor не настроен")
+        password = self._read_secret(self._credential_path(profile))
+        ca_file = self._ca_path(profile) if profile.verify_tls and self._ca_path(profile).is_file() else None
+        return EffectiveHarborSettings(
+            url=profile.url,
+            username=profile.username,
+            password=password,
+            verify_tls=profile.verify_tls,
+            ca_file=ca_file,
+        )
+
+    def operation_snapshot(self, profile_id: str) -> HarborProfile:
+        profile = self.get(profile_id)
+        if not profile.enabled or not profile.url:
+            raise HarborSettingsError(
+                "harbor_profile_disabled",
+                "Профиль Harbor недоступен для новой операции",
+            )
+        return profile
+
+    def assert_operation_binding(self, operation: Operation) -> HarborProfile:
+        profile_id = operation.harbor_profile_id or DEFAULT_PROFILE_ID
+        profile = self.operation_snapshot(profile_id)
+        if operation.harbor_profile_id is None:
+            return profile
+        if (
+            operation.harbor_profile_name != profile.name
+            or operation.harbor_profile_url != profile.url
+        ):
+            raise HarborSettingsError(
+                "harbor_profile_changed",
+                "Harbor profile изменился после создания операции",
+            )
+        return profile
 
     def create(
         self,
@@ -129,6 +184,14 @@ class HarborProfileService:
             )
         profiles = self._load_additional()
         current = self.get(profile_id)
+        referenced = self.session.scalar(
+            select(Operation.id).where(Operation.harbor_profile_id == current.id).limit(1)
+        )
+        if referenced is not None:
+            raise HarborSettingsError(
+                "harbor_profile_in_use",
+                "Профиль Harbor используется сохранёнными операциями и не может быть удалён",
+            )
         self._save_additional([item for item in profiles if item.id != current.id])
         self._credential_path(current).unlink(missing_ok=True)
         self._ca_path(current).unlink(missing_ok=True)
@@ -139,22 +202,14 @@ class HarborProfileService:
             pass
 
     def build_client(self, profile_id: str) -> HarborClient:
-        if profile_id == DEFAULT_PROFILE_ID:
-            return self.legacy.build_client()
-
-        profile = self.get(profile_id)
-        if not profile.enabled:
-            raise HarborSettingsError("harbor_profile_disabled", "Профиль Harbor отключён")
-        credential = self._read_secret(self._credential_path(profile))
-        profile_ca = self._ca_path(profile)
-        ca_file = profile_ca if profile.verify_tls and profile_ca.is_file() else None
-        verify: bool | str = profile.verify_tls
-        if ca_file is not None:
-            verify = str(ca_file)
+        resolved = self.resolve(profile_id)
+        verify: bool | str = resolved.verify_tls
+        if resolved.verify_tls and resolved.ca_file is not None:
+            verify = str(resolved.ca_file)
         return HarborClient(
-            base_url=profile.url,
-            username=profile.username,
-            password=credential,
+            base_url=resolved.url or "",
+            username=resolved.username,
+            password=resolved.password,
             verify=verify,
             connect_timeout=self.settings.harbor_connect_timeout_seconds,
             read_timeout=self.settings.harbor_read_timeout_seconds,
