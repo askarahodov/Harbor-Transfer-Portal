@@ -368,6 +368,22 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     preview.value = null
   }
 
+  function addArtifact(artifact: HarborArtifact, reference: string): void {
+    if (artifact.kind === 'unknown-oci') return
+    const selection: SelectedExportArtifact = {
+      kind: artifact.kind,
+      project: artifact.project,
+      repository: artifact.repository,
+      reference,
+      digest: artifact.digest,
+      size_bytes: artifact.size,
+    }
+    const key = selectedKey(selection)
+    if (selected.value[key]?.reference === reference) return
+    selected.value = { ...selected.value, [key]: selection }
+    preview.value = null
+  }
+
   function requestPayload() {
     return {
       artifacts: selectedArtifacts.value.map((artifact) => ({
@@ -593,6 +609,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     referencesFor,
     isSelected,
     toggleArtifact,
+    addArtifact,
     preparePreview,
     backToSelection,
     start,
