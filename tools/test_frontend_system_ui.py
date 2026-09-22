@@ -89,7 +89,7 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
 
         self.assertGreaterEqual(compose.count("RELEASE_VERSION: ${PORTAL_VERSION:-dev}"), 2)
         self.assertGreaterEqual(compose.count("VCS_REF: ${PORTAL_VCS_REF:-unknown}"), 2)
-        self.assertIn("PORTAL_VCS_REF=$(git rev-parse --verify HEAD)", makefile)
+        self.assertIn("PORTAL_VCS_REF=$$(git rev-parse --verify HEAD)", makefile)
         self.assertIn("--build --force-recreate", makefile)
         self.assertIn("ENV PORTAL_FRONTEND_REVISION=${VCS_REF}", dockerfile)
         self.assertIn("revision: '$revision'", entrypoint)
