@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import cast
 
 import pytest
@@ -86,7 +87,6 @@ def classifier(
     )
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("state", "expected"),
     [
@@ -96,7 +96,7 @@ def classifier(
         (TargetState.PRESENT, ImportPreviewState.UNKNOWN),
     ],
 )
-async def test_classifies_container_target_state(
+def test_classifies_container_target_state(
     state: TargetState,
     expected: ImportPreviewState,
 ) -> None:
@@ -105,7 +105,7 @@ async def test_classifies_container_target_state(
         HelmTargetInspection(HelmTargetState.ABSENT, None),
     )
 
-    [result] = await service.classify([image()])
+    [result] = asyncio.run(service.classify([image()]))
 
     assert result.index == 0
     assert result.classification is expected
@@ -115,7 +115,6 @@ async def test_classifies_container_target_state(
     assert result.payload_size == 123
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("state", "expected"),
     [
@@ -125,7 +124,7 @@ async def test_classifies_container_target_state(
         (HelmTargetState.PRESENT, ImportPreviewState.UNKNOWN),
     ],
 )
-async def test_classifies_helm_target_state(
+def test_classifies_helm_target_state(
     state: HelmTargetState,
     expected: ImportPreviewState,
 ) -> None:
@@ -134,7 +133,7 @@ async def test_classifies_helm_target_state(
         HelmTargetInspection(state, OTHER_DIGEST if state is not HelmTargetState.ABSENT else None),
     )
 
-    [result] = await service.classify([chart()])
+    [result] = asyncio.run(service.classify([chart()]))
 
     assert result.index == 0
     assert result.classification is expected
@@ -145,14 +144,13 @@ async def test_classifies_helm_target_state(
     assert result.payload_size == 456
 
 
-@pytest.mark.asyncio
-async def test_inspection_errors_are_fail_closed_per_artifact_and_do_not_abort_manifest() -> None:
+def test_inspection_errors_are_fail_closed_per_artifact_and_do_not_abort_manifest() -> None:
     service = classifier(
         SkopeoServiceError("skopeo_inspect_failed", "image inspection failed"),
         HelmServiceError("helm_inspect_failed", "chart inspection failed"),
     )
 
-    results = await service.classify([image(), chart()])
+    results = asyncio.run(service.classify([image(), chart()]))
 
     assert [item.index for item in results] == [0, 1]
     assert [item.classification for item in results] == [
