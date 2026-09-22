@@ -218,6 +218,7 @@ def _target_environment(
         _env_file=None,
         portal_contour=contour,
         database_url=f"sqlite:///{tmp_path / 'target.db'}",
+        harbor_url="https://target.harbor.local",
         operation_workspace_root=data / "tmp" / "operations",
         operation_disk_reserve_bytes=0,
         skopeo_payload_root=data,
