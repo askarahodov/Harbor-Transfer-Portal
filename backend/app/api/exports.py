@@ -73,6 +73,7 @@ def _export_error(exc: ExportOrchestrationError) -> HTTPException:
         "signing_key_invalid": status.HTTP_503_SERVICE_UNAVAILABLE,
         "signing_key_permissions": status.HTTP_503_SERVICE_UNAVAILABLE,
         "signing_key_unavailable": status.HTTP_503_SERVICE_UNAVAILABLE,
+        "export_bundle_expired": status.HTTP_410_GONE,
         "export_bundle_missing": status.HTTP_500_INTERNAL_SERVER_ERROR,
         "export_bundle_metadata_invalid": status.HTTP_500_INTERNAL_SERVER_ERROR,
         "export_bundle_path_invalid": status.HTTP_500_INTERNAL_SERVER_ERROR,
