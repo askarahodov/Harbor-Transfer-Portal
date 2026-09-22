@@ -62,6 +62,22 @@ function shortDigest(value: string | null | undefined): string {
   return formatShortDigest(value, { maxLength: 24, headLength: 16, tailLength: 8 })
 }
 
+function harborProfileLabel(item: {
+  harbor_profile_name?: string | null
+  harbor_profile_url?: string | null
+}): string {
+  if (!item.harbor_profile_name && !item.harbor_profile_url) return 'legacy / нет snapshot'
+  let host = item.harbor_profile_url ?? ''
+  if (host) {
+    try {
+      host = new URL(host).host
+    } catch {
+      // Persisted URL is server-owned evidence; display it as-is if parsing fails.
+    }
+  }
+  return [item.harbor_profile_name, host].filter(Boolean).join(' · ')
+}
+
 function sourceArtifactLabel(item: OperationArtifact): string {
   const repository = item.source_repository ?? item.repository
   const reference = item.source_reference ?? item.source_version ?? item.reference ?? item.version
@@ -257,7 +273,7 @@ onMounted(() => history.load(true))
         <table>
           <thead>
             <tr>
-              <th>ID</th><th>Тип / статус</th><th>Delivery</th><th>Actor</th><th>Создано</th><th>Artifacts</th><th>Результат</th><th>Действия</th>
+              <th>ID</th><th>Тип / статус</th><th>Delivery</th><th>Harbor</th><th>Actor</th><th>Создано</th><th>Artifacts</th><th>Результат</th><th>Действия</th>
             </tr>
           </thead>
           <tbody>
@@ -265,6 +281,9 @@ onMounted(() => history.load(true))
               <td><button class="link-button" type="button" @click="openDetail(item)">#{{ item.id }}</button></td>
               <td><strong>{{ item.type }}</strong><br><span :class="statusClass(item.status)">{{ item.status }}</span></td>
               <td>{{ item.delivery_id ?? '—' }}</td>
+              <td class="harbor-evidence" :title="item.harbor_profile_url ?? undefined">
+                {{ harborProfileLabel(item) }}
+              </td>
               <td>{{ item.actor_username }}</td>
               <td>{{ formatDate(item.created_at) }}</td>
               <td>{{ item.total_artifacts }}</td>
@@ -353,6 +372,8 @@ onMounted(() => history.load(true))
           <dl class="metadata-grid">
             <div><dt>Actor</dt><dd>{{ history.detail.actor_username }}</dd></div>
             <div><dt>Delivery ID</dt><dd>{{ history.detail.delivery_id ?? '—' }}</dd></div>
+            <div><dt>Harbor profile</dt><dd>{{ harborProfileLabel(history.detail) }}</dd></div>
+            <div v-if="history.detail.harbor_profile_url"><dt>Harbor URL snapshot</dt><dd>{{ history.detail.harbor_profile_url }}</dd></div>
             <div><dt>Начало</dt><dd>{{ formatDate(history.detail.started_at) }}</dd></div>
             <div><dt>Завершение</dt><dd>{{ formatDate(history.detail.finished_at) }}</dd></div>
             <div v-if="history.detail.retry_of_operation_id"><dt>Retry of</dt><dd>#{{ history.detail.retry_of_operation_id }}</dd></div>
@@ -548,6 +569,7 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .lifecycle-card { display: grid; gap: var(--space-3); margin: 0 0 var(--space-4); padding: var(--space-4); border: 1px solid var(--color-warning-text); border-radius: var(--radius-md); background: var(--color-warning-surface); }
 .lifecycle-card h3, .lifecycle-card p { margin: 0; }
 .muted { color: var(--color-text-muted); }
+.harbor-evidence { min-width: 160px; max-width: 260px; overflow-wrap: anywhere; }
 .metadata-grid dt { color: var(--color-text-muted); font-size: 12px; }
 .metadata-grid dd { margin: 4px 0 0; overflow-wrap: anywhere; font-weight: 600; }
 .bundle-card, .receipt-card, .report-card, .retry-card { margin-top: var(--space-4); margin-bottom: var(--space-4); }
