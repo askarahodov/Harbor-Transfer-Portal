@@ -373,7 +373,7 @@ onMounted(() => {
         </ul>
       </section>
 
-      <form class="card" @submit.prevent="saveSettings">
+      <form class="card harbor-default-form" @submit.prevent="saveSettings">
         <h2>Default Harbor profile</h2>
         <p class="status">Bootstrap/default профиль для обратной совместимости. Активный профиль выбирается выше.</p>
         <label for="harbor-url">URL локального Harbor</label>
