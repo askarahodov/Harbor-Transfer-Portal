@@ -23,6 +23,7 @@ import {
 import HarborProjectCreationPanel from '@/components/HarborProjectCreationPanel.vue'
 import ImportDestinationMapping from '@/components/ImportDestinationMapping.vue'
 import StatePlaceholder from '@/components/StatePlaceholder.vue'
+import WizardStepper from '@/components/WizardStepper.vue'
 import {
   formatBytes,
   formatDateTimeMedium as formatDate,
@@ -242,16 +243,7 @@ onBeforeUnmount(() => {
     </div>
 
     <template v-else>
-      <ol class="steps" aria-label="Этапы импорта">
-        <li
-          v-for="item in steps"
-          :key="item.id"
-          :class="['step', { 'step--active': wizard.step === item.id, 'step--done': wizard.step > item.id }]"
-        >
-          <span class="step__number">{{ item.id }}</span>
-          <span>{{ item.label }}</span>
-        </li>
-      </ol>
+      <WizardStepper :steps="steps" :current-step="wizard.step" aria-label="Этапы импорта" />
 
       <div v-if="wizard.error" class="notice notice--danger" role="alert">
         <AlertTriangle :size="20" aria-hidden="true" />
@@ -671,11 +663,6 @@ onBeforeUnmount(() => {
 .eyebrow { margin: 0 0 var(--space-1); color: var(--color-action); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 h1, h2, h3, p { margin-top: 0; }
 .lead { max-width: 850px; color: var(--color-text-muted); line-height: 1.6; }
-.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
-.step { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-muted); background: var(--color-surface); }
-.step--active { border-color: var(--color-action); color: var(--color-text); box-shadow: var(--shadow-sm); }
-.step--done { border-color: var(--color-positive-accent); }
-.step__number { display: grid; place-items: center; min-width: 28px; height: 28px; border-radius: 50%; background: var(--color-surface-subtle); font-weight: 700; }
 .panel { display: grid; gap: var(--space-6); padding: var(--space-6); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); }
 .panel__header, .verification-card__title { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
 .intake-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
@@ -739,7 +726,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .intake-grid, .metadata-grid, .metadata-grid--wide { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 640px) {
-  .steps, .intake-grid, .metadata-grid, .metadata-grid--wide { grid-template-columns: 1fr; }
+  .intake-grid, .metadata-grid, .metadata-grid--wide { grid-template-columns: 1fr; }
   .verification-row { grid-template-columns: auto 1fr; }
   .verification-row strong { grid-column: 2; }
   .panel { padding: var(--space-4); }

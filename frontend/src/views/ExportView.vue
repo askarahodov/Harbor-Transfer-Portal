@@ -23,6 +23,7 @@ import {
 } from '@/api/exports'
 import ExportArtifactSelector from '@/components/ExportArtifactSelector.vue'
 import SearchCombobox from '@/components/SearchCombobox.vue'
+import WizardStepper from '@/components/WizardStepper.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
 import { useAuthStore } from '@/stores/auth'
 import { useExportWizardStore } from '@/stores/exportWizard'
@@ -311,17 +312,7 @@ onBeforeUnmount(() => {
     </div>
 
     <template v-else>
-      <ol class="stepper" aria-label="Этапы экспорта">
-        <li
-          v-for="item in steps"
-          :key="item.id"
-          :class="['stepper__item', { 'stepper__item--active': wizard.step === item.id, 'stepper__item--done': wizard.step > item.id }]"
-          :aria-current="wizard.step === item.id ? 'step' : undefined"
-        >
-          <span class="stepper__number">{{ item.id }}</span>
-          <span>{{ item.label }}</span>
-        </li>
-      </ol>
+      <WizardStepper :steps="steps" :current-step="wizard.step" aria-label="Этапы экспорта" />
 
       <div v-if="wizard.error" class="notice notice--danger" role="alert">
         <AlertTriangle :size="22" aria-hidden="true" />
@@ -663,11 +654,6 @@ h3 { margin-bottom: var(--space-2); font-size: 16px; }
 .lead { max-width: 760px; margin-bottom: 0; color: var(--color-text-muted); line-height: 1.6; }
 .muted, .item-meta, small { color: var(--color-text-muted); }
 .connection-chip { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-full); background: var(--color-success-surface); color: var(--color-success-text); white-space: nowrap; }
-.stepper { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2); padding: 0; margin: 0; list-style: none; }
-.stepper__item { display: flex; align-items: center; gap: var(--space-2); min-height: 48px; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-muted); background: var(--color-surface); }
-.stepper__item--active { border-color: var(--color-action); color: var(--color-text); box-shadow: var(--shadow-sm); }
-.stepper__item--done { border-color: var(--color-success-text); color: var(--color-success-text); background: var(--color-success-surface); }
-.stepper__number { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--color-surface-subtle); font-weight: 800; }
 .wizard-card { display: grid; gap: var(--space-6); padding: var(--space-6); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); }
 .selection-summary { padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--color-info-surface); color: var(--color-info-text); }
 .selected-artifacts { display: grid; gap: var(--space-2); }
@@ -768,7 +754,6 @@ progress { width: 100%; height: 12px; accent-color: var(--color-action); }
   .artifact-result { justify-items: start; text-align: left; }
 }
 @media (max-width: 620px) {
-  .stepper { grid-template-columns: 1fr 1fr; }
   .browser-grid, .identity-grid, .operation-summary, .ready-grid, .compact-selector { grid-template-columns: 1fr; }
   .compact-field--search { grid-column: auto; }
   .wizard-card { padding: var(--space-4); }
