@@ -47,7 +47,7 @@ Backend не доверяет client-supplied `X-Forwarded-Proto` как док�
 
 ### 3.2. Portal ↔ Local Harbor
 
-Граница local credential и TLS trust. Каждый экземпляр знает только один effective local Harbor configuration.
+Граница local credential и TLS trust. Экземпляр может хранить несколько Harbor profiles, но в каждый момент имеет ровно один server-side authoritative active profile. Browse/Skopeo/Helm/export/import используют только его; browser не передаёт произвольный profile id в transfer API.
 
 ### 3.3. Backend ↔ Skopeo / Helm
 
@@ -138,6 +138,8 @@ HARBOR_MANAGED_SECRET_FILE=./data/secrets/harbor-password
 Environment credential сохраняется для bootstrap compatibility, но не является предпочтительным постоянным production storage для новой установки.
 
 API сообщает только, настроен ли credential, и не возвращает его значение или источник.
+
+Дополнительные Harbor profiles имеют изолированные credential/CA files под server-generated profile id. Active profile нельзя disable/delete. Его переключение является admin-only audit event и отклоняется при незавершённых export/import operations, чтобы preview и mutation не оказались направлены в разные registries.
 
 ### URL validation
 
