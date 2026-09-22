@@ -2,7 +2,7 @@
 import { Box, Search, ShipWheel } from 'lucide-vue-next'
 
 import type { HarborArtifact } from '@/api/exports'
-import StatePlaceholder from '@/components/StatePlaceholder.vue'
+import StatePlaceholder from './StatePlaceholder.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
 
 defineProps<{
