@@ -40,14 +40,9 @@ Sidebar также contour-aware: SOURCE operator/admin видит «Отпра�
 
 ### Шаг 1 — выбор
 
-Wizard работает только с реальными Harbor browse endpoints:
+Wizard работает только с реальными Harbor browse endpoints. Компактный каскадный selector использует reusable searchable comboboxes **Project → Repository → Version/Tag**: repository недоступен до выбора project, а version/tag — до repository. Смена верхнего уровня сбрасывает зависимый browse state. После выбора точной reference UI показывает kind, size и digest; оператор явно нажимает **«Добавить»**. Добавленные artifacts отображаются отдельным списком и могут быть удалены до preview.
 
-1. выбирается project;
-2. выбирается repository;
-3. показываются artifacts и их явные references;
-4. operator выбирает конкретный image tag/digest либо Helm version/tag.
-
-Selection хранит `kind`, `project`, `repository`, `reference` и pinned `digest`. Выбор не теряется при search/pagination. `unknown-oci` и Helm artifact без явной версии выбрать нельзя. UI показывает известный размер и отдельно отмечает artifacts с неизвестным размером.
+Selection хранит `kind`, `project`, `repository`, `reference` и pinned `digest`; immutable identity строится по kind/project/repository/digest, поэтому alias одного digest не создаёт дубликат transfer item. Выбор не теряется при search/pagination. `unknown-oci` не selectable и остаётся диагностическим. Для untagged container image используется digest fallback; Helm artifact без явной версии выбрать нельзя.
 
 ### Шаг 2 — preview
 
@@ -73,7 +68,7 @@ Ready screen появляется только после terminal `COMPLETED` �
 <sha256>  <archive-name>
 ```
 
-Оператору явно предлагается перенести и `.htp.tar.gz`, и `.sha256`. SHA-256 используется для integrity/readiness и не подменяет Ed25519 signature внутри Bundle Protocol v1.
+Для browser physical handoff ready flow формирует комплект одной delivery: `.htp.tar.gz`, `.sha256` и signed `.htp-handoff.json`. Handoff связывает фактический archive/sidecar с SOURCE identity и проверяется TARGET до Bundle v1 preview. SHA-256 используется для integrity/readiness и не подменяет Ed25519 signature внутри Bundle Protocol v1.
 
 ## TARGET import wizard
 
@@ -85,11 +80,12 @@ Ready screen появляется только после terminal `COMPLETED` �
 
 Поддерживаются два backend intake path.
 
-**Browser upload**:
+**Browser physical handoff**:
 
-- оператор выбирает `.htp.tar.gz` через обычный file input или drag&drop;
-- стандартный file input остаётся keyboard-accessible альтернативой drag&drop;
-- файл передаётся в `POST /api/imports/upload` как raw body, без multipart и без чтения всего bundle в JavaScript memory;
+- оператор выбирает комплект одной delivery: `.htp.tar.gz`, соответствующий `.sha256` и signed `.htp-handoff.json`;
+- стандартные file inputs остаются keyboard-accessible альтернативой drag&drop;
+- большой archive передаётся как raw stream без чтения всего bundle в JavaScript memory, а sidecar/handoff привязываются к той же intake operation;
+- TARGET проверяет signed handoff до отображения Bundle v1 preview;
 - frontend показывает локальный filename, size и browser upload progress;
 - arbitrarily large browser upload не обещается.
 
@@ -207,8 +203,8 @@ frontend/src/
 - TARGET intake/preview/import backend + wizard — реализованы и используют реальные APIs;
 - admin user-management browser flow `/users` — реализован поверх admin-only `/api/users`;
 - обе стороны восстанавливают persistent operation после reload;
-- history/audit/report UX развивается отдельно;
-- полный cross-contour SOURCE → physical transfer → TARGET acceptance остаётся задачей финального E2E/release этапа.
+- history/audit/report UX реализован и покрывает current persisted operations/reports;
+- isolated SOURCE → physical transfer → TARGET acceptance и clean-host offline qualification входят в текущий CI/release gate.
 
 ## Локальная разработка и проверки
 
