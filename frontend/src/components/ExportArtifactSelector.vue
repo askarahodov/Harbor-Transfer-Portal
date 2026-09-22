@@ -114,7 +114,8 @@ function addCandidate(): void {
     />
 
     <div v-if="unsupported.length" class="artifact-selector__unsupported" role="status">
-      <strong>OCI (не поддерживается) · Не поддерживается export v1</strong>
+      <strong>Неподдерживаемые OCI artifacts</strong>
+      <span>OCI (не поддерживается) · Не поддерживается export v1</span>
       <span v-for="artifact in unsupported" :key="artifact.digest">
         {{ shortDigest(artifact.digest) }}
         <template v-if="referencesFor(artifact).length"> · {{ referencesFor(artifact).join(', ') }}</template>
