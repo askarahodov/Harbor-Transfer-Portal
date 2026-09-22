@@ -1,66 +1,134 @@
 # Harbor profiles
 
-**Статус:** управление несколькими profiles и installation-wide active profile реализовано;
-immutable per-operation profile binding остаётся отдельным следующим slice.
+**Статус:** multi-Harbor backend, immutable operation binding и explicit browser workflow
+selection реализованы. Installation-wide active profile сохранён только как legacy fallback.
 
-Harbor Transfer Portal поддерживает backward-compatible default Harbor profile и
-дополнительные именованные profiles. Admin управляет ими через **Настройки → Harbor
-profiles**.
+Harbor Transfer Portal может хранить несколько именованных local Harbor profiles. Admin
+управляет profile metadata/secrets в **Настройки**, а operator/admin выбирает конкретный
+Harbor непосредственно в SOURCE Export или TARGET Import.
 
-## Текущий contract :id=current-contract
+## Текущий end-to-end contract :id=current-contract
+
+Для нового browser workflow действует следующая схема:
+
+```text
+GET /api/harbor/profiles
+  → пользователь выбирает enabled profile
+  → browse/connection получают profile_id
+  → export preview/start или import intake получают выбранный profile
+  → backend сохраняет immutable id/name/url snapshot в Operation
+  → все дальнейшие Harbor actions используют operation-bound profile
+  → History показывает safe profile evidence
+```
 
 Реализовано:
 
-- profile `default`, представляющий существующую single-Harbor configuration;
+- backward-compatible profile `default`;
 - дополнительные persistent profiles с отдельными server-side credential/CA files;
-- admin-only create/update/delete/list/test API;
-- выбор одного authoritative **active profile** для installation;
-- selector active profile в Settings;
-- audit events без credential/CA content;
-- защита default/active profile от unsafe mutations;
-- блокировка смены active profile при blocking transfer operations.
+- admin-only create/update/delete/test и secret-management API;
+- safe selectable metadata endpoint `GET /api/harbor/profiles`;
+- explicit `profile_id` в Harbor browse/connection;
+- explicit `harbor_profile_id` в export preview/start;
+- explicit profile binding на import upload/discovery и destination planning;
+- immutable `harbor_profile_id/name/url` snapshot в operation;
+- verification текущей profile identity против persisted snapshot перед mutation;
+- profile-aware Skopeo/Helm/destination validation;
+- History/operation API без credential/CA content;
+- блокировка unsafe mutation referenced profile;
+- запрет удаления profile, если он нужен persisted operation evidence;
+- session-local browser preference с восстановлением operation-bound profile после reload.
 
-Harbor browse и transfer services получают конфигурацию через
-`HarborSettingsService.resolve()/build_client()`, то есть используют server-side active
-profile. Browser не передаёт arbitrary registry URL или credential в export/import
-request.
+## SOURCE Export :id=source-export
 
-Export operation creation дополнительно проходит под общей profile boundary с activation:
-active profile нельзя переключить между preview/resolution и созданием blocking export
-operation.
+На шаге выбора SOURCE пользователь сначала выбирает Harbor profile. После этого project,
+repository, tag/version и connection status загружаются с query `profile_id`.
 
-## Текущая safety boundary :id=active-profile-safety
+При смене profile **до preview** frontend сбрасывает зависимые browse/search/selection
+данные. Это исключает смешивание artifact metadata, полученных из разных registries.
 
-Installation-wide active profile — промежуточный v1 contract, а не финальная multi-user
-модель.
+Preview и start отправляют тот же `harbor_profile_id`. При создании operation backend
+фиксирует:
 
-Backend запрещает activation другого profile, пока существуют non-terminal blocking
-operations. Mutation credential/CA/metadata active profile также блокируется в этот период.
-Это предотвращает обычный drift уже выполняющейся operation после ручного переключения
-profile.
+```text
+harbor_profile_id
+harbor_profile_name
+harbor_profile_url
+```
 
-Однако operation record пока не хранит immutable profile id/name/URL-host snapshot.
-Поэтому target architecture по-прежнему требует explicit operation binding, особенно для
-полного multi-user concurrency contract.
+После появления operation selector становится read-only. Worker не использует browser
+preference или текущий legacy fallback.
 
-## Почему целевой contract не должен оставаться global-active :id=target-contract
+## TARGET Import :id=target-import
 
-Один mutable installation-wide selection потенциально создаёт race между пользователями:
+TARGET profile выбирается **до intake**. Browser upload и incoming-directory discovery
+передают query `profile_id`, поэтому operation получает binding до первого TARGET Harbor
+inspection.
 
-1. operator A начинает workflow против Harbor A;
-2. operator B меняет selection на Harbor B;
-3. если operation не зафиксировала profile, дальнейшие шаги могут разрешить Harbor B.
+Destination plan содержит тот же `harbor_profile_id`. Rebind существующей operation на
+другой profile запрещён. TARGET inspect/import и destination validation работают против
+profile, связанного с operation.
 
-Текущие blocking guards уменьшают этот риск, но целевая модель должна быть сильнее:
+После reload frontend читает `harbor_profile_id` из operation response и восстанавливает
+selector как read-only.
 
-- browser/workspace передаёт explicit `profile_id`;
-- backend валидирует его server-side;
-- EXPORT/IMPORT operation сохраняет immutable profile snapshot;
-- orchestrator строит Harbor client из snapshot operation, а не из текущего global state;
-- history/audit показывает использованный profile;
-- редактирование/disable profile не меняет уже созданную operation.
+## Почему snapshot immutable :id=immutable-binding
 
-Этот следующий slice отслеживается существующим multi-Harbor epic.
+Global mutable selection недостаточна при нескольких пользователях:
+
+1. operator A выбирает Harbor A;
+2. operator B меняет административный fallback;
+3. уже созданная operation A не должна продолжить против Harbor B.
+
+Поэтому registry identity является частью persisted operation evidence. URL snapshot
+служит evidence, но credential/CA не копируются в operation. Для выполнения backend
+повторно разрешает profile по id и проверяет, что name/url не drift-нули относительно
+snapshot.
+
+Если profile identity изменилась после binding, новая mutation такой operation должна
+завершиться fail-closed с profile-binding error.
+
+## Legacy fallback :id=legacy-fallback
+
+Settings по-прежнему хранит один installation-wide active profile. В UI он называется
+**Legacy fallback Harbor**.
+
+Fallback нужен для:
+
+- старых API callers без explicit profile id;
+- совместимости существующих automation/integration;
+- административной диагностики во время перехода.
+
+Новые Export/Import browser workflows fallback не используют как источник selection:
+они всегда отправляют выбранный profile explicitly.
+
+Legacy fully-null operations, созданные до migration snapshot, остаются читаемыми и
+сохраняют прежнюю fallback semantics для совместимости.
+
+## Safe selectable API :id=selectable-api
+
+Authenticated пользователь получает только enabled safe metadata:
+
+```text
+GET /api/harbor/profiles
+```
+
+Response содержит:
+
+- stable id;
+- display name;
+- URL;
+- marker default profile.
+
+Username, credential, custom CA content и filesystem paths через этот endpoint не
+возвращаются.
+
+Harbor browse/connection принимает:
+
+```text
+?profile_id=<stable-id>
+```
+
+Неизвестный/disabled profile отклоняется backend.
 
 ## Admin API :id=admin-api
 
@@ -74,23 +142,34 @@ profile.
 
 Основные endpoints:
 
-- `GET /api/settings/harbor/profiles` — безопасный список profiles;
+- `GET /api/settings/harbor/profiles` — management list;
 - `POST /api/settings/harbor/profiles` — создать profile;
-- `PATCH /api/settings/harbor/profiles/{profile_id}` — изменить metadata;
+- `PATCH /api/settings/harbor/profiles/{profile_id}` — изменить metadata/enabled state;
 - `DELETE /api/settings/harbor/profiles/{profile_id}` — удалить дополнительный profile;
 - `PUT /api/settings/harbor/profiles/{profile_id}/credential` — заменить credential;
 - `PUT /api/settings/harbor/profiles/{profile_id}/ca` — установить custom CA;
 - `DELETE /api/settings/harbor/profiles/{profile_id}/ca` — удалить custom CA;
 - `POST /api/settings/harbor/profiles/{profile_id}/test` — проверить соединение;
-- `PUT /api/settings/harbor/profiles/{profile_id}/activate` — сделать enabled profile active.
+- `PUT /api/settings/harbor/profiles/{profile_id}/activate` — изменить legacy fallback.
 
-Credential никогда не возвращается API. Response сообщает только
-`credential_configured: true|false`. CA content и server-side paths также не возвращаются.
+Credential никогда не возвращается API. CA content и server-side paths также не
+возвращаются.
+
+## Mutation safety :id=mutation-safety
+
+Для profile, связанного с non-terminal operation, backend блокирует изменения, которые
+могли бы поменять execution identity, включая metadata/credential/CA mutation.
+
+Terminal operation сохраняет historical snapshot. Profile, на который существует
+persisted operation evidence, нельзя удалить, иначе history потеряла бы ссылку на
+authoritative profile identity.
+
+Legacy fallback можно менять независимо от новых pinned operations; он блокируется только
+legacy non-terminal rows, которые действительно ещё зависят от global fallback.
 
 ## Default profile и backward compatibility :id=default-profile
 
-Profile `default` строится из существующего `HarborSettingsService` и автоматически
-использует текущие:
+Profile `default` представляет прежнюю single-Harbor configuration и использует:
 
 - `HARBOR_URL` / persisted URL override;
 - username;
@@ -98,46 +177,74 @@ Profile `default` строится из существующего `HarborSettin
 - legacy managed credential;
 - legacy custom CA.
 
-Для существующей installation ручная миграция Harbor settings не требуется.
+Existing installation не требует ручного переноса settings. Migration добавляет nullable
+snapshot columns; старые operation rows остаются валидными.
 
-Default profile нельзя удалить или переименовать через profile API; legacy
-`/api/settings/harbor` остаётся его management contract.
+Default profile нельзя удалить через profile API. Legacy `/api/settings/harbor` остаётся
+его bootstrap/management contract.
 
-## Additional profile storage :id=storage
+## Storage и secrets :id=storage
 
-Без secret values profile metadata сохраняется в `setting_metadata`. Credential и CA
-дополнительного profile хранятся отдельно в server-side profile directory рядом с managed
-Harbor secrets.
+Profile metadata хранится server-side. Credential и custom CA дополнительных profiles
+хранятся в отдельных managed files.
 
-Profile metadata содержит:
+Operation snapshot содержит только safe evidence:
 
-- stable id;
+- id;
 - display name;
-- base URL;
-- username;
-- TLS verify flag;
-- enabled flag.
+- URL.
 
-Secret content не включается в SQLite metadata и audit events.
+В operation/history/audit/bundle не должны попадать:
 
-## Следующий slice :id=next-slice
+- password/token;
+- raw credential;
+- CA content;
+- private key material;
+- filesystem secret path.
 
-До завершения immutable operation binding active-profile model следует считать
-installation-wide управляемым selector, а не per-user selection.
+## Browser preference :id=browser-preference
 
-Следующий architecture slice:
+Frontend хранит последний выбранный profile id в `sessionStorage` только для удобства.
+Это не authority.
 
-- explicit profile selection в browser workspace;
-- Harbor browse API принимает выбранный profile;
-- EXPORT/IMPORT operation сохраняет immutable profile id/name/URL-host snapshot;
-- orchestrator использует profile, зафиксированный в operation;
-- history/audit показывает использованный profile;
-- disabled profile нельзя использовать для новой operation;
-- существующая operation не drift-ит при последующем редактировании profile.
+При открытии workflow:
+
+1. frontend запрашивает текущий safe selectable list;
+2. использует сохранённый id, если profile ещё доступен;
+3. иначе выбирает `default`, если он доступен;
+4. иначе первый enabled profile;
+5. при восстановлении persisted operation backend snapshot имеет приоритет над preference.
+
+Если доступных profiles нет, transfer workflow остаётся fail-closed и предлагает
+обратиться к администратору.
+
+## History :id=history
+
+Operation list/detail показывает safe Harbor evidence. Для новых rows доступны profile
+name и URL snapshot. Это позволяет доказуемо ответить, против какого registry выполнялась
+операция, даже если legacy fallback позже изменился.
+
+Legacy rows без snapshot явно отображаются как legacy/no snapshot.
+
+## Проверки :id=tests
+
+Regression должен покрывать как минимум:
+
+- browse A/B передаёт разные `profile_id`;
+- смена SOURCE profile очищает старый browse/selection state;
+- export preview/start используют один profile;
+- import upload/discovery привязывают выбранный TARGET profile;
+- destination plan не может rebind operation;
+- reload/resume восстанавливает operation-bound profile;
+- profile mutation/deletion guards;
+- history не раскрывает secrets и показывает safe snapshot;
+- existing default deployment продолжает работать;
+- backend/frontend/security/integration scoped CI остаётся зелёным.
 
 Связанные документы:
 
 - [Настройки Portal](settings.md)
 - [Frontend](frontend.md)
-- [Руководство администратора](admin-guide.md)
+- [Пользовательское руководство](user-guide.md)
+- [History UI](history-ui.md)
 - [Security](security.md)
