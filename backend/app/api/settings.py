@@ -1,8 +1,8 @@
+from collections.abc import Generator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.api.harbor import HarborClientDep
 from app.auth.dependencies import SessionDep, require_roles
 from app.db.models import User, UserRole
 from app.db.repositories import AuditEventRepository
@@ -18,12 +18,35 @@ from app.schemas.settings import (
     HarborSettingsPatch,
     HarborSettingsResponse,
 )
-from app.services.harbor_client import HarborClientError
+from app.services.harbor_client import HarborClient, HarborClientError
+from app.services.harbor_profile_runtime import harbor_profile_boundary
 from app.services.harbor_profiles import HarborProfile, HarborProfileService
-from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
+from app.services.harbor_settings import (
+    DEFAULT_HARBOR_PROFILE_ID,
+    HarborSettingsError,
+    HarborSettingsService,
+)
 
 router = APIRouter(prefix="/settings/harbor", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
+
+
+def get_default_harbor_client(
+    request: Request,
+    session: SessionDep,
+) -> Generator[HarborClient, None, None]:
+    service = HarborProfileService(session, request.app.state.settings)
+    try:
+        client = service.build_client(DEFAULT_HARBOR_PROFILE_ID)
+    except HarborSettingsError as exc:
+        raise _profile_error(exc) from exc
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+DefaultHarborClientDep = Annotated[HarborClient, Depends(get_default_harbor_client)]
 
 
 def _api_error(status_code: int, code: str, message: str) -> HTTPException:
@@ -35,7 +58,7 @@ def _service(request: Request, session: SessionDep) -> HarborSettingsService:
 
 
 def _response(service: HarborSettingsService) -> HarborSettingsResponse:
-    resolved = service.resolve()
+    resolved = service.resolve_profile(DEFAULT_HARBOR_PROFILE_ID)
     return HarborSettingsResponse(
         contour=service.settings.portal_contour,
         url=resolved.url,
@@ -131,24 +154,33 @@ def update_harbor_settings(
     session: SessionDep,
 ) -> HarborSettingsResponse:
     service = _service(request, session)
-    current = service.resolve()
+    profiles = HarborProfileService(session, request.app.state.settings)
     changed_fields: list[str] = []
+    try:
+        with harbor_profile_boundary():
+            profiles.require_mutation_safe(DEFAULT_HARBOR_PROFILE_ID)
+            current = service.resolve_profile(DEFAULT_HARBOR_PROFILE_ID)
 
-    if "url" in payload.model_fields_set:
-        new_url = str(payload.url).rstrip("/") if payload.url is not None else None
-        if new_url != current.url:
-            service.set_url(new_url)
-            changed_fields.append("url")
-    if "username" in payload.model_fields_set and payload.username != current.username:
-        service.set_username(payload.username)
-        changed_fields.append("username")
-    if "verify_tls" in payload.model_fields_set and payload.verify_tls != current.verify_tls:
-        service.set_verify_tls(bool(payload.verify_tls))
-        changed_fields.append("verify_tls")
+            if "url" in payload.model_fields_set:
+                new_url = str(payload.url).rstrip("/") if payload.url is not None else None
+                if new_url != current.url:
+                    service.set_url(new_url)
+                    changed_fields.append("url")
+            if "username" in payload.model_fields_set and payload.username != current.username:
+                service.set_username(payload.username)
+                changed_fields.append("username")
+            if (
+                "verify_tls" in payload.model_fields_set
+                and payload.verify_tls != current.verify_tls
+            ):
+                service.set_verify_tls(bool(payload.verify_tls))
+                changed_fields.append("verify_tls")
 
-    if changed_fields:
-        _audit(session, admin, "harbor.settings.updated", changed_fields)
-    session.commit()
+            if changed_fields:
+                _audit(session, admin, "harbor.settings.updated", changed_fields)
+            session.commit()
+    except HarborSettingsError as exc:
+        raise _profile_error(exc) from exc
     return _response(service)
 
 
@@ -160,12 +192,15 @@ def rotate_harbor_credential(
     session: SessionDep,
 ) -> HarborMutationResponse:
     service = _service(request, session)
+    profiles = HarborProfileService(session, request.app.state.settings)
     try:
-        service.rotate_credential(payload.secret.get_secret_value())
+        with harbor_profile_boundary():
+            profiles.require_mutation_safe(DEFAULT_HARBOR_PROFILE_ID)
+            service.rotate_credential(payload.secret.get_secret_value())
+            _audit(session, admin, "harbor.credential.rotated", ["credential"])
+            session.commit()
     except HarborSettingsError as exc:
-        raise _api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code, exc.message) from exc
-    _audit(session, admin, "harbor.credential.rotated", ["credential"])
-    session.commit()
+        raise _profile_error(exc) from exc
     return HarborMutationResponse(changed_fields=["credential"])
 
 
@@ -177,12 +212,15 @@ def install_harbor_ca(
     session: SessionDep,
 ) -> HarborMutationResponse:
     service = _service(request, session)
+    profiles = HarborProfileService(session, request.app.state.settings)
     try:
-        service.install_ca(payload.certificate_pem)
+        with harbor_profile_boundary():
+            profiles.require_mutation_safe(DEFAULT_HARBOR_PROFILE_ID)
+            service.install_ca(payload.certificate_pem)
+            _audit(session, admin, "harbor.ca.updated", ["custom_ca"])
+            session.commit()
     except HarborSettingsError as exc:
-        raise _api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code, exc.message) from exc
-    _audit(session, admin, "harbor.ca.updated", ["custom_ca"])
-    session.commit()
+        raise _profile_error(exc) from exc
     return HarborMutationResponse(changed_fields=["custom_ca"])
 
 
@@ -193,16 +231,22 @@ def remove_harbor_ca(
     session: SessionDep,
 ) -> HarborMutationResponse:
     service = _service(request, session)
-    service.remove_managed_ca()
-    _audit(session, admin, "harbor.ca.removed", ["custom_ca"])
-    session.commit()
+    profiles = HarborProfileService(session, request.app.state.settings)
+    try:
+        with harbor_profile_boundary():
+            profiles.require_mutation_safe(DEFAULT_HARBOR_PROFILE_ID)
+            service.remove_managed_ca()
+            _audit(session, admin, "harbor.ca.removed", ["custom_ca"])
+            session.commit()
+    except HarborSettingsError as exc:
+        raise _profile_error(exc) from exc
     return HarborMutationResponse(changed_fields=["custom_ca"])
 
 
 @router.post("/test", response_model=HarborConnectionTestResponse)
 def test_harbor_connection(
     _admin: AdminDep,
-    client: HarborClientDep,
+    client: DefaultHarborClientDep,
 ) -> HarborConnectionTestResponse:
     try:
         info = client.system_info()
@@ -222,7 +266,7 @@ def test_harbor_connection(
     return HarborConnectionTestResponse(
         ok=True,
         code="harbor_connection_ok",
-        message="Подключение к локальному Harbor успешно",
+        message="Подключение к Default Harbor успешно",
         version=info.harbor_version,
     )
 
@@ -271,21 +315,22 @@ def activate_harbor_profile(
 ) -> HarborProfileResponse:
     service = HarborProfileService(session, request.app.state.settings)
     try:
-        previous, active = service.activate(profile_id)
+        with harbor_profile_boundary():
+            previous, active = service.activate(profile_id)
+            if previous.id != active.id:
+                AuditEventRepository(session).create(
+                    actor=admin,
+                    event_type="harbor.profile.activated",
+                    metadata={
+                        "previous_profile_id": previous.id,
+                        "previous_profile_name": previous.name,
+                        "active_profile_id": active.id,
+                        "active_profile_name": active.name,
+                    },
+                )
+            session.commit()
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
-    if previous.id != active.id:
-        AuditEventRepository(session).create(
-            actor=admin,
-            event_type="harbor.profile.activated",
-            metadata={
-                "previous_profile_id": previous.id,
-                "previous_profile_name": previous.name,
-                "active_profile_id": active.id,
-                "active_profile_name": active.name,
-            },
-        )
-    session.commit()
     return _profile_response(service, active)
 
 
@@ -300,30 +345,33 @@ def update_harbor_profile(
     service = HarborProfileService(session, request.app.state.settings)
     changed_fields = sorted(payload.model_fields_set)
     try:
-        profile = service.update(
-            profile_id,
-            name=payload.name if "name" in payload.model_fields_set else None,
-            url=(
-                str(payload.url).rstrip("/")
-                if "url" in payload.model_fields_set and payload.url is not None
-                else None
-            ),
-            username=payload.username,
-            username_set="username" in payload.model_fields_set,
-            verify_tls=payload.verify_tls if "verify_tls" in payload.model_fields_set else None,
-            enabled=payload.enabled if "enabled" in payload.model_fields_set else None,
-        )
+        with harbor_profile_boundary():
+            profile = service.update(
+                profile_id,
+                name=payload.name if "name" in payload.model_fields_set else None,
+                url=(
+                    str(payload.url).rstrip("/")
+                    if "url" in payload.model_fields_set and payload.url is not None
+                    else None
+                ),
+                username=payload.username,
+                username_set="username" in payload.model_fields_set,
+                verify_tls=(
+                    payload.verify_tls if "verify_tls" in payload.model_fields_set else None
+                ),
+                enabled=payload.enabled if "enabled" in payload.model_fields_set else None,
+            )
+            if changed_fields:
+                _audit_profile(
+                    session,
+                    admin,
+                    "harbor.profile.updated",
+                    profile=profile,
+                    changed_fields=changed_fields,
+                )
+            session.commit()
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
-    if changed_fields:
-        _audit_profile(
-            session,
-            admin,
-            "harbor.profile.updated",
-            profile=profile,
-            changed_fields=changed_fields,
-        )
-    session.commit()
     return _profile_response(service, profile)
 
 
@@ -336,12 +384,13 @@ def delete_harbor_profile(
 ) -> None:
     service = HarborProfileService(session, request.app.state.settings)
     try:
-        profile = service.get(profile_id)
-        service.delete(profile_id)
+        with harbor_profile_boundary():
+            profile = service.get(profile_id)
+            service.delete(profile_id)
+            _audit_profile(session, admin, "harbor.profile.deleted", profile=profile)
+            session.commit()
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
-    _audit_profile(session, admin, "harbor.profile.deleted", profile=profile)
-    session.commit()
 
 
 @router.put("/profiles/{profile_id}/credential", response_model=HarborMutationResponse)
@@ -354,18 +403,19 @@ def rotate_harbor_profile_credential(
 ) -> HarborMutationResponse:
     service = HarborProfileService(session, request.app.state.settings)
     try:
-        profile = service.get(profile_id)
-        service.rotate_credential(profile_id, payload.secret.get_secret_value())
+        with harbor_profile_boundary():
+            profile = service.get(profile_id)
+            service.rotate_credential(profile_id, payload.secret.get_secret_value())
+            _audit_profile(
+                session,
+                admin,
+                "harbor.profile.credential.rotated",
+                profile=profile,
+                changed_fields=["credential"],
+            )
+            session.commit()
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
-    _audit_profile(
-        session,
-        admin,
-        "harbor.profile.credential.rotated",
-        profile=profile,
-        changed_fields=["credential"],
-    )
-    session.commit()
     return HarborMutationResponse(changed_fields=["credential"])
 
 
@@ -379,18 +429,19 @@ def install_harbor_profile_ca(
 ) -> HarborMutationResponse:
     service = HarborProfileService(session, request.app.state.settings)
     try:
-        profile = service.get(profile_id)
-        service.install_ca(profile_id, payload.certificate_pem)
+        with harbor_profile_boundary():
+            profile = service.get(profile_id)
+            service.install_ca(profile_id, payload.certificate_pem)
+            _audit_profile(
+                session,
+                admin,
+                "harbor.profile.ca.updated",
+                profile=profile,
+                changed_fields=["custom_ca"],
+            )
+            session.commit()
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
-    _audit_profile(
-        session,
-        admin,
-        "harbor.profile.ca.updated",
-        profile=profile,
-        changed_fields=["custom_ca"],
-    )
-    session.commit()
     return HarborMutationResponse(changed_fields=["custom_ca"])
 
 
@@ -403,18 +454,19 @@ def remove_harbor_profile_ca(
 ) -> HarborMutationResponse:
     service = HarborProfileService(session, request.app.state.settings)
     try:
-        profile = service.get(profile_id)
-        service.remove_ca(profile_id)
+        with harbor_profile_boundary():
+            profile = service.get(profile_id)
+            service.remove_ca(profile_id)
+            _audit_profile(
+                session,
+                admin,
+                "harbor.profile.ca.removed",
+                profile=profile,
+                changed_fields=["custom_ca"],
+            )
+            session.commit()
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
-    _audit_profile(
-        session,
-        admin,
-        "harbor.profile.ca.removed",
-        profile=profile,
-        changed_fields=["custom_ca"],
-    )
-    session.commit()
     return HarborMutationResponse(changed_fields=["custom_ca"])
 
 

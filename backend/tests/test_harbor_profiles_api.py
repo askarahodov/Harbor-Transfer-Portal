@@ -184,12 +184,28 @@ def test_profile_activation_changes_runtime_harbor_and_is_audited(tmp_path: Path
     assert listed.status_code == 200
     active = [item for item in listed.json()["items"] if item["is_active"]]
     assert [item["id"] for item in active] == [profile_id]
+    default = next(item for item in listed.json()["items"] if item["id"] == "default")
+    assert default["url"] == "https://legacy.harbor.local"
+    assert default["username"] == "legacy-user"
+    assert default["is_active"] is False
+
+    default_settings = client.get("/api/settings/harbor", headers=headers)
+    assert default_settings.status_code == 200
+    assert default_settings.json()["url"] == "https://legacy.harbor.local"
+    assert default_settings.json()["username"] == "legacy-user"
 
     with app.state.session_factory() as session:
-        resolved = HarborProfileService(session, app.state.settings).legacy.resolve()
+        service = HarborProfileService(session, app.state.settings)
+        resolved = service.legacy.resolve()
         assert resolved.url == "https://harbor-dc2.local"
         assert resolved.username == "svc-transfer"
         assert resolved.password == secret
+
+        default_client = service.build_client(DEFAULT_PROFILE_ID)
+        try:
+            assert default_client.base_url == "https://legacy.harbor.local"
+        finally:
+            default_client.close()
 
         events = list(
             session.scalars(
@@ -253,6 +269,30 @@ def test_active_profile_cannot_be_disabled_deleted_or_switched_while_busy(tmp_pa
     busy = client.put("/api/settings/harbor/profiles/default/activate", headers=headers)
     assert busy.status_code == 409
     assert busy.json()["error"]["code"] == "harbor_profile_busy"
+
+    active_patch = client.patch(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        json={"url": "https://changed-active.harbor.local"},
+        headers=headers,
+    )
+    assert active_patch.status_code == 409
+    assert active_patch.json()["error"]["code"] == "harbor_profile_busy"
+
+    active_credential = client.put(
+        f"/api/settings/harbor/profiles/{profile_id}/credential",
+        json={"secret": "blocked-" + "x" * 32},
+        headers=headers,
+    )
+    assert active_credential.status_code == 409
+    assert active_credential.json()["error"]["code"] == "harbor_profile_busy"
+
+    inactive_default_patch = client.patch(
+        "/api/settings/harbor",
+        json={"url": "https://prepared-default.harbor.local"},
+        headers=headers,
+    )
+    assert inactive_default_patch.status_code == 200
+    assert inactive_default_patch.json()["url"] == "https://prepared-default.harbor.local"
 
 
 def test_profile_credentials_and_ca_are_isolated_by_profile(tmp_path: Path) -> None:

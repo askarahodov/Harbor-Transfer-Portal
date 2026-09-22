@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from alembic import command
-from app.api.harbor import get_harbor_client
+from app.api.settings import get_default_harbor_client
 from app.auth.security import hash_password
 from app.config import Settings
 from app.db.models import AuditEvent, UserRole
@@ -250,12 +250,12 @@ def test_connection_test_returns_sanitized_success_auth_and_tls_results(tmp_path
     client, app, tokens = _app_client(tmp_path)
     headers = _auth(tokens["admin"])
 
-    app.dependency_overrides[get_harbor_client] = lambda: FakeHarborClient()
+    app.dependency_overrides[get_default_harbor_client] = lambda: FakeHarborClient()
     success = client.post("/api/settings/harbor/test", headers=headers)
     assert success.status_code == 200
     assert success.json()["code"] == "harbor_connection_ok"
 
-    app.dependency_overrides[get_harbor_client] = lambda: FakeHarborClient(
+    app.dependency_overrides[get_default_harbor_client] = lambda: FakeHarborClient(
         HarborClientError("unauthorized", "upstream detail", 401)
     )
     auth_failed = client.post("/api/settings/harbor/test", headers=headers)
@@ -263,7 +263,7 @@ def test_connection_test_returns_sanitized_success_auth_and_tls_results(tmp_path
     assert auth_failed.json()["code"] == "harbor_auth_failed"
     assert "upstream detail" not in auth_failed.text
 
-    app.dependency_overrides[get_harbor_client] = lambda: FakeHarborClient(
+    app.dependency_overrides[get_default_harbor_client] = lambda: FakeHarborClient(
         HarborClientError("tls_failed", "certificate detail")
     )
     tls_failed = client.post("/api/settings/harbor/test", headers=headers)

@@ -162,9 +162,9 @@ Backend защищает от удаления последнего active admin
 
 Через admin **«Настройки локального Harbor»** можно хранить несколько именованных Harbor profiles. Для каждого profile задаются URL, username/service account, отдельный managed credential, TLS verification, optional custom CA и connection test.
 
-Один profile всегда является **active**. Именно его используют Harbor browse API, SOURCE export, TARGET destination validation, Skopeo и Helm. Переключение active profile выполняет admin; оно блокируется, пока существует незавершённая export/import operation. Active profile нельзя disable или удалить — сначала выберите другой.
+Один profile всегда является **active**. Именно его используют Harbor browse API, SOURCE export, TARGET destination validation, Skopeo и Helm. Переключение active profile выполняет admin; оно блокируется, пока существует незавершённая export/import operation. Active profile нельзя disable или удалить — сначала выберите другой. URL/username/TLS/credential/CA активного profile также нельзя менять во время незавершённой transfer operation: это предотвращает смену registry или trust context между preview и mutation. Inactive profiles при этом можно заранее редактировать и проверять.
 
-Существующая single-Harbor конфигурация из `.env`/legacy Settings представлена как защищённый **Default Harbor** profile. Это сохраняет backward compatibility: после upgrade active profile остаётся `default`, пока admin явно не выберет другой.
+Существующая single-Harbor конфигурация из `.env`/legacy Settings представлена как защищённый **Default Harbor** profile. Это сохраняет backward compatibility: после upgrade active profile остаётся `default`, пока admin явно не выберет другой. Legacy `GET/PATCH /api/settings/harbor`, credential/CA endpoints и их connection test относятся именно к Default Harbor; runtime browse/transfer используют authoritative active profile.
 
 `HARBOR_URL` задаёт bootstrap/default profile и должен указывать на Harbor origin без embedded credentials, query/fragment или произвольного subpath. Дополнительные profiles хранят non-secret metadata в SQLite, а credentials/CA — отдельными files в persistent secret area; secret values API/UI не возвращают.
 

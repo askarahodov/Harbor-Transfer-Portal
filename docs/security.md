@@ -139,7 +139,7 @@ Environment credential сохраняется для bootstrap compatibility, н
 
 API сообщает только, настроен ли credential, и не возвращает его значение или источник.
 
-Дополнительные Harbor profiles имеют изолированные credential/CA files под server-generated profile id. Active profile нельзя disable/delete. Его переключение является admin-only audit event и отклоняется при незавершённых export/import operations, чтобы preview и mutation не оказались направлены в разные registries.
+Дополнительные Harbor profiles имеют изолированные credential/CA files под server-generated profile id. Active profile нельзя disable/delete. Его переключение является admin-only audit event и отклоняется при незавершённых export/import operations. Изменение URL/username/TLS/credential/CA active profile подчиняется тому же запрету. Process-local serialization barrier связывает activation/profile mutation с созданием transfer operation; SOURCE export дополнительно удерживает одну profile boundary от exact Harbor preview до persisted operation creation. Это не позволяет preview и mutation оказаться направленными в разные registries в v1 single-backend deployment.
 
 ### URL validation
 
