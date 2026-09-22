@@ -244,7 +244,6 @@ class ImportOrchestrator:
         harbor_profile_id: str | None = None,
     ) -> tuple[ImportIntakeResult, ...]:
         self._require_target()
-        profile = self._harbor_profile_snapshot(harbor_profile_id)
         self.discovery_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         ready: list[ImportIntakeResult] = []
         for archive in sorted(self.discovery_root.glob("*.htp.tar.gz")):
@@ -277,7 +276,7 @@ class ImportOrchestrator:
                     "Signed handoff относится к другому Delivery ID",
                 )
             size = archive.stat().st_size
-            if size < 1 or size > self.settings.import_max_upload_bytes:
+            if size < 1 or size > self.settings.bundle_max_archive_bytes:
                 continue
             self._require_disk(size)
 
@@ -298,6 +297,7 @@ class ImportOrchestrator:
                     raise
                 self._fsync_directory(storage_dir)
                 sha256 = await asyncio.to_thread(self._sha256_file, claimed_archive)
+                profile = self._harbor_profile_snapshot(harbor_profile_id)
                 operation_id = self._create_intake_operation(
                     actor_user_id=actor_user_id,
                     actor_username=actor_username,
