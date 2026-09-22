@@ -17,7 +17,8 @@ from urllib.parse import urlsplit
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.services.harbor_settings import EffectiveHarborSettings, HarborSettingsService
+from app.services.harbor_profiles import DEFAULT_PROFILE_ID, HarborProfileService
+from app.services.harbor_settings import EffectiveHarborSettings
 
 _DIGEST_PATTERN = r"sha256:[a-f0-9]{64}"
 _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
@@ -244,25 +245,27 @@ class SkopeoService:
         session: Session,
         settings: Settings,
         *,
+        harbor_profile_id: str = DEFAULT_PROFILE_ID,
         runner: CommandRunner | None = None,
         progress: Callable[[SkopeoProgressEvent], None] | None = None,
     ) -> None:
         self.settings = settings
-        self.harbor_settings = HarborSettingsService(session, settings)
+        self.harbor_profiles = HarborProfileService(session, settings)
+        self.harbor_profile_id = harbor_profile_id
         self.runner = runner or AsyncioCommandRunner(settings.skopeo_temp_root)
         self.progress = progress
         self.payload_root = settings.skopeo_payload_root.resolve()
 
     async def inspect_image(self, image: ImageReference) -> ImageInspection:
         self._emit(SkopeoPhase.INSPECTING_SOURCE, image)
-        harbor = self.harbor_settings.resolve()
+        harbor = self.harbor_profiles.resolve(self.harbor_profile_id)
         with self._security_context(harbor) as security:
             return await self._inspect_registry(image, harbor, security)
 
     async def export_image(self, image: ImageReference, destination: Path) -> ExportResult:
         payload_path = self._validate_export_path(destination)
         self._emit(SkopeoPhase.INSPECTING_SOURCE, image)
-        harbor = self.harbor_settings.resolve()
+        harbor = self.harbor_profiles.resolve(self.harbor_profile_id)
         with self._security_context(harbor) as security:
             source = await self._inspect_registry(image, harbor, security)
             payload_path.mkdir(parents=True, exist_ok=True)
@@ -307,7 +310,7 @@ class SkopeoService:
                 "Digest локального OCI payload не совпадает с manifest expectation",
             )
 
-        harbor = self.harbor_settings.resolve()
+        harbor = self.harbor_profiles.resolve(self.harbor_profile_id)
         with self._security_context(harbor) as security:
             self._emit(SkopeoPhase.IMPORTING, target)
             argv = (
@@ -343,7 +346,7 @@ class SkopeoService:
         if expected_digest is not None:
             self._validate_digest(expected_digest)
         self._emit(SkopeoPhase.INSPECTING_TARGET, image)
-        harbor = self.harbor_settings.resolve()
+        harbor = self.harbor_profiles.resolve(self.harbor_profile_id)
         with self._security_context(harbor) as security:
             result = await self._run(
                 (
