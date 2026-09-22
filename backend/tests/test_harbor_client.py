@@ -50,13 +50,25 @@ def test_create_project_uses_local_harbor_api_and_bounded_payload() -> None:
     assert b"portal-secret" not in request.content
 
 
-def test_repository_and_artifact_paths_are_encoded() -> None:
+def test_repository_and_artifact_paths_use_harbor_nested_repo_encoding() -> None:
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request.url.raw_path.decode())
         if request.url.path.endswith("/repositories"):
             return httpx.Response(200, json=[{"id": 7, "name": "team/app"}])
+        if request.url.params.get("page"):
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "digest": "sha256:" + "a" * 64,
+                        "type": "IMAGE",
+                        "tags": [{"name": "1.0.0"}],
+                    }
+                ],
+                headers={"X-Total-Count": "1"},
+            )
         return httpx.Response(
             200,
             json={
@@ -71,10 +83,18 @@ def test_repository_and_artifact_paths_are_encoded() -> None:
         transport=httpx.MockTransport(handler),
     )
     assert client.list_repositories("team/name")[0].name == "team/app"
+    page = client.list_artifacts_page("team/name", "nested/repo", 1, 25)
     artifact = client.get_artifact("team/name", "nested/repo", "release/1")
+
+    assert page.total == 1
     assert artifact.tags[0].name == "1.0.0"
     assert any("team%2Fname" in path for path in seen)
-    assert any("nested%2Frepo" in path and "release%2F1" in path for path in seen)
+    assert sum("nested%252Frepo" in path for path in seen) == 2
+    assert any("nested%252Frepo" in path and "release%2F1" in path for path in seen)
+    assert not any(
+        "nested%2Frepo" in path and "nested%252Frepo" not in path
+        for path in seen
+    )
 
 
 @pytest.mark.parametrize(
