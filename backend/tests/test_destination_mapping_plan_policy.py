@@ -70,6 +70,7 @@ def _settings(tmp_path: Path, database_url: str) -> Settings:
         _env_file=None,
         database_url=database_url,
         portal_contour=PortalContour.TARGET,
+        harbor_url="https://harbor.target.local",
         operation_workspace_root=data / "tmp" / "operations",
         bundle_payload_root=data,
         bundle_temp_root=data / "tmp" / "bundles",
