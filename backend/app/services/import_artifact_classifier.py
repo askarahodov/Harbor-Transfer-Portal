@@ -34,11 +34,17 @@ class ImportArtifactClassifier:
     async def classify(
         self,
         artifacts: Sequence[ContainerImageArtifact | HelmChartArtifact],
+        *,
+        harbor_profile_id: str | None = None,
     ) -> list[ImportArtifactPreviewResponse]:
         result: list[ImportArtifactPreviewResponse] = []
         with self.session_factory() as session:
             skopeo = self.skopeo_factory(session)
             helm = self.helm_factory(session)
+            if isinstance(skopeo, SkopeoService):
+                skopeo.harbor_profile_id = harbor_profile_id
+            if isinstance(helm, HelmOciService):
+                helm.harbor_profile_id = harbor_profile_id
             for index, artifact in enumerate(artifacts):
                 if isinstance(artifact, ContainerImageArtifact):
                     result.append(await self._classify_image(index, artifact, skopeo))

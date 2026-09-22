@@ -79,6 +79,11 @@ class ImportArtifactDestinationOverride(BaseModel):
 
 
 class ImportDestinationPlanRequest(BaseModel):
+    # Optional because intake pins a profile for new clients. If an older/unbound
+    # caller omits it, the server resolves the current active profile once and persists
+    # that profile id/name/url on the operation before TARGET inspection or mutation.
+    harbor_profile_id: str | None = Field(default=None, min_length=1, max_length=64)
+
     # Server-owned snapshot marker. Client values are overwritten by the policy-aware
     # orchestrator before planning; the field exists so persisted mapping_request is
     # cryptographically bound to the policy revision used for that plan.

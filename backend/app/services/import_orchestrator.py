@@ -29,6 +29,9 @@ from app.schemas.imports import (
     ImportReceiptResponse,
 )
 from app.services.bundle_package_service import BundlePackageError, BundlePackageService
+from app.services.harbor_profile_runtime import harbor_profile_boundary
+from app.services.harbor_profiles import HarborProfile, HarborProfileService
+from app.services.harbor_settings import HarborSettingsError
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmOciService,
@@ -123,6 +126,7 @@ class ImportOrchestrator:
         bundle_filename: str | None = None,
         sidecar_payload: bytes | None = None,
         handoff_payload: bytes | None = None,
+        harbor_profile_id: str | None = None,
     ) -> ImportIntakeResult:
         self._require_target()
         if content_length is not None:
@@ -204,6 +208,7 @@ class ImportOrchestrator:
                 filename=archive.name,
                 sha256=digest.hexdigest(),
                 size_bytes=total,
+                harbor_profile_id=harbor_profile_id,
             )
         except Exception:
             shutil.rmtree(storage_dir, ignore_errors=True)
@@ -217,6 +222,7 @@ class ImportOrchestrator:
         *,
         actor_user_id: int,
         actor_username: str,
+        harbor_profile_id: str | None = None,
     ) -> tuple[ImportIntakeResult, ...]:
         self._require_target()
         self.discovery_root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -281,6 +287,7 @@ class ImportOrchestrator:
                     filename=claimed_archive.name,
                     sha256=sha256,
                     size_bytes=size,
+                    harbor_profile_id=harbor_profile_id,
                 )
             except Exception:
                 shutil.rmtree(storage_dir, ignore_errors=True)
@@ -340,6 +347,7 @@ class ImportOrchestrator:
                     "import_preview_not_ready",
                     "Verified preview отсутствует",
                 )
+            self._assert_operation_profile(operation)
             preview = ImportPreviewResponse.model_validate_json(operation.import_preview_json)
             self._require_preview_signer_trusted(preview)
 
@@ -431,6 +439,7 @@ class ImportOrchestrator:
             return
 
         operation = self._get_import_operation(operation_id)
+        profile = self._assert_operation_profile(operation)
         if operation.bundle_sha256 is None or verified.archive_sha256 != operation.bundle_sha256:
             self._cleanup_storage(operation_id)
             raise OperationTaskFailure(
@@ -451,7 +460,10 @@ class ImportOrchestrator:
             bundle_size_bytes=verified.archive_size,
             signing_key_fingerprint=verified.signing_key_fingerprint,
             verified_at=datetime.now(UTC),
-            artifacts=await self.artifact_classifier.classify(verified.manifest.artifacts),
+            artifacts=await self.artifact_classifier.classify(
+                verified.manifest.artifacts,
+                harbor_profile_id=profile.id,
+            ),
         )
         self._persist_preview(operation_id, preview)
         context.transition(OperationStatus.READY)
@@ -483,6 +495,7 @@ class ImportOrchestrator:
         operation, preview, overwrite, requested_at = self.persistence.load_execution_state(
             operation_id
         )
+        profile = self._assert_operation_profile(operation)
         archive, sidecar = self._bundle_paths(operation_id)
         observed_sha = await asyncio.to_thread(self._sha256_file, archive)
         if observed_sha != operation.bundle_sha256 or observed_sha != preview.bundle_sha256:
@@ -529,6 +542,10 @@ class ImportOrchestrator:
             with self.session_factory() as session:
                 skopeo = self.skopeo_factory(session)
                 helm = self.helm_factory(session)
+                if isinstance(skopeo, SkopeoService):
+                    skopeo.harbor_profile_id = profile.id
+                if isinstance(helm, HelmOciService):
+                    helm.harbor_profile_id = profile.id
                 pairs = zip(artifacts, verified.manifest.artifacts, strict=True)
                 for index, (row, descriptor) in enumerate(pairs):
                     context.raise_if_cancelled()
@@ -672,13 +689,26 @@ class ImportOrchestrator:
         filename: str,
         sha256: str,
         size_bytes: int,
+        harbor_profile_id: str | None,
     ) -> int:
-        operation_id = self.operation_manager.create_operation(
-            operation_type=OperationType.IMPORT,
-            actor_user_id=actor_user_id,
-            actor_username=actor_username,
-            initial_status=status,
-        )
+        with harbor_profile_boundary():
+            try:
+                with self.session_factory() as profile_session:
+                    profile = HarborProfileService(
+                        profile_session,
+                        self.settings,
+                    ).operation_snapshot(harbor_profile_id)
+            except HarborSettingsError as exc:
+                raise ImportOrchestrationError(exc.code, exc.message) from exc
+            operation_id = self.operation_manager.create_operation(
+                operation_type=OperationType.IMPORT,
+                actor_user_id=actor_user_id,
+                actor_username=actor_username,
+                initial_status=status,
+                harbor_profile_id=profile.id,
+                harbor_profile_name=profile.name,
+                harbor_profile_url=profile.url,
+            )
         with self.session_factory() as session:
             operation = session.get(Operation, operation_id)
             if operation is None:
@@ -705,6 +735,22 @@ class ImportOrchestrator:
             )
         except ImportBundleStorageError as exc:
             raise OperationTaskFailure(exc.code, exc.message) from exc
+
+    def _assert_operation_profile(self, operation: Operation) -> HarborProfile:
+        try:
+            with self.session_factory() as session:
+                persisted = session.get(Operation, operation.id)
+                if persisted is None or persisted.type is not OperationType.IMPORT:
+                    raise ImportOrchestrationError(
+                        "import_operation_not_found",
+                        "Import-операция не найдена",
+                    )
+                return HarborProfileService(
+                    session,
+                    self.settings,
+                ).assert_operation_binding(persisted)
+        except HarborSettingsError as exc:
+            raise ImportOrchestrationError(exc.code, exc.message) from exc
 
     def _get_import_operation(self, operation_id: int) -> Operation:
         with self.session_factory() as session:

@@ -2,7 +2,7 @@ import base64
 import binascii
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.auth.dependencies import SessionDep, require_roles
 from app.db.models import User, UserRole
@@ -78,6 +78,11 @@ def _import_error(exc: ImportOrchestrationError) -> HTTPException:
         "import_destination_override_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "harbor_not_configured": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "harbor_configuration_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "harbor_profile_binding_invalid": status.HTTP_409_CONFLICT,
+        "harbor_profile_changed": status.HTTP_409_CONFLICT,
+        "harbor_profile_selection_locked": status.HTTP_409_CONFLICT,
+        "harbor_profile_disabled": status.HTTP_409_CONFLICT,
+        "harbor_profile_not_found": status.HTTP_404_NOT_FOUND,
         "operation_worker_already_running": status.HTTP_409_CONFLICT,
         "operation_insufficient_disk": status.HTTP_507_INSUFFICIENT_STORAGE,
         "import_operation_create_failed": status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -304,6 +309,7 @@ async def upload_bundle(
     request: Request,
     actor: ImportActorDep,
     orchestrator: ImportOrchestratorDep,
+    profile_id: str | None = Query(default=None, min_length=1, max_length=64),
 ) -> ImportIntakeResponse:
     try:
         started = await orchestrator.accept_upload(
@@ -320,6 +326,7 @@ async def upload_bundle(
                 request,
                 "x-htp-handoff-base64",
             ),
+            harbor_profile_id=profile_id,
         )
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc
@@ -338,11 +345,13 @@ async def upload_bundle(
 async def discover_incoming_bundles(
     actor: ImportActorDep,
     orchestrator: ImportOrchestratorDep,
+    profile_id: str | None = Query(default=None, min_length=1, max_length=64),
 ) -> ImportDiscoveryResponse:
     try:
         discovered = await orchestrator.discover_ready(
             actor_user_id=actor.id,
             actor_username=actor.username,
+            harbor_profile_id=profile_id,
         )
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc

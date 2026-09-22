@@ -95,6 +95,32 @@ def test_operation_status_is_readable_by_authenticated_viewer(tmp_path: Path) ->
     }
 
 
+def test_operation_exposes_safe_harbor_profile_snapshot(tmp_path: Path) -> None:
+    app, user_ids = _app_with_users(tmp_path)
+    operation_id = app.state.operation_manager.create_operation(
+        operation_type=OperationType.EXPORT,
+        actor_user_id=user_ids["operator"],
+        actor_username="operator",
+        harbor_profile_id="a" * 32,
+        harbor_profile_name="Harbor A",
+        harbor_profile_url="https://harbor-a.local",
+    )
+
+    with TestClient(app) as client:
+        viewer = _login(client, "viewer")
+        detail = client.get(f"/api/operations/{operation_id}", headers=_auth(viewer))
+        listing = client.get("/api/operations", headers=_auth(viewer))
+
+    assert detail.status_code == 200
+    assert detail.json()["harbor_profile_id"] == "a" * 32
+    assert detail.json()["harbor_profile_name"] == "Harbor A"
+    assert detail.json()["harbor_profile_url"] == "https://harbor-a.local"
+    listed = next(item for item in listing.json()["items"] if item["id"] == operation_id)
+    assert listed["harbor_profile_id"] == "a" * 32
+    assert listed["harbor_profile_name"] == "Harbor A"
+    assert listed["harbor_profile_url"] == "https://harbor-a.local"
+
+
 def test_cancel_requires_creator_or_admin_and_reaches_terminal_state(tmp_path: Path) -> None:
     app, user_ids = _app_with_users(tmp_path)
     operation_id = app.state.operation_manager.create_operation(

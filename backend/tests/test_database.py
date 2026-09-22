@@ -38,6 +38,15 @@ def test_empty_database_migrates_and_persists(tmp_path: Path) -> None:
     tables = set(inspect(engine).get_table_names())
     assert {"users", "operations", "artifact_results", "setting_metadata"} <= tables
 
+    operation_columns = {
+        item["name"] for item in inspect(engine).get_columns("operations")
+    }
+    assert {
+        "harbor_profile_id",
+        "harbor_profile_name",
+        "harbor_profile_url",
+    } <= operation_columns
+
     sessions = create_session_factory(engine)
     with sessions.begin() as session:
         user = UserRepository(session).create(
