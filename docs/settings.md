@@ -26,7 +26,7 @@ Route `/settings` доступен только роли `admin`. Огранич
 ## Harbor profiles :id=harbor-profiles
 
 Верхняя широкая карточка **Harbor profiles** показывает именованные Harbor profiles,
-текущий active profile и безопасные metadata:
+legacy fallback profile и безопасные metadata:
 
 - display name;
 - URL;
@@ -40,18 +40,22 @@ Admin может создать дополнительный profile, измен
 
 Credential не подставляется обратно в форму и не возвращается API как plaintext.
 
-### Active Harbor
+### Legacy fallback Harbor
 
-Enabled profile выбирается в selector и применяется кнопкой **Использовать**.
+Selector в Settings задаёт **legacy fallback** для клиентов, которые не передают explicit
+`profile_id`. Он не определяет Harbor для нового browser transfer workflow.
 
-Текущий runtime использует server-side authoritative active profile для Harbor browse и
-transfer services. Переключение active profile блокируется при незавершённых transfer
-operations. Export operation creation дополнительно сериализована с profile activation,
-чтобы profile нельзя было сменить внутри критической границы создания операции.
+В актуальном UI operator/admin выбирает Harbor непосредственно:
 
-Это текущий v1 safety contract. Целевой multi-user contract с explicit `profile_id` и
-immutable profile snapshot внутри каждой operation остаётся отдельным развитием и
-описан в [harbor-profiles.md](harbor-profiles.md).
+- в SOURCE **Отправка** — до browse/preview/export;
+- в TARGET **Приём** — до upload/discovery/preview/import.
+
+Backend фиксирует `profile_id`, display name и URL snapshot в operation. После создания
+operation выбор блокируется и worker использует operation-bound profile. Последующее
+изменение legacy fallback не перенаправляет такую operation на другой Harbor.
+
+Legacy fallback сохраняется для backward compatibility и административной диагностики.
+Подробный contract — [harbor-profiles.md](harbor-profiles.md).
 
 ## First-run readiness :id=readiness
 
@@ -169,7 +173,7 @@ error message и не должен подменяться frontend optimistic st
 Типичные примеры:
 
 - active Harbor нельзя переключить, пока есть blocking operations;
-- active/default profile защищён от недопустимого удаления;
+- referenced/default profile защищён от недопустимого удаления;
 - malformed mapping line отклоняется;
 - credential должен быть непустым;
 - CA должен пройти backend validation;
