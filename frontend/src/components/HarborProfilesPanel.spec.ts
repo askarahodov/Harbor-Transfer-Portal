@@ -60,7 +60,7 @@ afterEach(() => {
 })
 
 describe('HarborProfilesPanel', () => {
-  it('shows active profile and switches by a simple selector', async () => {
+  it('shows legacy fallback profile and switches by a simple selector', async () => {
     const get = vi.spyOn(apiClient, 'get')
       .mockResolvedValueOnce(response({ items: [defaultProfile, secondProfile] }))
       .mockResolvedValueOnce(
@@ -78,7 +78,7 @@ describe('HarborProfilesPanel', () => {
     const wrapper = mount(HarborProfilesPanel)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Активный · Default Harbor')
+    expect(wrapper.text()).toContain('Legacy fallback · Default Harbor')
     await wrapper.get('#active-harbor-profile').setValue(secondProfile.id)
     const activate = wrapper.findAll('button').find((button) => button.text() === 'Использовать')
     if (!activate) throw new Error('Activate button not found')
@@ -89,7 +89,7 @@ describe('HarborProfilesPanel', () => {
       `/settings/harbor/profiles/${secondProfile.id}/activate`,
     )
     expect(get).toHaveBeenCalledTimes(2)
-    expect(wrapper.text()).toContain('Активный · Harbor DC-2')
+    expect(wrapper.text()).toContain('Legacy fallback · Harbor DC-2')
     expect(wrapper.emitted('changed')).toHaveLength(1)
   })
 
