@@ -149,7 +149,7 @@ make smoke-compose
 
 ### Backend
 
-Включается для `backend/*` и `Makefile`.
+Включается для `backend/*` и `Makefile`. Кроме того, deployment-файлы, которые напрямую проверяются backend cross-boundary regressions (`.env.example`, `compose.yaml`, `deploy/offline/compose.yaml`, `frontend/nginx.conf`), также включают backend gate. Это не позволяет runtime topology измениться при зелёном Compose smoke, оставив stale backend assertions незапущенными.
 
 ### Frontend
 
@@ -164,6 +164,8 @@ make smoke-compose
 Включается для security-sensitive backend boundaries: auth, import/export, package verifier/builder, key management, Harbor security-sensitive integration, Skopeo/Helm subprocess services и соответствующих tests.
 
 Backend runtime dependency graph (`backend/pyproject.toml`, `requirements-runtime.lock`, `uv.lock`) также считается security-sensitive: изменение криптографической или другой runtime dependency должно проходить свежий targeted security regression даже без изменения application source.
+
+Harbor profile domain/API также security-sensitive, потому что управляет registry credentials и custom CA. Изменения `harbor_profiles.py` и его regression tests включают targeted security job.
 
 ### Integration
 
@@ -218,6 +220,7 @@ Backend runtime dependency graph (`backend/pyproject.toml`, `requirements-runtim
 | Bundle protocol/schema/package | backend + protocol + security по affected paths + quality-gate |
 | Skopeo/Helm/transfer runtime boundary | backend/security по affected path + integration + acceptance + quality-gate |
 | Dockerfile/runtime deployment/non-Markdown `deploy/*` | affected code gates + compose + offline-install + quality-gate |
+| Browser/runtime trust boundary (`.env.example`, Compose, Nginx) | backend regression + affected frontend/compose gates + quality-gate |
 | Workflow / CI scope policy | все существующие applicable areas + quality-gate |
 | Release-sensitive mixed change | объединение всех affected areas; release gates не пропускаются |
 
