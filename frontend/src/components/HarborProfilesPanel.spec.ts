@@ -134,6 +134,61 @@ describe('HarborProfilesPanel', () => {
     expect(wrapper.text()).not.toContain('profile-secret-value')
   })
 
+  it('edits an additional profile without reading the existing credential', async () => {
+    vi.spyOn(apiClient, 'get')
+      .mockResolvedValueOnce(response({ items: [defaultProfile, secondProfile] }))
+      .mockResolvedValueOnce(
+        response({
+          items: [
+            defaultProfile,
+            { ...secondProfile, name: 'Harbor DC-2 updated', url: 'https://harbor-b-new.local' },
+          ],
+        }),
+      )
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(
+      response({
+        ...secondProfile,
+        name: 'Harbor DC-2 updated',
+        url: 'https://harbor-b-new.local',
+      }),
+    )
+    const put = vi.spyOn(apiClient, 'put')
+
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+
+    const edit = wrapper.findAll('button').find((button) => button.text() === 'Изменить')
+    if (!edit) throw new Error('Edit button not found')
+    await edit.trigger('click')
+
+    expect(wrapper.text()).toContain('Изменить Harbor profile')
+    const credential = wrapper.findAll('input').find(
+      (input) => input.attributes('autocomplete') === 'new-password',
+    )
+    if (!credential) throw new Error('Credential input not found')
+    expect(credential.element).toHaveProperty('value', '')
+
+    await wrapper.find('input[placeholder="Harbor DC-2"]').setValue('Harbor DC-2 updated')
+    await wrapper.find('input[placeholder="https://harbor-dc2.local"]').setValue(
+      'https://harbor-b-new.local',
+    )
+    await wrapper.get('.create-form').trigger('submit')
+    await flushPromises()
+
+    expect(patch).toHaveBeenCalledWith(
+      `/settings/harbor/profiles/${secondProfile.id}`,
+      {
+        name: 'Harbor DC-2 updated',
+        url: 'https://harbor-b-new.local',
+        username: 'svc-b',
+        verify_tls: true,
+        enabled: true,
+      },
+    )
+    expect(put).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Harbor profile обновлён')
+  })
+
   it('tests a profile without exposing credentials', async () => {
     vi.spyOn(apiClient, 'get').mockResolvedValue(
       response({ items: [defaultProfile, secondProfile] }),
