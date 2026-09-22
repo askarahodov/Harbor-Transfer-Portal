@@ -194,15 +194,26 @@ class HarborProfileService:
             raise HarborSettingsError("harbor_ca_invalid", "Ожидается PEM-сертификат CA")
 
         target = self._ca_path(profile)
-        self._atomic_write(target, encoded, 0o600)
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, temp_name = tempfile.mkstemp(prefix=".ca-", dir=target.parent)
+        temp_path = Path(temp_name)
         try:
-            ssl.create_default_context(cafile=str(target))
-        except (OSError, ssl.SSLError) as exc:
-            target.unlink(missing_ok=True)
-            raise HarborSettingsError(
-                "harbor_ca_invalid",
-                "CA bundle не удалось загрузить как доверенный PEM",
-            ) from exc
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temp_path, 0o600)
+            try:
+                ssl.create_default_context(cafile=str(temp_path))
+            except (OSError, ssl.SSLError) as exc:
+                raise HarborSettingsError(
+                    "harbor_ca_invalid",
+                    "CA bundle не удалось загрузить как доверенный PEM",
+                ) from exc
+            os.replace(temp_path, target)
+            os.chmod(target, 0o600)
+        finally:
+            temp_path.unlink(missing_ok=True)
 
     def remove_ca(self, profile_id: str) -> None:
         profile = self.get(profile_id)
