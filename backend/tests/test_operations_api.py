@@ -70,6 +70,9 @@ def test_operation_status_is_readable_by_authenticated_viewer(tmp_path: Path) ->
         operation_type=OperationType.EXPORT,
         actor_user_id=user_ids["operator"],
         actor_username="operator",
+        harbor_profile_id="a" * 32,
+        harbor_profile_name="Harbor A",
+        harbor_url="https://harbor-a.local",
     )
 
     with TestClient(app) as client:
@@ -80,6 +83,9 @@ def test_operation_status_is_readable_by_authenticated_viewer(tmp_path: Path) ->
     payload = response.json()
     assert payload["id"] == operation_id
     assert payload["status"] == "CREATED"
+    assert payload["harbor_profile_id"] == "a" * 32
+    assert payload["harbor_profile_name"] == "Harbor A"
+    assert payload["harbor_url"] == "https://harbor-a.local"
     assert payload["progress"] == {
         "total_artifacts": 0,
         "completed_artifacts": 0,
