@@ -21,13 +21,17 @@ afterEach(() => {
 })
 
 describe('runtime store', () => {
-  it('reads contour from runtime configuration before backend bootstrap completes', () => {
-    window.__HTP_CONFIG__ = { contour: 'SOURCE' }
+  it('reads contour and frontend revision from runtime configuration before backend bootstrap completes', () => {
+    window.__HTP_CONFIG__ = {
+      contour: 'SOURCE',
+      revision: 'e77f800850f79bae44533e23d17357cf909dfa43',
+    }
     setActivePinia(createPinia())
 
     const store = useRuntimeStore()
 
     expect(store.contour).toBe('SOURCE')
+    expect(store.frontendRevision).toBe('e77f800850f79bae44533e23d17357cf909dfa43')
     expect(store.version).toBeNull()
   })
 
