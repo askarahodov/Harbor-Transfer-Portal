@@ -294,7 +294,7 @@ async function testConnection(): Promise<void> {
   error.value = ''
   message.value = ''
   try {
-    const response = await apiClient.post<ConnectionTest>('/settings/harbor/test')
+    const response = await apiClient.post<ConnectionTest>('/settings/harbor/profiles/default/test')
     readinessHarbor.value = response.data.ok
     if (response.data.ok) {
       message.value = `Подключение успешно${response.data.version ? ` · Harbor ${response.data.version}` : ''}.`
