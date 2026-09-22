@@ -90,6 +90,36 @@ class HarborProfileService:
                 return profile
         raise HarborSettingsError("harbor_profile_not_found", "Профиль Harbor не найден")
 
+    def selectable_profiles(self) -> list[HarborProfile]:
+        return [profile for profile in self.list_profiles() if profile.enabled and profile.url]
+
+    def operation_snapshot(self, profile_id: str | None = None) -> HarborProfile:
+        normalized = profile_id.strip() if profile_id is not None else DEFAULT_PROFILE_ID
+        if not normalized:
+            normalized = DEFAULT_PROFILE_ID
+        profile = self.get(normalized)
+        if not profile.enabled or not profile.url:
+            raise HarborSettingsError(
+                "harbor_profile_disabled",
+                "Профиль Harbor недоступен для новой операции",
+            )
+        return profile
+
+    def assert_operation_binding(self, operation: Operation) -> HarborProfile:
+        profile_id = operation.harbor_profile_id or DEFAULT_PROFILE_ID
+        profile = self.operation_snapshot(profile_id)
+        if operation.harbor_profile_id is None:
+            return profile
+        if (
+            operation.harbor_profile_name != profile.name
+            or operation.harbor_profile_url != profile.url
+        ):
+            raise HarborSettingsError(
+                "harbor_profile_changed",
+                "Harbor profile изменился после создания операции",
+            )
+        return profile
+
     def create(
         self,
         *,
@@ -178,6 +208,14 @@ class HarborProfileService:
                 "harbor_profile_active_protected",
                 "Active Harbor profile нельзя удалить; сначала выберите другой профиль",
             )
+        referenced = self.session.scalar(
+            select(Operation.id).where(Operation.harbor_profile_id == current.id).limit(1)
+        )
+        if referenced is not None:
+            raise HarborSettingsError(
+                "harbor_profile_in_use",
+                "Профиль Harbor используется сохранёнными операциями и не может быть удалён",
+            )
         self._save_additional([item for item in profiles if item.id != current.id])
         self._credential_path(current).unlink(missing_ok=True)
         self._ca_path(current).unlink(missing_ok=True)
@@ -263,25 +301,28 @@ class HarborProfileService:
         self._ca_path(profile).unlink(missing_ok=True)
 
     def require_mutation_safe(self, profile_id: str) -> None:
-        if profile_id != self.active_profile_id():
-            return
-        blockers = self._blocking_operation_ids()
+        blockers = self._blocking_operation_ids(profile_id)
         if not blockers:
             return
         joined = ", ".join(f"#{operation_id}" for operation_id in blockers[:10])
         raise HarborSettingsError(
             "harbor_profile_busy",
-            f"Нельзя изменять active Harbor profile при незавершённых операциях: {joined}",
+            f"Нельзя изменять Harbor profile при незавершённых операциях: {joined}",
         )
 
-    def _blocking_operation_ids(self) -> tuple[int, ...]:
-        return tuple(
-            self.session.scalars(
-                select(Operation.id)
-                .where(Operation.status.in_(BLOCKING_OPERATION_STATUSES))
-                .order_by(Operation.id)
-            )
+    def _blocking_operation_ids(self, profile_id: str | None = None) -> tuple[int, ...]:
+        statement = select(Operation.id).where(
+            Operation.status.in_(BLOCKING_OPERATION_STATUSES)
         )
+        if profile_id is not None:
+            if profile_id == DEFAULT_PROFILE_ID:
+                statement = statement.where(
+                    (Operation.harbor_profile_id == DEFAULT_PROFILE_ID)
+                    | (Operation.harbor_profile_id.is_(None))
+                )
+            else:
+                statement = statement.where(Operation.harbor_profile_id == profile_id)
+        return tuple(self.session.scalars(statement.order_by(Operation.id)))
 
     def _default_profile(self) -> HarborProfile:
         resolved = self.legacy.resolve_profile(DEFAULT_PROFILE_ID)
