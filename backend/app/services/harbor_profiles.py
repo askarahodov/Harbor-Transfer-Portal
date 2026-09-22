@@ -65,7 +65,15 @@ class HarborProfileService:
     def operation_snapshot(self, profile_id: str | None) -> HarborProfile:
         selected_id = (profile_id or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
         profile = self.get(selected_id)
-        if not profile.enabled or not profile.url:
+        if not profile.url:
+            code = "harbor_not_configured" if profile.is_default else "harbor_profile_disabled"
+            raise HarborSettingsError(
+                code,
+                "Default Harbor не настроен"
+                if profile.is_default
+                else "Профиль Harbor недоступен для новой операции",
+            )
+        if not profile.enabled:
             raise HarborSettingsError(
                 "harbor_profile_disabled",
                 "Профиль Harbor недоступен для новой операции",
@@ -266,6 +274,8 @@ class HarborProfileService:
 
     def build_client(self, profile_id: str) -> HarborClient:
         profile = self.get(profile_id)
+        if profile.is_default:
+            return self.legacy.build_client_for_profile(profile.id)
         if not profile.enabled:
             raise HarborSettingsError("harbor_profile_disabled", "Профиль Harbor отключён")
         return self.legacy.build_client_for_profile(profile.id)
