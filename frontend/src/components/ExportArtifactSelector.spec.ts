@@ -44,7 +44,7 @@ describe('ExportArtifactSelector', () => {
     expect(options[0]!.text()).toContain('Container image')
     await options[0]!.trigger('mousedown')
     expect(wrapper.text()).toContain('1.0.0')
-    expect(wrapper.text()).toContain('4.0 KB')
+    expect(wrapper.text()).toContain('4.00 КиБ')
     await wrapper.get('button.artifact-selector__add').trigger('click')
     expect(wrapper.emitted('add')?.[0]).toEqual([artifact, '1.0.0'])
   })
