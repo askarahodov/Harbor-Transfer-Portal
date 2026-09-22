@@ -23,6 +23,7 @@ import {
   type Operation,
   type OperationStatus,
 } from '@/api/exports'
+import { useHarborProfilesStore } from '@/stores/harborProfiles'
 
 const PAGE_SIZE = 25
 const SEARCH_DEBOUNCE_MS = 300
