@@ -345,7 +345,7 @@ async def upload_bundle(
 async def discover_incoming_bundles(
     actor: ImportActorDep,
     orchestrator: ImportOrchestratorDep,
-    profile_id: str = Query(default=DEFAULT_PROFILE_ID, min_length=1, max_length=64),
+    profile_id: str | None = Query(default=None, min_length=1, max_length=64),
 ) -> ImportDiscoveryResponse:
     try:
         discovered = await orchestrator.discover_ready(
