@@ -139,3 +139,10 @@ class HarborProfilePatch(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+    @model_validator(mode="after")
+    def reject_null_required_fields(self) -> "HarborProfilePatch":
+        for field in ("name", "url", "verify_tls", "enabled"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} must not be null")
+        return self
