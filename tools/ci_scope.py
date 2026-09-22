@@ -33,6 +33,7 @@ _SECURITY_SERVICE_FILES = {
     "export_orchestrator.py",
     "export_publication_guard.py",
     "harbor_client.py",
+    "harbor_profiles.py",
     "import_helm_service.py",
     "import_orchestrator.py",
     "key_management.py",
@@ -53,6 +54,7 @@ _SECURITY_TEST_PREFIXES = (
     "test_export_",
     "test_exports_api",
     "test_harbor_client",
+    "test_harbor_profiles",
     "test_harbor_project_creation",
     "test_import_",
     "test_key_management_",
@@ -186,6 +188,16 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
     }
 
     if _under(path, "backend") or path_text == "Makefile":
+        areas.add("backend")
+
+    if path_text in {
+        ".env.example",
+        "compose.yaml",
+        "deploy/offline/compose.yaml",
+        "frontend/nginx.conf",
+    }:
+        # Backend regression tests assert the browser/runtime trust boundary
+        # across these deployment files, so changes must execute that suite.
         areas.add("backend")
 
     if path_text in _BACKEND_RUNTIME_DEPENDENCY_FILES:

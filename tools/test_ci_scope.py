@@ -150,6 +150,18 @@ class CiScopeTest(TestCase):
             with self.subTest(path=path):
                 self.assertEqual(classify_paths([path], root=root), expected)
 
+    def test_harbor_profile_secret_paths_run_security_regression(self):
+        root = self._root()
+        for path in (
+            "backend/app/services/harbor_profiles.py",
+            "backend/tests/test_harbor_profiles_api.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    classify_paths([path], root=root),
+                    Scope(backend=True, security=True),
+                )
+
     def test_harbor_project_mutation_paths_run_security_regression(self):
         root = self._root()
         for path in (
@@ -233,8 +245,19 @@ class CiScopeTest(TestCase):
         )
         self.assertEqual(
             classify_paths(["compose.yaml"], root=root),
-            Scope(integration=True, compose=True),
+            Scope(backend=True, integration=True, compose=True),
         )
+
+    def test_browser_runtime_boundary_files_run_backend_regression(self):
+        root = self._root()
+        cases = {
+            ".env.example": Scope(backend=True),
+            "frontend/nginx.conf": Scope(backend=True, frontend=True, compose=True),
+            "deploy/offline/compose.yaml": Scope(backend=True, compose=True),
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(classify_paths([path], root=root), expected)
 
     def test_export_api_and_regression_test_run_security_and_integration(self):
         root = self._root()
