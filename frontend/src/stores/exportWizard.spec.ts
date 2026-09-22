@@ -180,6 +180,30 @@ describe('export wizard store', () => {
     })
   })
 
+  it('clears dependent SOURCE selection when Harbor profile changes', async () => {
+    const store = useExportWizardStore()
+    await store.initialize()
+    await store.chooseProject('team')
+    await store.chooseRepository('apps/demo')
+    store.toggleArtifact(store.artifacts[0]!, '1.0.0')
+
+    const connectionSpy = vi.mocked(exportsApi.getHarborConnection)
+    const projectsSpy = vi.mocked(exportsApi.listHarborProjects)
+    connectionSpy.mockClear()
+    projectsSpy.mockClear()
+
+    await store.selectHarborProfile('profile-b')
+
+    expect(store.selectedHarborProfileId).toBe('profile-b')
+    expect(store.selectedProject).toBeNull()
+    expect(store.selectedRepository).toBeNull()
+    expect(store.selectedCount).toBe(0)
+    expect(store.preview).toBeNull()
+    expect(connectionSpy).toHaveBeenCalledWith('profile-b')
+    expect(projectsSpy).toHaveBeenCalledWith(1, 25, '', 'profile-b')
+    expect(sessionStorage.getItem('htp.harbor.profile-id')).toBe('profile-b')
+  })
+
   it('deduplicates aliases that resolve to the same immutable digest', () => {
     const store = useExportWizardStore()
     const aliased = artifact('1.0.0')
