@@ -48,6 +48,22 @@ function response<T>(data: T): AxiosResponse<T> {
 async function mountSettings() {
   vi.spyOn(apiClient, 'get').mockImplementation((url) => {
     if (url === '/settings/transfer') return Promise.resolve(response(transferSettings))
+    if (url === '/settings/harbor/profiles') return Promise.resolve(response({
+          items: [
+            {
+              id: 'default',
+              name: 'Default Harbor',
+              url: 'https://harbor.local',
+              username: 'svc-transfer',
+              verify_tls: true,
+              enabled: true,
+              credential_configured: true,
+              custom_ca_configured: false,
+              is_default: true,
+              is_active: true,
+            },
+          ],
+        }))
     if (url === '/harbor/connection') {
       return Promise.resolve(response({ connected: true, version: '2.13.0', auth_mode: 'basic' }))
     }
@@ -103,6 +119,22 @@ describe('Harbor settings view', () => {
     runtime.setContour('SOURCE')
     vi.spyOn(apiClient, 'get').mockImplementation((url) => {
       if (url === '/settings/transfer') return Promise.resolve(response(transferSettings))
+      if (url === '/settings/harbor/profiles') return Promise.resolve(response({
+          items: [
+            {
+              id: 'default',
+              name: 'Default Harbor',
+              url: 'https://harbor.local',
+              username: 'svc-transfer',
+              verify_tls: true,
+              enabled: true,
+              credential_configured: true,
+              custom_ca_configured: false,
+              is_default: true,
+              is_active: true,
+            },
+          ],
+        }))
       if (url === '/harbor/connection') {
         return Promise.resolve(response({ connected: true, version: '2.13.0', auth_mode: 'basic' }))
       }
