@@ -154,12 +154,23 @@ class HarborProfileService:
         if current.id == target.id:
             return current, target
 
-        blockers = self._blocking_operation_ids()
+        # Pinned operations are independent from the global active selector.
+        # Only legacy non-terminal rows without a profile snapshot still depend on it.
+        blockers = tuple(
+            self.session.scalars(
+                select(Operation.id)
+                .where(
+                    Operation.status.in_(BLOCKING_OPERATION_STATUSES),
+                    Operation.harbor_profile_id.is_(None),
+                )
+                .order_by(Operation.id)
+            )
+        )
         if blockers:
             joined = ", ".join(f"#{operation_id}" for operation_id in blockers[:10])
             raise HarborSettingsError(
                 "harbor_profile_busy",
-                f"Нельзя переключить Harbor profile при незавершённых операциях: {joined}",
+                f"Нельзя переключить Harbor profile при legacy-операциях: {joined}",
             )
         self.metadata.set_value(
             HARBOR_ACTIVE_PROFILE_ID_KEY,
