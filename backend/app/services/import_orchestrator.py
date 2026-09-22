@@ -556,6 +556,7 @@ class ImportOrchestrator:
         failures = 0
         context.set_progress(current=0, total=len(artifacts))
         token = self._harbor_profile_context.set(operation.harbor_profile_id)
+        session_context = None
         try:
             session_context = self.session_factory()
             session = session_context.__enter__()
@@ -652,7 +653,8 @@ class ImportOrchestrator:
                 context.set_progress(current=index + 1, total=len(artifacts))
 
         finally:
-            session_context.__exit__(None, None, None)
+            if session_context is not None:
+                session_context.__exit__(None, None, None)
             self._harbor_profile_context.reset(token)
 
         context.transition(OperationStatus.VERIFYING_TARGET)
