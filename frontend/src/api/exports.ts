@@ -96,7 +96,7 @@ export type ExportSelection = {
 export type ExportSelectionRequest = {
   artifacts: ExportSelection[]
   comment: string | null
-  harbor_profile_id: string
+  harbor_profile_id?: string
 }
 
 export type ExportResolvedArtifact = {
@@ -173,9 +173,9 @@ export type Operation = {
   status: OperationStatus
   actor_username: string
   comment: string | null
-  harbor_profile_id: string | null
-  harbor_profile_name: string | null
-  harbor_profile_url: string | null
+  harbor_profile_id?: string | null
+  harbor_profile_name?: string | null
+  harbor_profile_url?: string | null
   started_at: string | null
   finished_at: string | null
   error_code: string | null
