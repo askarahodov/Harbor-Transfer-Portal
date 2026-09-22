@@ -73,6 +73,7 @@ class HarborProfileResponse(BaseModel):
     credential_configured: bool
     custom_ca_configured: bool
     is_default: bool = False
+    is_active: bool = False
 
 
 class HarborProfilesResponse(BaseModel):
