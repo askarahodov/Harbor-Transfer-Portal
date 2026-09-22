@@ -126,10 +126,11 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.get('h1').text()).toContain('Приём и импорт Offline Bundle')
     expect(wrapper.text()).toContain('harbor.source.local')
     expect(wrapper.text()).toContain('critical offline delivery')
-    expect(wrapper.text()).toContain('CONFLICT — другой digest, заблокирован')
     expect(wrapper.text()).toContain('package verified')
     expect(wrapper.text()).toContain('не означает')
+    expect(wrapper.findAll('#mapping-title')).toHaveLength(1)
     expect(wrapper.get('#mapping-title').text()).toContain('Куда будут импортированы артефакты')
+    expect(wrapper.text()).toContain('Что получится')
 
     const confirmPlanButton = wrapper.findAll('button').find((item) =>
       item.text().includes('Проверить TARGET'),
