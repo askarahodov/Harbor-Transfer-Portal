@@ -196,6 +196,9 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
     if _under(path, "frontend") or path_text == "Makefile":
         areas.add("frontend")
 
+    if path_text in {"tools/dev.py", "tools/test_dev.py", "dev.ps1"}:
+        areas.update({"frontend", "compose", "docs"})
+
     if (
         _starts_with(path, "backend", "app", "domain")
         or _is_package_protocol_path(path_text)
@@ -220,6 +223,7 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
         in {
             "compose.yaml",
             ".dockerignore",
+            "Makefile",
             "backend/Dockerfile",
             "frontend/Dockerfile",
             "frontend/nginx.conf",
