@@ -82,6 +82,7 @@ def _settings(tmp_path: Path, database_url: str) -> Settings:
         database_url=database_url,
         jwt_secret="retry-test-secret-" + "x" * 32,
         portal_contour=PortalContour.TARGET,
+        harbor_url="https://harbor.target.local",
         operation_workspace_root=data / "tmp" / "operations",
         bundle_payload_root=data,
         bundle_temp_root=data / "tmp" / "bundles",
@@ -289,6 +290,9 @@ def test_retry_reuses_frozen_mapping_and_revalidates_current_target(tmp_path: Pa
         assert retry.status is OperationStatus.READY
         assert retry.actor_user_id == actor_user_id
         assert retry.actor_username == "operator"
+        assert retry.harbor_profile_id == "default"
+        assert retry.harbor_profile_name == "Default Harbor"
+        assert retry.harbor_url == "https://harbor.target.local"
         assert retry.import_storage_key == STORAGE_KEY
         assert retry.bundle_sha256 == BUNDLE_SHA
         assert retry_of_operation_id(retry) == operation_id
