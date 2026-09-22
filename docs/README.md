@@ -65,6 +65,7 @@ Root [README](../README.md) — пользовательская входная 
 | [development.md](development.md) | source build/run на Windows и Linux, Docker Desktop/Engine boundary | актуальный developer workflow |
 | [user-guide.md](user-guide.md) | пошаговый browser flow SOURCE → physical transfer → TARGET | актуальный |
 | [admin-guide.md](admin-guide.md) | bootstrap, Harbor, users/policies/keys, lifecycle, limits | актуальный |
+| [settings.md](settings.md) | фактический admin Settings UI: Harbor profiles/readiness/keys/policies/retention/mapping | актуальный |
 | [runtime-mode.md](runtime-mode.md) | persistent SOURCE/TARGET role, switch, restart, migration, backup/restore | актуальный runtime/admin contract |
 | [key-management.md](key-management.md) | SOURCE signing identity и TARGET trusted-key lifecycle | актуальный |
 | [transfer-policies.md](transfer-policies.md) | admin-managed transfer policies и limits | актуальный |
@@ -106,7 +107,8 @@ Root [README](../README.md) — пользовательская входная 
 - [offline-lifecycle.md](offline-lifecycle.md) — backup/restore/upgrade/uninstall semantics;
 - [structured-logging.md](structured-logging.md) — structured logging contract;
 - [universal-mode-key-isolation.md](universal-mode-key-isolation.md) — key/trust isolation for universal runtime mode;
-- [admin-user-management.md](admin-user-management.md) — user management details.
+- [admin-user-management.md](admin-user-management.md) — user management details;
+- [settings.md](settings.md) — admin Settings screen и связанные server-side controls.
 
 ## Historical source
 
