@@ -35,7 +35,7 @@ def _service(request: Request, session: SessionDep) -> HarborSettingsService:
 
 
 def _response(service: HarborSettingsService) -> HarborSettingsResponse:
-    resolved = service.resolve()
+    resolved = service.resolve_default()
     return HarborSettingsResponse(
         contour=service.settings.portal_contour,
         url=resolved.url,
@@ -131,7 +131,7 @@ def update_harbor_settings(
     session: SessionDep,
 ) -> HarborSettingsResponse:
     service = _service(request, session)
-    current = service.resolve()
+    current = service.resolve_default()
     changed_fields: list[str] = []
 
     if "url" in payload.model_fields_set:
