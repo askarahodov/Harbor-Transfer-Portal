@@ -98,6 +98,14 @@ docker compose exec -T frontend wget -q -O - "http://backend:8000/api/health" | 
 
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/api/health" | grep -F '"status":"ok"' >/dev/null
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/runtime-config.js" | grep -F "contour: '${current_contour}'" >/dev/null
+
+# Documentation is served by the same frontend image and must remain fully offline.
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/" | grep -F 'Harbor Transfer Portal — Документация' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/_sidebar.md" | grep -F '#/docs/dashboard' >/dev/null
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/docsify.min.js"
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/search.min.js"
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/_portal/tokens.css" | grep -F -- '--color-brand-surface' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F '.docs-page-toc' >/dev/null
 docker compose exec -T backend sh -c 'test "$(id -u)" -eq 10001'
 docker compose exec -T backend sh -c "skopeo --version | grep -F '1.9.3' >/dev/null"
 docker compose exec -T backend sh -c "helm version --short | grep -F 'v3.22.0' >/dev/null"
@@ -127,4 +135,4 @@ docker compose exec -T frontend wget -q -O - "${frontend_container_base}/api/hea
 docker compose exec -T backend test -f /app/data/.compose-smoke
 docker compose exec -T backend rm /app/data/.compose-smoke
 
-printf '%s\n' 'Compose smoke test пройден: bridge/service discovery, frontend-only host publication, logging policy, миграции до текущего head, proxy health, SOURCE/TARGET, изоляция runtime и persistent volume проверены без повторной сборки/загрузки образов.'
+printf '%s\n' 'Compose smoke test пройден: bridge/service discovery, frontend-only host publication, logging policy, миграции до текущего head, proxy/docs health, SOURCE/TARGET, изоляция runtime и persistent volume проверены без повторной сборки/загрузки образов.'
