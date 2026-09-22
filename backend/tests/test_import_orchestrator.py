@@ -683,6 +683,8 @@ def test_browser_physical_handoff_upload_verifies_three_file_delivery(tmp_path: 
     operation = manager.get_operation(operation_id)
     assert operation is not None
     assert operation.status is OperationStatus.READY
+    assert operation.harbor_profile_id == "default"
+    assert operation.harbor_profile_name == "Default"
     assert operation.bundle_filename == bundle.archive_path.name
     assert operation.bundle_sha256 == bundle.archive_sha256
 
