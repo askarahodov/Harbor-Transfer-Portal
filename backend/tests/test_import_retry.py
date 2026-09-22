@@ -165,6 +165,9 @@ def _environment(tmp_path: Path):  # type: ignore[no-untyped-def]
         operation = Operation(
             type=OperationType.IMPORT,
             status=OperationStatus.READY,
+            harbor_profile_id="default",
+            harbor_profile_name="Default",
+            harbor_url="https://harbor.target.local",
             actor_user_id=actor_user_id,
             actor_username=actor.username,
             bundle_filename="bundle.htp.tar.gz",
@@ -289,6 +292,9 @@ def test_retry_reuses_frozen_mapping_and_revalidates_current_target(tmp_path: Pa
         assert retry.status is OperationStatus.READY
         assert retry.actor_user_id == actor_user_id
         assert retry.actor_username == "operator"
+        assert retry.harbor_profile_id == original.harbor_profile_id == "default"
+        assert retry.harbor_profile_name == original.harbor_profile_name == "Default"
+        assert retry.harbor_url == original.harbor_url == "https://harbor.target.local"
         assert retry.import_storage_key == STORAGE_KEY
         assert retry.bundle_sha256 == BUNDLE_SHA
         assert retry_of_operation_id(retry) == operation_id
