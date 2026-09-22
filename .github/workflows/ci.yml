@@ -31,8 +31,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Проверить regression scoped CI
-        run: python3 -m unittest tools.test_ci_scope
+      - name: Проверить regression scoped CI и dev launcher
+        run: python3 -m unittest tools.test_ci_scope tools.test_dev
 
       - name: Проверить dependency lock invariants
         shell: bash
