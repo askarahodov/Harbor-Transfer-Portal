@@ -80,7 +80,7 @@ describe('HarborProfilesPanel', () => {
 
     expect(wrapper.text()).toContain('Legacy fallback · Default Harbor')
     await wrapper.get('#active-harbor-profile').setValue(secondProfile.id)
-    const activate = wrapper.findAll('button').find((button) => button.text() === 'Использовать')
+    const activate = wrapper.findAll('button').find((button) => button.text() === 'Сделать fallback')
     if (!activate) throw new Error('Activate button not found')
     await activate.trigger('click')
     await flushPromises()
