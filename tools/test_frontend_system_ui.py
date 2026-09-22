@@ -79,6 +79,23 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertGreaterEqual(nginx.count('Cache-Control "no-store"'), 2)
         self.assertIn('Cache-Control "public, max-age=31536000, immutable"', nginx)
 
+    def test_application_compose_uses_portable_bridge_networking(self) -> None:
+        for relative_path in ("compose.yaml", "deploy/offline/compose.yaml"):
+            with self.subTest(relative_path=relative_path):
+                compose = (_REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertNotIn("network_mode: host", compose)
+                self.assertEqual(compose.count("    ports:\n"), 1)
+                self.assertIn(
+                    '"${PORTAL_HTTP_BIND:-127.0.0.1}:${PORTAL_HTTP_PORT:-8080}:8080"',
+                    compose,
+                )
+                self.assertIn("      - 0.0.0.0\n      - --port\n      - \"8000\"", compose)
+
+        nginx = (_REPOSITORY_ROOT / "frontend/nginx.conf").read_text(encoding="utf-8")
+        self.assertIn("listen 0.0.0.0:8080;", nginx)
+        self.assertIn("proxy_pass http://backend:8000;", nginx)
+        self.assertNotIn("proxy_pass http://127.0.0.1:8000;", nginx)
+
     def test_source_compose_rebuilds_with_current_revision(self) -> None:
         compose = (_REPOSITORY_ROOT / "compose.yaml").read_text(encoding="utf-8")
         makefile = (_REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")

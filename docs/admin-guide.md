@@ -109,7 +109,7 @@ PORTAL_BROWSER_SCHEME=https
 
 и перезапустите Compose. Backend использует эту trusted deployment-настройку для security-sensitive browser attributes; пользовательский `X-Forwarded-Proto` не является trust source.
 
-Если approved TLS terminator находится на отдельном хосте, задайте `PORTAL_HTTP_BIND` адресом выделенного внутреннего интерфейса Portal и ограничьте firewall доступом только с terminator. Не публикуйте raw HTTP listener на всю сеть без такого ограничения и не публикуйте backend `:8000` на host network.
+Если approved TLS terminator находится на отдельном хосте, задайте `PORTAL_HTTP_BIND` адресом выделенного внутреннего интерфейса Portal и ограничьте firewall доступом только с terminator. Не публикуйте raw HTTP listener на всю сеть без такого ограничения. Backend `:8000` штатным Compose вообще не публикуется на host.
 
 Полная схема и проверка: [browser-transport.md](browser-transport.md).
 

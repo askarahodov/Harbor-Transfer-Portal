@@ -7,6 +7,8 @@ Harbor Transfer Portal использует одинаковые Linux container
 - Linux — Docker Engine + Docker Compose v2;
 - Windows 10/11 — Docker Desktop в режиме **Linux containers**.
 
+Application runtime использует обычную Compose bridge network и service discovery; включать Docker Desktop **host networking** не требуется. На host публикуется только frontend port, backend остаётся внутри Compose network.
+
 Для source build/run Windows **не требует** WSL, Git Bash или GNU Make. Общая orchestration реализована в `tools/dev.py` и использует только Python standard library и argv-based subprocess calls.
 
 ## Предпосылки
@@ -111,4 +113,4 @@ docker compose version
 UI <revision>
 ```
 
-На Windows Docker Desktop должен быть переключён в Linux containers mode. Если `docker compose build` пытается использовать Windows containers, переключите Docker Desktop в Linux containers и повторите `doctor` / `build`.
+На Windows Docker Desktop должен быть переключён в Linux containers mode. `doctor` проверяет `docker info` и завершится ошибкой, если Docker сообщает другой `OSType`; после переключения повторите `doctor` / `build`.

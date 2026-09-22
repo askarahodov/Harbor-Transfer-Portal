@@ -23,11 +23,7 @@ case "$current_contour" in
         ;;
 esac
 
-frontend_bind=$(grep '^PORTAL_HTTP_BIND=' .env | tail -n 1 | cut -d= -f2-)
-frontend_port=$(grep '^PORTAL_HTTP_PORT=' .env | tail -n 1 | cut -d= -f2-)
-frontend_bind=${frontend_bind:-127.0.0.1}
-frontend_port=${frontend_port:-8080}
-frontend_base="http://${frontend_bind}:${frontend_port}"
+frontend_container_base="http://127.0.0.1:8080"
 
 cleanup() {
     set +e
@@ -51,7 +47,7 @@ wait_backend() {
 wait_frontend() {
     attempts=0
     while [ "$attempts" -lt 30 ]; do
-        if docker compose exec -T frontend wget -q -O /dev/null "${frontend_base}/healthz" >/dev/null 2>&1; then
+        if docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/healthz" >/dev/null 2>&1; then
             return 0
         fi
         attempts=$((attempts + 1))
@@ -70,8 +66,8 @@ if [ "$logging_driver_count" -ne 2 ] || [ "$logging_max_size_count" -ne 2 ] || [
     echo 'Backend и frontend должны иметь bounded json-file logging policy.' >&2
     exit 1
 fi
-if [ "$host_network_count" -ne 2 ]; then
-    echo 'Backend и frontend должны использовать host network в Linux air-gap deployment.' >&2
+if [ "$host_network_count" -ne 0 ]; then
+    echo 'Application runtime Compose не должен использовать host network.' >&2
     exit 1
 fi
 unset compose_config logging_driver_count logging_max_size_count logging_max_file_count host_network_count
@@ -80,8 +76,28 @@ docker compose up -d --build
 wait_backend
 wait_frontend
 
-docker compose exec -T frontend wget -q -O - "${frontend_base}/api/health" | grep -F '"status":"ok"' >/dev/null
-docker compose exec -T frontend wget -q -O - "${frontend_base}/runtime-config.js" | grep -F "contour: '${current_contour}'" >/dev/null
+frontend_id=$(docker compose ps -q frontend)
+backend_id=$(docker compose ps -q backend)
+frontend_bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$frontend_id")
+backend_bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$backend_id")
+case "$frontend_bindings" in
+    *'"8080/tcp"'*) ;;
+    *)
+        echo "Frontend port 8080 должен быть опубликован на host: $frontend_bindings" >&2
+        exit 1
+        ;;
+esac
+case "$backend_bindings" in
+    *'"8000/tcp"'*)
+        echo "Backend port 8000 не должен публиковаться на host: $backend_bindings" >&2
+        exit 1
+        ;;
+esac
+unset frontend_id backend_id frontend_bindings backend_bindings
+docker compose exec -T frontend wget -q -O - "http://backend:8000/api/health" | grep -F '"status":"ok"' >/dev/null
+
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/api/health" | grep -F '"status":"ok"' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/runtime-config.js" | grep -F "contour: '${current_contour}'" >/dev/null
 docker compose exec -T backend sh -c 'test "$(id -u)" -eq 10001'
 docker compose exec -T backend sh -c "skopeo --version | grep -F '1.9.3' >/dev/null"
 docker compose exec -T backend sh -c "helm version --short | grep -F 'v3.22.0' >/dev/null"
@@ -96,7 +112,7 @@ docker compose exec -T backend sh -c "printf 'persistent\n' > /app/data/.compose
 docker compose restart >/dev/null
 wait_backend
 wait_frontend
-docker compose exec -T frontend wget -q -O - "${frontend_base}/api/health" | grep -F '"status":"ok"' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/api/health" | grep -F '"status":"ok"' >/dev/null
 docker compose exec -T backend test -f /app/data/.compose-smoke
 
 # Acceptance #5: down/up must preserve state, and the same already-built images
@@ -106,9 +122,9 @@ export PORTAL_CONTOUR="$opposite_contour"
 docker compose up -d --no-build --pull never
 wait_backend
 wait_frontend
-docker compose exec -T frontend wget -q -O - "${frontend_base}/runtime-config.js" | grep -F "contour: '${opposite_contour}'" >/dev/null
-docker compose exec -T frontend wget -q -O - "${frontend_base}/api/health" | grep -F '"status":"ok"' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/runtime-config.js" | grep -F "contour: '${opposite_contour}'" >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/api/health" | grep -F '"status":"ok"' >/dev/null
 docker compose exec -T backend test -f /app/data/.compose-smoke
 docker compose exec -T backend rm /app/data/.compose-smoke
 
-printf '%s\n' 'Compose smoke test пройден: host network, logging policy, миграции до текущего head, proxy health, SOURCE/TARGET, изоляция runtime и persistent volume проверены без повторной сборки/загрузки образов.'
+printf '%s\n' 'Compose smoke test пройден: bridge/service discovery, frontend-only host publication, logging policy, миграции до текущего head, proxy health, SOURCE/TARGET, изоляция runtime и persistent volume проверены без повторной сборки/загрузки образов.'
