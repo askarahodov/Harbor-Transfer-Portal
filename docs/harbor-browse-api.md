@@ -6,6 +6,8 @@
 
 Все endpoints ниже требуют действующий bearer token портала. Роли `viewer`, `operator` и `admin` могут читать каталог артефактов. Изменение Harbor-конфигурации в этот API не входит.
 
+Backend выбирает Harbor не из query/path браузера, а из persisted **active Harbor profile**. Профиль меняется только через admin Settings API. Поэтому все browse endpoints одного request используют тот же server-side profile contract, который затем потребляют export/import adapters.
+
 ## Endpoints
 
 ### `GET /api/harbor/connection`
