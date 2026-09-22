@@ -293,8 +293,17 @@ class CiScopeTest(TestCase):
         root = self._root()
         self.assertEqual(
             classify_paths(["Makefile"], root=root),
-            Scope(backend=True, frontend=True, docs=True),
+            Scope(backend=True, frontend=True, compose=True, docs=True),
         )
+
+    def test_cross_platform_dev_tooling_runs_frontend_compose_and_docs(self):
+        root = self._root()
+        for path in ("tools/dev.py", "tools/test_dev.py", "dev.ps1"):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    classify_paths([path], root=root),
+                    Scope(frontend=True, compose=True, docs=True),
+                )
 
     def test_workflow_change_self_tests_all_existing_areas(self):
         root = self._root()
