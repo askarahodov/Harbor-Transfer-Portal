@@ -4,9 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  Download,
   FileArchive,
-  PackageCheck,
   RefreshCw,
   XCircle,
 } from 'lucide-vue-next'
@@ -22,6 +20,7 @@ import {
   type OperationStatus,
 } from '@/api/exports'
 import ExportArtifactSelector from '@/components/ExportArtifactSelector.vue'
+import ExportReadyCard from '@/components/ExportReadyCard.vue'
 import SearchCombobox from '@/components/SearchCombobox.vue'
 import WizardStepper from '@/components/WizardStepper.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
@@ -580,65 +579,18 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section v-else class="wizard-card ready-card" aria-labelledby="ready-title">
-        <div class="ready-icon" aria-hidden="true"><PackageCheck :size="36" /></div>
-        <p class="eyebrow">Шаг 4 из 4</p>
-        <h2 id="ready-title">Bundle готов к физическому переносу</h2>
-        <p class="lead">Операция достигла `COMPLETED`; backend зафиксировал filename, размер и SHA-256 готового archive.</p>
-
-        <div v-if="wizard.bundle" class="ready-grid">
-          <div class="info-box"><span>Delivery ID</span><strong>{{ wizard.bundle.delivery_id }}</strong></div>
-          <div class="info-box"><span>Файл</span><strong>{{ wizard.bundle.archive_name }}</strong></div>
-          <div class="info-box"><span>Размер</span><strong>{{ formatBytes(wizard.bundle.archive_size) }}</strong></div>
-          <div class="info-box info-box--wide"><span>SHA-256</span><code>{{ wizard.bundle.sha256 }}</code></div>
-        </div>
-
-        <div v-if="wizard.operation" class="ready-summary">
-          <strong>Проверено artifacts: {{ wizard.operation.progress.successful_artifacts }} / {{ wizard.operation.progress.total_artifacts }}</strong>
-          <span>Все готовые export artifacts имеют terminal verified state.</span>
-        </div>
-
-        <div class="notice notice--warning">
-          <AlertTriangle :size="22" aria-hidden="true" />
-          <div>
-            <strong>На носитель нужно скопировать три файла.</strong>
-            <p>Перенесите `.htp.tar.gz`, соответствующий `.sha256` и signed `.htp-handoff.json`. Handoff подтверждает состав физического носителя, но не заменяет Bundle v1 signature verification.</p>
-          </div>
-        </div>
-
-        <p v-if="downloadError" class="download-error" role="alert">{{ downloadError }}</p>
-        <div class="download-actions">
-          <button class="primary-button" type="button" :disabled="!wizard.bundle" @click="downloadBundle">
-            <Download :size="19" aria-hidden="true" /> Скачать bundle
-          </button>
-          <button class="secondary-button" type="button" :disabled="!wizard.bundle" @click="downloadSidecar">
-            <Download :size="19" aria-hidden="true" /> Скачать `.sha256`
-          </button>
-          <button class="secondary-button" type="button" :disabled="!wizard.bundle" @click="downloadHandoff">
-            <Download :size="19" aria-hidden="true" /> Скачать handoff
-          </button>
-          <button
-            class="secondary-button"
-            type="button"
-            :disabled="!wizard.bundle || printHandoffBusy"
-            @click="printHandoffRecord"
-          >
-            <FileArchive :size="19" aria-hidden="true" />
-            {{ printHandoffBusy ? 'Подготовка…' : 'Печатная ведомость' }}
-          </button>
-        </div>
-
-        <div class="next-steps">
-          <h3>Что дальше</h3>
-          <ol>
-            <li>Сверьте, что bundle и sidecar имеют одинаковое базовое имя, а handoff содержит тот же Delivery ID.</li>
-            <li>Скопируйте все три файла на разрешённый физический носитель по вашей организационной процедуре.</li>
-            <li>В TARGET откройте workflow «Приём» и загрузите/обнаружьте bundle. Не распаковывайте archive вручную.</li>
-          </ol>
-        </div>
-
-        <button class="text-button" type="button" @click="wizard.reset">Создать ещё один export</button>
-      </section>
+      <ExportReadyCard
+        v-else
+        :bundle="wizard.bundle"
+        :operation="wizard.operation"
+        :download-error="downloadError"
+        :print-handoff-busy="printHandoffBusy"
+        @download-bundle="downloadBundle"
+        @download-sidecar="downloadSidecar"
+        @download-handoff="downloadHandoff"
+        @print-handoff="printHandoffRecord"
+        @reset="wizard.reset"
+      />
     </template>
   </section>
 </template>
@@ -663,7 +615,8 @@ h3 { margin-bottom: var(--space-2); font-size: 16px; }
 .selected-artifact code { overflow-wrap: anywhere; font-size: 12px; }
 .browser-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
 .compact-selector { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr); gap: var(--space-3); align-items: end; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
-.compact-selector__versions { grid-column: 1 / -1; margin-top: var(--space-2); }\n.compact-field { display: grid; gap: var(--space-2); min-width: 0; font-weight: 700; }
+.compact-selector__versions { grid-column: 1 / -1; margin-top: var(--space-2); }
+.compact-field { display: grid; gap: var(--space-2); min-width: 0; font-weight: 700; }
 .compact-pagination { display: flex; align-items: center; justify-content: center; gap: var(--space-1); font-size: 12px; color: var(--color-text-muted); }
 .compact-pagination button { border: 0; background: transparent; color: var(--color-action); cursor: pointer; }
 .select-shell { position: relative; display: block; }
@@ -698,7 +651,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .unsupported { max-width: 240px; color: var(--color-text-muted); font-size: 13px; text-align: right; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: var(--space-3); padding-top: var(--space-2); }
 .pagination button, .text-button { border: 0; background: transparent; color: var(--color-action); cursor: pointer; text-decoration: underline; }
-.identity-grid, .operation-summary, .ready-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+.identity-grid, .operation-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
 .operation-summary { grid-template-columns: repeat(4, 1fr); }
 .info-box { display: grid; gap: var(--space-1); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); min-width: 0; }
 .info-box > span { color: var(--color-text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
@@ -733,18 +686,9 @@ progress { width: 100%; height: 12px; accent-color: var(--color-action); }
 .status-pill--running { background: var(--color-info-surface); color: var(--color-info-text); }
 .status-pill--verified, .status-pill--imported { background: var(--color-success-surface); color: var(--color-success-text); }
 .status-pill--failed, .status-pill--conflict { background: var(--color-danger-surface); color: var(--color-danger-text); }
-.ready-card { justify-items: center; text-align: center; }
-.ready-card .lead { max-width: 720px; }
-.ready-icon { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 50%; background: var(--color-success-surface); color: var(--color-success-text); }
-.ready-grid { width: 100%; text-align: left; }
-.ready-summary { width: 100%; display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-md); background: var(--color-success-surface); color: var(--color-success-text); text-align: left; }
-.download-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-3); }
-.download-error { color: var(--color-danger-text); }
-.next-steps { width: min(720px, 100%); text-align: left; }
-.next-steps li { margin-bottom: var(--space-2); line-height: 1.5; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 860px) {
-  .browser-grid, .identity-grid, .operation-summary, .ready-grid { grid-template-columns: 1fr 1fr; }
+  .browser-grid, .identity-grid, .operation-summary { grid-template-columns: 1fr 1fr; }
   .compact-selector { grid-template-columns: 1fr 1fr; }
   .compact-field--search { grid-column: 1 / -1; }
   .page-heading, .section-heading, .artifact-panel__heading { align-items: stretch; flex-direction: column; }
@@ -754,10 +698,10 @@ progress { width: 100%; height: 12px; accent-color: var(--color-action); }
   .artifact-result { justify-items: start; text-align: left; }
 }
 @media (max-width: 620px) {
-  .browser-grid, .identity-grid, .operation-summary, .ready-grid, .compact-selector { grid-template-columns: 1fr; }
+  .browser-grid, .identity-grid, .operation-summary, .compact-selector { grid-template-columns: 1fr; }
   .compact-field--search { grid-column: auto; }
   .wizard-card { padding: var(--space-4); }
-  .actions, .ready-summary { align-items: stretch; flex-direction: column; }
+  .actions { align-items: stretch; flex-direction: column; }
   .primary-button, .secondary-button, .danger-button { width: 100%; }
 }
 </style>
