@@ -2,7 +2,7 @@ import base64
 import binascii
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.auth.dependencies import SessionDep, require_roles
 from app.db.models import User, UserRole
@@ -21,7 +21,6 @@ from app.schemas.imports import (
     MediaHandoffVerificationResponse,
 )
 from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
-from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_mapping_audit import destination_plan_audit_metadata
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.media_handoff import MediaHandoffError, MediaHandoffService
@@ -41,7 +40,6 @@ def get_import_orchestrator(request: Request) -> PolicyAwareImportDestinationPla
         request.app.state.session_factory,
         settings,
         request.app.state.operation_manager,
-        helm_factory=lambda session: ImportHelmOciService(session, settings),
     )
 
 
@@ -304,6 +302,7 @@ async def upload_bundle(
     request: Request,
     actor: ImportActorDep,
     orchestrator: ImportOrchestratorDep,
+    harbor_profile_id: str | None = Query(default=None, max_length=32),
 ) -> ImportIntakeResponse:
     try:
         started = await orchestrator.accept_upload(
@@ -320,6 +319,7 @@ async def upload_bundle(
                 request,
                 "x-htp-handoff-base64",
             ),
+            harbor_profile_id=harbor_profile_id,
         )
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc
@@ -338,11 +338,13 @@ async def upload_bundle(
 async def discover_incoming_bundles(
     actor: ImportActorDep,
     orchestrator: ImportOrchestratorDep,
+    harbor_profile_id: str | None = Query(default=None, max_length=32),
 ) -> ImportDiscoveryResponse:
     try:
         discovered = await orchestrator.discover_ready(
             actor_user_id=actor.id,
             actor_username=actor.username,
+            harbor_profile_id=harbor_profile_id,
         )
     except ImportOrchestrationError as exc:
         raise _import_error(exc) from exc
