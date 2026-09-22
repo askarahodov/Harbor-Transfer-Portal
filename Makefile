@@ -4,7 +4,7 @@ SHELL := /bin/sh
 
 help:
 	@printf '%s\n' \
-	  'make up             Собрать и запустить локальный стек' \
+	  'make up             Пересобрать и recreate локальный стек из текущего Git revision' \
 	  'make down           Остановить стек, сохранив persistent volume' \
 	  'make logs           Показывать логи локального стека' \
 	  'make fmt            Форматировать backend и frontend' \
