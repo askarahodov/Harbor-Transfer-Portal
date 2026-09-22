@@ -180,7 +180,10 @@ def _is_package_protocol_path(path_text: str) -> bool:
 def _classify_path(path_text: str) -> tuple[set[str], bool]:
     path = PurePosixPath(path_text)
     areas: set[str] = set()
-    workflow_changed = path == PurePosixPath(".github/workflows/ci.yml")
+    workflow_changed = path in {
+        PurePosixPath(".github/workflows/ci.yml"),
+        PurePosixPath("tools/ci_scope.py"),
+    }
 
     if _under(path, "backend") or path_text == "Makefile":
         areas.add("backend")
