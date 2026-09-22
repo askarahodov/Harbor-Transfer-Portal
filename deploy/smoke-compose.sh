@@ -76,11 +76,17 @@ docker compose up -d --build
 wait_backend
 wait_frontend
 
-docker compose port frontend 8080 >/dev/null
-if docker compose port backend 8000 >/dev/null 2>&1; then
-    echo 'Backend port 8000 не должен публиковаться на host.' >&2
+frontend_published=$(docker compose port frontend 8080)
+[ -n "$frontend_published" ] || {
+    echo 'Frontend port 8080 должен быть опубликован на host.' >&2
+    exit 1
+}
+backend_published=$(docker compose port backend 8000 2>/dev/null) || backend_published=''
+if [ -n "$backend_published" ]; then
+    echo "Backend port 8000 не должен публиковаться на host: $backend_published" >&2
     exit 1
 fi
+unset frontend_published backend_published
 docker compose exec -T frontend wget -q -O - "http://backend:8000/api/health" | grep -F '"status":"ok"' >/dev/null
 
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/api/health" | grep -F '"status":"ok"' >/dev/null
