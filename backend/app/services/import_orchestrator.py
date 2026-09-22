@@ -330,8 +330,8 @@ class ImportOrchestrator:
         overwrite_conflicts: bool,
     ) -> None:
         self._require_target()
-            with self.session_factory() as session:
-                operation = session.get(Operation, operation_id)
+        with self.session_factory() as session:
+            operation = session.get(Operation, operation_id)
             if operation is None or operation.type is not OperationType.IMPORT:
                 raise ImportOrchestrationError(
                     "import_operation_not_found",
