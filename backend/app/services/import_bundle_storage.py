@@ -42,7 +42,13 @@ def resolve_persisted_bundle_paths(
         )
 
     root = staging_root.resolve()
-    archive = (root / storage_key / filename).resolve()
+    archive_path = root / storage_key / filename
+    if archive_path.is_symlink():
+        raise ImportBundleStorageError(
+            "import_bundle_missing",
+            "Import bundle отсутствует в staging",
+        )
+    archive = archive_path.resolve()
     try:
         archive.relative_to(root)
     except ValueError as exc:
