@@ -198,6 +198,11 @@ function downloadReceipt(): void {
   URL.revokeObjectURL(href)
 }
 
+function onHarborProfileChange(event: Event): void {
+  const select = event.target as HTMLSelectElement
+  wizard.selectHarborProfile(select.value)
+}
+
 onMounted(async () => {
   if (!runtime.contour) {
     await runtime.loadRuntime()
@@ -253,6 +258,27 @@ onBeforeUnmount(() => {
             <h2 id="intake-title">Приём и криптографическая проверка</h2>
           </div>
           <ShieldCheck :size="28" aria-hidden="true" />
+        </div>
+
+        <div class="harbor-profile-selector">
+          <label for="import-harbor-profile">TARGET Harbor profile</label>
+          <select
+            id="import-harbor-profile"
+            :value="wizard.selectedHarborProfileId"
+            :disabled="wizard.operation !== null || wizard.busy !== null"
+            @change="onHarborProfileChange"
+          >
+            <option
+              v-for="profile in wizard.harborProfiles"
+              :key="profile.id"
+              :value="profile.id"
+            >
+              {{ profile.name }} · {{ profile.url }}
+            </option>
+          </select>
+          <small v-if="wizard.selectedHarborProfile">
+            Intake и последующий import будут закреплены за {{ wizard.selectedHarborProfile.name }}.
+          </small>
         </div>
 
         <div class="intake-grid">
@@ -586,6 +612,10 @@ h1, h2, h3, p { margin-top: 0; }
 .lead { max-width: 850px; color: var(--color-text-muted); line-height: 1.6; }
 .panel { display: grid; gap: var(--space-6); padding: var(--space-6); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); }
 .panel__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.harbor-profile-selector { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); max-width: 760px; }
+.harbor-profile-selector label { font-weight: 700; }
+.harbor-profile-selector select { min-height: 42px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--color-surface); color: var(--color-text); font: inherit; }
+.harbor-profile-selector small { color: var(--color-text-muted); }
 .intake-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 .intake-card, .receipt-card { padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .drop-zone { display: grid; place-items: center; gap: var(--space-2); min-height: 180px; margin: var(--space-4) 0; padding: var(--space-4); border: 2px dashed var(--color-border-control); border-radius: var(--radius-md); text-align: center; cursor: pointer; }
