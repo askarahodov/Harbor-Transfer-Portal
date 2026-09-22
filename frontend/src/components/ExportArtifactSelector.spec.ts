@@ -36,12 +36,12 @@ describe('ExportArtifactSelector', () => {
     const wrapper = mount(ExportArtifactSelector, {
       props: { ...baseProps, artifacts: [artifact], selectedRepository: 'apps/demo', total: 1 },
     })
-    const options = wrapper.findAll('[role="option"]')
-    expect(options).toHaveLength(2)
-    expect(options[0]!.text()).toContain('1.0.0')
-    expect(options[0]!.text()).toContain('Container image')
-    await options[0]!.trigger('click')
-    expect(wrapper.text()).toContain('1.0.0')
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.text()).toContain('1.0.0')
+    expect(rows[0]!.text()).toContain('Container image')
+    await rows[0]!.get('input[type="checkbox"]').setValue(true)
+    expect(wrapper.text()).toContain('Выбрано: 1')
     expect(wrapper.text()).toContain('4.00 КиБ')
     await wrapper.get('button.artifact-selector__add').trigger('click')
     expect(wrapper.emitted('add')?.[0]).toEqual([artifact, '1.0.0'])
@@ -62,15 +62,29 @@ describe('ExportArtifactSelector', () => {
     })
     expect(wrapper.text()).toContain('release-2026.09')
     expect(wrapper.text()).toContain('Неподдерживаемые OCI artifacts')
-    expect(wrapper.findAll('[role="option"]')).toHaveLength(0)
+    expect(wrapper.findAll('tbody tr')).toHaveLength(0)
   })
-  it('renders versions as a persistent full-width list instead of a combobox popup', () => {
+  it('renders versions as a persistent full-width table instead of a combobox popup', () => {
     const wrapper = mount(ExportArtifactSelector, {
       props: { ...baseProps, artifacts: [artifact], selectedRepository: 'apps/demo', total: 2 },
     })
     expect(wrapper.find('input[role="combobox"][aria-label="Версия / tag"]').exists()).toBe(false)
-    expect(wrapper.get('[role="listbox"][aria-label="Доступные версии"]').isVisible()).toBe(true)
-    expect(wrapper.findAll('[role="option"]')).toHaveLength(2)
+    expect(wrapper.get('table.artifact-selector__table').isVisible()).toBe(true)
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2)
+  })
+
+  it('adds multiple checked references in one explicit action', async () => {
+    const wrapper = mount(ExportArtifactSelector, {
+      props: { ...baseProps, artifacts: [artifact], selectedRepository: 'apps/demo', total: 2 },
+    })
+    const checks = wrapper.findAll('tbody input[type="checkbox"]')
+    await checks[0]!.setValue(true)
+    await checks[1]!.setValue(true)
+    await wrapper.get('button.artifact-selector__add').trigger('click')
+    expect(wrapper.emitted('add')).toEqual([
+      [artifact, '1.0.0'],
+      [artifact, 'latest'],
+    ])
   })
 
 })
