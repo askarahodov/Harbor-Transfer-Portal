@@ -36,9 +36,13 @@ def _api_error(status_code: int, code: str, message: str) -> HTTPException:
 def get_harbor_client(
     request: Request,
     session: SessionDep,
+    harbor_profile_id: Annotated[str | None, Query(max_length=32)] = None,
 ) -> Generator[HarborClient, None, None]:
     try:
-        client = HarborSettingsService(session, request.app.state.settings).build_client()
+        client = HarborSettingsService(
+            session,
+            request.app.state.settings,
+        ).build_client(harbor_profile_id)
     except HarborSettingsError as exc:
         raise _api_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code, exc.message) from exc
     try:
