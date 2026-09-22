@@ -39,7 +39,7 @@ Harbor Transfer Portal работает в двух независимых се�
 
 Граница аутентификации, RBAC и transport confidentiality. Frontend помогает пользователю не видеть недоступные действия, но окончательное authorization решение принимает backend.
 
-Authenticated remote browser use должен идти через HTTPS. Shipped Compose публикует raw HTTP listener только на loopback по умолчанию (`PORTAL_HTTP_BIND=127.0.0.1`). Поддерживаемая production схема использует site-managed TLS terminator перед этим listener; certificate/private key не входят в release kit.
+Authenticated remote browser use должен идти через HTTPS. Shipped Compose публикует только frontend raw HTTP listener и только на loopback по умолчанию (`PORTAL_HTTP_BIND=127.0.0.1`); backend `:8000` остаётся во внутренней Compose network. Поддерживаемая production схема использует site-managed TLS terminator перед frontend listener; certificate/private key не входят в release kit.
 
 Backend не доверяет client-supplied `X-Forwarded-Proto` как доказательству HTTPS. Security-sensitive browser behavior определяется explicit trusted deployment setting `PORTAL_BROWSER_SCHEME=http|https`. Frontend Nginx удаляет `X-Forwarded-Proto` перед backend и перезаписывает `X-Forwarded-For` непосредственным peer address.
 
