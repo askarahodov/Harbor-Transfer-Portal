@@ -162,6 +162,18 @@ class CiScopeTest(TestCase):
                     Scope(backend=True, security=True),
                 )
 
+    def test_harbor_profile_and_settings_changes_run_security_and_integration(self):
+        root = self._root()
+        for path in (
+            "backend/app/services/harbor_settings.py",
+            "backend/app/services/harbor_profiles.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    classify_paths([path], root=root),
+                    Scope(backend=True, security=True, integration=True),
+                )
+
     def test_harbor_project_mutation_paths_run_security_regression(self):
         root = self._root()
         for path in (
