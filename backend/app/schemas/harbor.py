@@ -7,6 +7,16 @@ from app.domain.artifacts import ArtifactKind
 _TARGET_PROJECT_PATTERN = r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
 
 
+class HarborSelectableProfileResponse(BaseModel):
+    id: str
+    name: str
+    url: str
+
+
+class HarborSelectableProfilesResponse(BaseModel):
+    items: list[HarborSelectableProfileResponse]
+
+
 class HarborProjectResponse(BaseModel):
     name: str
     public: bool
