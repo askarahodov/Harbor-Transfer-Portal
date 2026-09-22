@@ -30,6 +30,7 @@ def _build_app(tmp_path: Path):
             database_url=database_url,
             jwt_secret=JWT_TEST_KEY,
             portal_contour=PortalContour.TARGET,
+            harbor_url="https://target.harbor.local",
             operation_workspace_root=tmp_path / "operations",
             import_discovery_root=tmp_path / "incoming",
             import_staging_root=tmp_path / "staged",
