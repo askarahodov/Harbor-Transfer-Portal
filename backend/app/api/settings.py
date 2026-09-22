@@ -280,17 +280,20 @@ def update_harbor_settings(
     current = service.resolve()
     changed_fields: list[str] = []
 
-    if "url" in payload.model_fields_set:
-        new_url = str(payload.url).rstrip("/") if payload.url is not None else None
-        if new_url != current.url:
-            service.set_url(new_url)
-            changed_fields.append("url")
-    if "username" in payload.model_fields_set and payload.username != current.username:
-        service.set_username(payload.username)
-        changed_fields.append("username")
-    if "verify_tls" in payload.model_fields_set and payload.verify_tls != current.verify_tls:
-        service.set_verify_tls(bool(payload.verify_tls))
-        changed_fields.append("verify_tls")
+    try:
+        if "url" in payload.model_fields_set:
+            new_url = str(payload.url).rstrip("/") if payload.url is not None else None
+            if new_url != current.url:
+                service.set_url(new_url)
+                changed_fields.append("url")
+        if "username" in payload.model_fields_set and payload.username != current.username:
+            service.set_username(payload.username)
+            changed_fields.append("username")
+        if "verify_tls" in payload.model_fields_set and payload.verify_tls != current.verify_tls:
+            service.set_verify_tls(bool(payload.verify_tls))
+            changed_fields.append("verify_tls")
+    except HarborSettingsError as exc:
+        raise _api_error(_profile_error_status(exc), exc.code, exc.message) from exc
 
     if changed_fields:
         _audit(session, admin, "harbor.settings.updated", changed_fields)
@@ -309,7 +312,7 @@ def rotate_harbor_credential(
     try:
         service.rotate_credential(payload.secret.get_secret_value())
     except HarborSettingsError as exc:
-        raise _api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code, exc.message) from exc
+        raise _api_error(_profile_error_status(exc), exc.code, exc.message) from exc
     _audit(session, admin, "harbor.credential.rotated", ["credential"])
     session.commit()
     return HarborMutationResponse(changed_fields=["credential"])
@@ -326,7 +329,7 @@ def install_harbor_ca(
     try:
         service.install_ca(payload.certificate_pem)
     except HarborSettingsError as exc:
-        raise _api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code, exc.message) from exc
+        raise _api_error(_profile_error_status(exc), exc.code, exc.message) from exc
     _audit(session, admin, "harbor.ca.updated", ["custom_ca"])
     session.commit()
     return HarborMutationResponse(changed_fields=["custom_ca"])
@@ -339,7 +342,10 @@ def remove_harbor_ca(
     session: SessionDep,
 ) -> HarborMutationResponse:
     service = _service(request, session)
-    service.remove_managed_ca()
+    try:
+        service.remove_managed_ca()
+    except HarborSettingsError as exc:
+        raise _api_error(_profile_error_status(exc), exc.code, exc.message) from exc
     _audit(session, admin, "harbor.ca.removed", ["custom_ca"])
     session.commit()
     return HarborMutationResponse(changed_fields=["custom_ca"])
