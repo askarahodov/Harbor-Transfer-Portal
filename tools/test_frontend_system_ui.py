@@ -133,14 +133,21 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertNotIn("cdn.jsdelivr", docs_index)
         self.assertNotIn("unpkg.com", docs_index)
 
-        for target in (
-            "dashboard.md",
-            "user-guide.md",
-            "admin-guide.md",
-            "history-ui.md",
-            "admin-user-management.md",
-        ):
-            self.assertIn(target, sidebar)
+        route_targets = {
+            "#/docs/dashboard": "docs/dashboard.md",
+            "#/docs/user-guide": "docs/user-guide.md",
+            "#/docs/admin-guide": "docs/admin-guide.md",
+            "#/docs/history-ui": "docs/history-ui.md",
+            "#/docs/admin-user-management": "docs/admin-user-management.md",
+            "#/deploy/README": "deploy/README.md",
+            "#/deploy/offline/README": "deploy/offline/README.md",
+            "#/README": "README.md",
+            "#/CONTRIBUTING": "CONTRIBUTING.md",
+            "#/CHANGELOG": "CHANGELOG.md",
+        }
+        for route, target in route_targets.items():
+            self.assertIn(f"]({route})", sidebar)
+            self.assertTrue((_REPOSITORY_ROOT / target).is_file())
 
 
 if __name__ == "__main__":
