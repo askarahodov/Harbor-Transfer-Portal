@@ -18,10 +18,10 @@ from app.services.bundle_package_service import (
 from app.services.export_artifact_materializer import ExportArtifactMaterializer
 from app.services.export_selection import ResolvedExportArtifact
 from app.services.helm_oci_service import (
+    HelmOciService,
     HelmPackageMetadata,
     HelmPullResult,
     HelmServiceError,
-    HelmOciService,
 )
 from app.services.operation_manager import OperationTaskFailure
 from app.services.skopeo_service import ExportResult, SkopeoService, SkopeoServiceError
