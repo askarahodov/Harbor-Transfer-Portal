@@ -106,6 +106,19 @@ def command_doctor(*, dry_run: bool = False) -> int:
     _run([docker, "--version"], dry_run=dry_run)
     _run([docker, "compose", "version"], dry_run=dry_run)
 
+    if not dry_run:
+        docker_info = _run(
+            [docker, "info", "--format", "{{.OSType}}"],
+            capture_output=True,
+        )
+        docker_os = docker_info.stdout.strip().lower()
+        if docker_os != "linux":
+            raise DevCliError(
+                "Harbor Transfer Portal requires Docker in Linux containers mode; "
+                f"current Docker OSType is {docker_os or 'unknown'}"
+            )
+        print("Docker OSType: linux")
+
     if ENV_FILE.is_file():
         print(".env: OK")
     else:
