@@ -110,6 +110,13 @@ def _fuzzy_query(field: str, needle: str | None) -> str | None:
     return f"{field}=~{value}"
 
 
+def _encode_repository_name(repository: str) -> str:
+    # Harbor decodes repository_name while routing the API path. Its own portal
+    # therefore double-encodes this parameter so nested repository slashes
+    # survive until the repository lookup (nested/repo -> nested%252Frepo).
+    return quote(quote(repository, safe=""), safe="")
+
+
 class HarborClient:
     def __init__(
         self,
@@ -235,7 +242,7 @@ class HarborClient:
 
     def list_artifacts(self, project: str, repository: str) -> list[HarborArtifact]:
         encoded_project = quote(project, safe="")
-        encoded_repo = quote(repository, safe="")
+        encoded_repo = _encode_repository_name(repository)
         path = f"/api/v2.0/projects/{encoded_project}/repositories/{encoded_repo}/artifacts"
         return [
             HarborArtifact.model_validate(item)
@@ -253,7 +260,7 @@ class HarborClient:
         search_digest: bool = False,
     ) -> HarborPage[HarborArtifact]:
         encoded_project = quote(project, safe="")
-        encoded_repo = quote(repository, safe="")
+        encoded_repo = _encode_repository_name(repository)
         path = f"/api/v2.0/projects/{encoded_project}/repositories/{encoded_repo}/artifacts"
         params: dict[str, str] = {"with_tag": "true", "sort": "-push_time"}
         query = _fuzzy_query("digest" if search_digest else "tags", search_needle)
@@ -267,7 +274,7 @@ class HarborClient:
 
     def get_artifact(self, project: str, repository: str, reference: str) -> HarborArtifact:
         encoded_project = quote(project, safe="")
-        encoded_repo = quote(repository, safe="")
+        encoded_repo = _encode_repository_name(repository)
         encoded_reference = quote(reference, safe="")
         path = (
             f"/api/v2.0/projects/{encoded_project}/repositories/{encoded_repo}"
