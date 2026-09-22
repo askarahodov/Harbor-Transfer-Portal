@@ -169,7 +169,10 @@ def update_harbor_settings(
             if "username" in payload.model_fields_set and payload.username != current.username:
                 service.set_username(payload.username)
                 changed_fields.append("username")
-            if "verify_tls" in payload.model_fields_set and payload.verify_tls != current.verify_tls:
+            if (
+                "verify_tls" in payload.model_fields_set
+                and payload.verify_tls != current.verify_tls
+            ):
                 service.set_verify_tls(bool(payload.verify_tls))
                 changed_fields.append("verify_tls")
 
