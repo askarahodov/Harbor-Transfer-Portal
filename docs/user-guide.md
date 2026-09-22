@@ -98,18 +98,19 @@ Wizard состоит из четырёх этапов:
 
 Если вместо wizard отображается сообщение «Экспорт доступен только в контуре SOURCE», текущий runtime mode — TARGET. Переключите role через UI только если нет незавершённой блокирующей операции.
 
-## 6. Шаг 1 — выберите точные артефакты
+## 6. Шаг 1 — выберите Harbor и точные артефакты
 
-Выбор выполняется только из **локального Harbor текущей installation** в SOURCE role.
+Выбор выполняется только из Harbor profile, доступного текущей SOURCE installation.
 
 Последовательно:
 
-1. в верхней строке найдите и выберите Harbor project;
-2. выберите repository — этот уровень становится доступен только после project;
-3. ниже используйте широкий поиск **Version / tag** по tag/version/digest;
-4. в таблице результатов проверьте reference, тип, digest, размер и время публикации;
-5. отметьте checkbox у одного или нескольких нужных rows и нажмите **«Добавить выбранное»**;
-6. повторите поиск/страницы при необходимости; уже добавленные artifacts остаются в отдельном списке выбранного и могут быть удалены до preview.
+1. выберите **SOURCE Harbor profile**. Portal показывает только enabled profiles без credential/CA content;
+2. после выбора profile найдите Harbor project;
+3. выберите repository — этот уровень становится доступен только после project;
+4. ниже используйте широкий поиск **Version / tag** по tag/version/digest;
+5. в таблице результатов проверьте reference, тип, digest, размер и время публикации;
+6. отметьте checkbox у одного или нескольких нужных rows и нажмите **«Добавить выбранное»**;
+7. повторите поиск/страницы при необходимости; уже добавленные artifacts остаются в отдельном списке выбранного и могут быть удалены до preview.
 
 При смене project/repository зависимый version list сбрасывается, чтобы устаревшая версия не попала в операцию. Поиск и pagination выполняются через Harbor backend, а не локальной фильтрацией текущей страницы. Если несколько выбранных aliases указывают на один immutable digest, transfer selection остаётся idempotent и не создаёт второй transfer item.
 
@@ -205,7 +206,13 @@ Wizard состоит из трёх этапов:
 
 ![Import](img/screenshots/import.png)
 
-## 12. Шаг 1 — передайте пакет Portal
+## 12. Шаг 1 — выберите TARGET Harbor и передайте пакет Portal
+
+Сначала выберите **TARGET Harbor profile**, в который должна быть направлена эта import
+operation. Profile фиксируется backend уже на intake/discovery boundary; после создания
+operation selector становится read-only. Reload страницы восстанавливает profile из
+persisted operation snapshot, поэтому import не переедет на другой Harbor из-за изменения
+browser preference или legacy fallback в Settings.
 
 Есть два поддерживаемых пользовательских варианта.
 
@@ -367,6 +374,8 @@ Receipt содержит machine-readable итог операции и може�
 Страница `/history` доступна `viewer`, `operator` и `admin`.
 
 History использует persisted backend state, а не raw container logs. Можно фильтровать операции по типу, статусу, actor, строке поиска и диапазону дат.
+
+Для новых операций History также показывает immutable Harbor profile evidence: display name и URL snapshot, закреплённые при создании операции. Это позволяет проверить, к какому registry фактически относился transfer, даже если административный fallback profile позже изменился.
 
 Открыв operation detail, проверьте:
 
