@@ -145,7 +145,12 @@ async function loadProjects(): Promise<void> {
     let page = 1
     let total = Number.POSITIVE_INFINITY
     while (names.size < total) {
-      const response = await listHarborProjects(page, 100, '')
+      const response = await listHarborProjects(
+        page,
+        100,
+        '',
+        wizard.operation?.harbor_profile_id ?? wizard.selectedHarborProfileId,
+      )
       for (const project of response.items) names.add(project.name)
       total = response.pagination.total
       if (response.items.length === 0) break
