@@ -101,24 +101,28 @@ Documentation shell следует дизайн-системе Portal:
 
 Route metadata во frontend задаёт documentation target для основных экранов:
 
-| Раздел Portal | Документ |
+| Раздел Portal | Документ / блок |
 |---|---|
-| Вход | [user-guide.md](user-guide.md) |
+| Вход | [user-guide.md](user-guide.md) · `id=login` |
 | Главная | [dashboard.md](dashboard.md) |
-| Отправка | [user-guide.md](user-guide.md) |
-| Приём | [user-guide.md](user-guide.md) |
+| Отправка | [user-guide.md](user-guide.md) · `id=source-export` |
+| Приём | [user-guide.md](user-guide.md) · `id=target-import` |
 | История | [history-ui.md](history-ui.md) |
 | Пользователи | [admin-user-management.md](admin-user-management.md) |
-| Настройки | [admin-guide.md](admin-guide.md) |
+| Настройки | [settings.md](settings.md) |
 
 Authenticated layout показывает кнопку **Документация** в верхней панели. Login имеет
 отдельную ссылку, поэтому помощь доступна до аутентификации.
+
+Для длинного общего guide route metadata использует стабильный explicit Docsify heading ID,
+например `/docs/user-guide?id=source-export`. Такой anchor объявляется непосредственно в
+Markdown через `:id=...`; regression test проверяет, что target file и anchor существуют.
 
 ## Как добавлять новую документацию
 
 1. Добавьте или обновите Markdown в `docs/` либо соответствующий repository-level guide.
 2. Добавьте страницу в [_sidebar.md](_sidebar.md), если она должна быть видна в общей навигации.
-3. Для нового UI route задайте `meta.documentation` в frontend router.
+3. Для нового UI route задайте `meta.documentation` в frontend router. Если route ведёт на блок длинного документа, сначала объявите стабильный `:id=...` в Markdown и используйте `?id=<anchor>` в target.
 4. Обновите documentation impact в той же итерации, что и код.
 5. Если меняется navigation shell, anchors или packaging, обновите regression checks в
    `tools/test_frontend_system_ui.py` и Compose smoke.

@@ -34,7 +34,7 @@ Operator/Admin может переключить runtime role через UI, е�
 
 `viewer` работает в режиме только для чтения. Если необходимо выполнить перенос, нужен `operator` или `admin`.
 
-## 3. Вход и проверка текущего режима
+## 3. Вход и проверка текущего режима :id=login
 
 ![Login](img/screenshots/login.png)
 
@@ -83,7 +83,7 @@ Portal в принимающем контуре, TARGET role
 
 # Часть A. SOURCE — создание offline bundle
 
-## 5. Откройте workflow отправки
+## 5. Откройте workflow отправки :id=source-export
 
 ![Export](img/screenshots/export.png)
 
@@ -191,7 +191,7 @@ Signed handoff связывает фактический archive и sidecar с S
 
 # Часть B. TARGET — приём, preview и импорт
 
-## 11. Откройте workflow приёма
+## 11. Откройте workflow приёма :id=target-import
 
 В TARGET mode на Dashboard для `operator` доступно основное действие **«Принять пакет»**. Оно ведёт на `/import`.
 

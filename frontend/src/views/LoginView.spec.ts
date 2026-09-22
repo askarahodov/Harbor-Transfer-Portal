@@ -26,7 +26,7 @@ describe('login view', () => {
   it('exposes the local documentation before authentication', async () => {
     const { wrapper } = await mountLogin()
 
-    expect(wrapper.get('.login-docs').attributes('href')).toBe('/docs/#/docs/user-guide')
+    expect(wrapper.get('.login-docs').attributes('href')).toBe('/docs/#/docs/user-guide?id=login')
   })
 
   it('requires both username and password before authentication', async () => {
