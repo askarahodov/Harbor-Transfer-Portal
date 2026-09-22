@@ -4,11 +4,11 @@ import json
 import os
 import ssl
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from threading import Lock
-from collections.abc import Iterator
 from pathlib import Path
+from threading import Lock
 from uuid import uuid4
 
 from sqlalchemy import select
