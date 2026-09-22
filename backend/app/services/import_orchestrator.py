@@ -29,7 +29,6 @@ from app.schemas.imports import (
     ImportReceiptResponse,
 )
 from app.services.bundle_package_service import BundlePackageError, BundlePackageService
-from app.services.import_helm_service import ImportHelmOciService
 from app.services.harbor_settings import (
     HarborProfileSnapshot,
     HarborSettingsError,
