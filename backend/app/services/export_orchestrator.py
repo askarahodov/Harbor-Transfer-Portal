@@ -23,12 +23,12 @@ from app.services.bundle_package_service import (
     HelmChartPackageInput,
     PackageArtifactInput,
 )
-from app.services.harbor_client import HarborClient
 from app.services.export_selection import (
     ExportSelectionResolutionError,
     ResolvedExportArtifact,
     resolve_export_selection,
 )
+from app.services.harbor_client import HarborClient
 from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 from app.services.helm_oci_service import (
     HelmChartReference,
