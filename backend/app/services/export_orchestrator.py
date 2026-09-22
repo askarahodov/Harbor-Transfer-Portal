@@ -33,11 +33,7 @@ from app.services.export_selection import (
 )
 from app.services.harbor_client import HarborClient
 from app.services.harbor_profile_runtime import harbor_profile_boundary
-from app.services.harbor_profiles import (
-    DEFAULT_PROFILE_ID,
-    HarborProfile,
-    HarborProfileService,
-)
+from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
 from app.services.helm_oci_service import HelmServiceError
 from app.services.key_management import KeyManagementError, KeyManagementService
@@ -153,6 +149,13 @@ class ExportOrchestrator:
             comment,
             harbor_profile_id,
         )
+        persisted = self.operation_manager.get_operation(operation_id)
+        if persisted is None or persisted.harbor_profile_id is None:
+            raise ExportOrchestrationError(
+                "harbor_profile_binding_invalid",
+                "Export operation не содержит Harbor profile binding",
+            )
+        bound_profile_id = persisted.harbor_profile_id
 
         async def worker(context: OperationContext) -> None:
             await self._run_export(
@@ -162,7 +165,7 @@ class ExportOrchestrator:
                 delivery_id=delivery_id,
                 actor_username=actor_username,
                 comment=comment,
-                harbor_profile_id=harbor_profile_id,
+                harbor_profile_id=bound_profile_id,
             )
 
         try:
@@ -633,12 +636,13 @@ class ExportOrchestrator:
         harbor_profile_id: str | None = None,
     ) -> PackageArtifactInput:
         """Compatibility hook; artifact materialization lives in the collaborator."""
+        selected_profile_id = self._profile_snapshot(harbor_profile_id).id
         return await self.artifact_materializer.materialize(
             item,
             artifact_id=artifact_id,
             operation_workspace=operation_workspace,
             helm_root=helm_root,
-            harbor_profile_id=harbor_profile_id,
+            harbor_profile_id=selected_profile_id,
         )
 
     def _profile_snapshot(self, profile_id: str | None) -> HarborProfile:
@@ -661,12 +665,14 @@ class ExportOrchestrator:
         except HarborSettingsError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
 
-    def _build_harbor_client(self, profile_id: str) -> HarborClient:
+    def _build_harbor_client(self, profile_id: str | None) -> HarborClient:
         if self.harbor_client_factory is not None:
             return self.harbor_client_factory()
         try:
             with self.session_factory() as session:
-                return HarborProfileService(session, self.settings).build_client(profile_id)
+                service = HarborProfileService(session, self.settings)
+                selected = service.operation_snapshot(profile_id)
+                return service.build_client(selected.id)
         except HarborSettingsError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
 
