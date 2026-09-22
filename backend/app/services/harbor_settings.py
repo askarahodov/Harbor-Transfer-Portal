@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from pydantic import AnyHttpUrl, TypeAdapter
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, validate_harbor_base_url
@@ -394,10 +394,18 @@ class HarborSettingsService:
                 )
 
     def _assert_profile_mutable(self, profile_id: str) -> None:
+        profile_filter = (
+            or_(
+                Operation.harbor_profile_id == DEFAULT_HARBOR_PROFILE_ID,
+                Operation.harbor_profile_id.is_(None),
+            )
+            if profile_id == DEFAULT_HARBOR_PROFILE_ID
+            else Operation.harbor_profile_id == profile_id
+        )
         active = self.session.scalar(
             select(Operation.id)
             .where(
-                Operation.harbor_profile_id == profile_id,
+                profile_filter,
                 Operation.status.not_in(tuple(TERMINAL_STATES)),
             )
             .limit(1)
