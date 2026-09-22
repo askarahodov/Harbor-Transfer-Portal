@@ -27,6 +27,7 @@ type VersionChoice = {
   reference: string
 }
 
+const PAGE_SIZE = 25
 const candidateKeys = ref<string[]>([])
 const choices = computed<VersionChoice[]>(() =>
   props.artifacts.flatMap((artifact) =>
@@ -134,10 +135,10 @@ function addCandidates(): void {
       </button>
     </div>
 
-    <div v-if="total > choices.length" class="artifact-selector__pagination" aria-label="Страницы версий">
+    <div v-if="total > PAGE_SIZE" class="artifact-selector__pagination" aria-label="Страницы версий">
       <button type="button" :disabled="page <= 1 || busy" @click="emit('page', page - 1)">Назад</button>
       <span>Страница {{ page }}</span>
-      <button type="button" :disabled="busy || page * 25 >= total" @click="emit('page', page + 1)">Далее</button>
+      <button type="button" :disabled="busy || page * PAGE_SIZE >= total" @click="emit('page', page + 1)">Далее</button>
     </div>
 
     <div v-if="unsupported.length" class="artifact-selector__unsupported" role="status">
