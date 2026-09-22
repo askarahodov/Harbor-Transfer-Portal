@@ -10,8 +10,9 @@ from sqlalchemy import select
 from alembic import command
 from app.auth.security import hash_password
 from app.config import Settings
-from app.db.models import AuditEvent, UserRole
+from app.db.models import AuditEvent, Operation, UserRole
 from app.db.repositories import UserRepository
+from app.domain.bundle import OperationStatus, OperationType
 from app.main import create_app
 from app.services.harbor_profiles import DEFAULT_PROFILE_ID, HarborProfileService
 
@@ -93,6 +94,7 @@ def test_existing_single_harbor_is_exposed_as_default_profile(tmp_path: Path) ->
                 "credential_configured": True,
                 "custom_ca_configured": False,
                 "is_default": True,
+                "is_active": True,
             }
         ]
     }
@@ -142,6 +144,115 @@ def test_profile_management_is_admin_only_and_redacts_credentials(tmp_path: Path
     profile = next(item for item in listed.json()["items"] if item["id"] == profile_id)
     assert profile["credential_configured"] is True
     assert PROFILE_SECRET not in listed.text
+
+
+def test_profile_activation_changes_runtime_harbor_and_is_audited(tmp_path: Path) -> None:
+    client, app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Harbor DC-2",
+            "url": "https://harbor-dc2.local",
+            "username": "svc-transfer",
+            "verify_tls": True,
+            "enabled": True,
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+    assert created.json()["is_active"] is False
+
+    secret = "active-profile-" + "q" * 32
+    assert client.put(
+        f"/api/settings/harbor/profiles/{profile_id}/credential",
+        json={"secret": secret},
+        headers=headers,
+    ).status_code == 200
+
+    activated = client.put(
+        f"/api/settings/harbor/profiles/{profile_id}/activate",
+        headers=headers,
+    )
+    assert activated.status_code == 200
+    assert activated.json()["id"] == profile_id
+    assert activated.json()["is_active"] is True
+
+    listed = client.get("/api/settings/harbor/profiles", headers=headers)
+    assert listed.status_code == 200
+    active = [item for item in listed.json()["items"] if item["is_active"]]
+    assert [item["id"] for item in active] == [profile_id]
+
+    with app.state.session_factory() as session:
+        resolved = HarborProfileService(session, app.state.settings).legacy.resolve()
+        assert resolved.url == "https://harbor-dc2.local"
+        assert resolved.username == "svc-transfer"
+        assert resolved.password == secret
+
+        events = list(
+            session.scalars(
+                select(AuditEvent)
+                .where(AuditEvent.event_type == "harbor.profile.activated")
+                .order_by(AuditEvent.id)
+            )
+        )
+    assert len(events) == 1
+    metadata = json.loads(events[0].metadata_json)
+    assert metadata["previous_profile_id"] == "default"
+    assert metadata["active_profile_id"] == profile_id
+    assert secret not in events[0].metadata_json
+
+
+def test_active_profile_cannot_be_disabled_deleted_or_switched_while_busy(tmp_path: Path) -> None:
+    client, app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Active Harbor",
+            "url": "https://active.harbor.local",
+            "verify_tls": True,
+            "enabled": True,
+        },
+        headers=headers,
+    )
+    profile_id = created.json()["id"]
+    assert client.put(
+        f"/api/settings/harbor/profiles/{profile_id}/activate",
+        headers=headers,
+    ).status_code == 200
+
+    disabled = client.patch(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        json={"enabled": False},
+        headers=headers,
+    )
+    assert disabled.status_code == 409
+    assert disabled.json()["error"]["code"] == "harbor_profile_active_protected"
+
+    deleted = client.delete(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        headers=headers,
+    )
+    assert deleted.status_code == 409
+    assert deleted.json()["error"]["code"] == "harbor_profile_active_protected"
+
+    with app.state.session_factory() as session:
+        session.add(
+            Operation(
+                type=OperationType.EXPORT,
+                status=OperationStatus.RUNNING,
+                actor_username="admin",
+            )
+        )
+        session.commit()
+
+    busy = client.put("/api/settings/harbor/profiles/default/activate", headers=headers)
+    assert busy.status_code == 409
+    assert busy.json()["error"]["code"] == "harbor_profile_busy"
 
 
 def test_profile_credentials_and_ca_are_isolated_by_profile(tmp_path: Path) -> None:
