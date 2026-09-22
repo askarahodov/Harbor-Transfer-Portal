@@ -323,6 +323,9 @@ def test_signed_mixed_bundle_imports_and_writes_receipt(tmp_path: Path) -> None:
     text = receipt_path.read_text(encoding="utf-8")
     assert "password" not in text.lower()
     assert "secret" not in text.lower()
+    assert operation.import_storage_key is not None
+    assert not (settings.import_staging_root / operation.import_storage_key).exists()
+    assert not (settings.bundle_extract_root / f"import-{operation_id}").exists()
 
 
 def test_import_start_rejects_signer_disabled_after_verified_preview(
@@ -633,6 +636,9 @@ def test_post_import_digest_mismatch_fails_operation_and_receipt(tmp_path: Path)
     receipt = orchestrator.receipt(operation_id)
     assert receipt.result == "FAILED"
     assert receipt.artifacts[0].error_code == "skopeo_digest_mismatch"
+    assert operation.import_storage_key is not None
+    assert (orchestrator.staging_root / operation.import_storage_key).is_dir()
+    assert not (orchestrator.extract_root / f"import-{operation_id}").exists()
 
 
 def test_source_contour_rejects_import_intake(tmp_path: Path) -> None:
