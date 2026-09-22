@@ -171,6 +171,29 @@ afterEach(() => {
 })
 
 describe('import wizard store', () => {
+  it('uses shared profile preference and locks to persisted operation binding', async () => {
+    const store = useImportWizardStore()
+    await store.loadHarborProfiles()
+    store.selectHarborProfile('profile-b')
+    expect(store.selectedHarborProfileId).toBe('profile-b')
+
+    const bound = {
+      ...operation('READY'),
+      harbor_profile_id: 'default',
+      harbor_profile_name: 'Default Harbor',
+      harbor_profile_url: 'https://harbor.local',
+    }
+    vi.spyOn(importsApi, 'getOperation').mockResolvedValue(bound)
+    vi.spyOn(importsApi, 'getImportPreview').mockResolvedValue(preview())
+
+    await store.selectOperation(51)
+
+    expect(store.selectedHarborProfileId).toBe('default')
+    expect(store.harborProfileLocked).toBe(true)
+    store.selectHarborProfile('profile-b')
+    expect(store.selectedHarborProfileId).toBe('default')
+  })
+
   it('uploads a raw bundle, persists operation id and opens verified preview with import fail-closed', async () => {
     const uploadSpy = vi.spyOn(importsApi, 'uploadImportBundle').mockResolvedValue({
       operation_id: 51,
