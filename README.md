@@ -10,6 +10,36 @@
 
 > **Статус:** функциональный объём **v1.0.0** реализован и прошёл release qualification. Production rollout требует локального change/release approval и проверки инфраструктуры конкретного контура.
 
+## Интерфейс
+
+### Dashboard
+
+![Dashboard](docs/img/screenshots/dashboard.png)
+
+### Login
+
+![Login](docs/img/screenshots/login.png)
+
+### Export
+
+![Export](docs/img/screenshots/export.png)
+
+### Import
+
+![Import](docs/img/screenshots/import.png)
+
+### History
+
+![History](docs/img/screenshots/history.png)
+
+### Settings
+
+![Settings](docs/img/screenshots/settings.png)
+
+Портал используется, когда SOURCE и TARGET не имеют прямого сетевого соединения: пакет формируется на SOURCE, переносится разрешённым физическим способом и проверяется перед импортом на TARGET.
+
+> **Статус:** функциональный объём **v1.0.0** реализован и прошёл release qualification. Production rollout требует локального change/release approval и проверки инфраструктуры конкретного контура.
+
 ## С чего начать
 
 | Если вы… | Откройте |

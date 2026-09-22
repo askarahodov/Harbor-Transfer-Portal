@@ -60,3 +60,7 @@ Thumbs.db
 # Local tooling
 .python-version
 .npmrc.local
+
+# Local scripts (not committed)
+scripts/take-screenshots.js
+node_modules/

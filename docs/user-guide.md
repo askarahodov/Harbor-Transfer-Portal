@@ -36,6 +36,8 @@ Operator/Admin может переключить runtime role через UI, е�
 
 ## 3. Вход и проверка текущего режима
 
+![Login](img/screenshots/login.png)
+
 1. Откройте URL Portal в браузере.
 2. Войдите под выданной учётной записью.
 3. На странице **«Главная»** найдите карточку **«Текущий контур»** / runtime mode.
@@ -50,6 +52,8 @@ Operator/Admin может переключить runtime role через UI, е�
 Если Portal не может подтвердить runtime mode, на Dashboard появляется предупреждение. **Не запускайте перенос**, пока администратор не восстановит корректное persistent state.
 
 Frontend дополнительно скрывает неподходящие действия, но mode и роль пользователя повторно проверяются backend. Нельзя использовать `/export` как TARGET или `/import` как SOURCE обходом адресной строки.
+
+![Dashboard](img/screenshots/dashboard.png)
 
 ## 4. Полный путь SOURCE → физический перенос → TARGET
 
@@ -80,6 +84,8 @@ Portal в принимающем контуре, TARGET role
 # Часть A. SOURCE — создание offline bundle
 
 ## 5. Откройте workflow отправки
+
+![Export](img/screenshots/export.png)
 
 В SOURCE mode на Dashboard для `operator` доступно основное действие **«Отправить артефакты»**. Оно ведёт на `/export`.
 
@@ -196,6 +202,8 @@ Wizard состоит из трёх этапов:
 3. **Импорт и результат**.
 
 Если отображается сообщение «Import workflow доступен только в контуре TARGET», текущий runtime mode — SOURCE. Переключите role через UI только после завершения блокирующих SOURCE operations.
+
+![Import](img/screenshots/import.png)
 
 ## 12. Шаг 1 — передайте пакет Portal
 
@@ -351,6 +359,8 @@ Receipt содержит machine-readable итог операции и може�
 ---
 
 # Часть C. История, отчёты и чтение результата
+
+![History](img/screenshots/history.png)
 
 ## 18. History
 
