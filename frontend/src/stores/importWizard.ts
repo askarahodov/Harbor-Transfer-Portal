@@ -242,14 +242,8 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     busy.value = 'destination-plan'
     clearError()
     try {
-      const profileId = operation.value.harbor_profile_id ?? selectedHarborProfileId.value
-      if (!profileId) {
-        error.value = {
-          code: 'harbor_profile_required',
-          message: 'Harbor profile не закреплён за import operation.',
-        }
-        return false
-      }
+      const profileId =
+        operation.value.harbor_profile_id ?? selectedHarborProfileId.value ?? null
       const plan = await buildImportDestinationPlan(operation.value.id, {
         ...mappingDraft.value,
         harbor_profile_id: profileId,
