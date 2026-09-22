@@ -84,6 +84,22 @@ function operation(status: Operation['status']): Operation {
 }
 
 function mockBrowse(): void {
+  vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+    items: [
+      {
+        id: 'default',
+        name: 'Default Harbor',
+        url: 'https://harbor.local',
+        is_default: true,
+      },
+      {
+        id: 'profile-b',
+        name: 'Harbor B',
+        url: 'https://harbor-b.local',
+        is_default: false,
+      },
+    ],
+  })
   vi.spyOn(exportsApi, 'getHarborConnection').mockResolvedValue({
     connected: true,
     version: '2.14.0',
@@ -160,6 +176,7 @@ describe('export wizard store', () => {
         },
       ],
       comment: null,
+      harbor_profile_id: 'default',
     })
   })
 
@@ -256,11 +273,11 @@ describe('export wizard store', () => {
     await Promise.resolve()
 
     expect(projectsSpy).toHaveBeenCalledTimes(1)
-    expect(projectsSpy).toHaveBeenCalledWith(1, 25, 'report')
+    expect(projectsSpy).toHaveBeenCalledWith(1, 25, 'report', 'default')
     expect(repositoriesSpy).toHaveBeenCalledTimes(1)
-    expect(repositoriesSpy).toHaveBeenCalledWith('team', 1, 25, 'api')
+    expect(repositoriesSpy).toHaveBeenCalledWith('team', 1, 25, 'api', 'default')
     expect(artifactsSpy).toHaveBeenCalledTimes(1)
-    expect(artifactsSpy).toHaveBeenCalledWith('team', 'apps/demo', 1, 25, '1.2.3')
+    expect(artifactsSpy).toHaveBeenCalledWith('team', 'apps/demo', 1, 25, '1.2.3', 'default')
   })
 
   it('applies only the latest project response and ignores stale success and error', async () => {
