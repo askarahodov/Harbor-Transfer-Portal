@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
+import { listHarborProfiles, type HarborProfileOption } from '@/api/exports'
 import {
   apiErrorInfo,
   buildImportDestinationPlan,
@@ -23,6 +24,7 @@ import {
 } from '@/api/imports'
 
 const OPERATION_STORAGE_KEY = 'htp.import.operation-id'
+const HARBOR_PROFILE_STORAGE_KEY = 'htp.harbor.profile-id'
 const POLL_INTERVAL_MS = 1500
 const VERIFYING_STATES = new Set<OperationStatus>(['UPLOADED', 'DISCOVERED', 'VERIFYING'])
 const IMPORTING_STATES = new Set<OperationStatus>(['IMPORTING', 'VERIFYING_TARGET'])
@@ -73,8 +75,18 @@ function savedOperationId(): number | null {
   return Number.isInteger(value) && value > 0 ? value : null
 }
 
+function savedHarborProfileId(): string {
+  return storageOrNull()?.getItem(HARBOR_PROFILE_STORAGE_KEY) || 'default'
+}
+
+function saveHarborProfileId(profileId: string): void {
+  storageOrNull()?.setItem(HARBOR_PROFILE_STORAGE_KEY, profileId)
+}
+
 export const useImportWizardStore = defineStore('import-wizard', () => {
   const step = ref<ImportWizardStep>(1)
+  const harborProfiles = ref<HarborProfileOption[]>([])
+  const selectedHarborProfileId = ref(savedHarborProfileId())
   const selectedFile = ref<UploadSelection | null>(null)
   const uploadProgress = ref<UploadProgress | null>(null)
   const discovered = ref<DiscoveredImport[]>([])
@@ -89,6 +101,10 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
   const error = ref<ApiErrorInfo | null>(null)
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let pollRequestActive = false
+
+  const selectedHarborProfile = computed(
+    () => harborProfiles.value.find((profile) => profile.id === selectedHarborProfileId.value) ?? null,
+  )
 
   const sourceProjects = computed(() => {
     const projects = new Set<string>()
@@ -335,9 +351,14 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     receipt.value = null
     resetMapping()
     try {
-      const intake = await uploadImportBundle(file, (loaded, total) => {
-        uploadProgress.value = { loaded, total: total ?? file.size }
-      })
+      const intake = await uploadImportBundle(
+        file,
+        (loaded, total) => {
+          uploadProgress.value = { loaded, total: total ?? file.size }
+        },
+        undefined,
+        selectedHarborProfileId.value,
+      )
       await selectOperation(intake.operation_id)
       return true
     } catch (requestError) {
@@ -377,6 +398,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
           uploadProgress.value = { loaded, total: total ?? bundle.size }
         },
         { sidecar, handoff },
+        selectedHarborProfileId.value,
       )
       await selectOperation(intake.operation_id)
       return true
@@ -395,7 +417,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     busy.value = 'discover'
     clearError()
     try {
-      const response = await discoverImportBundles()
+      const response = await discoverImportBundles(selectedHarborProfileId.value)
       const resolved = await Promise.all(
         response.operations.map(async (intake) => ({
           intake,
@@ -482,13 +504,57 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     }
   }
 
+  async function loadHarborProfiles(): Promise<void> {
+    try {
+      const response = await listHarborProfiles()
+      harborProfiles.value = response.items
+      const selected = response.items.find(
+        (profile) => profile.id === selectedHarborProfileId.value,
+      )
+      const fallback =
+        response.items.find((profile) => profile.is_default) ?? response.items[0] ?? null
+      if (!selected && fallback) {
+        selectedHarborProfileId.value = fallback.id
+        saveHarborProfileId(fallback.id)
+      }
+      if (!fallback && response.items.length === 0) {
+        error.value = {
+          code: 'harbor_profile_required',
+          message: 'Нет доступных Harbor profiles. Обратитесь к администратору.',
+        }
+      }
+    } catch (requestError) {
+      error.value = apiErrorInfo(requestError, 'Не удалось загрузить Harbor profiles.')
+    }
+  }
+
+  function selectHarborProfile(profileId: string): void {
+    if (operation.value !== null || step.value !== 1) return
+    if (!harborProfiles.value.some((profile) => profile.id === profileId)) return
+    selectedHarborProfileId.value = profileId
+    saveHarborProfileId(profileId)
+    selectedFile.value = null
+    uploadProgress.value = null
+    discovered.value = []
+    clearError()
+  }
+
   async function initialize(): Promise<void> {
-    const operationId = savedOperationId()
-    if (!operationId) return
     busy.value = 'initialize'
     clearError()
     try {
+      await loadHarborProfiles()
+      const operationId = savedOperationId()
+      if (!operationId) return
       await selectOperation(operationId)
+      const boundProfileId = operation.value?.harbor_profile_id
+      if (
+        boundProfileId &&
+        harborProfiles.value.some((profile) => profile.id === boundProfileId)
+      ) {
+        selectedHarborProfileId.value = boundProfileId
+        saveHarborProfileId(boundProfileId)
+      }
     } finally {
       busy.value = null
     }
@@ -511,6 +577,9 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
 
   return {
     step,
+    harborProfiles,
+    selectedHarborProfileId,
+    selectedHarborProfile,
     selectedFile,
     uploadProgress,
     discovered,
@@ -531,6 +600,8 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     canExecuteDefault,
     canExecuteOverwrite,
     canCancel,
+    loadHarborProfiles,
+    selectHarborProfile,
     upload,
     uploadPhysicalHandoff,
     discover,
