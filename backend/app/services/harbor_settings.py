@@ -157,8 +157,10 @@ class HarborSettingsService:
                 "harbor_configuration_invalid",
                 "URL active Harbor profile не настроен",
             )
-        username = raw_username.strip() or None if raw_username is not None else None
-        verify_tls = selected["verify_tls"]
+        username = (raw_username.strip() or None) if raw_username is not None else None
+        verify_tls_value = selected["verify_tls"]
+        assert isinstance(verify_tls_value, bool)
+        verify_tls = verify_tls_value
         profile_dir = self._profile_dir(profile_id)
         credential = self._read_secret(profile_dir / "credential")
         profile_ca = profile_dir / "ca.pem"
