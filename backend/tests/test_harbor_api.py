@@ -36,6 +36,9 @@ class FakeHarborClient:
         if self.error is not None:
             raise self.error
 
+    def close(self) -> None:
+        pass
+
     def system_info(self) -> HarborSystemInfo:
         self._raise()
         return HarborSystemInfo(harbor_version="2.13.0", auth_mode="db_auth")
