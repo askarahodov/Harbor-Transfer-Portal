@@ -8,6 +8,8 @@ export type SearchComboboxOption = {
   description?: string
 }
 
+let comboboxSequence = 0
+
 const props = withDefaults(
   defineProps<{
     label: string
@@ -36,7 +38,6 @@ const open = ref(false)
 const activeIndex = ref(-1)
 const queryPending = ref(false)
 const input = ref<HTMLInputElement | null>(null)
-let comboboxSequence = 0
 const listboxId = `combobox-${++comboboxSequence}`
 const hasPrevious = computed(() => props.page > 1)
 const hasNext = computed(() => props.page * props.pageSize < props.total)
