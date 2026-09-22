@@ -40,7 +40,7 @@ Sidebar также contour-aware: SOURCE operator/admin видит «Отпра�
 
 Admin Settings содержит отдельную широкую карточку **Harbor profiles**. Она загружает `GET /api/settings/harbor/profiles`, показывает active profile и предоставляет компактный selector enabled profiles. `PUT /api/settings/harbor/profiles/{profile_id}/activate` меняет active profile только если backend подтверждает safe switch; при незавершённых transfer operations UI показывает server-side conflict и не подменяет его локальным состоянием.
 
-Новый profile создаётся через тот же экран с name/URL/username/TLS и optional credential. Credential отправляется отдельным request и после submission очищается из frontend state. Connection test выполняется per-profile. Legacy connection form ниже явно подписана **Default Harbor profile** и остаётся bootstrap/backward-compatible настройкой default profile.
+Новый profile создаётся через тот же экран с name/URL/username/TLS и optional credential. Credential отправляется отдельным request и после submission очищается из frontend state. Connection test выполняется per-profile. Legacy connection form ниже явно подписана **Default Harbor profile** и остаётся bootstrap/backward-compatible настройкой default profile; её GET/PATCH, credential/CA и connection test не меняют смысл при выборе другого active profile.
 
 После смены active profile Settings заново проверяет Harbor readiness. Export/import не принимают profile id от браузера: они используют server-side authoritative active profile, поэтому frontend не может произвольно подменить registry для отдельной операции.
 
