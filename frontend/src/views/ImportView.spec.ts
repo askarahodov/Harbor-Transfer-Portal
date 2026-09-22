@@ -90,6 +90,12 @@ beforeEach(() => {
   sessionStorage.clear()
   pinia = createPinia()
   setActivePinia(pinia)
+  vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+    items: [
+      { id: 'default', name: 'Default Harbor', url: 'https://target-a.local', is_default: true },
+      { id: 'b'.repeat(32), name: 'Target B', url: 'https://target-b.local', is_default: false },
+    ],
+  })
   vi.spyOn(exportsApi, 'listHarborProjects').mockResolvedValue({
     pagination: { page: 1, page_size: 100, total: 2 },
     items: [
@@ -157,6 +163,8 @@ describe('TARGET import wizard view', () => {
     })
     await flushPromises()
 
+    expect(wrapper.get('#import-harbor-profile').exists()).toBe(true)
+    expect(wrapper.get('#import-harbor-profile').element).toHaveProperty('value', 'default')
     const browserInput = wrapper.get('input[type="file"][multiple]')
     expect(browserInput.attributes('accept')).toContain('.htp.tar.gz')
     expect(browserInput.attributes('accept')).toContain('.sha256')
@@ -177,6 +185,37 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.text()).toContain('Обнаружить готовые пакеты')
   })
 
+
+  it('binds browser intake to the selected TARGET Harbor profile', async () => {
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('TARGET')
+    const upload = vi.spyOn(importsApi, 'uploadImportBundle').mockRejectedValue(
+      new Error('synthetic stop after profile-bound intake'),
+    )
+
+    const wrapper = mount(ImportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('#import-harbor-profile').setValue('b'.repeat(32))
+    const delivery = 'DELIVERY-20260921-PROFILE01'
+    const bundle = new File(['bundle'], `${delivery}.htp.tar.gz`, { type: 'application/gzip' })
+    const sidecar = new File(['checksum'], `${delivery}.htp.tar.gz.sha256`, { type: 'text/plain' })
+    const handoff = new File(['{}'], `${delivery}.htp-handoff.json`, { type: 'application/json' })
+    const input = wrapper.get('input[type="file"][multiple]')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [bundle, sidecar, handoff],
+    })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(upload.mock.calls[0]?.[3]).toBe('b'.repeat(32))
+  })
 
   it('uploads bundle, sidecar and signed handoff together through browser intake', async () => {
     const runtime = useRuntimeStore(pinia)
@@ -214,6 +253,7 @@ describe('TARGET import wizard view', () => {
     expect(upload).toHaveBeenCalledOnce()
     expect(upload.mock.calls[0]?.[0]).toBe(bundle)
     expect(upload.mock.calls[0]?.[2]).toEqual({ sidecar, handoff })
+    expect(upload.mock.calls[0]?.[3]).toBe('default')
     expect(wrapper.text()).toContain(bundle.name)
     expect(wrapper.text()).toContain(sidecar.name)
     expect(wrapper.text()).toContain(handoff.name)
