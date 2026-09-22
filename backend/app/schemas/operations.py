@@ -63,9 +63,6 @@ class OperationSummaryResponse(BaseModel):
     harbor_profile_id: str | None = None
     harbor_profile_name: str | None = None
     harbor_url: str | None = None
-    harbor_profile_id: str | None = None
-    harbor_profile_name: str | None = None
-    harbor_url: str | None = None
     retry_of_operation_id: int | None = None
     failure_policy: str | None = None
     created_at: datetime
@@ -95,6 +92,9 @@ class OperationResponse(BaseModel):
     status: OperationStatus
     actor_username: str
     comment: str | None
+    harbor_profile_id: str | None = None
+    harbor_profile_name: str | None = None
+    harbor_url: str | None = None
     retry_of_operation_id: int | None = None
     failure_policy: str | None = None
     started_at: datetime | None
