@@ -15,7 +15,7 @@ from app.config import PortalContour, Settings
 from app.db.base import Base
 from app.db.models import Operation
 from app.db.session import create_db_engine, create_session_factory
-from app.domain.bundle import ArtifactStatus, BundleSource, OperationStatus
+from app.domain.bundle import ArtifactStatus, BundleSource, OperationStatus, OperationType
 from app.domain.imports import ImportPreviewState
 from app.services.bundle_package_service import (
     BundlePackageService,
@@ -326,6 +326,66 @@ def test_signed_mixed_bundle_imports_and_writes_receipt(tmp_path: Path) -> None:
     assert operation.import_storage_key is not None
     assert not (settings.import_staging_root / operation.import_storage_key).exists()
     assert not (settings.bundle_extract_root / f"import-{operation_id}").exists()
+
+
+def test_success_cleanup_keeps_bundle_while_shared_ready_retry_exists(
+    tmp_path: Path,
+) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    settings, manager, _skopeo, _helm, orchestrator = _target_environment(
+        tmp_path,
+        trusted_dir,
+    )
+
+    async def scenario() -> tuple[int, int, str]:
+        operation_id = await _upload_and_preview(
+            manager,
+            orchestrator,
+            bundle.archive_path.read_bytes(),
+        )
+        operation = manager.get_operation(operation_id)
+        assert operation is not None and operation.import_storage_key is not None
+        storage_key = operation.import_storage_key
+
+        with orchestrator.session_factory() as session:
+            sibling = Operation(
+                type=OperationType.IMPORT,
+                status=OperationStatus.READY,
+                actor_username="retry-operator",
+                import_storage_key=storage_key,
+                bundle_filename=operation.bundle_filename,
+                bundle_sha256=operation.bundle_sha256,
+                bundle_size_bytes=operation.bundle_size_bytes,
+            )
+            session.add(sibling)
+            session.commit()
+            sibling_id = sibling.id
+
+        await orchestrator.start_import(
+            operation_id,
+            actor_username="target-operator",
+            overwrite_conflicts=False,
+        )
+        await manager.wait(operation_id)
+        assert (settings.import_staging_root / storage_key).is_dir()
+
+        with orchestrator.session_factory() as session:
+            sibling = session.get(Operation, sibling_id)
+            assert sibling is not None
+            sibling.status = OperationStatus.CANCELLED
+            sibling.finished_at = datetime.now(UTC)
+            session.commit()
+
+        orchestrator._cleanup_storage_if_unreferenced(operation_id)
+        await manager.shutdown()
+        return operation_id, sibling_id, storage_key
+
+    operation_id, _sibling_id, storage_key = asyncio.run(scenario())
+    operation = manager.get_operation(operation_id)
+    assert operation is not None
+    assert operation.status is OperationStatus.COMPLETED
+    assert not (settings.import_staging_root / storage_key).exists()
 
 
 def test_import_start_rejects_signer_disabled_after_verified_preview(
