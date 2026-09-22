@@ -11,6 +11,7 @@ from app.config import Settings
 from app.db.models import ArtifactResult
 from app.domain.bundle import ArtifactStatus
 from app.schemas.imports import ImportReceiptResponse
+from app.services.harbor_settings import DEFAULT_HARBOR_PROFILE_ID
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmCommandRunner,
@@ -39,6 +40,7 @@ class ImportHelmOciService(HelmOciService):
         session: Session,
         settings: Settings,
         *,
+        harbor_profile_id: str = DEFAULT_HARBOR_PROFILE_ID,
         runner: HelmCommandRunner | None = None,
         progress: Callable[[HelmProgressEvent], None] | None = None,
         digest_resolver: Callable[[HelmChartReference], str | None] | None = None,
@@ -46,6 +48,7 @@ class ImportHelmOciService(HelmOciService):
         super().__init__(
             session,
             settings,
+            harbor_profile_id=harbor_profile_id,
             runner=runner,
             progress=progress,
             digest_resolver=digest_resolver,
@@ -159,7 +162,7 @@ class ImportHelmOciService(HelmOciService):
             )
 
         package_path = self._validate_package_path(package)
-        harbor = self.harbor_settings.resolve()
+        harbor = self.harbor_settings.resolve_profile(self.harbor_profile_id)
         registry = self._registry_host(harbor)
         with self._security_context(harbor) as security:
             package_metadata = await self._validate_package(package_path, target, security)
