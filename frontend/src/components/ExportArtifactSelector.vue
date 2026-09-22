@@ -27,7 +27,7 @@ type VersionChoice = {
   reference: string
 }
 
-const candidateKey = ref('')
+const candidateKeys = ref<string[]>([])
 const choices = computed<VersionChoice[]>(() =>
   props.artifacts.flatMap((artifact) =>
     artifact.kind === 'unknown-oci'
@@ -39,12 +39,12 @@ const choices = computed<VersionChoice[]>(() =>
         })),
   ),
 )
-const candidate = computed(() => choices.value.find((item) => item.key === candidateKey.value) ?? null)
+const candidates = computed(() => choices.value.filter((item) => candidateKeys.value.includes(item.key)))
 const unsupported = computed(() => props.artifacts.filter((artifact) => artifact.kind === 'unknown-oci'))
 
-watch(() => props.selectedRepository, () => { candidateKey.value = '' })
+watch(() => props.selectedRepository, () => { candidateKeys.value = [] })
 watch(() => props.search, () => {
-  if (candidateKey.value) candidateKey.value = ''
+  if (candidateKeys.value.length) candidateKeys.value = []
 })
 
 function kindLabel(kind: string): string {
@@ -57,15 +57,17 @@ function shortDigest(digest: string | null): string {
   return formatShortDigest(digest, { maxLength: 24, headLength: 18, tailLength: 8 })
 }
 
-function selectCandidate(value: string): void {
-  candidateKey.value = value
+function toggleCandidate(value: string): void {
+  candidateKeys.value = candidateKeys.value.includes(value)
+    ? candidateKeys.value.filter((item) => item !== value)
+    : [...candidateKeys.value, value]
 }
 
-function addCandidate(): void {
-  if (!candidate.value) return
-  emit('add', candidate.value.artifact, candidate.value.reference)
-  candidateKey.value = ''
-  emit('update:search', '')
+function addCandidates(): void {
+  for (const candidate of candidates.value) {
+    emit('add', candidate.artifact, candidate.reference)
+  }
+  candidateKeys.value = []
 }
 </script>
 
@@ -93,30 +95,43 @@ function addCandidate(): void {
 
     <div v-else-if="busy" class="artifact-selector__state" role="status">Загрузка версий…</div>
     <div v-else-if="!choices.length" class="artifact-selector__state" role="status">Версии не найдены</div>
-    <div v-else class="artifact-selector__versions" role="listbox" aria-label="Доступные версии">
-      <button
-        v-for="choice in choices"
-        :key="choice.key"
-        type="button"
-        role="option"
-        :aria-selected="candidateKey === choice.key"
-        :class="['artifact-selector__version', { 'artifact-selector__version--selected': candidateKey === choice.key }]"
-        @click="selectCandidate(choice.key)"
-      >
-        <strong>{{ choice.reference }}</strong>
-        <span>{{ kindLabel(choice.artifact.kind) }}</span>
-        <code :title="choice.artifact.digest">{{ shortDigest(choice.artifact.digest) }}</code>
-        <span>{{ formatBytes(choice.artifact.size) }}</span>
-      </button>
+    <div v-else class="artifact-selector__table-wrap">
+      <table class="artifact-selector__table">
+        <thead>
+          <tr>
+            <th scope="col"><span class="sr-only">Выбор</span></th>
+            <th scope="col">Версия / tag</th>
+            <th scope="col">Тип</th>
+            <th scope="col">Digest</th>
+            <th scope="col">Размер</th>
+            <th scope="col">Добавлен</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="choice in choices" :key="choice.key" :class="{ 'artifact-selector__row--selected': candidateKeys.includes(choice.key) }">
+            <td>
+              <input
+                type="checkbox"
+                :checked="candidateKeys.includes(choice.key)"
+                :aria-label="`Выбрать ${choice.reference}`"
+                @change="toggleCandidate(choice.key)"
+              />
+            </td>
+            <td><strong>{{ choice.reference }}</strong></td>
+            <td>{{ kindLabel(choice.artifact.kind) }}</td>
+            <td><code :title="choice.artifact.digest">{{ shortDigest(choice.artifact.digest) }}</code></td>
+            <td>{{ formatBytes(choice.artifact.size) }}</td>
+            <td>{{ choice.artifact.pushed_at ?? '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
-    <div v-if="candidate" class="artifact-selector__candidate" aria-live="polite">
-      <div>
-        <strong>{{ candidate.reference }}</strong>
-        <span>{{ kindLabel(candidate.artifact.kind) }} · {{ formatBytes(candidate.artifact.size) }}</span>
-        <code :title="candidate.artifact.digest">{{ shortDigest(candidate.artifact.digest) }}</code>
-      </div>
-      <button type="button" class="artifact-selector__add" @click="addCandidate">Добавить</button>
+    <div v-if="selectedRepository" class="artifact-selector__actions">
+      <span>{{ candidateKeys.length ? `Выбрано: ${candidateKeys.length}` : 'Выберите один или несколько артефактов.' }}</span>
+      <button type="button" class="artifact-selector__add" :disabled="!candidateKeys.length" @click="addCandidates">
+        Добавить выбранное
+      </button>
     </div>
 
     <div v-if="total > choices.length" class="artifact-selector__pagination" aria-label="Страницы версий">
@@ -140,7 +155,15 @@ function addCandidate(): void {
 .artifact-selector { display: grid; gap: var(--space-3); min-width: 0; }
 .artifact-selector__search { display: grid; gap: var(--space-2); font-weight: 700; }
 .artifact-selector__search input { width: 100%; min-height: 44px; padding: 0 var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; }
-.artifact-selector__versions { display: grid; gap: var(--space-2); }
+.artifact-selector__table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.artifact-selector__table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 13px; }
+.artifact-selector__table th, .artifact-selector__table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: middle; }
+.artifact-selector__table th { color: var(--color-text-muted); font-size: 12px; }
+.artifact-selector__table tbody tr:last-child td { border-bottom: 0; }
+.artifact-selector__row--selected { background: var(--color-info-surface); }
+.artifact-selector__table code { font-size: 12px; overflow-wrap: anywhere; }
+.artifact-selector__actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); color: var(--color-text-muted); font-size: 13px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .artifact-selector__version { display: grid; grid-template-columns: minmax(120px,.8fr) minmax(140px,1fr) minmax(220px,1.5fr) minmax(90px,.5fr); align-items: center; gap: var(--space-3); width: 100%; min-height: 48px; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); text-align: left; cursor: pointer; }
 .artifact-selector__version:hover, .artifact-selector__version:focus-visible { border-color: var(--color-action); }
 .artifact-selector__version--selected { border-color: var(--color-action); background: var(--color-info-surface); }
