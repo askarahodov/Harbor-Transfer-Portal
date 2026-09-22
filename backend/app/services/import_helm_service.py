@@ -11,7 +11,6 @@ from app.config import Settings
 from app.db.models import ArtifactResult
 from app.domain.bundle import ArtifactStatus
 from app.schemas.imports import ImportReceiptResponse
-from app.services.harbor_settings import DEFAULT_HARBOR_PROFILE_ID
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmCommandRunner,
@@ -40,7 +39,7 @@ class ImportHelmOciService(HelmOciService):
         session: Session,
         settings: Settings,
         *,
-        harbor_profile_id: str = DEFAULT_HARBOR_PROFILE_ID,
+        harbor_profile_id: str | None = None,
         runner: HelmCommandRunner | None = None,
         progress: Callable[[HelmProgressEvent], None] | None = None,
         digest_resolver: Callable[[HelmChartReference], str | None] | None = None,
