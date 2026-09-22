@@ -22,6 +22,12 @@ _AREA_NAMES = (
     "docs",
 )
 
+_BACKEND_RUNTIME_DEPENDENCY_FILES = {
+    "backend/pyproject.toml",
+    "backend/requirements-runtime.lock",
+    "backend/uv.lock",
+}
+
 _SECURITY_SERVICE_FILES = {
     "bundle_package_service.py",
     "export_orchestrator.py",
@@ -174,10 +180,18 @@ def _is_package_protocol_path(path_text: str) -> bool:
 def _classify_path(path_text: str) -> tuple[set[str], bool]:
     path = PurePosixPath(path_text)
     areas: set[str] = set()
-    workflow_changed = path == PurePosixPath(".github/workflows/ci.yml")
+    workflow_changed = path in {
+        PurePosixPath(".github/workflows/ci.yml"),
+        PurePosixPath("tools/ci_scope.py"),
+    }
 
     if _under(path, "backend") or path_text == "Makefile":
         areas.add("backend")
+
+    if path_text in _BACKEND_RUNTIME_DEPENDENCY_FILES:
+        # Runtime dependency graph changes can alter crypto and transfer behavior
+        # without touching application source, so qualify both boundaries.
+        areas.update({"security", "integration"})
 
     if _under(path, "frontend") or path_text == "Makefile":
         areas.add("frontend")

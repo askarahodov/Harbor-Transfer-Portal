@@ -71,6 +71,19 @@ class CiScopeTest(TestCase):
             Scope(frontend=True),
         )
 
+    def test_runtime_dependency_graph_runs_security_and_transfer_integration(self):
+        root = self._root()
+        for path in (
+            "backend/pyproject.toml",
+            "backend/requirements-runtime.lock",
+            "backend/uv.lock",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    classify_paths([path], root=root),
+                    Scope(backend=True, security=True, integration=True),
+                )
+
     def test_protocol_backend_path_runs_backend_and_protocol(self):
         root = self._root()
         self.assertEqual(
@@ -287,6 +300,21 @@ class CiScopeTest(TestCase):
         root = self._root()
         self.assertEqual(
             classify_paths([".github/workflows/ci.yml"], root=root),
+            Scope(
+                backend=True,
+                frontend=True,
+                protocol=True,
+                security=True,
+                integration=True,
+                compose=True,
+                docs=True,
+            ),
+        )
+
+    def test_scope_policy_change_self_tests_all_existing_areas(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["tools/ci_scope.py"], root=root),
             Scope(
                 backend=True,
                 frontend=True,

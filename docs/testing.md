@@ -163,9 +163,11 @@ make smoke-compose
 
 Включается для security-sensitive backend boundaries: auth, import/export, package verifier/builder, key management, Harbor security-sensitive integration, Skopeo/Helm subprocess services и соответствующих tests.
 
+Backend runtime dependency graph (`backend/pyproject.toml`, `requirements-runtime.lock`, `uv.lock`) также считается security-sensitive: изменение криптографической или другой runtime dependency должно проходить свежий targeted security regression даже без изменения application source.
+
 ### Integration
 
-Включается для реальных Skopeo/Helm/transfer runtime boundaries, включая relevant backend services/API, integration harness и release/acceptance scripts.
+Включается для реальных Skopeo/Helm/transfer runtime boundaries, включая relevant backend services/API, integration harness и release/acceptance scripts. Backend runtime dependency graph также включает integration scope, потому что смена resolved runtime packages может повлиять на полный transfer path без изменения его Python-файлов.
 
 Когда `integration=true`, workflow запускает **оба**:
 
@@ -199,9 +201,9 @@ make smoke-compose
 - documentation checker/tests;
 - `Makefile`.
 
-### Workflow self-test
+### CI policy self-test
 
-Изменение `.github/workflows/ci.yml` включает все существующие applicable areas. Scope job всегда сначала запускает regression `tools.test_ci_scope` и dependency-lock invariant, поэтому изменение механизма selection не может молча обойти policy.
+Изменение `.github/workflows/ci.yml` или самого `tools/ci_scope.py` включает все существующие applicable areas. Scope job всегда сначала запускает regression `tools.test_ci_scope` и dependency-lock invariant, поэтому изменение механизма selection не может молча обойти policy.
 
 ## 6. Матрица «изменение → минимальные проверки»
 
@@ -211,11 +213,12 @@ make smoke-compose
 | `deploy/*.md` / `deploy/**/*.md` | docs + quality-gate |
 | Только frontend view/component | frontend + quality-gate |
 | Обычный backend service/API | backend + quality-gate |
+| Backend runtime dependency graph | backend + security + integration + acceptance + quality-gate |
 | Auth/RBAC/security-sensitive backend | backend + security + quality-gate |
 | Bundle protocol/schema/package | backend + protocol + security по affected paths + quality-gate |
 | Skopeo/Helm/transfer runtime boundary | backend/security по affected path + integration + acceptance + quality-gate |
 | Dockerfile/runtime deployment/non-Markdown `deploy/*` | affected code gates + compose + offline-install + quality-gate |
-| Workflow CI | все существующие applicable areas + quality-gate |
+| Workflow / CI scope policy | все существующие applicable areas + quality-gate |
 | Release-sensitive mixed change | объединение всех affected areas; release gates не пропускаются |
 
 ## 7. Release qualification v1.0.0
@@ -349,7 +352,7 @@ Product release version задаётся backend `app.__version__` и испол
 
 Включаются backend + integration + compose; следовательно выполняются real registry integration, isolated acceptance, Compose smoke и clean-host offline-install qualification.
 
-### `.github/workflows/ci.yml`
+### `.github/workflows/ci.yml` или `tools/ci_scope.py`
 
 Сначала scope regression и lock invariant, затем все существующие applicable areas, чтобы проверить сам механизм test selection.
 
