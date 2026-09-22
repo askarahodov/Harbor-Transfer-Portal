@@ -111,8 +111,14 @@ function shortDigest(digest: string | null): string {
 .artifact-selector__card { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 2fr); gap: var(--space-3); align-items: center; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .artifact-selector__main { display: flex; gap: var(--space-2); align-items: center; min-width: 0; }
 .artifact-selector__main p { margin: 2px 0 0; }
+.digest { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.muted { color: var(--color-text-muted); }
+.reference-list { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+.reference-choice { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 38px; padding: var(--space-1) var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-full); background: var(--color-surface-subtle); cursor: pointer; }
+.reference-choice:has(input:checked) { border-color: var(--color-action); background: var(--color-info-surface); }
+.unsupported { max-width: 240px; color: var(--color-text-muted); font-size: 13px; text-align: right; }
 .artifact-selector__kind { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; border-radius: var(--radius-md); background: var(--color-background); }
 .artifact-selector__pagination { display: flex; justify-content: center; align-items: center; gap: var(--space-3); margin-top: var(--space-3); }
 .artifact-selector__pagination button { border: 0; background: transparent; color: var(--color-action); cursor: pointer; }
-@media (max-width: 760px) { .artifact-selector__card { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .artifact-selector__card { grid-template-columns: 1fr; } .reference-list { justify-content: flex-start; } .unsupported { max-width: none; text-align: left; } }
 </style>
