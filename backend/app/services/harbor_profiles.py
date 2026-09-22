@@ -77,12 +77,15 @@ class HarborProfileService:
         operation: Operation,
         profile_id: str | None,
     ) -> HarborProfile:
-        selected = self.operation_snapshot(profile_id)
         persisted = (
             operation.harbor_profile_id,
             operation.harbor_profile_name,
             operation.harbor_profile_url,
         )
+        if persisted != (None, None, None) and profile_id is None:
+            return self.assert_operation_binding(operation)
+
+        selected = self.operation_snapshot(profile_id)
         if persisted == (None, None, None):
             operation.harbor_profile_id = selected.id
             operation.harbor_profile_name = selected.name
