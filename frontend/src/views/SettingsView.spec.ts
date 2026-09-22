@@ -27,6 +27,9 @@ const transferSettings = {
   bundle_max_member_count: 100_000,
   operation_disk_reserve_bytes: 512 * MIB,
   operation_max_concurrent: 2,
+  export_bundle_retention_seconds: 604800,
+  import_bundle_retention_seconds: 604800,
+  storage_cleanup_interval_seconds: 3600,
   effective_operation_max_concurrent: 2,
   restart_required_fields: [] as string[],
   destination_mapping_revision: 3,
@@ -101,6 +104,9 @@ describe('Harbor settings view', () => {
     expect(wrapper.text()).toContain('Текущее значение: настроено')
     expect(wrapper.text()).toContain('SOURCE')
     expect(wrapper.get('#transfer-concurrency').element).toHaveProperty('value', '2')
+    expect(wrapper.get('#transfer-export-retention-days').element).toHaveProperty('value', '7')
+    expect(wrapper.get('#transfer-import-retention-days').element).toHaveProperty('value', '7')
+    expect(wrapper.get('#transfer-cleanup-interval-minutes').element).toHaveProperty('value', '60')
     expect(wrapper.get('#destination-image-project').element).toHaveProperty('value', 'docker-default')
     expect(wrapper.get('#destination-helm-project').element).toHaveProperty('value', 'helm-default')
     expect(wrapper.get('#destination-project-mappings').element).toHaveProperty(
@@ -220,12 +226,45 @@ describe('Harbor settings view', () => {
       bundle_max_member_count: 100_000,
       operation_disk_reserve_bytes: 512 * MIB,
       operation_max_concurrent: 4,
+      export_bundle_retention_seconds: 604800,
+      import_bundle_retention_seconds: 604800,
+      storage_cleanup_interval_seconds: 3600,
       destination_container_image_project: 'docker-default',
       destination_helm_chart_project: 'helm-default',
       destination_project_mappings: { 'source-a': 'target-a' },
     })
     expect(wrapper.text()).toContain('вступит в силу после перезапуска backend')
     expect(wrapper.text()).toContain('operation_max_concurrent')
+  })
+
+  it('saves retention settings in seconds from human-friendly units', async () => {
+    const wrapper = await mountSettings()
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(
+      response({
+        ...transferSettings,
+        export_bundle_retention_seconds: 10 * 24 * 60 * 60,
+        import_bundle_retention_seconds: 3 * 24 * 60 * 60,
+        storage_cleanup_interval_seconds: 15 * 60,
+      }),
+    )
+
+    await wrapper.get('#transfer-export-retention-days').setValue(10)
+    await wrapper.get('#transfer-import-retention-days').setValue(3)
+    await wrapper.get('#transfer-cleanup-interval-minutes').setValue(15)
+    await wrapper.get('.transfer-form').trigger('submit')
+    await flushPromises()
+
+    expect(patch).toHaveBeenCalledWith(
+      '/settings/transfer',
+      expect.objectContaining({
+        export_bundle_retention_seconds: 10 * 24 * 60 * 60,
+        import_bundle_retention_seconds: 3 * 24 * 60 * 60,
+        storage_cleanup_interval_seconds: 15 * 60,
+      }),
+    )
+    expect(wrapper.get('#transfer-export-retention-days').element).toHaveProperty('value', '10')
+    expect(wrapper.get('#transfer-import-retention-days').element).toHaveProperty('value', '3')
+    expect(wrapper.get('#transfer-cleanup-interval-minutes').element).toHaveProperty('value', '15')
   })
 
   it('saves normalized destination defaults and project mappings', async () => {

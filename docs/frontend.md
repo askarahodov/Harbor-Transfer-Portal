@@ -44,6 +44,20 @@ Admin Settings содержит отдельную широкую карточк
 
 После смены active profile Settings заново проверяет Harbor readiness. Export/import не принимают profile id от браузера: они используют server-side authoritative active profile, поэтому frontend не может произвольно подменить registry для отдельной операции.
 
+## Transfer policies и retention в Settings
+
+Admin Settings использует общий `GET/PATCH /api/settings/transfer` contract. В блоке **Политики переноса**
+есть отдельный subsection **Очистка transfer storage** с тремя controls:
+
+- готовые SOURCE пакеты — срок хранения в сутках;
+- failed/partial TARGET пакеты — срок хранения в сутках;
+- период cleanup — в минутах.
+
+Frontend только переводит display units в секунды для API. Штатные значения при отсутствии persisted override:
+7 суток, 7 суток и 60 минут соответственно. Backend остаётся authoritative для bounds, persistence, audit и
+active-operation safeguards. Эти изменения не требуют restart; только `operation_max_concurrent` в той же форме
+сохраняет restart-required semantics.
+
 ## SOURCE export wizard
 
 `ExportView.vue` реализует пользовательский flow задачи #18 поверх backend orchestration #17. State machine находится в `stores/exportWizard.ts`, typed API contract — в `api/exports.ts`.

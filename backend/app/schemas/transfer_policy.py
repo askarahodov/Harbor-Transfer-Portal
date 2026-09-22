@@ -4,6 +4,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _MIB = 1024**2
 _TIB = 1024**4
+_HOUR = 60 * 60
+_DAY = 24 * _HOUR
 _PROJECT_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 
 
@@ -15,6 +17,9 @@ class TransferPolicyResponse(BaseModel):
     bundle_max_member_count: int
     operation_disk_reserve_bytes: int
     operation_max_concurrent: int
+    export_bundle_retention_seconds: int
+    import_bundle_retention_seconds: int
+    storage_cleanup_interval_seconds: int
     effective_operation_max_concurrent: int
     restart_required_fields: list[str]
     destination_mapping_revision: int = Field(ge=0)
@@ -33,6 +38,21 @@ class TransferPolicyPatch(BaseModel):
     bundle_max_member_count: int | None = Field(default=None, ge=4, le=1_000_000)
     operation_disk_reserve_bytes: int | None = Field(default=None, ge=0, le=_TIB)
     operation_max_concurrent: int | None = Field(default=None, ge=1, le=32)
+    export_bundle_retention_seconds: int | None = Field(
+        default=None,
+        ge=_HOUR,
+        le=365 * _DAY,
+    )
+    import_bundle_retention_seconds: int | None = Field(
+        default=None,
+        ge=_HOUR,
+        le=365 * _DAY,
+    )
+    storage_cleanup_interval_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        le=_DAY,
+    )
     destination_container_image_project: str | None = None
     destination_helm_chart_project: str | None = None
     destination_project_mappings: dict[str, str] | None = None

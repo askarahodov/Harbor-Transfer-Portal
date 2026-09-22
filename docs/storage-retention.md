@@ -20,8 +20,9 @@ Transfer bundle может занимать десятки GiB. Docker Compose �
 - `DELIVERY-....htp.tar.gz.sha256`;
 - `DELIVERY-....htp-handoff.json`.
 
-Они остаются доступными для скачивания в течение `EXPORT_BUNDLE_RETENTION_SECONDS`.
-По умолчанию это 604800 секунд — 7 суток.
+Они остаются доступными для скачивания в течение effective `export_bundle_retention_seconds`.
+Bootstrap default — `EXPORT_BUNDLE_RETENTION_SECONDS=604800`, то есть 7 суток. Admin может изменить
+значение через **Настройки → Политики переноса → Очистка transfer storage** без restart backend.
 
 После истечения retention cleanup удаляет только physical publication. История операции,
 delivery id, checksum, размер и audit/history metadata остаются в SQLite.
@@ -47,8 +48,9 @@ startup recovery по-прежнему удаляет неполные publicati
 ### Failed / partial import
 
 Bundle terminal import с ошибкой не удаляется сразу, чтобы deterministic retry мог использовать
-тот же verified physical payload. Он хранится до `IMPORT_BUNDLE_RETENTION_SECONDS`.
-По умолчанию это 604800 секунд — 7 суток.
+тот же verified physical payload. Он хранится до effective `import_bundle_retention_seconds`.
+Bootstrap default — `IMPORT_BUNDLE_RETENTION_SECONDS=604800`, то есть 7 суток. Persisted admin override
+задаётся через UI и имеет приоритет над `.env`.
 
 Если несколько retry operations ссылаются на один `storage_key`, cleanup удалит каталог только
 когда **все** связанные operations terminal и retention истёк для самой новой из них.
@@ -63,18 +65,27 @@ terminal/orphan `import-<id>` workspace может быть удалён сра�
 Cleanup запускается:
 
 - один раз при startup после operation recovery;
-- затем периодически с интервалом `STORAGE_CLEANUP_INTERVAL_SECONDS`;
-- по умолчанию — каждый час.
+- затем периодически с effective `storage_cleanup_interval_seconds`;
+- bootstrap default `STORAGE_CLEANUP_INTERVAL_SECONDS=3600` — каждый час.
+
+Изменение retention/interval через admin UI применяется к runtime `Settings` без restart. Новое значение
+retention используется уже следующей cleanup итерацией; новый interval используется следующими sleep cycles periodic task.
 
 Ошибки periodic cleanup логируются и не останавливают backend. Следующая итерация повторит попытку.
 
 ## Настройки
 
-| Environment variable | Default | Назначение |
-|---|---:|---|
-| `EXPORT_BUNDLE_RETENTION_SECONDS` | `604800` | срок доступности completed SOURCE publication |
-| `IMPORT_BUNDLE_RETENTION_SECONDS` | `604800` | срок хранения terminal TARGET bundle для retry/диагностики |
-| `STORAGE_CLEANUP_INTERVAL_SECONDS` | `3600` | период фоновой очистки |
+Admin UI использует **Настройки → Политики переноса → Очистка transfer storage**:
+
+| UI поле | API/persistent поле | Bootstrap `.env` default |
+|---|---|---:|
+| Готовые SOURCE пакеты, суток | `export_bundle_retention_seconds` | `EXPORT_BUNDLE_RETENTION_SECONDS=604800` |
+| Failed/partial TARGET пакеты, суток | `import_bundle_retention_seconds` | `IMPORT_BUNDLE_RETENTION_SECONDS=604800` |
+| Проверка очистки, минут | `storage_cleanup_interval_seconds` | `STORAGE_CLEANUP_INTERVAL_SECONDS=3600` |
+
+UI показывает human-friendly сутки/минуты, но backend API и SQLite хранят секунды. Если admin override ещё
+не сохранён, effective значение берётся из `.env`/Settings. После сохранения SQLite `transfer.*` override
+имеет приоритет и переживает restart/backup/restore.
 
 Retention допускается от 1 часа до 365 суток. Cleanup interval — от 60 секунд до 24 часов.
 
