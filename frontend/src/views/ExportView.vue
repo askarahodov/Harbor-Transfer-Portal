@@ -412,19 +412,6 @@ onBeforeUnmount(() => {
           <span v-else class="muted">Сначала выберите проект и репозиторий.</span>
         </div>
 
-        <ExportArtifactSelector
-          :artifacts="wizard.artifacts"
-          :selected-repository="wizard.selectedRepository"
-          :search="wizard.artifactSearch"
-          :busy="wizard.busy === 'artifacts'"
-          :page="wizard.artifactPage"
-          :total="wizard.artifactTotal"
-          :references-for="wizard.referencesFor"
-          @update:search="wizard.artifactSearch = $event"
-          @add="wizard.addArtifact"
-          @page="wizard.loadArtifacts"
-        />
-
         <div class="actions actions--end">
           <button class="primary-button" type="button" :disabled="wizard.selectedCount === 0 || wizard.busy === 'preview'" @click="wizard.preparePreview">
             Проверить выбранное
