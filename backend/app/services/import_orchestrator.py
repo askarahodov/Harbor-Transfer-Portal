@@ -453,7 +453,9 @@ class ImportOrchestrator:
 
     async def _import_worker(self, context: OperationContext, operation_id: int) -> None:
         context.transition(OperationStatus.IMPORTING)
-        operation, preview, overwrite, requested_at = self.persistence.load_execution_state(operation_id)
+        operation, preview, overwrite, requested_at = self.persistence.load_execution_state(
+            operation_id
+        )
         archive, sidecar = self._bundle_paths(operation_id)
         observed_sha = await asyncio.to_thread(self._sha256_file, archive)
         if observed_sha != operation.bundle_sha256 or observed_sha != preview.bundle_sha256:
