@@ -375,7 +375,7 @@ input[type='file'] { padding: var(--space-2); }
 .badge, .status { display: inline-flex; width: fit-content; padding: 2px var(--space-2); border-radius: var(--radius-full); background: var(--color-success-surface); color: var(--color-success-text); font-size: 12px; font-weight: 800; }
 .badge { margin-left: var(--space-2); background: var(--color-info-surface); color: var(--color-info-text); }
 .status--off { background: var(--color-surface); color: var(--color-text-muted); }
-button { min-height: 40px; padding: 0 var(--space-4); border: 0; border-radius: var(--radius-md); background: var(--color-action); color: var(--color-on-action); font-weight: 800; cursor: pointer; }
+button { min-height: 40px; padding: 0 var(--space-4); border: 0; border-radius: var(--radius-md); background: var(--color-action); color: var(--color-on-accent); font-weight: 800; cursor: pointer; }
 button.secondary { border: 1px solid var(--color-border-control); background: var(--color-surface); color: var(--color-text); }
 button.danger { background: var(--color-danger-surface); color: var(--color-danger-text); }
 button:disabled { cursor: not-allowed; opacity: .55; }
