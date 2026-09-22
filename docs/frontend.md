@@ -89,11 +89,11 @@ Ready screen появляется только после terminal `COMPLETED` �
 - frontend показывает локальный filename, size и browser upload progress;
 - arbitrarily large browser upload не обещается.
 
-Если backend возвращает `import_upload_too_large` или `operation_insufficient_disk`, UI предлагает безопасный large-bundle path: скопировать archive **вместе с `.sha256`** в configured incoming directory/transfer media и запустить discovery.
+Если backend возвращает `import_upload_too_large` или `operation_insufficient_disk`, UI предлагает безопасный large-bundle path: скопировать archive, соответствующий `.sha256` и signed `.htp-handoff.json` в configured incoming directory/transfer media и запустить discovery.
 
 **Incoming discovery**:
 
-- `POST /api/imports/discover` просит backend claim-ить только готовые archive + sidecar pairs;
+- `POST /api/imports/discover` просит backend claim-ить только готовые delivery triplets: archive + `.sha256` sidecar + signed `.htp-handoff.json`;
 - для нескольких найденных operations оператор выбирает нужную;
 - имя/размер берутся из persisted operation metadata, а не из client-side filesystem assumptions.
 

@@ -190,7 +190,7 @@ Operator/Admin
 ```text
 Physical bundle
   → TARGET Import Wizard
-  → browser upload OR ready-pair discovery
+  → browser upload OR ready-delivery discovery
   → private staging
   → BundlePackageService.verify_bundle()
   → verifier-derived signed metadata
