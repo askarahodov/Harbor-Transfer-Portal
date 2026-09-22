@@ -14,7 +14,6 @@ from app.services.bundle_package_service import (
     PackageArtifactInput,
 )
 from app.services.export_selection import ResolvedExportArtifact
-from app.services.harbor_settings import DEFAULT_HARBOR_PROFILE_ID
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmOciService,
@@ -48,7 +47,7 @@ class ExportArtifactMaterializer:
         artifact_id: int,
         operation_workspace: Path,
         helm_root: Path,
-        harbor_profile_id: str = DEFAULT_HARBOR_PROFILE_ID,
+        harbor_profile_id: str | None = None,
     ) -> PackageArtifactInput:
         if item.kind is ArtifactKind.CONTAINER_IMAGE:
             image = ImageReference(
@@ -124,12 +123,12 @@ class ExportArtifactMaterializer:
         elif path.exists():
             shutil.rmtree(path)
 
-    def _skopeo_service(self, session: Session, profile_id: str) -> SkopeoService:
+    def _skopeo_service(self, session: Session, profile_id: str | None) -> SkopeoService:
         if self.skopeo_factory is not None:
             return self.skopeo_factory(session)
         return SkopeoService(session, self.settings, harbor_profile_id=profile_id)
 
-    def _helm_service(self, session: Session, profile_id: str) -> HelmOciService:
+    def _helm_service(self, session: Session, profile_id: str | None) -> HelmOciService:
         if self.helm_factory is not None:
             return self.helm_factory(session)
         return HelmOciService(session, self.settings, harbor_profile_id=profile_id)
