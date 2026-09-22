@@ -24,7 +24,8 @@ class DummySession:
 
 
 class FakeHarborSettings:
-    def resolve(self) -> EffectiveHarborSettings:
+    def resolve(self, profile_id: str | None = None) -> EffectiveHarborSettings:
+        del profile_id
         return EffectiveHarborSettings(
             url="https://harbor.local",
             username=TEST_USERNAME,
