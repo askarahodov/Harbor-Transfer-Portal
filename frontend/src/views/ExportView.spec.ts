@@ -165,13 +165,10 @@ describe('SOURCE export wizard view', () => {
     await chooseOption(wrapper, 'Проект Harbor', 'team')
     await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
 
+    await chooseOption(wrapper, 'Версия / tag', '1.0.0')
     expect(wrapper.text()).toContain('1.0.0')
-    expect(wrapper.text()).toContain('1.0.1')
-    expect(wrapper.text()).toContain('latest')
-    const exactReferences = wrapper.findAll('input[type="checkbox"]')
-    expect(exactReferences).toHaveLength(3)
-    expect(exactReferences[0]!.element).toHaveProperty('checked', false)
-    await exactReferences[0]!.setValue(true)
+    expect(wrapper.text()).toContain('4.00 КиБ')
+    await button(wrapper, 'Добавить').trigger('click')
     expect(wrapper.text()).toContain('1 выбрано')
 
     await button(wrapper, 'Проверить выбранное').trigger('click')
@@ -239,7 +236,8 @@ describe('SOURCE export wizard view', () => {
 
     await chooseOption(wrapper, 'Проект Harbor', 'team')
     await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
-    await wrapper.findAll('input[type="checkbox"]')[0]!.setValue(true)
+    await chooseOption(wrapper, 'Версия / tag', '1.0.0')
+    await button(wrapper, 'Добавить').trigger('click')
     await button(wrapper, 'Проверить выбранное').trigger('click')
     await flushPromises()
 
@@ -291,7 +289,7 @@ describe('SOURCE export wizard view', () => {
     expect(wrapper.text()).toContain('Не поддерживается export v1')
     expect(wrapper.text()).toContain('release-2026.09')
     expect(wrapper.text()).toContain('latest')
-    expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(0)
+    expect(wrapper.findAll('[role="option"]')).toHaveLength(0)
     expect(wrapper.text()).toContain('0 выбрано')
     expect(button(wrapper, 'Проверить выбранное').attributes('disabled')).toBeDefined()
   })
@@ -313,7 +311,7 @@ describe('SOURCE export wizard view', () => {
     await chooseOption(wrapper, 'Репозиторий Harbor', 'apps/demo')
     const artifactsSpy = vi.mocked(exportsApi.listHarborArtifacts)
     artifactsSpy.mockClear()
-    const input = wrapper.get('input[aria-label="Фильтр версии, tag или digest"]')
+    const input = wrapper.get('input[role="combobox"][aria-label="Версия / tag"]')
 
     await input.setValue('1.0')
     await vi.advanceTimersByTimeAsync(299)
