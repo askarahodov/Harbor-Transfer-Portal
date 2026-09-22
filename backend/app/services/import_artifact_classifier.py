@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.domain.bundle import ContainerImageArtifact, HelmChartArtifact
 from app.domain.imports import ImportPreviewState
 from app.schemas.imports import ImportArtifactPreviewResponse
+from app.services.harbor_settings import DEFAULT_HARBOR_PROFILE_ID
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmOciService,
@@ -34,11 +35,17 @@ class ImportArtifactClassifier:
     async def classify(
         self,
         artifacts: Sequence[ContainerImageArtifact | HelmChartArtifact],
+        *,
+        harbor_profile_id: str = DEFAULT_HARBOR_PROFILE_ID,
     ) -> list[ImportArtifactPreviewResponse]:
         result: list[ImportArtifactPreviewResponse] = []
         with self.session_factory() as session:
             skopeo = self.skopeo_factory(session)
             helm = self.helm_factory(session)
+            if isinstance(skopeo, SkopeoService):
+                skopeo.harbor_profile_id = harbor_profile_id
+            if isinstance(helm, HelmOciService):
+                helm.harbor_profile_id = harbor_profile_id
             for index, artifact in enumerate(artifacts):
                 if isinstance(artifact, ContainerImageArtifact):
                     result.append(await self._classify_image(index, artifact, skopeo))
