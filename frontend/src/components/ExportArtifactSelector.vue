@@ -135,10 +135,6 @@ function addCandidate(): void {
     </div>
   </div>
 </template>
-      </span>
-    </div>
-  </div>
-</template>
 
 <style scoped>
 .artifact-selector { display: grid; gap: var(--space-3); min-width: 0; }
