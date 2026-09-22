@@ -224,12 +224,12 @@ function params(
   page: number,
   pageSize: number,
   search: string,
-  profileId: string,
+  profileId?: string,
 ) {
   return {
     page,
     page_size: pageSize,
-    profile_id: profileId,
+    ...(profileId ? { profile_id: profileId } : {}),
     ...(search.trim() ? { search: search.trim() } : {}),
   }
 }
@@ -243,7 +243,7 @@ export async function listHarborProjects(
   page: number,
   pageSize: number,
   search: string,
-  profileId: string,
+  profileId?: string,
 ): Promise<PageResponse<HarborProject>> {
   const response = await apiClient.get<PageResponse<HarborProject>>('/harbor/projects', {
     params: params(page, pageSize, search, profileId),
@@ -256,7 +256,7 @@ export async function listHarborRepositories(
   page: number,
   pageSize: number,
   search: string,
-  profileId: string,
+  profileId?: string,
 ): Promise<PageResponse<HarborRepository>> {
   const response = await apiClient.get<PageResponse<HarborRepository>>(
     `/harbor/projects/${encodeURIComponent(project)}/repositories`,
@@ -271,7 +271,7 @@ export async function listHarborArtifacts(
   page: number,
   pageSize: number,
   search: string,
-  profileId: string,
+  profileId?: string,
 ): Promise<PageResponse<HarborArtifact>> {
   const response = await apiClient.get<PageResponse<HarborArtifact>>(
     `/harbor/projects/${encodeURIComponent(project)}/artifacts`,
@@ -285,9 +285,9 @@ export async function listHarborArtifacts(
   return response.data
 }
 
-export async function getHarborConnection(profileId: string): Promise<HarborConnection> {
+export async function getHarborConnection(profileId?: string): Promise<HarborConnection> {
   const response = await apiClient.get<HarborConnection>('/harbor/connection', {
-    params: { profile_id: profileId },
+    params: profileId ? { profile_id: profileId } : undefined,
   })
   return response.data
 }
