@@ -3,6 +3,7 @@ import axios from 'axios'
 import { computed, onMounted, ref, watch } from 'vue'
 
 import { apiClient } from '@/api/client'
+import HarborProfilesPanel from '@/components/HarborProfilesPanel.vue'
 import KeyManagementPanel from '@/components/KeyManagementPanel.vue'
 import { useRuntimeStore } from '@/stores/runtime'
 
@@ -369,6 +370,8 @@ onMounted(() => {
           </template>
         </ul>
       </section>
+
+      <HarborProfilesPanel class="card--wide" />
 
       <form class="card" @submit.prevent="saveSettings">
         <h2>Подключение</h2>
