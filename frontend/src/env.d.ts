@@ -5,5 +5,6 @@ type PortalContour = 'SOURCE' | 'TARGET'
 interface Window {
   __HTP_CONFIG__?: {
     contour?: PortalContour
+    revision?: string
   }
 }
