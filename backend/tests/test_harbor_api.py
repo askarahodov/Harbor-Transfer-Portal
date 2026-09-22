@@ -10,7 +10,6 @@ from app.config import Settings
 from app.db.models import UserRole
 from app.db.repositories import UserRepository
 from app.main import create_app
-from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_client import (
     HarborArtifact,
     HarborClientError,
@@ -20,6 +19,7 @@ from app.services.harbor_client import (
     HarborSystemInfo,
     HarborTag,
 )
+from app.services.harbor_profiles import HarborProfile, HarborProfileService
 
 JWT_SECRET = "test-jwt-secret-not-for-production-123456"
 
