@@ -56,6 +56,7 @@ Root [README](../README.md) — пользовательская входная 
 | [admin-guide.md](admin-guide.md) | bootstrap, Harbor, users/policies/keys, lifecycle, limits | актуальный |
 | [runtime-mode.md](runtime-mode.md) | persistent SOURCE/TARGET role, switch, restart, migration, backup/restore | актуальный runtime/admin contract |
 | [key-management.md](key-management.md) | SOURCE signing identity и TARGET trusted-key lifecycle | актуальный |
+| [harbor-profiles.md](harbor-profiles.md) | несколько Harbor endpoints, secret isolation и operation pinning | актуальный |
 | [transfer-policies.md](transfer-policies.md) | admin-managed transfer policies и limits | актуальный |
 | [troubleshooting.md](troubleshooting.md) | symptom → cause → diagnostic → safe resolution | актуальный |
 | [../deploy/offline/README.md](../deploy/offline/README.md) | versioned offline kit install/backup/restore/upgrade/uninstall | актуальный release/install guide |
