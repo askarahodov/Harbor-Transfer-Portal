@@ -78,6 +78,8 @@ Workspace имеет server-generated имя `operation-<id>` и mode `0700`; sy
 
 После terminal failure/cancel временный workspace очищается. `READY` import workspace является исключением до запуска/отмены дальнейшего import workflow.
 
+Physical transfer payload lifecycle отделён от OperationManager workspace. Startup выполняет recovery, после чего storage-retention service очищает expired completed publications, retained terminal import bundles и orphan/terminal extraction directories. Periodic cleanup никогда не удаляет payload non-terminal operation. Полный contract: [storage-retention.md](storage-retention.md).
+
 ## Контракт для #17 и #19
 
 Будущие orchestration services должны:
