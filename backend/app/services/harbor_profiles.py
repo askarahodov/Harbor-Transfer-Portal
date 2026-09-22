@@ -194,7 +194,7 @@ class HarborProfileService:
 
     def build_client(self, profile_id: str) -> HarborClient:
         if profile_id == DEFAULT_PROFILE_ID:
-            return self.legacy.build_client()
+            return self.legacy.build_default_client()
 
         profile = self.get(profile_id)
         if not profile.enabled:
@@ -281,7 +281,7 @@ class HarborProfileService:
         self._ca_path(profile).unlink(missing_ok=True)
 
     def _default_profile(self) -> HarborProfile:
-        resolved = self.legacy.resolve()
+        resolved = self.legacy.resolve_default()
         return HarborProfile(
             id=DEFAULT_PROFILE_ID,
             name="Default Harbor",
