@@ -110,6 +110,8 @@ def _profile_error(exc: HarborSettingsError) -> HTTPException:
         "harbor_profile_disabled",
         "harbor_profile_active_protected",
         "harbor_profile_busy",
+        "harbor_profile_referenced",
+        "harbor_profile_snapshot_mismatch",
         "harbor_active_profile_invalid",
     }:
         return _api_error(status.HTTP_409_CONFLICT, exc.code, exc.message)
