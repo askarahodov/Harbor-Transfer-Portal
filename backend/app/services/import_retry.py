@@ -8,6 +8,7 @@ from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.schemas.import_retries import ImportRetryResponse
 from app.schemas.imports import ImportDestinationPlanRequest, ImportPreviewResponse
 from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
+from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.policy_aware_destination_plan import PolicyAwareImportDestinationPlanOrchestrator
 
@@ -110,12 +111,20 @@ class ImportRetryService:
                         "Retry запрещён: persisted artifact snapshot не совпадает с plan",
                     )
 
+            try:
+                harbor_profile = HarborSettingsService(
+                    session,
+                    self.orchestrator.settings,
+                ).profile_snapshot(original.harbor_profile_id)
+            except HarborSettingsError as exc:
+                raise ImportOrchestrationError(exc.code, exc.message) from exc
+
             snapshot = _RetrySourceSnapshot(
                 runtime_mode=original.runtime_mode,
                 runtime_mode_version=original.runtime_mode_version,
-                harbor_profile_id=original.harbor_profile_id,
-                harbor_profile_name=original.harbor_profile_name,
-                harbor_url=original.harbor_url,
+                harbor_profile_id=harbor_profile.id,
+                harbor_profile_name=harbor_profile.name,
+                harbor_url=harbor_profile.url,
                 bundle_filename=original.bundle_filename,
                 bundle_sha256=original.bundle_sha256,
                 bundle_size_bytes=original.bundle_size_bytes,
