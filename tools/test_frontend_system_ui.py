@@ -56,5 +56,28 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
 
 
 
+    def test_import_route_has_single_canonical_mapping_owner(self) -> None:
+        router = (_REPOSITORY_ROOT / "frontend/src/router/index.ts").read_text(encoding="utf-8")
+        import_view = (_REPOSITORY_ROOT / "frontend/src/views/ImportView.vue").read_text(encoding="utf-8")
+        project_panel = (
+            _REPOSITORY_ROOT / "frontend/src/components/HarborProjectCreationPanel.vue"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("component: () => import('@/views/ImportView.vue')", router)
+        self.assertNotIn("ImportWorkspaceView.vue", router)
+        self.assertEqual(import_view.count("<ImportDestinationMapping />"), 1)
+        self.assertNotIn("ImportDestinationMapping", project_panel)
+        self.assertFalse(
+            (_REPOSITORY_ROOT / "frontend/src/views/ImportWorkspaceView.vue").exists()
+        )
+
+    def test_nginx_does_not_cache_application_shell(self) -> None:
+        nginx = (_REPOSITORY_ROOT / "frontend/nginx.conf").read_text(encoding="utf-8")
+
+        self.assertIn("location = /index.html", nginx)
+        self.assertIn("location = /runtime-config.js", nginx)
+        self.assertGreaterEqual(nginx.count('Cache-Control "no-store"'), 2)
+        self.assertIn('Cache-Control "public, max-age=31536000, immutable"', nginx)
+
 if __name__ == "__main__":
     unittest.main()
