@@ -20,6 +20,10 @@ const errorMessage = ref<string | null>(null)
 const canSubmit = computed(
   () => username.value.trim().length > 0 && password.value.length > 0 && !auth.loading,
 )
+const documentationHref = computed(() => {
+  const target = route.meta.documentation
+  return typeof target === 'string' ? `/docs/#${target}` : '/docs/'
+})
 
 function redirectAfterLogin(): string {
   const requested = route.query.redirect
@@ -113,6 +117,15 @@ async function submit(): Promise<void> {
           <span>{{ auth.loading ? 'Выполняется вход…' : 'Войти' }}</span>
         </button>
       </form>
+
+      <a
+        class="login-docs"
+        :href="documentationHref"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Открыть документацию
+      </a>
     </section>
   </main>
 </template>
@@ -133,6 +146,8 @@ async function submit(): Promise<void> {
 .form-error { margin: 0; color: var(--color-danger-text); }
 .submit-button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); margin-top: var(--space-2); border: 0; border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); font-weight: 700; cursor: pointer; }
 .submit-button:disabled, .password-toggle:disabled { cursor: not-allowed; opacity: .55; }
+.login-docs { display: inline-flex; margin-top: var(--space-5); color: var(--color-action); font-weight: 600; text-decoration: none; }
+.login-docs:hover, .login-docs:focus-visible { text-decoration: underline; }
 @media (max-width: 520px) {
   .login-page { padding: var(--space-4); }
   .login-card { padding: var(--space-6); }

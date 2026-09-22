@@ -20,37 +20,51 @@ const routes: RouteRecordRaw[] = [
     path: '/login',
     name: 'login',
     component: () => import('@/views/LoginView.vue'),
-    meta: { public: true, layout: 'bare' },
+    meta: { public: true, layout: 'bare', documentation: '/docs/user-guide' },
   },
-  { path: '/', name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
+  {
+    path: '/',
+    name: 'dashboard',
+    component: () => import('@/views/DashboardView.vue'),
+    meta: { documentation: '/docs/dashboard' },
+  },
   {
     path: '/export',
     name: 'export',
     component: () => import('@/views/ExportView.vue'),
-    meta: { roles: transferRoles, contours: sourceContours },
+    meta: {
+      roles: transferRoles,
+      contours: sourceContours,
+      documentation: '/docs/user-guide',
+    },
   },
   {
     path: '/import',
     name: 'import',
     component: () => import('@/views/ImportView.vue'),
-    meta: { roles: transferRoles, contours: targetContours },
+    meta: {
+      roles: transferRoles,
+      contours: targetContours,
+      documentation: '/docs/user-guide',
+    },
   },
   {
     path: '/history',
     name: 'history',
     component: () => import('@/views/HistoryWorkspaceView.vue'),
+    meta: { documentation: '/docs/history-ui' },
   },
   {
     path: '/users',
     name: 'users',
     component: () => import('@/views/UsersView.vue'),
-    meta: { roles: adminRoles },
+    meta: { roles: adminRoles, documentation: '/docs/admin-user-management' },
   },
   {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
-    meta: { roles: adminRoles },
+    meta: { roles: adminRoles, documentation: '/docs/admin-guide' },
   },
 ]
 
