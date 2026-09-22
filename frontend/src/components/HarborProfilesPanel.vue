@@ -144,7 +144,7 @@ async function saveProfile(): Promise<void> {
     selectedId.value = response.data.id
     message.value = wasEditing
       ? 'Harbor profile обновлён.'
-      : 'Harbor profile создан. Проверьте подключение и сделайте его активным.'
+      : 'Harbor profile создан. Проверьте подключение и выберите его в нужном transfer workflow.'
   } catch (reason) {
     error.value = safeError(
       editingId.value ? 'Не удалось обновить Harbor profile.' : 'Не удалось создать Harbor profile.',
@@ -202,16 +202,16 @@ onMounted(() => void load())
       <div>
         <h2 id="harbor-profiles-title">Harbor profiles</h2>
         <p class="status">
-          Один Portal может хранить несколько Harbor. Browse, export и import используют только активный профиль.
+          Управляйте доступными Harbor здесь. Рабочий Harbor для export/import выбирается непосредственно в соответствующем workflow.
         </p>
       </div>
-      <span v-if="activeProfile" class="active-badge">Активный · {{ activeProfile.name }}</span>
+      <span v-if="activeProfile" class="active-badge">Legacy active · {{ activeProfile.name }}</span>
     </div>
 
     <p v-if="loading" class="status">Загрузка profiles…</p>
     <template v-else>
       <div class="selector-row">
-        <label for="active-harbor-profile">Активный Harbor</label>
+        <label for="active-harbor-profile">Legacy active profile</label>
         <select id="active-harbor-profile" v-model="selectedId" :disabled="busy">
           <option v-for="profile in enabledProfiles" :key="profile.id" :value="profile.id">
             {{ profile.name }} · {{ profile.url }}
@@ -222,7 +222,7 @@ onMounted(() => void load())
           :disabled="busy || !selectedId || selectedId === activeProfile?.id"
           @click="activate"
         >
-          {{ busy ? 'Переключение…' : 'Использовать' }}
+          {{ busy ? 'Переключение…' : 'Для legacy clients' }}
         </button>
       </div>
 
@@ -230,7 +230,7 @@ onMounted(() => void load())
         <article v-for="profile in profiles" :key="profile.id" class="profile-row">
           <div>
             <strong>{{ profile.name }}</strong>
-            <span v-if="profile.is_active" class="inline-active">активный</span>
+            <span v-if="profile.is_active" class="inline-active">legacy active</span>
             <p>{{ profile.url }}</p>
             <small>
               {{ profile.username || 'без username' }} · TLS {{ profile.verify_tls ? 'on' : 'off' }}
