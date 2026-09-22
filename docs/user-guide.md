@@ -60,8 +60,8 @@ Portal в SOURCE role
   → выбрать точные image/chart versions
   → проверить preview
   → создать подписанный .htp.tar.gz
-  → скачать archive + .sha256
-  → физически перенести оба файла
+  → скачать archive + .sha256 + signed .htp-handoff.json
+  → физически перенести все три файла
 Portal в принимающем контуре, TARGET role
   → принять archive
   → проверить schema/signature/checksums
@@ -217,14 +217,15 @@ Wizard состоит из трёх этапов:
 
 Для большого bundle используется configured incoming directory или смонтированный transfer media.
 
-1. Скопируйте туда **готовую пару**:
+1. Скопируйте туда **готовый комплект одной delivery**:
    - `.htp.tar.gz`;
-   - соответствующий `.sha256`.
+   - соответствующий `.sha256`;
+   - signed `.htp-handoff.json`.
 2. Откройте `/import`.
 3. Нажмите **«Обнаружить готовые пакеты»**.
 4. Выберите появившуюся import operation.
 
-Portal claim-ит только допустимые готовые пары. Если sidecar отсутствует или копирование ещё не завершено, такой package не должен считаться ready delivery.
+Portal claim-ит только допустимые готовые delivery triplets. Если sidecar или signed handoff отсутствует либо копирование ещё не завершено, такой package не должен считаться ready delivery.
 
 ## 13. Что именно проверяет TARGET до импорта
 
@@ -432,7 +433,7 @@ Portal не может использовать local Harbor account либо е
 
 ### `bundle_sidecar_checksum_mismatch`
 
-Archive и `.sha256` не совпадают. Не редактируйте sidecar. Перенесите заново **оба** файла из исходного SOURCE output.
+Archive и `.sha256` не совпадают. Не редактируйте sidecar. Повторно перенесите полный delivery triplet из исходного SOURCE output.
 
 ### `bundle_signature_invalid` / `bundle_signature_untrusted`
 
@@ -505,7 +506,7 @@ Portal не обещает прозрачное продолжение сере�
 - authoritative runtime SOURCE/TARGET mode и live switcher для operator/admin;
 - SOURCE Harbor browse и 4-step export wizard;
 - подписанный Offline Bundle v1;
-- archive + `.sha256` download;
+- archive + `.sha256` + signed handoff download;
 - TARGET browser intake полного физического triplet (bundle + `.sha256` + signed handoff) и incoming discovery;
 - schema/signature/checksum verification до Harbor mutation;
 - NEW/SAME/CONFLICT/UNKNOWN/ERROR preview;
