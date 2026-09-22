@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -117,37 +118,50 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
     def test_docsify_is_bundled_for_offline_runtime(self) -> None:
         dockerfile = (_REPOSITORY_ROOT / "frontend/Dockerfile").read_text(encoding="utf-8")
         docs_index = (_REPOSITORY_ROOT / "docs/index.html").read_text(encoding="utf-8")
+        docs_css = (_REPOSITORY_ROOT / "docs/portal-docs.css").read_text(encoding="utf-8")
         sidebar = (_REPOSITORY_ROOT / "docs/_sidebar.md").read_text(encoding="utf-8")
 
         self.assertIn("ARG DOCSIFY_VERSION=5.0.0", dockerfile)
         self.assertIn('npm pack --ignore-scripts --silent "docsify@${DOCSIFY_VERSION}"', dockerfile)
         self.assertIn("COPY docs/ /usr/share/nginx/html/docs/", dockerfile)
+        self.assertIn(
+            "COPY frontend/src/styles/tokens.css /usr/share/nginx/html/docs/_portal/tokens.css",
+            dockerfile,
+        )
         self.assertIn("/vendor/package/dist/docsify.min.js", dockerfile)
         self.assertIn("/vendor/package/dist/plugins/search.min.js", dockerfile)
         self.assertIn("/vendor/package/dist/themes/core.min.css", dockerfile)
 
         self.assertIn("homepage: '/docs/README.md'", docs_index)
-        self.assertIn("loadSidebar: '/docs/_sidebar.md'", docs_index)
+        self.assertIn("loadSidebar: true", docs_index)
+        self.assertIn("collapsibleSidebarGroups: true", docs_index)
+        self.assertIn("'/.*/_sidebar.md': '/docs/_sidebar.md'", docs_index)
+        self.assertIn("/docs/_portal/tokens.css", docs_index)
+        self.assertIn("/docs/portal-docs.css", docs_index)
         self.assertIn("/docs/_vendor/docsify.min.js", docs_index)
         self.assertIn("/docs/_vendor/search.min.js", docs_index)
+        self.assertIn('id="docs-page-toc"', docs_index)
+        self.assertIn("docs-heading-anchor", docs_index)
+        self.assertIn("docsifySectionHref", docs_index)
+        self.assertIn("?id=", docs_index)
+        self.assertIn("Назад в портал", docs_index)
         self.assertNotIn("cdn.jsdelivr", docs_index)
         self.assertNotIn("unpkg.com", docs_index)
 
-        route_targets = {
-            "#/docs/dashboard": "docs/dashboard.md",
-            "#/docs/user-guide": "docs/user-guide.md",
-            "#/docs/admin-guide": "docs/admin-guide.md",
-            "#/docs/history-ui": "docs/history-ui.md",
-            "#/docs/admin-user-management": "docs/admin-user-management.md",
-            "#/deploy/README": "deploy/README.md",
-            "#/deploy/offline/README": "deploy/offline/README.md",
-            "#/README": "README.md",
-            "#/CONTRIBUTING": "CONTRIBUTING.md",
-            "#/CHANGELOG": "CHANGELOG.md",
-        }
-        for route, target in route_targets.items():
-            self.assertIn(f"]({route})", sidebar)
-            self.assertTrue((_REPOSITORY_ROOT / target).is_file())
+        self.assertIn("var(--color-brand-surface)", docs_css)
+        self.assertIn("var(--color-background)", docs_css)
+        self.assertIn(".docs-page-toc", docs_css)
+        self.assertIn(".docs-heading-anchor", docs_css)
+        self.assertIn("@media (max-width: 768px)", docs_css)
+        self.assertNotIn("#0B1E3A", docs_css)
+        self.assertNotIn("#2563EB", docs_css)
+
+        routes = re.findall(r"\]\(#/([^)]*)\)", sidebar)
+        self.assertGreater(len(routes), 20)
+        for route in routes:
+            target = _REPOSITORY_ROOT / ("docs/README.md" if route == "" else f"{route}.md")
+            with self.subTest(route=route):
+                self.assertTrue(target.is_file(), f"Docsify route {route!r} has no target {target}")
 
 
 if __name__ == "__main__":

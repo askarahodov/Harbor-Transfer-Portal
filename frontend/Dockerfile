@@ -32,7 +32,9 @@ COPY --from=build /app/dist /usr/share/nginx/html
 
 # Documentation is part of the offline frontend artifact. Markdown stays the
 # source of truth; Docsify renders it in-browser without runtime CDN access.
+# Reuse the frontend design tokens directly so docs cannot drift to a second palette.
 COPY docs/ /usr/share/nginx/html/docs/
+COPY frontend/src/styles/tokens.css /usr/share/nginx/html/docs/_portal/tokens.css
 COPY deploy/README.md /usr/share/nginx/html/deploy/README.md
 COPY deploy/offline/README.md /usr/share/nginx/html/deploy/offline/README.md
 COPY README.md CONTRIBUTING.md CHANGELOG.md LICENSE /usr/share/nginx/html/
