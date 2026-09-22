@@ -20,6 +20,7 @@ import {
   type OperationStatus,
 } from '@/api/imports'
 import HarborProjectCreationPanel from '@/components/HarborProjectCreationPanel.vue'
+import HarborProfileSelector from '@/components/HarborProfileSelector.vue'
 import ImportVerificationCard from '@/components/ImportVerificationCard.vue'
 import ImportDestinationMapping from '@/components/ImportDestinationMapping.vue'
 import ImportReceiptDestinations from '@/components/ImportReceiptDestinations.vue'
@@ -254,6 +255,17 @@ onBeforeUnmount(() => {
           </div>
           <ShieldCheck :size="28" aria-hidden="true" />
         </div>
+
+        <HarborProfileSelector
+          id="import-harbor-profile"
+          label="TARGET Harbor profile"
+          :profiles="wizard.harborProfiles"
+          :model-value="wizard.selectedHarborProfileId"
+          :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
+          :locked="wizard.harborProfileLocked"
+          hint="Intake, TARGET preview и import будут закреплены за выбранным Harbor."
+          @update:model-value="wizard.selectHarborProfile"
+        />
 
         <div class="intake-grid">
           <article class="intake-card">
