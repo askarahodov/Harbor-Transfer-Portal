@@ -22,6 +22,12 @@ _AREA_NAMES = (
     "docs",
 )
 
+_BACKEND_RUNTIME_DEPENDENCY_FILES = {
+    "backend/pyproject.toml",
+    "backend/requirements-runtime.lock",
+    "backend/uv.lock",
+}
+
 _SECURITY_SERVICE_FILES = {
     "bundle_package_service.py",
     "export_orchestrator.py",
@@ -178,6 +184,11 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
 
     if _under(path, "backend") or path_text == "Makefile":
         areas.add("backend")
+
+    if path_text in _BACKEND_RUNTIME_DEPENDENCY_FILES:
+        # Runtime dependency graph changes can alter crypto and transfer behavior
+        # without touching application source, so qualify both boundaries.
+        areas.update({"security", "integration"})
 
     if _under(path, "frontend") or path_text == "Makefile":
         areas.add("frontend")
