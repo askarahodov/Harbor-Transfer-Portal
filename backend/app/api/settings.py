@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -17,7 +18,7 @@ from app.schemas.settings import (
     HarborSettingsPatch,
     HarborSettingsResponse,
 )
-from app.services.harbor_client import HarborClientError
+from app.services.harbor_client import HarborClient, HarborClientError
 from app.services.harbor_profile_runtime import harbor_profile_boundary
 from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_settings import (
@@ -28,6 +29,24 @@ from app.services.harbor_settings import (
 
 router = APIRouter(prefix="/settings/harbor", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
+
+
+def get_default_harbor_client(
+    request: Request,
+    session: SessionDep,
+) -> Generator[HarborClient, None, None]:
+    service = HarborProfileService(session, request.app.state.settings)
+    try:
+        client = service.build_client(DEFAULT_HARBOR_PROFILE_ID)
+    except HarborSettingsError as exc:
+        raise _profile_error(exc) from exc
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+DefaultHarborClientDep = Annotated[HarborClient, Depends(get_default_harbor_client)]
 
 
 def _api_error(status_code: int, code: str, message: str) -> HTTPException:
@@ -223,17 +242,11 @@ def remove_harbor_ca(
 
 @router.post("/test", response_model=HarborConnectionTestResponse)
 def test_harbor_connection(
-    request: Request,
     _admin: AdminDep,
-    session: SessionDep,
+    client: DefaultHarborClientDep,
 ) -> HarborConnectionTestResponse:
-    profiles = HarborProfileService(session, request.app.state.settings)
-    client = None
     try:
-        client = profiles.build_client(DEFAULT_HARBOR_PROFILE_ID)
         info = client.system_info()
-    except HarborSettingsError as exc:
-        raise _profile_error(exc) from exc
     except HarborClientError as exc:
         mapping = {
             "unauthorized": ("harbor_auth_failed", "Harbor отклонил учётные данные"),
@@ -247,9 +260,6 @@ def test_harbor_connection(
             ("harbor_error", "Проверка подключения к Harbor завершилась ошибкой"),
         )
         return HarborConnectionTestResponse(ok=False, code=code, message=message)
-    finally:
-        if client is not None:
-            client.close()
     return HarborConnectionTestResponse(
         ok=True,
         code="harbor_connection_ok",
