@@ -63,7 +63,7 @@ const emit = defineEmits<{
         <Download :size="19" aria-hidden="true" /> Скачать bundle
       </button>
       <button class="secondary-button" type="button" :disabled="!bundle" @click="emit('downloadSidecar')">
-        <Download :size="19" aria-hidden="true" /> Скачать <code>.sha256</code>
+        <Download :size="19" aria-hidden="true" /> Скачать `.sha256`
       </button>
       <button class="secondary-button" type="button" :disabled="!bundle" @click="emit('downloadHandoff')">
         <Download :size="19" aria-hidden="true" /> Скачать handoff
