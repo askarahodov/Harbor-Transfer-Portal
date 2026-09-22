@@ -36,6 +36,10 @@ from app.services.helm_oci_service import (
     HelmTargetState,
 )
 from app.services.import_artifact_classifier import ImportArtifactClassifier
+from app.services.import_bundle_storage import (
+    ImportBundleStorageError,
+    resolve_persisted_bundle_paths,
+)
 from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.media_handoff import MediaHandoffError, MediaHandoffService
 from app.services.operation_manager import (
@@ -806,45 +810,15 @@ class ImportOrchestrator:
 
     def _bundle_paths(self, operation_id: int) -> tuple[Path, Path | None]:
         operation = self._get_import_operation(operation_id)
-        key = operation.import_storage_key
-        filename = operation.bundle_filename
-        if key is None or filename is None:
-            raise OperationTaskFailure(
-                "import_bundle_missing",
-                "Persisted bundle path metadata отсутствует",
-            )
-        if len(key) != 48 or any(ch not in "0123456789abcdef" for ch in key):
-            raise OperationTaskFailure(
-                "import_bundle_path_invalid",
-                "Storage key import bundle некорректен",
-            )
-        if Path(filename).name != filename:
-            raise OperationTaskFailure(
-                "import_bundle_path_invalid",
-                "Имя import bundle некорректно",
-            )
-        archive = (self.staging_root / key / filename).resolve()
         try:
-            archive.relative_to(self.staging_root)
-        except ValueError as exc:
-            raise OperationTaskFailure(
-                "import_bundle_path_invalid",
-                "Import bundle находится вне staging root",
-            ) from exc
-        if archive.is_symlink() or not archive.is_file():
-            raise OperationTaskFailure(
-                "import_bundle_missing",
-                "Import bundle отсутствует в staging",
+            return resolve_persisted_bundle_paths(
+                self.staging_root,
+                operation.import_storage_key,
+                operation.bundle_filename,
+                operation.import_intake_mode,
             )
-        if operation.import_intake_mode != ImportIntakeMode.INCOMING.value:
-            return archive, None
-        sidecar = archive.with_name(archive.name + ".sha256")
-        if sidecar.is_symlink() or not sidecar.is_file():
-            raise OperationTaskFailure(
-                "import_sidecar_missing",
-                "Incoming bundle не имеет readiness .sha256 sidecar",
-            )
-        return archive, sidecar
+        except ImportBundleStorageError as exc:
+            raise OperationTaskFailure(exc.code, exc.message) from exc
 
     def _get_import_operation(self, operation_id: int) -> Operation:
         with self.session_factory() as session:
