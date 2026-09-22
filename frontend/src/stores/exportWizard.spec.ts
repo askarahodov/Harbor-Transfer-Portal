@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as exportsApi from '@/api/exports'
+import * as harborProfilesApi from '@/api/harborProfiles'
 import type { HarborArtifact, HarborProject, Operation, PageResponse } from '@/api/exports'
 
 import { useExportWizardStore } from './exportWizard'
@@ -106,6 +107,17 @@ function mockBrowse(): void {
 beforeEach(() => {
   setActivePinia(createPinia())
   sessionStorage.clear()
+  vi.spyOn(harborProfilesApi, 'listHarborProfiles').mockResolvedValue([{
+  id: 'default',
+  name: 'Default',
+  url: 'https://harbor.local',
+  username: 'svc-transfer',
+  verify_tls: true,
+  enabled: true,
+  credential_configured: true,
+  custom_ca_configured: false,
+  legacy_default: true,
+}])
   mockBrowse()
 })
 
@@ -160,6 +172,7 @@ describe('export wizard store', () => {
         },
       ],
       comment: null,
+      harbor_profile_id: 'default',
     })
   })
 
@@ -256,11 +269,11 @@ describe('export wizard store', () => {
     await Promise.resolve()
 
     expect(projectsSpy).toHaveBeenCalledTimes(1)
-    expect(projectsSpy).toHaveBeenCalledWith(1, 25, 'report')
+    expect(projectsSpy).toHaveBeenCalledWith(1, 25, 'report', 'default')
     expect(repositoriesSpy).toHaveBeenCalledTimes(1)
-    expect(repositoriesSpy).toHaveBeenCalledWith('team', 1, 25, 'api')
+    expect(repositoriesSpy).toHaveBeenCalledWith('team', 1, 25, 'api', 'default')
     expect(artifactsSpy).toHaveBeenCalledTimes(1)
-    expect(artifactsSpy).toHaveBeenCalledWith('team', 'apps/demo', 1, 25, '1.2.3')
+    expect(artifactsSpy).toHaveBeenCalledWith('team', 'apps/demo', 1, 25, '1.2.3', 'default')
   })
 
   it('applies only the latest project response and ignores stale success and error', async () => {
