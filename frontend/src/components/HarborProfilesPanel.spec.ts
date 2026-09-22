@@ -86,7 +86,7 @@ describe('HarborProfilesPanel', () => {
     await flushPromises()
 
     expect(put).toHaveBeenCalledWith(
-      \`/settings/harbor/profiles/\${secondProfile.id}/activate\`,
+      `/settings/harbor/profiles/${secondProfile.id}/activate`,
     )
     expect(get).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('Активный · Harbor DC-2')
@@ -128,7 +128,7 @@ describe('HarborProfilesPanel', () => {
       enabled: true,
     })
     expect(put).toHaveBeenCalledWith(
-      \`/settings/harbor/profiles/\${secondProfile.id}/credential\`,
+      `/settings/harbor/profiles/${secondProfile.id}/credential`,
       { secret: 'profile-secret-value' },
     )
     expect(wrapper.text()).not.toContain('profile-secret-value')
@@ -155,7 +155,7 @@ describe('HarborProfilesPanel', () => {
     await flushPromises()
 
     expect(post).toHaveBeenCalledWith(
-      \`/settings/harbor/profiles/\${secondProfile.id}/test\`,
+      `/settings/harbor/profiles/${secondProfile.id}/test`,
     )
     expect(wrapper.text()).toContain('Harbor DC-2: подключение успешно · Harbor 2.13.0')
   })
