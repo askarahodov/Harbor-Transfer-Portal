@@ -230,6 +230,7 @@ describe('ImportDestinationMapping', () => {
     await flushPromises()
 
     expect(planSpy).toHaveBeenCalledWith(91, {
+      harbor_profile_id: null,
       container_image_project: 'docker-default',
       helm_chart_project: 'helm-default',
       project_mappings: { 'source-app': 'mapped-app' },
