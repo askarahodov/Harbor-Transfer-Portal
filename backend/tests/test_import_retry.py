@@ -11,7 +11,7 @@ from app.auth.security import hash_password
 from app.config import PortalContour, Settings
 from app.db.base import Base
 from app.db.models import ArtifactResult, Operation, UserRole
-from app.db.repositories import UserRepository
+from app.db.repositories import SettingMetadataRepository, UserRepository
 from app.db.session import create_db_engine, create_session_factory
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.domain.imports import ImportPreviewState
@@ -23,6 +23,7 @@ from app.schemas.imports import (
 from app.services.artifact_mapping_snapshot import persist_artifact_mapping_snapshot
 from app.services.destination_mapping_policy import DestinationMappingPolicyService
 from app.services.harbor_destination_validator import DestinationCapability
+from app.services.harbor_settings import HARBOR_URL_KEY
 from app.services.helm_oci_service import HelmTargetInspection, HelmTargetState
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.import_retry import ImportRetryService, retry_of_operation_id
@@ -82,6 +83,7 @@ def _settings(tmp_path: Path, database_url: str) -> Settings:
         database_url=database_url,
         jwt_secret="retry-test-secret-" + "x" * 32,
         portal_contour=PortalContour.TARGET,
+        harbor_url="https://harbor.target.local",
         operation_workspace_root=data / "tmp" / "operations",
         bundle_payload_root=data,
         bundle_temp_root=data / "tmp" / "bundles",
@@ -309,6 +311,43 @@ def test_retry_reuses_frozen_mapping_and_revalidates_current_target(tmp_path: Pa
         assert policy["mapping_request"]["helm_chart_project"] == "helm-old"
         assert policy["retry"]["failure_policy"] == "continue-on-error"
         assert all(row.status is ArtifactStatus.PENDING for row in retry.artifacts)
+
+
+def test_retry_snapshots_current_configuration_of_inherited_profile(tmp_path: Path) -> None:
+    (
+        session_factory,
+        orchestrator,
+        _skopeo,
+        _helm,
+        operation_id,
+        original_plan,
+        actor_user_id,
+    ) = _environment(tmp_path)
+
+    with session_factory() as session:
+        SettingMetadataRepository(session).set_value(
+            HARBOR_URL_KEY,
+            "https://harbor-recovered.local",
+        )
+        session.commit()
+
+    prepared = asyncio.run(
+        ImportRetryService(orchestrator).prepare_retry(
+            operation_id,
+            actor_user_id=actor_user_id,
+            actor_username="operator",
+            destination_plan_id=original_plan.plan_id,
+        )
+    )
+
+    with session_factory() as session:
+        original = session.get(Operation, operation_id)
+        retry = session.get(Operation, prepared.operation_id)
+        assert original is not None and retry is not None
+        assert original.harbor_profile_id == retry.harbor_profile_id == "default"
+        assert original.harbor_url == "https://harbor.target.local"
+        assert retry.harbor_profile_name == "Default"
+        assert retry.harbor_url == "https://harbor-recovered.local"
 
 
 def test_retry_rejects_wrong_plan_without_creating_operation(tmp_path: Path) -> None:
