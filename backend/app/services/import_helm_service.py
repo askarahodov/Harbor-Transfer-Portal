@@ -42,6 +42,7 @@ class ImportHelmOciService(HelmOciService):
         runner: HelmCommandRunner | None = None,
         progress: Callable[[HelmProgressEvent], None] | None = None,
         digest_resolver: Callable[[HelmChartReference], str | None] | None = None,
+        profile_id: str | None = None,
     ) -> None:
         super().__init__(
             session,
@@ -49,6 +50,7 @@ class ImportHelmOciService(HelmOciService):
             runner=runner,
             progress=progress,
             digest_resolver=digest_resolver,
+            profile_id=profile_id,
         )
         self._import_session = session
 
