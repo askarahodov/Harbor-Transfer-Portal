@@ -146,7 +146,8 @@ class HarborProfileService:
         if not profile.enabled:
             raise HarborSettingsError("harbor_profile_disabled", "Профиль Harbor отключён")
         credential = self._read_secret(self._credential_path(profile))
-        ca_file = self._ca_path(profile) if profile.verify_tls and self._ca_path(profile).is_file() else None
+        profile_ca = self._ca_path(profile)
+        ca_file = profile_ca if profile.verify_tls and profile_ca.is_file() else None
         verify: bool | str = profile.verify_tls
         if ca_file is not None:
             verify = str(ca_file)
@@ -190,7 +191,10 @@ class HarborProfileService:
                 "harbor_ca_too_large",
                 "CA bundle превышает допустимый размер",
             )
-        if "-----BEGIN CERTIFICATE-----" not in certificate_pem or "-----END CERTIFICATE-----" not in certificate_pem:
+        if (
+            "-----BEGIN CERTIFICATE-----" not in certificate_pem
+            or "-----END CERTIFICATE-----" not in certificate_pem
+        ):
             raise HarborSettingsError("harbor_ca_invalid", "Ожидается PEM-сертификат CA")
 
         target = self._ca_path(profile)
@@ -288,7 +292,8 @@ class HarborProfileService:
             }
             for item in sorted(profiles, key=lambda value: value.name.casefold())
         ]
-        self.metadata.set_value(PROFILES_KEY, json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.metadata.set_value(PROFILES_KEY, encoded)
 
     def _profile_dir(self, profile: HarborProfile) -> Path:
         return self.settings.harbor_managed_secret_file.parent / "harbor-profiles" / profile.id
