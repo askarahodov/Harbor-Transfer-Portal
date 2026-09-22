@@ -62,6 +62,31 @@ class DevCliTests(unittest.TestCase):
 
         run.assert_not_called()
 
+    def test_doctor_rejects_windows_container_mode(self) -> None:
+        def fake_run(command, *, cwd=dev.ROOT, env=None, capture_output=False, dry_run=False):
+            if command[-3:] == ["info", "--format", "{{.OSType}}"]:
+                return subprocess.CompletedProcess(command, 0, "windows\n", "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with (
+            patch.object(dev, "_resolve_executable", side_effect=lambda name: name),
+            patch.object(dev, "_run", side_effect=fake_run),
+        ):
+            with self.assertRaises(dev.DevCliError):
+                dev.command_doctor()
+
+    def test_doctor_accepts_linux_container_mode(self) -> None:
+        def fake_run(command, *, cwd=dev.ROOT, env=None, capture_output=False, dry_run=False):
+            if command[-3:] == ["info", "--format", "{{.OSType}}"]:
+                return subprocess.CompletedProcess(command, 0, "linux\n", "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with (
+            patch.object(dev, "_resolve_executable", side_effect=lambda name: name),
+            patch.object(dev, "_run", side_effect=fake_run),
+        ):
+            self.assertEqual(dev.command_doctor(), 0)
+
     def test_missing_env_is_fail_closed_for_build_and_up(self) -> None:
         missing = Path(__file__).with_name("definitely-missing.env")
         with patch.object(dev, "ENV_FILE", missing):
