@@ -160,16 +160,13 @@ Backend защищает от удаления последнего active admin
 
 Не выдавайте global Harbor admin только ради удобства.
 
-Через admin **«Настройки локального Harbor»** задаются:
+Через admin **«Настройки локального Harbor»** можно хранить несколько именованных Harbor profiles. Для каждого profile задаются URL, username/service account, отдельный managed credential, TLS verification, optional custom CA и connection test.
 
-- URL local Harbor;
-- username/service account;
-- managed credential;
-- TLS verification;
-- custom CA;
-- connection test.
+Один profile всегда является **active**. Именно его используют Harbor browse API, SOURCE export, TARGET destination validation, Skopeo и Helm. Переключение active profile выполняет admin; оно блокируется, пока существует незавершённая export/import operation. Active profile нельзя disable или удалить — сначала выберите другой.
 
-`HARBOR_URL` должен указывать на Harbor origin без embedded credentials, query/fragment или произвольного subpath.
+Существующая single-Harbor конфигурация из `.env`/legacy Settings представлена как защищённый **Default Harbor** profile. Это сохраняет backward compatibility: после upgrade active profile остаётся `default`, пока admin явно не выберет другой.
+
+`HARBOR_URL` задаёт bootstrap/default profile и должен указывать на Harbor origin без embedded credentials, query/fragment или произвольного subpath. Дополнительные profiles хранят non-secret metadata в SQLite, а credentials/CA — отдельными files в persistent secret area; secret values API/UI не возвращают.
 
 ## 7. Harbor credential
 
