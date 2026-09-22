@@ -246,23 +246,30 @@ class SkopeoService:
         *,
         runner: CommandRunner | None = None,
         progress: Callable[[SkopeoProgressEvent], None] | None = None,
+        profile_id: str | None = None,
     ) -> None:
         self.settings = settings
         self.harbor_settings = HarborSettingsService(session, settings)
+        self.profile_id = profile_id
         self.runner = runner or AsyncioCommandRunner(settings.skopeo_temp_root)
         self.progress = progress
         self.payload_root = settings.skopeo_payload_root.resolve()
 
+    def _resolve_harbor(self) -> EffectiveHarborSettings:
+        if self.profile_id is None:
+            return self.harbor_settings.resolve()
+        return self.harbor_settings.resolve_profile(self.profile_id)
+
     async def inspect_image(self, image: ImageReference) -> ImageInspection:
         self._emit(SkopeoPhase.INSPECTING_SOURCE, image)
-        harbor = self.harbor_settings.resolve()
+        harbor = self._resolve_harbor()
         with self._security_context(harbor) as security:
             return await self._inspect_registry(image, harbor, security)
 
     async def export_image(self, image: ImageReference, destination: Path) -> ExportResult:
         payload_path = self._validate_export_path(destination)
         self._emit(SkopeoPhase.INSPECTING_SOURCE, image)
-        harbor = self.harbor_settings.resolve()
+        harbor = self._resolve_harbor()
         with self._security_context(harbor) as security:
             source = await self._inspect_registry(image, harbor, security)
             payload_path.mkdir(parents=True, exist_ok=True)
@@ -307,7 +314,7 @@ class SkopeoService:
                 "Digest локального OCI payload не совпадает с manifest expectation",
             )
 
-        harbor = self.harbor_settings.resolve()
+        harbor = self._resolve_harbor()
         with self._security_context(harbor) as security:
             self._emit(SkopeoPhase.IMPORTING, target)
             argv = (
@@ -343,7 +350,7 @@ class SkopeoService:
         if expected_digest is not None:
             self._validate_digest(expected_digest)
         self._emit(SkopeoPhase.INSPECTING_TARGET, image)
-        harbor = self.harbor_settings.resolve()
+        harbor = self._resolve_harbor()
         with self._security_context(harbor) as security:
             result = await self._run(
                 (
