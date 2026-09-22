@@ -7,6 +7,7 @@ import os
 import secrets
 import shutil
 from collections.abc import AsyncIterator, Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -35,6 +36,14 @@ from app.services.helm_oci_service import (
     HelmServiceError,
     HelmTargetState,
 )
+from app.services.harbor_operation_profile import (
+    OperationHarborBinding,
+    new_operation_binding,
+    operation_binding,
+)
+from app.services.harbor_profile_runtime import harbor_profile_boundary
+from app.services.harbor_settings import HarborSettingsError
+from app.services.import_helm_service import ImportHelmOciService
 from app.services.import_artifact_classifier import ImportArtifactClassifier
 from app.services.import_bundle_storage import (
     ImportBundleStorageError,
@@ -93,11 +102,23 @@ class ImportOrchestrator:
         self.settings = settings
         self.operation_manager = operation_manager
         self.package_factory = package_factory or (lambda: BundlePackageService(settings))
+        self._harbor_profile_context: ContextVar[str | None] = ContextVar(
+            "import_harbor_profile_id",
+            default=None,
+        )
         self.skopeo_factory = skopeo_factory or (
-            lambda session: SkopeoService(session, settings)
+            lambda session: SkopeoService(
+                session,
+                settings,
+                profile_id=self._harbor_profile_context.get(),
+            )
         )
         self.helm_factory = helm_factory or (
-            lambda session: HelmOciService(session, settings)
+            lambda session: ImportHelmOciService(
+                session,
+                settings,
+                profile_id=self._harbor_profile_context.get(),
+            )
         )
         self.artifact_classifier = ImportArtifactClassifier(
             session_factory,
@@ -123,6 +144,7 @@ class ImportOrchestrator:
         bundle_filename: str | None = None,
         sidecar_payload: bytes | None = None,
         handoff_payload: bytes | None = None,
+        harbor_profile_id: str | None = None,
     ) -> ImportIntakeResult:
         self._require_target()
         if content_length is not None:
@@ -195,16 +217,19 @@ class ImportOrchestrator:
                     )
 
             self._fsync_directory(storage_dir)
-            operation_id = self._create_intake_operation(
-                actor_user_id=actor_user_id,
-                actor_username=actor_username,
-                status=OperationStatus.UPLOADED,
-                mode=ImportIntakeMode.UPLOAD,
-                storage_key=storage_key,
-                filename=archive.name,
-                sha256=digest.hexdigest(),
-                size_bytes=total,
-            )
+            with harbor_profile_boundary():
+                profile = self._new_profile_binding(harbor_profile_id)
+                operation_id = self._create_intake_operation(
+                    actor_user_id=actor_user_id,
+                    actor_username=actor_username,
+                    status=OperationStatus.UPLOADED,
+                    mode=ImportIntakeMode.UPLOAD,
+                    storage_key=storage_key,
+                    filename=archive.name,
+                    sha256=digest.hexdigest(),
+                    size_bytes=total,
+                    harbor_profile=profile,
+                )
         except Exception:
             shutil.rmtree(storage_dir, ignore_errors=True)
             raise
@@ -217,6 +242,7 @@ class ImportOrchestrator:
         *,
         actor_user_id: int,
         actor_username: str,
+        harbor_profile_id: str | None = None,
     ) -> tuple[ImportIntakeResult, ...]:
         self._require_target()
         self.discovery_root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -272,16 +298,19 @@ class ImportOrchestrator:
                     raise
                 self._fsync_directory(storage_dir)
                 sha256 = await asyncio.to_thread(self._sha256_file, claimed_archive)
-                operation_id = self._create_intake_operation(
-                    actor_user_id=actor_user_id,
-                    actor_username=actor_username,
-                    status=OperationStatus.DISCOVERED,
-                    mode=ImportIntakeMode.INCOMING,
-                    storage_key=storage_key,
-                    filename=claimed_archive.name,
-                    sha256=sha256,
-                    size_bytes=size,
-                )
+                with harbor_profile_boundary():
+                    profile = self._new_profile_binding(harbor_profile_id)
+                    operation_id = self._create_intake_operation(
+                        actor_user_id=actor_user_id,
+                        actor_username=actor_username,
+                        status=OperationStatus.DISCOVERED,
+                        mode=ImportIntakeMode.INCOMING,
+                        storage_key=storage_key,
+                        filename=claimed_archive.name,
+                        sha256=sha256,
+                        size_bytes=size,
+                        harbor_profile=profile,
+                    )
             except Exception:
                 shutil.rmtree(storage_dir, ignore_errors=True)
                 raise
@@ -340,6 +369,10 @@ class ImportOrchestrator:
                     "import_preview_not_ready",
                     "Verified preview отсутствует",
                 )
+            try:
+                binding = operation_binding(session, self.settings, operation)
+            except HarborSettingsError as exc:
+                raise ImportOrchestrationError(exc.code, exc.message) from exc
             preview = ImportPreviewResponse.model_validate_json(operation.import_preview_json)
             self._require_preview_signer_trusted(preview)
 
@@ -443,6 +476,13 @@ class ImportOrchestrator:
             verified.signing_key_fingerprint,
         )
 
+        binding = self._verified_operation_binding(operation_id)
+        token = self._harbor_profile_context.set(binding.id)
+        try:
+            classified = await self.artifact_classifier.classify(verified.manifest.artifacts)
+        finally:
+            self._harbor_profile_context.reset(token)
+
         preview = ImportPreviewResponse(
             operation_id=operation_id,
             status=OperationStatus.READY,
@@ -451,7 +491,7 @@ class ImportOrchestrator:
             bundle_size_bytes=verified.archive_size,
             signing_key_fingerprint=verified.signing_key_fingerprint,
             verified_at=datetime.now(UTC),
-            artifacts=await self.artifact_classifier.classify(verified.manifest.artifacts),
+            artifacts=classified,
         )
         self._persist_preview(operation_id, preview)
         context.transition(OperationStatus.READY)
@@ -483,6 +523,8 @@ class ImportOrchestrator:
         operation, preview, overwrite, requested_at = self.persistence.load_execution_state(
             operation_id
         )
+        binding = self._verified_operation_binding(operation_id)
+        token = self._harbor_profile_context.set(binding.id)
         archive, sidecar = self._bundle_paths(operation_id)
         observed_sha = await asyncio.to_thread(self._sha256_file, archive)
         if observed_sha != operation.bundle_sha256 or observed_sha != preview.bundle_sha256:
@@ -629,6 +671,7 @@ class ImportOrchestrator:
             context.transition(OperationStatus.COMPLETED)
             self._cleanup_storage_if_unreferenced(operation_id)
         finally:
+            self._harbor_profile_context.reset(token)
             self._remove_path(extraction)
 
     async def _preflight_target(
@@ -672,12 +715,16 @@ class ImportOrchestrator:
         filename: str,
         sha256: str,
         size_bytes: int,
+        harbor_profile: OperationHarborBinding,
     ) -> int:
         operation_id = self.operation_manager.create_operation(
             operation_type=OperationType.IMPORT,
             actor_user_id=actor_user_id,
             actor_username=actor_username,
             initial_status=status,
+            harbor_profile_id=harbor_profile.id,
+            harbor_profile_name=harbor_profile.name,
+            harbor_url=harbor_profile.url,
         )
         with self.session_factory() as session:
             operation = session.get(Operation, operation_id)
@@ -693,6 +740,26 @@ class ImportOrchestrator:
             operation.bundle_size_bytes = size_bytes
             session.commit()
         return operation_id
+
+    def _new_profile_binding(self, profile_id: str | None) -> OperationHarborBinding:
+        try:
+            with self.session_factory() as session:
+                return new_operation_binding(session, self.settings, profile_id)
+        except HarborSettingsError as exc:
+            raise ImportOrchestrationError(exc.code, exc.message) from exc
+
+    def _verified_operation_binding(self, operation_id: int) -> OperationHarborBinding:
+        try:
+            with self.session_factory() as session:
+                operation = session.get(Operation, operation_id)
+                if operation is None or operation.type is not OperationType.IMPORT:
+                    raise ImportOrchestrationError(
+                        "import_operation_not_found",
+                        "Import-операция не найдена",
+                    )
+                return operation_binding(session, self.settings, operation)
+        except HarborSettingsError as exc:
+            raise OperationTaskFailure(exc.code, exc.message) from exc
 
     def _bundle_paths(self, operation_id: int) -> tuple[Path, Path | None]:
         operation = self._get_import_operation(operation_id)
