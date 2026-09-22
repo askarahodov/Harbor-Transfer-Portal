@@ -5,7 +5,15 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import ArtifactResult, AuditEvent, Operation, SettingMetadata, User, UserRole
+from app.db.models import (
+    ArtifactResult,
+    AuditEvent,
+    HarborProfile,
+    Operation,
+    SettingMetadata,
+    User,
+    UserRole,
+)
 from app.domain.bundle import ArtifactStatus, OperationStatus, OperationType
 from app.domain.operations import validate_transition
 
@@ -146,6 +154,45 @@ class OperationRepository:
         self.session.add(artifact)
         self.session.flush()
         return artifact
+
+
+class HarborProfileRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, profile_id: str) -> HarborProfile | None:
+        return self.session.get(HarborProfile, profile_id)
+
+    def get_by_name(self, name: str) -> HarborProfile | None:
+        return self.session.scalar(select(HarborProfile).where(HarborProfile.name == name))
+
+    def list(self) -> list[HarborProfile]:
+        return list(self.session.scalars(select(HarborProfile).order_by(HarborProfile.name)))
+
+    def create(
+        self,
+        *,
+        profile_id: str,
+        name: str,
+        url: str,
+        username: str | None,
+        verify_tls: bool,
+    ) -> HarborProfile:
+        profile = HarborProfile(
+            id=profile_id,
+            name=name,
+            url=url,
+            username=username,
+            verify_tls=verify_tls,
+            enabled=True,
+        )
+        self.session.add(profile)
+        self.session.flush()
+        return profile
+
+    def delete(self, profile: HarborProfile) -> None:
+        self.session.delete(profile)
+        self.session.flush()
 
 
 class SettingMetadataRepository:
