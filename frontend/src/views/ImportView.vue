@@ -247,6 +247,17 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <HarborProfileSelector
+        id="import-harbor-profile"
+        label="TARGET Harbor profile"
+        :profiles="wizard.harborProfiles"
+        :model-value="wizard.operation && !wizard.operation.harbor_profile_id ? null : wizard.selectedHarborProfileId"
+        :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
+        :locked="wizard.harborProfileLocked"
+        hint="Intake, TARGET preview и import будут закреплены за выбранным Harbor."
+        @update:model-value="wizard.selectHarborProfile"
+      />
+
       <section v-if="wizard.step === 1" class="panel" aria-labelledby="intake-title">
         <div class="panel__header">
           <div>
@@ -255,17 +266,6 @@ onBeforeUnmount(() => {
           </div>
           <ShieldCheck :size="28" aria-hidden="true" />
         </div>
-
-        <HarborProfileSelector
-          id="import-harbor-profile"
-          label="TARGET Harbor profile"
-          :profiles="wizard.harborProfiles"
-          :model-value="wizard.selectedHarborProfileId"
-          :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
-          :locked="wizard.harborProfileLocked"
-          hint="Intake, TARGET preview и import будут закреплены за выбранным Harbor."
-          @update:model-value="wizard.selectHarborProfile"
-        />
 
         <div class="intake-grid">
           <article class="intake-card">
