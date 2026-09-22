@@ -167,7 +167,7 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
     def test_contextual_documentation_targets_exist_and_anchors_are_stable(self) -> None:
         router = (_REPOSITORY_ROOT / "frontend/src/router/index.ts").read_text(encoding="utf-8")
         targets = re.findall(
-            r"documentation: '(/docs/[A-Za-z0-9._/-]+(?:\\?id=[A-Za-z0-9._-]+)?)'",
+            r"documentation: '(/docs/[A-Za-z0-9._/-]+(?:\?id=[A-Za-z0-9._-]+)?)'",
             router,
         )
 
