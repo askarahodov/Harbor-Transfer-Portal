@@ -14,6 +14,7 @@ const props = withDefaults(
   defineProps<{
     label: string
     modelValue: string
+    displayValue?: string
     search: string
     options: SearchComboboxOption[]
     placeholder?: string
@@ -24,7 +25,7 @@ const props = withDefaults(
     pageSize?: number
     maxLength?: number
   }>(),
-  { placeholder: 'Поиск…', disabled: false, loading: false, page: 1, total: 0, pageSize: 25, maxLength: 256 },
+  { placeholder: 'Поиск…', displayValue: '', disabled: false, loading: false, page: 1, total: 0, pageSize: 25, maxLength: 256 },
 )
 
 const emit = defineEmits<{
@@ -116,7 +117,7 @@ async function toggle(): Promise<void> {
         role="combobox"
         type="search"
         :value="search"
-        :placeholder="modelValue || placeholder"
+        :placeholder="displayValue || modelValue || placeholder"
         :disabled="disabled"
         :maxlength="maxLength"
         :aria-label="label"
