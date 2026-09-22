@@ -150,7 +150,7 @@ describe('Harbor settings view', () => {
     )
 
     await wrapper.get('#harbor-url').setValue('https://new.harbor.local')
-    await wrapper.find('form:not(.transfer-form)').trigger('submit')
+    await wrapper.get('form.harbor-settings-form').trigger('submit')
     await flushPromises()
 
     expect(patch).toHaveBeenCalledWith('/settings/harbor', {
