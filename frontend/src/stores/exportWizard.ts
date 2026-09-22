@@ -471,6 +471,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
 
   function backToSelection(): void {
     step.value = 1
+    preview.value = null
     clearError()
   }
 
