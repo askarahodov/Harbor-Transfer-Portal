@@ -31,6 +31,7 @@ from app.services.export_selection import (
     resolve_export_selection,
 )
 from app.services.harbor_client import HarborClient
+from app.services.harbor_profiles import harbor_profile_boundary
 from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 from app.services.helm_oci_service import HelmServiceError
 from app.services.key_management import KeyManagementError, KeyManagementService
@@ -132,35 +133,13 @@ class ExportOrchestrator:
         self._require_source_contour()
         self._require_signing_identity()
         selection_snapshot = tuple(selections)
-        resolved = await asyncio.to_thread(self.preview, selection_snapshot)
-        estimated_bytes = sum(item.size_bytes or 0 for item in resolved)
-        try:
-            self.operation_manager.require_disk(estimated_bytes)
-        except OperationTaskFailure as exc:
-            raise ExportOrchestrationError(exc.code, exc.message) from exc
-
-        delivery_id = self._package_service().allocate_delivery_id()
-        operation_id = self.operation_manager.create_operation(
-            operation_type=OperationType.EXPORT,
-            actor_user_id=actor_user_id,
-            actor_username=actor_username,
-            comment=comment,
-            delivery_id=delivery_id,
-            artifacts=tuple(self._operation_spec(item) for item in resolved),
+        resolved, operation_id, delivery_id, artifact_ids = await asyncio.to_thread(
+            self._prepare_export_operation,
+            selection_snapshot,
+            actor_user_id,
+            actor_username,
+            comment,
         )
-        operation = self.operation_manager.get_operation(operation_id)
-        if operation is None:
-            raise ExportOrchestrationError(
-                "export_operation_create_failed",
-                "Не удалось загрузить созданную export-операцию",
-            )
-        ordered = sorted(operation.artifacts, key=lambda item: item.id)
-        artifact_ids = tuple(artifact.id for artifact in ordered)
-        if len(artifact_ids) != len(selection_snapshot):
-            raise ExportOrchestrationError(
-                "export_operation_create_failed",
-                "Количество persisted artifacts не совпадает с export selection",
-            )
 
         async def worker(context: OperationContext) -> None:
             await self._run_export(
@@ -177,6 +156,45 @@ class ExportOrchestrator:
         except OperationManagerError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
         return ExportStartResult(operation_id=operation_id, delivery_id=delivery_id)
+
+    def _prepare_export_operation(
+        self,
+        selections: tuple[ExportArtifactSelection, ...],
+        actor_user_id: int,
+        actor_username: str,
+        comment: str | None,
+    ) -> tuple[tuple[ResolvedExportArtifact, ...], int, str, tuple[int, ...]]:
+        with harbor_profile_boundary():
+            resolved = self.preview(selections)
+            estimated_bytes = sum(item.size_bytes or 0 for item in resolved)
+            try:
+                self.operation_manager.require_disk(estimated_bytes)
+            except OperationTaskFailure as exc:
+                raise ExportOrchestrationError(exc.code, exc.message) from exc
+
+            delivery_id = self._package_service().allocate_delivery_id()
+            operation_id = self.operation_manager.create_operation(
+                operation_type=OperationType.EXPORT,
+                actor_user_id=actor_user_id,
+                actor_username=actor_username,
+                comment=comment,
+                delivery_id=delivery_id,
+                artifacts=tuple(self._operation_spec(item) for item in resolved),
+            )
+            operation = self.operation_manager.get_operation(operation_id)
+            if operation is None:
+                raise ExportOrchestrationError(
+                    "export_operation_create_failed",
+                    "Не удалось загрузить созданную export-операцию",
+                )
+            ordered = sorted(operation.artifacts, key=lambda item: item.id)
+            artifact_ids = tuple(artifact.id for artifact in ordered)
+            if len(artifact_ids) != len(selections):
+                raise ExportOrchestrationError(
+                    "export_operation_create_failed",
+                    "Количество persisted artifacts не совпадает с export selection",
+                )
+            return resolved, operation_id, delivery_id, artifact_ids
 
     def _require_signing_identity(self) -> None:
         try:
