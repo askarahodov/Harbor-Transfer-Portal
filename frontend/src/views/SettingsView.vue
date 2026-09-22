@@ -373,7 +373,7 @@ onMounted(() => {
 
       <HarborProfilesPanel class="card--wide" />
 
-      <form class="card" @submit.prevent="saveSettings">
+      <form class="card harbor-settings-form" @submit.prevent="saveSettings">
         <h2>Подключение</h2>
         <label for="harbor-url">URL локального Harbor</label>
         <input id="harbor-url" v-model="url" type="url" placeholder="https://harbor.local" autocomplete="url" />
