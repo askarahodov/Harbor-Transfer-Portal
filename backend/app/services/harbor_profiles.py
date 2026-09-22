@@ -8,15 +8,24 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.db.models import Operation
 from app.db.repositories import SettingMetadataRepository
+from app.services.runtime_mode import BLOCKING_OPERATION_STATUSES
 from app.services.harbor_client import HarborClient
-from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
+from app.services.harbor_settings import (
+    DEFAULT_HARBOR_PROFILE_ID,
+    HARBOR_ACTIVE_PROFILE_ID_KEY,
+    HARBOR_PROFILES_KEY,
+    HarborSettingsError,
+    HarborSettingsService,
+)
 
-PROFILES_KEY = "harbor.profiles.v1"
-DEFAULT_PROFILE_ID = "default"
+PROFILES_KEY = HARBOR_PROFILES_KEY
+DEFAULT_PROFILE_ID = DEFAULT_HARBOR_PROFILE_ID
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +52,40 @@ class HarborProfileService:
         profiles = [self._default_profile()]
         profiles.extend(self._load_additional())
         return profiles
+
+    def active_profile_id(self) -> str:
+        return self.legacy.active_profile_id()
+
+    def active_profile(self) -> HarborProfile:
+        return self.get(self.active_profile_id())
+
+    def activate(self, profile_id: str) -> tuple[HarborProfile, HarborProfile]:
+        current = self.active_profile()
+        target = self.get(profile_id)
+        if not target.enabled:
+            raise HarborSettingsError("harbor_profile_disabled", "Профиль Harbor отключён")
+        if current.id == target.id:
+            return current, target
+
+        blockers = tuple(
+            self.session.scalars(
+                select(Operation.id)
+                .where(Operation.status.in_(BLOCKING_OPERATION_STATUSES))
+                .order_by(Operation.id)
+            )
+        )
+        if blockers:
+            joined = ", ".join(f"#{operation_id}" for operation_id in blockers[:10])
+            raise HarborSettingsError(
+                "harbor_profile_busy",
+                f"Нельзя переключить Harbor profile при незавершённых операциях: {joined}",
+            )
+        self.metadata.set_value(
+            HARBOR_ACTIVE_PROFILE_ID_KEY,
+            target.id,
+            description="Authoritative active Harbor profile",
+        )
+        return current, target
 
     def get(self, profile_id: str) -> HarborProfile:
         normalized = profile_id.strip()
@@ -110,13 +153,19 @@ class HarborProfileService:
                 raise HarborSettingsError("harbor_configuration_invalid", "URL Harbor обязателен")
             next_url = validated_url
 
+        next_enabled = enabled if enabled is not None else current.enabled
+        if current.id == self.active_profile_id() and not next_enabled:
+            raise HarborSettingsError(
+                "harbor_profile_active_protected",
+                "Active Harbor profile нельзя отключить; сначала выберите другой профиль",
+            )
         updated = replace(
             current,
             name=next_name,
             url=next_url,
             username=self._normalize_username(username) if username_set else current.username,
             verify_tls=verify_tls if verify_tls is not None else current.verify_tls,
-            enabled=enabled if enabled is not None else current.enabled,
+            enabled=next_enabled,
         )
         self._save_additional([updated if item.id == current.id else item for item in profiles])
         return updated
@@ -129,6 +178,11 @@ class HarborProfileService:
             )
         profiles = self._load_additional()
         current = self.get(profile_id)
+        if current.id == self.active_profile_id():
+            raise HarborSettingsError(
+                "harbor_profile_active_protected",
+                "Active Harbor profile нельзя удалить; сначала выберите другой профиль",
+            )
         self._save_additional([item for item in profiles if item.id != current.id])
         self._credential_path(current).unlink(missing_ok=True)
         self._ca_path(current).unlink(missing_ok=True)
@@ -268,7 +322,13 @@ class HarborProfileService:
                     verify_tls=bool(item["verify_tls"]),
                     enabled=bool(item["enabled"]),
                 )
-                if not profile.id or profile.id == DEFAULT_PROFILE_ID or not profile.url:
+                if (
+                    not profile.id
+                    or profile.id == DEFAULT_PROFILE_ID
+                    or len(profile.id) != 32
+                    or any(character not in "0123456789abcdef" for character in profile.id)
+                    or not profile.url
+                ):
                     raise ValueError
                 profiles.append(profile)
         except (KeyError, TypeError, ValueError, HarborSettingsError) as exc:
