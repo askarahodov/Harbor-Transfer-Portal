@@ -119,7 +119,7 @@ function addCandidate(): void {
 .artifact-selector__candidate > div { display: flex; min-width: 0; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); }
 .artifact-selector__candidate span { color: var(--color-text-muted); font-size: 12px; }
 .artifact-selector__candidate code { overflow-wrap: anywhere; font-size: 12px; }
-.artifact-selector__add { min-height: 36px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-md); background: var(--color-action); color: var(--color-on-action); font-weight: 700; cursor: pointer; }
+.artifact-selector__add { min-height: 36px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); border: 1px solid var(--color-action); font-weight: 700; cursor: pointer; }
 .artifact-selector__unsupported { display: grid; gap: var(--space-1); margin-top: var(--space-2); color: var(--color-text-muted); font-size: 12px; }
 @media (max-width: 760px) { .artifact-selector__candidate { align-items: stretch; flex-direction: column; } }
 </style>
