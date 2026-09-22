@@ -34,6 +34,7 @@ _SECURITY_SERVICE_FILES = {
     "export_publication_guard.py",
     "harbor_client.py",
     "harbor_profiles.py",
+    "harbor_settings.py",
     "import_helm_service.py",
     "import_orchestrator.py",
     "key_management.py",
