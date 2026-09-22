@@ -10,6 +10,7 @@ from app.config import Settings
 from app.db.models import UserRole
 from app.db.repositories import UserRepository
 from app.main import create_app
+from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_client import (
     HarborArtifact,
     HarborClientError,
@@ -184,6 +185,71 @@ def _client(
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def test_authenticated_selector_exposes_only_safe_enabled_profile_metadata(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        HarborProfileService,
+        "selectable_profiles",
+        lambda _self: [
+            HarborProfile(
+                id="a" * 32,
+                name="Harbor A",
+                url="https://harbor-a.local",
+                username="secret-service-user",
+                verify_tls=False,
+                enabled=True,
+                is_default=False,
+            )
+        ],
+    )
+    client, token = _client(tmp_path, configured=True)
+
+    response = client.get("/api/harbor/profiles", headers=_auth(token))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {
+                "id": "a" * 32,
+                "name": "Harbor A",
+                "url": "https://harbor-a.local",
+                "is_default": False,
+            }
+        ]
+    }
+    assert "username" not in response.text
+    assert "credential" not in response.text
+    assert "verify_tls" not in response.text
+
+
+def test_browse_passes_explicit_profile_id_to_harbor_client(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    seen: list[str] = []
+    harbor = FakeHarborClient()
+
+    def build_client(_self, profile_id: str):
+        seen.append(profile_id)
+        return harbor
+
+    monkeypatch.setattr(HarborProfileService, "build_client", build_client)
+    client, token = _client(tmp_path, configured=True)
+    profile_id = "b" * 32
+
+    response = client.get(
+        "/api/harbor/projects",
+        params={"profile_id": profile_id},
+        headers=_auth(token),
+    )
+
+    assert response.status_code == 200
+    assert seen == [profile_id]
+    assert harbor.project_page_calls == [(1, 50, None)]
 
 
 def test_viewer_can_browse_projects_with_upstream_pagination(tmp_path: Path) -> None:
