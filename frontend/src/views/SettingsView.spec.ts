@@ -48,7 +48,9 @@ function response<T>(data: T): AxiosResponse<T> {
 async function mountSettings() {
   vi.spyOn(apiClient, 'get').mockImplementation((url) => {
     if (url === '/settings/transfer') return Promise.resolve(response(transferSettings))
-    if (url === '/settings/harbor/profiles') return Promise.resolve(response({
+    if (url === '/settings/harbor/profiles') {
+      return Promise.resolve(
+        response({
           items: [
             {
               id: 'default',
@@ -63,7 +65,9 @@ async function mountSettings() {
               is_active: true,
             },
           ],
-        }))
+        }),
+      )
+    }
     if (url === '/harbor/connection') {
       return Promise.resolve(response({ connected: true, version: '2.13.0', auth_mode: 'basic' }))
     }
