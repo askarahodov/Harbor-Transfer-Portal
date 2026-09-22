@@ -18,6 +18,9 @@ _FAILURE_POLICY = "continue-on-error"
 class _RetrySourceSnapshot:
     runtime_mode: str | None
     runtime_mode_version: int | None
+    harbor_profile_id: str | None
+    harbor_profile_name: str | None
+    harbor_profile_url: str | None
     bundle_filename: str | None
     bundle_sha256: str | None
     bundle_size_bytes: int | None
@@ -110,6 +113,9 @@ class ImportRetryService:
             snapshot = _RetrySourceSnapshot(
                 runtime_mode=original.runtime_mode,
                 runtime_mode_version=original.runtime_mode_version,
+                harbor_profile_id=original.harbor_profile_id,
+                harbor_profile_name=original.harbor_profile_name,
+                harbor_profile_url=original.harbor_profile_url,
                 bundle_filename=original.bundle_filename,
                 bundle_sha256=original.bundle_sha256,
                 bundle_size_bytes=original.bundle_size_bytes,
@@ -128,6 +134,9 @@ class ImportRetryService:
                 status=OperationStatus.READY,
                 runtime_mode=snapshot.runtime_mode,
                 runtime_mode_version=snapshot.runtime_mode_version,
+                harbor_profile_id=snapshot.harbor_profile_id,
+                harbor_profile_name=snapshot.harbor_profile_name,
+                harbor_profile_url=snapshot.harbor_profile_url,
                 actor_user_id=actor_user_id,
                 actor_username=actor_username,
                 comment=(
