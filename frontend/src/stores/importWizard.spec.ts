@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as importsApi from '@/api/imports'
+import * as harborProfilesApi from '@/api/harborProfiles'
 import type { ImportDestinationPlan, ImportPreview, Operation } from '@/api/imports'
 
 import { useImportWizardStore } from './importWizard'
@@ -19,6 +20,9 @@ function operation(status: Operation['status'], id = 51): Operation {
     status,
     actor_username: 'operator',
     comment: null,
+    harbor_profile_id: 'default',
+    harbor_profile_name: 'Default',
+    harbor_url: 'https://harbor.local',
     started_at: '2026-09-14T05:00:00Z',
     finished_at: ['COMPLETED', 'FAILED', 'REJECTED', 'CANCELLED'].includes(status)
       ? '2026-09-14T05:05:00Z'
@@ -145,6 +149,17 @@ function destinationPlan(
 beforeEach(() => {
   setActivePinia(createPinia())
   sessionStorage.clear()
+  vi.spyOn(harborProfilesApi, 'listHarborProfiles').mockResolvedValue([{
+  id: 'default',
+  name: 'Default',
+  url: 'https://harbor.local',
+  username: 'svc-transfer',
+  verify_tls: true,
+  enabled: true,
+  credential_configured: true,
+  custom_ca_configured: false,
+  legacy_default: true,
+}])
 })
 
 afterEach(() => {
@@ -167,7 +182,7 @@ describe('import wizard store', () => {
 
     expect(await store.upload(file)).toBe(true)
 
-    expect(uploadSpy).toHaveBeenCalledWith(file, expect.any(Function))
+    expect(uploadSpy).toHaveBeenCalledWith(file, expect.any(Function), undefined, null)
     expect(store.selectedFile).toEqual({ name: 'transfer.htp.tar.gz', size: 6 })
     expect(sessionStorage.getItem('htp.import.operation-id')).toBe('51')
     expect(store.step).toBe(2)
