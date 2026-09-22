@@ -349,6 +349,25 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <label class="harbor-profile-select">
+          <span>Harbor profile</span>
+          <select
+            :value="wizard.selectedHarborProfileId ?? ''"
+            :disabled="wizard.busy === 'initialize' || wizard.harborProfiles.length === 0"
+            @change="wizard.chooseHarborProfile(($event.target as HTMLSelectElement).value)"
+          >
+            <option
+              v-for="profile in wizard.harborProfiles"
+              :key="profile.id"
+              :value="profile.id"
+              :disabled="!profile.enabled || !profile.url"
+            >
+              {{ profile.name }} · {{ profile.url || 'не настроен' }}
+            </option>
+          </select>
+          <small>Профиль фиксируется в operation и не меняется во время export.</small>
+        </label>
+
         <div class="compact-selector" aria-label="Выбор артефакта Harbor">
           <SearchCombobox
             label="Проект Harbor"
@@ -607,6 +626,9 @@ h3 { margin-bottom: var(--space-2); font-size: 16px; }
 .muted, .item-meta, small { color: var(--color-text-muted); }
 .connection-chip { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-full); background: var(--color-success-surface); color: var(--color-success-text); white-space: nowrap; }
 .wizard-card { display: grid; gap: var(--space-6); padding: var(--space-6); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); }
+.harbor-profile-select { display: grid; gap: var(--space-2); max-width: 620px; font-weight: 700; }
+.harbor-profile-select select { min-height: 42px; width: 100%; padding: 0 var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; font-weight: 400; }
+.harbor-profile-select small { color: var(--color-text-muted); font-weight: 400; }
 .selection-summary { padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--color-info-surface); color: var(--color-info-text); }
 .selected-artifacts { display: grid; gap: var(--space-2); }
 .selected-artifact { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
