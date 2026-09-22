@@ -24,7 +24,6 @@ from app.domain.bundle import (
 )
 from app.domain.imports import ImportIntakeMode, ImportPreviewState
 from app.schemas.imports import (
-    ImportArtifactPreviewResponse,
     ImportPreviewResponse,
     ImportReceiptArtifactResponse,
     ImportReceiptResponse,
@@ -36,6 +35,7 @@ from app.services.helm_oci_service import (
     HelmServiceError,
     HelmTargetState,
 )
+from app.services.import_artifact_classifier import ImportArtifactClassifier
 from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.media_handoff import MediaHandoffError, MediaHandoffService
 from app.services.operation_manager import (
@@ -93,6 +93,11 @@ class ImportOrchestrator:
         )
         self.helm_factory = helm_factory or (
             lambda session: HelmOciService(session, settings)
+        )
+        self.artifact_classifier = ImportArtifactClassifier(
+            session_factory,
+            self.skopeo_factory,
+            self.helm_factory,
         )
         self.discovery_root = settings.import_discovery_root.resolve()
         self.staging_root = settings.import_staging_root.resolve()
@@ -437,106 +442,10 @@ class ImportOrchestrator:
             bundle_size_bytes=verified.archive_size,
             signing_key_fingerprint=verified.signing_key_fingerprint,
             verified_at=datetime.now(UTC),
-            artifacts=await self._classify_manifest(verified.manifest.artifacts),
+            artifacts=await self.artifact_classifier.classify(verified.manifest.artifacts),
         )
         self._persist_preview(operation_id, preview)
         context.transition(OperationStatus.READY)
-
-    async def _classify_manifest(
-        self,
-        artifacts: Sequence[ContainerImageArtifact | HelmChartArtifact],
-    ) -> list[ImportArtifactPreviewResponse]:
-        result: list[ImportArtifactPreviewResponse] = []
-        with self.session_factory() as session:
-            skopeo = self.skopeo_factory(session)
-            helm = self.helm_factory(session)
-            for index, artifact in enumerate(artifacts):
-                if isinstance(artifact, ContainerImageArtifact):
-                    result.append(await self._classify_image(index, artifact, skopeo))
-                else:
-                    result.append(await self._classify_chart(index, artifact, helm))
-        return result
-
-    async def _classify_image(
-        self,
-        index: int,
-        artifact: ContainerImageArtifact,
-        skopeo: SkopeoService,
-    ) -> ImportArtifactPreviewResponse:
-        try:
-            inspected = await skopeo.inspect_target(
-                ImageReference(artifact.repository, artifact.reference),
-                expected_digest=artifact.source_digest,
-            )
-            classification = {
-                TargetState.ABSENT: ImportPreviewState.NEW,
-                TargetState.SAME_DIGEST: ImportPreviewState.SAME,
-                TargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
-                TargetState.PRESENT: ImportPreviewState.UNKNOWN,
-            }[inspected.state]
-            return ImportArtifactPreviewResponse(
-                index=index,
-                artifact_type=artifact.type,
-                repository=artifact.repository,
-                reference=artifact.reference,
-                expected_digest=artifact.source_digest,
-                target_digest=inspected.digest,
-                payload_size=artifact.payload_size,
-                classification=classification,
-            )
-        except (SkopeoServiceError, ValueError) as exc:
-            return self._inspection_error(index, artifact, exc)
-
-    async def _classify_chart(
-        self,
-        index: int,
-        artifact: HelmChartArtifact,
-        helm: HelmOciService,
-    ) -> ImportArtifactPreviewResponse:
-        try:
-            inspected = await helm.inspect_target(
-                HelmChartReference(artifact.repository, artifact.name, artifact.version),
-                expected_digest=artifact.source_digest,
-            )
-            classification = {
-                HelmTargetState.ABSENT: ImportPreviewState.NEW,
-                HelmTargetState.SAME_DIGEST: ImportPreviewState.SAME,
-                HelmTargetState.CONFLICTING_DIGEST: ImportPreviewState.CONFLICT,
-                HelmTargetState.PRESENT: ImportPreviewState.UNKNOWN,
-            }[inspected.state]
-            return ImportArtifactPreviewResponse(
-                index=index,
-                artifact_type=artifact.type,
-                repository=artifact.repository,
-                name=artifact.name,
-                version=artifact.version,
-                expected_digest=artifact.source_digest,
-                target_digest=inspected.digest,
-                payload_size=artifact.payload_size,
-                classification=classification,
-            )
-        except (HelmServiceError, ValueError) as exc:
-            return self._inspection_error(index, artifact, exc)
-
-    @staticmethod
-    def _inspection_error(
-        index: int,
-        artifact: ContainerImageArtifact | HelmChartArtifact,
-        exc: Exception,
-    ) -> ImportArtifactPreviewResponse:
-        return ImportArtifactPreviewResponse(
-            index=index,
-            artifact_type=artifact.type,
-            repository=artifact.repository,
-            name=getattr(artifact, "name", None),
-            reference=getattr(artifact, "reference", None),
-            version=getattr(artifact, "version", None),
-            expected_digest=artifact.source_digest,
-            payload_size=artifact.payload_size,
-            classification=ImportPreviewState.ERROR,
-            error_code=getattr(exc, "code", "import_target_inspection_failed"),
-            message=str(exc),
-        )
 
     async def _import_worker(self, context: OperationContext, operation_id: int) -> None:
         context.transition(OperationStatus.IMPORTING)
