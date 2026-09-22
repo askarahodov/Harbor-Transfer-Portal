@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import PortalContour, Settings
 from app.db.models import Operation
 from app.db.repositories import AuditEventRepository
-from app.domain.artifacts import ArtifactKind, classify_artifact_kind
+from app.domain.artifacts import ArtifactKind
 from app.domain.bundle import ArtifactStatus, BundleSource, OperationStatus, OperationType
 from app.schemas.exports import ExportArtifactSelection
 from app.services.bundle_package_service import (
@@ -23,7 +23,12 @@ from app.services.bundle_package_service import (
     HelmChartPackageInput,
     PackageArtifactInput,
 )
-from app.services.harbor_client import HarborClient, HarborClientError
+from app.services.export_selection import (
+    ExportSelectionResolutionError,
+    ResolvedExportArtifact,
+    resolve_export_selection,
+)
+from app.services.harbor_client import HarborClient
 from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 from app.services.helm_oci_service import (
     HelmChartReference,
@@ -48,20 +53,6 @@ class ExportOrchestrationError(Exception):
 
     def __str__(self) -> str:
         return self.message
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedExportArtifact:
-    kind: ArtifactKind
-    project: str
-    repository: str
-    reference: str
-    digest: str
-    size_bytes: int | None
-
-    @property
-    def full_repository(self) -> str:
-        return f"{self.project}/{self.repository}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,9 +113,9 @@ class ExportOrchestrator:
         self._require_source_contour()
         client = self._build_harbor_client()
         try:
-            return tuple(
-                self._resolve_selection(client, selection) for selection in selections
-            )
+            return tuple(resolve_export_selection(client, selection) for selection in selections)
+        except ExportSelectionResolutionError as exc:
+            raise ExportOrchestrationError(exc.code, exc.message) from exc
         finally:
             client.close()
 
@@ -618,54 +609,6 @@ class ExportOrchestrator:
             payload_path=f"charts/{artifact_id}.tgz",
         )
 
-    def _resolve_selection(
-        self,
-        client: HarborClient,
-        selection: ExportArtifactSelection,
-    ) -> ResolvedExportArtifact:
-        try:
-            artifact = client.get_artifact(
-                selection.project,
-                selection.repository,
-                selection.reference,
-            )
-        except HarborClientError as exc:
-            if exc.code == "not_found":
-                raise ExportOrchestrationError(
-                    "export_source_not_found",
-                    "Выбранный SOURCE artifact больше не найден",
-                ) from exc
-            raise self._normalize_harbor_error(exc) from exc
-
-        actual_kind = classify_artifact_kind(
-            artifact.type,
-            artifact.media_type,
-            artifact.extra_attrs,
-        )
-        if actual_kind is ArtifactKind.UNKNOWN_OCI:
-            raise ExportOrchestrationError(
-                "export_artifact_unsupported",
-                "Этот OCI artifact type не поддерживается export v1",
-            )
-        if actual_kind is not selection.kind:
-            raise ExportOrchestrationError(
-                "export_artifact_kind_changed",
-                "Тип SOURCE artifact изменился после выбора",
-            )
-        if artifact.digest != selection.digest:
-            raise ExportOrchestrationError(
-                "export_source_changed",
-                "SOURCE artifact digest изменился после выбора",
-            )
-        return ResolvedExportArtifact(
-            kind=actual_kind,
-            project=selection.project,
-            repository=selection.repository,
-            reference=selection.reference,
-            digest=artifact.digest,
-            size_bytes=artifact.size,
-        )
-
     def _build_harbor_client(self) -> HarborClient:
         if self.harbor_client_factory is not None:
             return self.harbor_client_factory()
@@ -786,27 +729,3 @@ class ExportOrchestrator:
                 error_code=code,
                 error_message=message,
             )
-
-    @staticmethod
-    def _normalize_harbor_error(exc: HarborClientError) -> ExportOrchestrationError:
-        mapping = {
-            "unauthorized": ("harbor_auth_failed", "Harbor отклонил учётные данные"),
-            "forbidden": ("harbor_forbidden", "Harbor запретил доступ порталу"),
-            "timeout": ("harbor_unavailable", "Harbor не ответил вовремя"),
-            "tls_failed": ("harbor_tls_failed", "Не удалось проверить TLS Harbor"),
-            "connection_failed": (
-                "harbor_unavailable",
-                "Не удалось подключиться к Harbor",
-            ),
-            "harbor_unavailable": ("harbor_unavailable", "Harbor временно недоступен"),
-            "rate_limited": ("harbor_rate_limited", "Harbor ограничил частоту запросов"),
-            "invalid_response": (
-                "harbor_invalid_response",
-                "Harbor вернул некорректный ответ",
-            ),
-        }
-        code, message = mapping.get(
-            exc.code,
-            ("harbor_error", "Ошибка обращения к локальному Harbor"),
-        )
-        return ExportOrchestrationError(code, message)
