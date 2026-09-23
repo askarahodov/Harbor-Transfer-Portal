@@ -467,6 +467,86 @@ def test_same_artifacts_are_skipped_idempotently(tmp_path: Path) -> None:
     assert helm.push_calls == 0
 
 
+def test_skip_conflicts_imports_only_missing_artifacts_and_completes(tmp_path: Path) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    _settings, manager, skopeo, helm, orchestrator = _target_environment(
+        tmp_path,
+        trusted_dir,
+        image_state=TargetState.CONFLICTING_DIGEST,
+        helm_state=HelmTargetState.ABSENT,
+    )
+
+    async def scenario() -> int:
+        operation_id = await _upload_and_preview(
+            manager,
+            orchestrator,
+            bundle.archive_path.read_bytes(),
+        )
+        preview = orchestrator.preview(operation_id)
+        assert [item.classification for item in preview.artifacts] == [
+            ImportPreviewState.CONFLICT,
+            ImportPreviewState.NEW,
+        ]
+        await orchestrator.start_import(
+            operation_id,
+            actor_username="target-operator",
+            overwrite_conflicts=False,
+            skip_conflicts=True,
+        )
+        await manager.wait(operation_id)
+        await manager.shutdown()
+        return operation_id
+
+    operation_id = asyncio.run(scenario())
+    operation = manager.get_operation(operation_id)
+    assert operation is not None
+    assert operation.status is OperationStatus.COMPLETED
+    assert [item.status for item in operation.artifacts] == [
+        ArtifactStatus.SKIPPED,
+        ArtifactStatus.VERIFIED,
+    ]
+    assert operation.artifacts[0].target_digest == CONFLICT_DIGEST
+    assert skopeo.import_calls == 0
+    assert helm.push_calls == 1
+
+    receipt = orchestrator.receipt(operation_id)
+    assert receipt.result == "COMPLETED"
+    assert receipt.overwrite_conflicts is False
+    assert receipt.skip_conflicts is True
+    assert receipt.artifacts[0].status is ArtifactStatus.SKIPPED
+    assert receipt.artifacts[0].target_digest == CONFLICT_DIGEST
+
+
+def test_conflict_policy_rejects_skip_and_overwrite_together(tmp_path: Path) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    _settings, manager, _skopeo, _helm, orchestrator = _target_environment(
+        tmp_path,
+        trusted_dir,
+        image_state=TargetState.CONFLICTING_DIGEST,
+        allow_overwrite=True,
+    )
+
+    async def scenario() -> None:
+        operation_id = await _upload_and_preview(
+            manager,
+            orchestrator,
+            bundle.archive_path.read_bytes(),
+        )
+        with pytest.raises(ImportOrchestrationError) as invalid:
+            await orchestrator.start_import(
+                operation_id,
+                actor_username="target-admin",
+                overwrite_conflicts=True,
+                skip_conflicts=True,
+            )
+        assert invalid.value.code == "import_conflict_policy_invalid"
+        await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
 def test_conflict_is_blocked_and_overwrite_requires_server_policy(tmp_path: Path) -> None:
     private_key, trusted_dir = _write_keys(tmp_path)
     bundle = _build_bundle(tmp_path, private_key, trusted_dir)
