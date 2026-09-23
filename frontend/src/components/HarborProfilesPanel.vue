@@ -44,6 +44,8 @@ const url = ref('')
 const username = ref('')
 const verifyTls = ref(true)
 const credential = ref('')
+const enabled = ref(true)
+const caFile = ref<File | null>(null)
 
 const activeProfile = computed(() => profiles.value.find((item) => item.is_active) ?? null)
 const enabledProfiles = computed(() => profiles.value.filter((item) => item.enabled))
@@ -96,6 +98,8 @@ function resetEditor(): void {
   username.value = ''
   credential.value = ''
   verifyTls.value = true
+  enabled.value = true
+  caFile.value = null
 }
 
 function editProfile(profile: HarborProfile): void {
@@ -106,6 +110,8 @@ function editProfile(profile: HarborProfile): void {
   username.value = profile.username ?? ''
   credential.value = ''
   verifyTls.value = profile.verify_tls
+  enabled.value = profile.enabled
+  caFile.value = null
   error.value = ''
   message.value = ''
 }
@@ -124,7 +130,7 @@ async function saveProfile(): Promise<void> {
       url: url.value.trim(),
       username: username.value.trim() || null,
       verify_tls: verifyTls.value,
-      enabled: true,
+      enabled: enabled.value,
     }
     const response = editingId.value
       ? await apiClient.patch<HarborProfile>(
@@ -136,6 +142,13 @@ async function saveProfile(): Promise<void> {
       await apiClient.put(
         `/settings/harbor/profiles/${encodeURIComponent(response.data.id)}/credential`,
         { secret: credential.value },
+      )
+    }
+    if (caFile.value) {
+      const certificatePem = await caFile.value.text()
+      await apiClient.put(
+        `/settings/harbor/profiles/${encodeURIComponent(response.data.id)}/ca`,
+        { certificate_pem: certificatePem },
       )
     }
     const wasEditing = editingId.value !== null
@@ -152,6 +165,52 @@ async function saveProfile(): Promise<void> {
     )
   } finally {
     savingProfile.value = false
+  }
+}
+
+function selectCaFile(event: Event): void {
+  const input = event.target as HTMLInputElement
+  caFile.value = input.files?.[0] ?? null
+}
+
+async function toggleProfile(profile: HarborProfile): Promise<void> {
+  if (profile.is_default || profile.is_active) return
+  busy.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    const response = await apiClient.patch<HarborProfile>(
+      `/settings/harbor/profiles/${encodeURIComponent(profile.id)}`,
+      { enabled: !profile.enabled },
+    )
+    await load()
+    message.value = response.data.enabled
+      ? `Профиль ${profile.name} включён.`
+      : `Профиль ${profile.name} отключён.`
+    emit('changed')
+  } catch (reason) {
+    error.value = safeError(`Не удалось изменить состояние ${profile.name}.`, reason)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function removeProfileCa(profile: HarborProfile): Promise<void> {
+  if (!profile.custom_ca_configured) return
+  busy.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    await apiClient.delete(
+      `/settings/harbor/profiles/${encodeURIComponent(profile.id)}/ca`,
+    )
+    await load()
+    message.value = `Custom CA профиля ${profile.name} удалён.`
+    emit('changed')
+  } catch (reason) {
+    error.value = safeError(`Не удалось удалить custom CA профиля ${profile.name}.`, reason)
+  } finally {
+    busy.value = false
   }
 }
 
@@ -233,8 +292,10 @@ onMounted(() => void load())
             <span v-if="profile.is_active" class="inline-active">legacy fallback</span>
             <p>{{ profile.url }}</p>
             <small>
-              {{ profile.username || 'без username' }} · TLS {{ profile.verify_tls ? 'on' : 'off' }}
+              {{ profile.username || 'без username' }} · {{ profile.enabled ? 'enabled' : 'disabled' }}
+              · TLS {{ profile.verify_tls ? 'on' : 'off' }}
               · credential {{ profile.credential_configured ? 'есть' : 'нет' }}
+              · CA {{ profile.custom_ca_configured ? 'есть' : 'нет' }}
             </small>
           </div>
           <div class="row-actions">
@@ -254,6 +315,24 @@ onMounted(() => void load())
               @click="editProfile(profile)"
             >
               Изменить
+            </button>
+            <button
+              v-if="!profile.is_default"
+              type="button"
+              class="secondary"
+              :disabled="busy || profile.is_active"
+              @click="toggleProfile(profile)"
+            >
+              {{ profile.enabled ? 'Отключить' : 'Включить' }}
+            </button>
+            <button
+              v-if="profile.custom_ca_configured && !profile.is_default"
+              type="button"
+              class="secondary"
+              :disabled="busy"
+              @click="removeProfileCa(profile)"
+            >
+              Удалить CA
             </button>
             <button
               v-if="!profile.is_default"
@@ -302,6 +381,21 @@ onMounted(() => void load())
           <input v-model="verifyTls" type="checkbox" />
           Проверять TLS-сертификат
         </label>
+        <label v-if="editingId" class="checkbox-row">
+          <input
+            v-model="enabled"
+            type="checkbox"
+            :disabled="profiles.find((item) => item.id === editingId)?.is_active"
+          />
+          Профиль включён
+        </label>
+        <label class="file-field">
+          Custom CA PEM/CRT
+          <input type="file" accept=".pem,.crt,.cer,text/plain" @change="selectCaFile" />
+          <small>
+            {{ caFile ? caFile.name : editingId ? 'текущий CA не читается обратно; выберите файл только для замены' : 'необязательно' }}
+          </small>
+        </label>
         <button type="submit" :disabled="savingProfile">
           {{ savingProfile ? 'Сохранение…' : editingId ? 'Сохранить изменения' : 'Добавить профиль' }}
         </button>
@@ -330,7 +424,8 @@ select, input { min-height: 42px; border: 1px solid var(--color-border-control);
 .create-form { display: grid; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
 .editor-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
-.form-grid label { display: grid; gap: var(--space-2); }
+.form-grid label, .file-field { display: grid; gap: var(--space-2); }
+.file-field small { color: var(--color-text-muted); }
 .checkbox-row { display: flex; gap: var(--space-2); align-items: center; }
 button { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-action-surface); color: var(--color-on-accent); font: inherit; cursor: pointer; }
 button.secondary { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-control); }
