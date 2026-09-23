@@ -345,6 +345,7 @@ Registry mutation не происходит до завершения package ve
 - target artifact отсутствует → `NEW`, можно импортировать;
 - target reference уже содержит тот же expected digest → `SAME`, идемпотентный `SKIPPED`;
 - тот же tag/version указывает на другой digest → `CONFLICT`, execute заблокирован по умолчанию;
+- explicit `skip_conflicts` может оставить такой TARGET artifact без mutation и продолжить только `NEW`;
 - `UNKNOWN`/`ERROR` → mutation блокируется fail-closed.
 
 Conflict overwrite возможен только если одновременно:
@@ -353,7 +354,7 @@ Conflict overwrite возможен только если одновременн
 2. operator/admin выбрал explicit overwrite execute;
 3. UI отдельно подтвердил перечисленные conflicting artifacts.
 
-Включение global policy само по себе не запускает overwrite. `UNKNOWN/ERROR` этой policy не обходятся. Overwrite approval и operation context сохраняются для audit/receipt/history.
+Включение global policy само по себе не запускает overwrite. Skip conflicts и overwrite взаимоисключаются. Оба решения фиксируются в operation policy/audit/receipt; `UNKNOWN/ERROR` ни одной из этих policy не обходятся.
 
 ## 16. Secrets и redaction
 
@@ -443,7 +444,7 @@ Offline/release qualification этих возможностей реализов
 | Bundle canonical manifest/signature/checksum verification | реализовано |
 | Safe archive path/type/resource validation | реализовано |
 | Managed SOURCE signing / TARGET trust-key lifecycle | реализовано |
-| TARGET conflict/overwrite authorization UX | реализовано, default deny + explicit confirmation |
+| TARGET conflict policy UX | реализовано: default deny + explicit safe skip или отдельно подтверждённый overwrite |
 | Audit/log correlation + History API/UI | реализовано |
 | CSV/PDF reports + TARGET receipt UX | реализовано |
 | Admin user/policy/key management | реализовано |
