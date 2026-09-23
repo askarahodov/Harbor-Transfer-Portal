@@ -183,7 +183,8 @@ body > #app {
   margin: 0 0 var(--space-5);
 }
 
-.sidebar .sidebar-nav > ul > li > strong {
+.sidebar .sidebar-nav > ul > li > strong,
+.sidebar .sidebar-nav > ul > li > p > strong {
   display: block;
   margin: 0 0 var(--space-2);
   padding: 0 var(--space-3);
@@ -191,8 +192,61 @@ body > #app {
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.055em;
-  opacity: 0.82;
+  opacity: 0.92;
   text-transform: uppercase;
+}
+
+.sidebar .docs-sidebar-group-toggle {
+  width: 100%;
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-on-accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar .docs-sidebar-group-toggle:hover,
+.sidebar .docs-sidebar-group-toggle:focus-visible {
+  background: var(--color-brand-hover-surface);
+}
+
+.docs-sidebar-group-toggle__title {
+  overflow: hidden;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+
+.docs-sidebar-group-toggle__chevron {
+  display: inline-block;
+  color: var(--color-brand-text-muted);
+  font-size: 20px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transform-origin: center;
+  transition: transform 120ms ease;
+}
+
+.docs-sidebar-group-toggle[aria-expanded='true'] .docs-sidebar-group-toggle__chevron {
+  color: var(--color-on-accent);
+  transform: rotate(90deg);
+}
+
+.sidebar .docs-sidebar-group-list[hidden] {
+  display: none !important;
 }
 
 .sidebar-nav ul,
@@ -357,8 +411,65 @@ body > #app {
   box-shadow: none;
 }
 
-.markdown-section pre > code {
+.markdown-section pre[data-lang] {
+  position: relative;
+}
+
+.markdown-section pre[data-lang]::after {
+  top: var(--space-3);
+  right: auto;
+  left: var(--space-3);
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  opacity: 1;
+  text-transform: uppercase;
+}
+
+.markdown-section pre[data-lang] > code {
+  padding-top: 3.25rem !important;
   background: transparent;
+}
+
+.markdown-section .docsify-copy-code-button {
+  top: var(--space-2) !important;
+  right: var(--space-2) !important;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-3) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-md) !important;
+  background: var(--color-surface) !important;
+  color: var(--color-text) !important;
+  box-shadow: var(--shadow-sm);
+  font-family: inherit !important;
+  font-size: 12px !important;
+  font-weight: 700;
+  opacity: 1 !important;
+}
+
+.markdown-section .docsify-copy-code-button:hover,
+.markdown-section .docsify-copy-code-button:focus-visible {
+  border-color: var(--color-action) !important;
+  color: var(--color-action) !important;
+}
+
+.markdown-section .docsify-copy-code-button.success {
+  border-color: var(--color-positive-accent) !important;
+}
+
+.markdown-section .docsify-copy-code-button.error {
+  border-color: var(--color-negative-accent) !important;
 }
 
 .markdown-section blockquote {
@@ -400,6 +511,65 @@ body > #app {
 .markdown-section th:last-child,
 .markdown-section td:last-child {
   border-right: 0;
+}
+
+.markdown-section .docsify-pagination-container {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-12) 0 0;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
+  overflow: visible;
+}
+
+.markdown-section .pagination-item {
+  min-width: 0;
+  margin: 0;
+}
+
+.markdown-section .pagination-item a {
+  height: 100%;
+  display: block;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.markdown-section .pagination-item a:hover,
+.markdown-section .pagination-item a:focus-visible {
+  border-color: var(--color-action);
+  background: var(--color-surface);
+}
+
+.markdown-section .pagination-item-label,
+.markdown-section .pagination-item-title,
+.markdown-section .pagination-item-subtitle,
+.markdown-section .pagination-item:not(:last-child) a .pagination-item-label,
+.markdown-section .pagination-item:not(:last-child) a .pagination-item-title,
+.markdown-section .pagination-item:not(:last-child) a .pagination-item-subtitle {
+  opacity: 1;
+}
+
+.markdown-section .pagination-item-label {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.markdown-section .pagination-item-title {
+  margin-top: var(--space-1);
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.markdown-section .pagination-item svg {
+  stroke: var(--color-action);
 }
 
 .docs-heading-anchor {
@@ -560,6 +730,14 @@ body > #app {
   .markdown-section h2 {
     margin-top: var(--space-8);
     font-size: 21px;
+  }
+
+  .markdown-section .docsify-pagination-container {
+    grid-template-columns: 1fr;
+  }
+
+  .markdown-section .pagination-item--next {
+    text-align: left;
   }
 
   .sidebar-toggle {
