@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Проверка repository-relative ссылок в Markdown без сетевых запросов."""
+"""Проверка repository-relative ссылок и current documentation contracts без сети."""
 
 from __future__ import annotations
 
@@ -20,6 +20,40 @@ class LinkError:
     line: int
     target: str
     reason: str
+
+
+@dataclass(frozen=True)
+class ContractError:
+    source: Path
+    line: int
+    claim: str
+    reason: str
+
+
+_CURRENT_GUIDE_REQUIRED_CLAIMS: dict[str, tuple[str, ...]] = {
+    "docs/user-guide.md": (
+        "Terminal History остаётся историческим/read-only",
+        "может открыть/продолжить тот же workflow либо запросить штатную отмену",
+        "`viewer` остаётся полностью read-only",
+    ),
+    "docs/admin-guide.md": (
+        "installation-wide active selector не является",
+        "immutable snapshot `harbor_profile_id/name/url`",
+        "**Legacy fallback Harbor**",
+        "Переключение fallback не блокируется новыми pinned",
+        "Mutation safety относится к самому operation-bound profile",
+    ),
+}
+
+_CURRENT_GUIDE_FORBIDDEN_CLAIMS: dict[str, tuple[str, ...]] = {
+    "docs/user-guide.md": (
+        "History — read-only экран. Из него нельзя менять policy, перезапускать или отменять operation.",
+    ),
+    "docs/admin-guide.md": (
+        "Именно его используют Harbor browse API, SOURCE export, TARGET destination validation, Skopeo и Helm.",
+        "runtime browse/transfer используют authoritative active profile",
+    ),
+}
 
 
 def markdown_files(root: Path) -> list[Path]:
@@ -122,20 +156,75 @@ def check_repository(root: Path) -> list[LinkError]:
     return errors
 
 
+def _line_number(text: str, offset: int) -> int:
+    return text.count("\n", 0, max(offset, 0)) + 1
+
+
+def check_current_contract_claims(root: Path) -> list[ContractError]:
+    """Защищает current guides от известных устаревших product claims."""
+    errors: list[ContractError] = []
+
+    for relative, required_claims in _CURRENT_GUIDE_REQUIRED_CLAIMS.items():
+        source = root / relative
+        if not source.is_file():
+            errors.append(ContractError(source, 1, relative, "current guide отсутствует"))
+            continue
+
+        text = source.read_text(encoding="utf-8")
+        for claim in required_claims:
+            if claim not in text:
+                errors.append(
+                    ContractError(
+                        source,
+                        1,
+                        claim,
+                        "обязательное current-contract утверждение отсутствует",
+                    )
+                )
+
+        for claim in _CURRENT_GUIDE_FORBIDDEN_CLAIMS.get(relative, ()):
+            offset = text.find(claim)
+            if offset >= 0:
+                errors.append(
+                    ContractError(
+                        source,
+                        _line_number(text, offset),
+                        claim,
+                        "обнаружено устаревшее утверждение, противоречащее current contract",
+                    )
+                )
+
+    return errors
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
-    errors = check_repository(root)
-    if not errors:
-        print(f"Документация: локальные ссылки корректны ({len(markdown_files(root))} Markdown-файлов).")
+    link_errors = check_repository(root)
+    contract_errors = check_current_contract_claims(root)
+    if not link_errors and not contract_errors:
+        print(
+            "Документация: локальные ссылки и current-contract assertions корректны "
+            f"({len(markdown_files(root))} Markdown-файлов)."
+        )
         return 0
 
-    print("Обнаружены некорректные локальные ссылки:", file=sys.stderr)
-    for error in errors:
-        relative = error.source.relative_to(root)
-        print(
-            f"- {relative}:{error.line}: {error.target!r} — {error.reason}",
-            file=sys.stderr,
-        )
+    if link_errors:
+        print("Обнаружены некорректные локальные ссылки:", file=sys.stderr)
+        for error in link_errors:
+            relative = error.source.relative_to(root)
+            print(
+                f"- {relative}:{error.line}: {error.target!r} — {error.reason}",
+                file=sys.stderr,
+            )
+
+    if contract_errors:
+        print("Обнаружены рассинхронизированные current documentation contracts:", file=sys.stderr)
+        for error in contract_errors:
+            relative = error.source.relative_to(root)
+            print(
+                f"- {relative}:{error.line}: {error.claim!r} — {error.reason}",
+                file=sys.stderr,
+            )
     return 1
 
 
