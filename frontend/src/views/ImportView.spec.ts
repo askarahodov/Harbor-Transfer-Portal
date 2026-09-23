@@ -230,7 +230,7 @@ describe('TARGET import wizard view', () => {
     )
     expect(skip).toBeDefined()
     expect(skip?.attributes('disabled')).toBeUndefined()
-    expect(wrapper.text()).toContain('существующие CONFLICT')
+    expect(skip?.text()).toContain('существующие пропустить')
     await skip!.trigger('click')
     await flushPromises()
 
