@@ -100,6 +100,50 @@ def test_generic_command_failure_persists_bounded_redacted_diagnostic(tmp_path: 
     assert TEST_CREDENTIAL in runner.redact_values
 
 
+def test_registry_connect_timeout_gets_actionable_code_without_raw_upload_url(
+    tmp_path: Path,
+) -> None:
+    stderr = (
+        'writing blob: Patch "https://harbor.local/v2/team/app/blobs/uploads/abc'
+        '?_state=opaque-upload-state": dial tcp 192.0.2.10:443: i/o timeout'
+    )
+    service, _runner = _service(tmp_path, CommandResult(1, "", stderr))
+
+    with pytest.raises(SkopeoServiceError) as caught:
+        asyncio.run(service.inspect_image(ImageReference("team/app", "latest")))
+
+    error = caught.value
+    assert error.code == "skopeo_registry_connect_timeout"
+    assert error.message == (
+        "Skopeo не смог установить сетевое соединение с локальным Harbor: "
+        "истекло время ожидания"
+    )
+    assert "_state=" not in error.message
+    assert "/blobs/uploads/" not in error.message
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "dial tcp 192.0.2.10:443: connect: connection refused",
+        "dial tcp 192.0.2.10:443: connect: no route to host",
+        "dial tcp 192.0.2.10:443: connect: network is unreachable",
+    ],
+)
+def test_registry_connection_failure_gets_stable_code(
+    tmp_path: Path,
+    stderr: str,
+) -> None:
+    service, _runner = _service(tmp_path, CommandResult(1, "", stderr))
+
+    with pytest.raises(SkopeoServiceError) as caught:
+        asyncio.run(service.inspect_image(ImageReference("team/app", "latest")))
+
+    error = caught.value
+    assert error.code == "skopeo_registry_connection_failed"
+    assert error.message == "Skopeo не смог подключиться к локальному Harbor по сети"
+
+
 def test_preserve_digest_failure_gets_actionable_code_and_safe_detail(tmp_path: Path) -> None:
     stderr = (
         "copying image: Manifest must be converted but we cannot modify it: "

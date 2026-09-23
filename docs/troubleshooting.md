@@ -238,8 +238,13 @@ Skopeo/Helm:
 
 ```text
 skopeo_timeout
+skopeo_registry_connect_timeout
+skopeo_registry_connection_failed
 helm_timeout
 ```
+
+`skopeo_timeout` означает, что Portal остановил subprocess по общему лимиту времени.
+`skopeo_registry_connect_timeout` означает другое: сам Skopeo не смог установить TCP-соединение с registry до своего сетевого timeout.
 
 ### Вероятная причина
 
@@ -260,6 +265,22 @@ docker compose logs --tail=200 backend
 
 Затем admin connection test.
 
+Если Harbor API в UI доступен, но Skopeo import/export получает `dial tcp ... i/o timeout`,
+проверьте DNS и TCP **из backend container**, а не только с Docker host:
+
+```bash
+docker compose exec backend python -c "import socket; print(socket.getaddrinfo('harbor.local.example', 443, type=socket.SOCK_STREAM))"
+docker compose exec backend python -c "import socket; s=socket.create_connection(('harbor.local.example', 443), 5); print(s.getpeername()); s.close()"
+```
+
+Замените `harbor.local.example` на hostname из текущего Harbor URL. Если hostname резолвится,
+но TCP connect из backend container не проходит, проверяйте Docker route, firewall/ACL, VPN policy
+и доступность target subnet из container network.
+
+Skopeo subprocess намеренно не наследует `HTTP_PROXY`/`HTTPS_PROXY`. Не добавляйте proxy
+как обход без отдельного security/deployment решения: local Harbor должен быть доступен по
+предусмотренному network path из backend container.
+
 Параметры:
 
 ```text
@@ -268,6 +289,9 @@ HARBOR_READ_TIMEOUT_SECONDS
 SKOPEO_TIMEOUT_SECONDS
 HELM_TIMEOUT_SECONDS
 ```
+
+Важно: увеличение `HARBOR_CONNECT_TIMEOUT_SECONDS` не меняет TCP timeout Skopeo, а
+`SKOPEO_TIMEOUT_SECONDS` задаёт общий лимит subprocess и не исправляет отсутствующий route.
 
 ### Безопасное решение
 
@@ -289,6 +313,8 @@ skopeo_auth_failed
 skopeo_tls_failed
 skopeo_not_found
 skopeo_timeout
+skopeo_registry_connect_timeout
+skopeo_registry_connection_failed
 skopeo_digest_mismatch
 skopeo_payload_digest_mismatch
 skopeo_payload_invalid
@@ -312,6 +338,7 @@ skopeo_payload_invalid
 ### Безопасное решение
 
 - auth/TLS исправляйте через Harbor Settings;
+- `skopeo_registry_connect_timeout`/`skopeo_registry_connection_failed` — проверяйте DNS/TCP route до Harbor из backend container;
 - `skopeo_not_found` — перепроверьте выбранный repository/reference;
 - `skopeo_payload_invalid`/`skopeo_payload_digest_mismatch` — не продолжайте import; payload должен быть заново сформирован/проверен;
 - `skopeo_digest_mismatch` после TARGET push — не объявляйте delivery успешной, требуется расследование target artifact.
