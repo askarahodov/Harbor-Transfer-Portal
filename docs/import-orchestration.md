@@ -42,9 +42,15 @@ Browser UI отправляет `File` как raw request body и показыв
 
 `POST /api/imports/discover` сканирует только файлы `*.htp.tar.gz` непосредственно в `IMPORT_DISCOVERY_ROOT`.
 
-Bundle считается готовым к claim только когда рядом существует обычный файл `<bundle>.sha256`. Архив без readiness sidecar игнорируется, поэтому копируемый или ещё не финализированный файл не попадает в verification.
+Delivery считается готовой к claim только как полный **triplet**:
 
-Готовая пара archive + sidecar атомарно перемещается в server-generated staging directory, после чего создаётся `IMPORT/DISCOVERED` operation. UI получает список созданных operation ids, читает persisted filename/size через generic operation API и позволяет выбрать нужную operation, если найдено несколько bundles.
+- `<delivery>.htp.tar.gz`;
+- `<delivery>.htp.tar.gz.sha256`;
+- `<delivery>.htp-handoff.json`.
+
+Все три объекта должны быть обычными non-symlink files. Archive без readiness sidecar или signed handoff игнорируется, поэтому копируемый, неполный или неатрибутированный physical payload не попадает в Bundle verification.
+
+До claim backend проверяет signed handoff через `MediaHandoffService`: доверенный SOURCE signer, Delivery ID, имена, размеры и SHA-256 фактических файлов должны совпасть с подписанным handoff manifest. Только после этого triplet атомарно переносится в server-generated staging directory и создаётся `IMPORT/DISCOVERED` operation. UI получает список созданных operation ids, читает persisted filename/size через generic operation API и позволяет выбрать нужную operation, если найдено несколько deliveries.
 
 ## Verification до Harbor mutation
 
@@ -53,7 +59,8 @@ Bundle считается готовым к claim только когда ряд
 Проверяются:
 
 - archive limits и безопасные tar members;
-- whole-file SHA256 sidecar для incoming mode;
+- signed physical handoff для browser/incoming mode до Bundle v1 verification;
+- whole-file SHA256 sidecar для browser/incoming mode;
 - canonical `manifest.json` и JSON Schema;
 - Ed25519 signature по configured trusted public keys;
 - payload checksums и descriptor metadata;
@@ -192,7 +199,7 @@ Bundle archive/extraction/member/compression limits дополнительно �
 ## API
 
 - `POST /api/imports/upload` — streaming intake;
-- `POST /api/imports/discover` — claim готовых archive + `.sha256` pairs;
+- `POST /api/imports/discover` — verify + claim готовых delivery triplets: archive + `.sha256` + signed `.htp-handoff.json`;
 - `GET /api/imports/{operation_id}/preview` — persisted verified preview + signed SOURCE/policy projection;
 - `POST /api/imports/{operation_id}/execute` — explicit import policy + background start;
 - `GET /api/imports/{operation_id}/receipt` — финальный import receipt;
@@ -212,7 +219,8 @@ Regression suite фиксирует следующие свойства:
 - conflict блокируется по умолчанию; explicit skip оставляет существующий TARGET artifact без mutation, а overwrite требует server policy и отдельного UI confirmation;
 - corrupt/invalid bundle отклоняется до target inspection;
 - streaming hard limit удаляет partial upload;
-- incoming archive без sidecar не claim-ится;
+- incoming archive без sidecar или signed handoff не claim-ится;
+- invalid/untrusted/mismatched handoff отклоняется до Bundle preview и Harbor mutation;
 - изменение bundle после preview обнаруживается до import;
 - image post-import digest mismatch приводит к FAILED и отражается в receipt;
 - browser reload восстанавливает active import operation;

@@ -20,7 +20,7 @@ help:
 	  'make dependency-locks-check Проверить согласованность dependency lockfiles' \
 	  'make test-registry-integration Проверить реальные Skopeo/Helm через local OCI registry' \
 	  'make test-offline-kit Проверить packaging/install contract offline release kit' \
-	  'make docs-check     Проверить локальные Markdown-ссылки и docs checker tests' \
+	  'make docs-check     Проверить Markdown-ссылки и current documentation contracts' \
 	  'make migrate        Применить backend Alembic migrations' \
 	  'make build          Собрать backend/frontend artifacts' \
 	  'make compose-config Проверить Docker Compose configuration' \
@@ -85,7 +85,8 @@ test-offline-kit:
 
 docs-check:
 	@test -f tools/check_doc_links.py || { echo 'tools/check_doc_links.py отсутствует'; exit 2; }
-	python3 -m unittest tools.test_check_doc_links
+	@test -f tools/test_documentation_contracts.py || { echo 'tools/test_documentation_contracts.py отсутствует'; exit 2; }
+	python3 -m unittest tools.test_check_doc_links tools.test_documentation_contracts
 	python3 tools/check_doc_links.py
 
 migrate:
@@ -113,6 +114,7 @@ check-foundation:
 	@test -f docs/README.md
 	@test -f docs/decisions.md
 	@test -f tools/check_doc_links.py
+	@test -f tools/test_documentation_contracts.py
 	@test -f tools/dev.py
 	@test -f tools/test_dev.py
 	@test -f dev.ps1

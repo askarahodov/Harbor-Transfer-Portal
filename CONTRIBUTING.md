@@ -47,7 +47,7 @@ chore: update developer tooling
 - deployment/packaging → config/build/smoke checks;
 - документация → `make docs-check`; Markdown-файлы под `deploy/` остаются docs-only scope, а Compose scope относится к runtime/non-Markdown изменениям deployment.
 
-`make docs-check` проверяет локальные Markdown-ссылки без сетевых запросов. Missing repository target или ссылка за пределы repository root являются ошибкой documentation gate.
+`make docs-check` проверяет локальные Markdown-ссылки без сетевых запросов и запускает отдельные documentation-contract tests. Missing repository target, недопустимая absolute link вне Docsify sidebar, рассинхрон current guides или возврат известных stale product claims являются ошибкой documentation gate.
 
 На merge checkpoint все обязательные CI-проверки репозитория должны быть зелёными.
 
@@ -81,14 +81,16 @@ git pull
 python3 tools/dev.py up
 ```
 
-Windows PowerShell:
+Windows CMD — canonical path:
 
-```powershell
+```bat
 git pull
-.\dev.ps1 up
+py -3 tools/dev.py up
 ```
 
-Linux `make up` остаётся convenience alias и делегирует ту же Python orchestration. Windows не требует GNU Make, WSL или Git Bash.
+Если PowerShell scripts разрешены локальной политикой, `.\dev.ps1 up` остаётся optional convenience wrapper над тем же `tools/dev.py`.
+
+Linux `make up` остаётся convenience alias и делегирует ту же Python orchestration. Windows не требует GNU Make, WSL, Git Bash или выполнения PowerShell scripts.
 
 `up` передаёт текущий Git revision в Docker build, пересобирает images и принудительно recreate-ит контейнеры. В верхней панели рядом с product version отображается короткий `UI <revision>`; после обновления source он должен соответствовать первым 12 символам `git rev-parse HEAD`.
 

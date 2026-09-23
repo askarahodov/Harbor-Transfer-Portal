@@ -1,43 +1,115 @@
 # Harbor Transfer Portal v1.0.0 — release notes
 
-Harbor Transfer Portal v1.0.0 is the first release intended for controlled offline transfer of container images and Helm OCI charts between physically and network-isolated Harbor contours.
+Harbor Transfer Portal v1.0.0 — первый квалифицированный release для контролируемой
+офлайн-передачи container images и Helm OCI charts между физически и сетево изолированными
+Harbor-контурами.
 
-## What is included
+## Что входит
 
-- Independent SOURCE and TARGET deployments from the same offline release payload.
-- Harbor browsing and artifact selection on SOURCE.
-- Container image export/import through production Skopeo adapters.
-- Helm OCI chart export/import through production Helm CLI adapters.
-- Signed Bundle Protocol v1 with canonical manifest, Ed25519 signature and SHA-256 payload verification.
-- Physical-transfer boundary that requires only the bundle, its `.sha256` sidecar and allowed SOURCE public trust material.
-- TARGET verification, preview and default-deny conflict handling before registry mutation.
-- Idempotent replay: already verified artifacts are skipped safely.
-- Immutable import receipts, operation history and CSV/PDF reports.
-- Server-side `admin`, `operator` and `viewer` authorization.
-- Offline installation, backup, restore, upgrade and uninstall helpers.
+- одинаковый offline release payload для независимых SOURCE и TARGET deployments;
+- именованные Harbor profiles внутри локального контура;
+- explicit выбор enabled Harbor profile в новых SOURCE Export / TARGET Import workflows;
+- immutable operation binding к выбранному Harbor profile, чтобы уже созданная operation
+  не меняла registry/trust context при изменении Settings;
+- backward-compatible **Default Harbor / Legacy fallback** для старых callers без
+  explicit `profile_id`;
+- Harbor browsing и выбор artifacts на SOURCE;
+- container image export/import через production Skopeo adapters;
+- Helm OCI chart export/import через production Helm CLI adapters;
+- Signed Bundle Protocol v1 с canonical manifest, Ed25519 signature и SHA-256 payload
+  verification;
+- signed physical handoff для browser/transfer-media boundary;
+- TARGET verification, preview и default-deny conflict handling до registry mutation;
+- idempotent replay: уже подтверждённые artifacts безопасно пропускаются;
+- immutable import receipts, operation history и CSV/PDF reports;
+- server-side роли `admin`, `operator`, `viewer`;
+- offline installation, backup, restore, upgrade и uninstall helpers;
+- локальный Docsify documentation portal без runtime CDN dependency.
 
-## Release identity
+## Идентичность release
 
-The running product version is available from `/api/health`, displayed in the authenticated UI and recorded in SOURCE bundle metadata. The offline kit records the same value in `release-version.txt` and `release-manifest.json`; release image labels and kit metadata are validated before packaging.
+Running product version доступна через `/api/health`, отображается в authenticated UI и
+записывается в SOURCE bundle metadata. Offline kit хранит ту же версию в
+`release-version.txt` и `release-manifest.json`; OCI image labels и kit metadata
+проверяются до packaging.
 
 ## Installation model
 
-The release archive contains prebuilt backend/frontend images and does not rebuild application images inside the closed contour. Follow `README.md` inside the offline kit. Configure exactly one local Harbor per portal instance and provide contour-specific key material after installation.
+Release archive содержит заранее собранные backend/frontend images и не пересобирает
+application images внутри закрытого контура. Используйте `README.md` внутри offline kit.
+
+Portal instance может содержать **один или несколько именованных Harbor profiles**, но все
+они должны относиться к разрешённым registry endpoints того же локального security
+контура. SOURCE не хранит credentials TARGET, а TARGET — credentials SOURCE.
+
+Legacy/default Harbor задаёт backward-compatible bootstrap/fallback configuration.
+Дополнительные profiles создаются и сопровождаются через Settings. Новый browser
+Export/Import всегда выбирает enabled profile явно.
+
+## Physical handoff
+
+Обычная browser physical delivery состоит из **трёх файлов одной delivery**:
+
+```text
+<delivery>.htp.tar.gz
+<delivery>.htp.tar.gz.sha256
+<delivery>.htp-handoff.json
+```
+
+Signed `.htp-handoff.json` связывает фактический archive и checksum sidecar с SOURCE
+identity и проверяется TARGET до Bundle v1 preview. Он не заменяет собственную
+Bundle v1 checksum/schema/signature verification.
+
+SOURCE private signing key, Harbor credentials и JWT secret не переносятся вместе с
+delivery.
 
 ## Security notes
 
-- Do not place Harbor credentials, JWT secrets or SOURCE private signing keys on physical transfer media.
-- TARGET must trust only approved SOURCE public signing keys.
-- Keep TLS verification enabled for real Harbor endpoints; local plain HTTP is used only by explicit CI fixtures.
-- A conflicting existing TARGET tag/version is denied by default. Overwrite requires an explicit authorized action.
-- Tampered bundles are rejected before registry mutation.
+- Не помещайте Harbor credentials, JWT secrets или SOURCE private signing keys на
+  physical transfer media.
+- TARGET должен доверять только утверждённым SOURCE public signing keys.
+- Для реальных Harbor endpoints сохраняйте TLS verification включённой; plain HTTP
+  допустим только в явно ограниченных CI fixtures.
+- Existing TARGET tag/version с другим содержимым считается `CONFLICT` и по умолчанию
+  не overwrite-ится.
+- `UNKNOWN` и `ERROR` не считаются `NEW` и не разрешают mutation.
+- Tampered bundle/handoff отклоняется до registry mutation.
+- Credential и custom CA content Harbor profile остаются server-side и не возвращаются
+  browser как plaintext/PEM.
+- Non-terminal operation защищает свой operation-bound Harbor profile от mutation,
+  способной изменить registry/trust identity во время выполнения.
 
-## Known limitations
+## Известные ограничения
 
-- The product does not create network connectivity between contours; physical media transport and custody remain operational responsibilities.
-- Database migrations are not guaranteed to be backwards compatible. Take a backup before upgrade and use the documented restore procedure when rollback is required.
-- A Helm OCI manifest digest can change when the same signed `.tgz` is pushed into another registry. v1.0.0 therefore verifies signed chart payload integrity and persists verified SOURCE-to-TARGET digest provenance for replay/conflict decisions.
+- Product не создаёт сетевую связность между SOURCE и TARGET; transport/custody
+  физического носителя остаются эксплуатационной ответственностью организации.
+- Database migrations не гарантируются как backwards compatible. Перед upgrade делайте
+  backup и используйте документированный restore procedure при rollback.
+- Helm OCI manifest digest может измениться при push того же подписанного `.tgz` в другой
+  registry. v1.0.0 поэтому проверяет подписанную целостность chart payload и сохраняет
+  подтверждённую SOURCE→TARGET digest provenance для replay/conflict decisions.
+- Native Windows offline installation не является заявленным runtime contract:
+  versioned offline kit и lifecycle scripts предназначены для Linux runtime. Windows
+  поддерживается как source-development host через Docker Desktop Linux containers.
 
-## Upgrade and recovery
+## Upgrade и recovery
 
-Before upgrading, run the bundled backup helper and retain the release kit used by the currently installed version. See `docs/offline-lifecycle.md` and the offline kit README for backup, restore, upgrade and rollback constraints.
+Перед upgrade выполните bundled backup helper и сохраните release kit текущей
+установленной версии. Подробности:
+
+- [offline-lifecycle.md](offline-lifecycle.md);
+- [offline installation guide](../deploy/offline/README.md);
+- [runtime-mode.md](runtime-mode.md);
+- [key-management.md](key-management.md).
+
+## Документация release
+
+Основные current sources:
+
+- [user-guide.md](user-guide.md) — browser SOURCE → physical handoff → TARGET;
+- [admin-guide.md](admin-guide.md) — эксплуатация и administration;
+- [harbor-profiles.md](harbor-profiles.md) — multi-Harbor management и immutable binding;
+- [physical-handoff.md](physical-handoff.md) — signed physical handoff;
+- [offline-bundle-v1.md](offline-bundle-v1.md) — normative Bundle Protocol v1;
+- [security.md](security.md) — trust/security model;
+- [testing.md](testing.md) — release qualification gates.

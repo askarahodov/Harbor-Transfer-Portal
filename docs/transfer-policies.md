@@ -106,7 +106,7 @@ Backend валидирует комбинацию целиком:
 import_max_upload_bytes <= bundle_max_archive_bytes <= bundle_max_extracted_bytes
 ```
 
-`import_max_upload_bytes` ограничивает только browser upload. Штатный air-gap fallback через физически скопированный archive + `.sha256` в incoming directory может быть больше browser limit, но не может превышать `bundle_max_archive_bytes`. После discovery тот же archive всё равно проходит обычную schema/signature/checksum и archive/extracted/member verification.
+`import_max_upload_bytes` ограничивает только browser upload. Штатный air-gap fallback через физически скопированный **delivery triplet** — archive + `.sha256` + signed `.htp-handoff.json` — в incoming directory может быть больше browser limit, но не может превышать `bundle_max_archive_bytes`. Discovery требует полный triplet и проверяет handoff до claim; после этого тот же archive всё равно проходит обычную Bundle v1 schema/signature/checksum и archive/extracted/member verification.
 
 Это позволяет держать browser upload консервативным и переносить крупные bundle через USB/HDD без искусственного повышения browser limit.
 

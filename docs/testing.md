@@ -233,8 +233,8 @@ Harbor profile domain/API также security-sensitive, потому что у�
 1. отдельный SOURCE registry fixture;
 2. container image и Helm chart fixture;
 3. SOURCE export;
-4. signed bundle + `.sha256`;
-5. physical boundary — перенос только разрешённых files/trust material;
+4. полный signed delivery triplet: bundle + `.sha256` + `.htp-handoff.json`;
+5. physical boundary — перенос только разрешённых delivery/trust files и handoff verification до Bundle preview;
 6. отдельный TARGET registry без runtime source dependency;
 7. backend verification/preview/import;
 8. target image digest verification;

@@ -48,11 +48,14 @@ Linux:
 python3 tools/dev.py up
 ```
 
-Windows PowerShell:
+Windows CMD — canonical path:
 
-```powershell
-.\dev.ps1 up
+```bat
+py -3 tools/dev.py up
 ```
+
+Если PowerShell scripts разрешены локальной политикой, `.\dev.ps1 up` остаётся optional
+convenience wrapper над тем же launcher.
 
 Корневой `compose.yaml` содержит `build:` sections. Backend image build может получать pinned Helm archive и OS/Python dependencies, frontend build — npm dependencies. Поэтому `docker compose up -d --build` допустим только там, где build environment имеет необходимые разрешённые источники.
 
@@ -245,12 +248,15 @@ unset BOOTSTRAP_ADMIN_PASSWORD
 
 ```text
 SOURCE browser
-  → local Harbor selection
-  → signed bundle + .sha256 download
+  → explicit SOURCE Harbor profile selection
+  → local Harbor artifact selection
+  → bundle + .sha256 + signed .htp-handoff.json download
   → approved physical transfer
 TARGET browser
-  → upload/discovery
-  → signature/checksum/schema preview
+  → explicit TARGET Harbor profile selection
+  → upload/discovery полного delivery triplet
+  → signed handoff verification
+  → Bundle v1 signature/checksum/schema preview
   → NEW/SAME/CONFLICT decision
   → import
   → receipt/history/reports

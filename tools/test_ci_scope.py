@@ -307,6 +307,13 @@ class CiScopeTest(TestCase):
             Scope(protocol=True, docs=True),
         )
 
+    def test_documentation_contract_tests_run_docs_scope(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["tools/test_documentation_contracts.py"], root=root),
+            Scope(docs=True),
+        )
+
     def test_deploy_markdown_runs_only_docs(self):
         root = self._root()
         for path in ("deploy/README.md", "deploy/offline/README.md"):
