@@ -144,6 +144,17 @@ class DocumentationContractTests(unittest.TestCase):
         self.assertIn("полный signed delivery triplet", testing)
         self.assertIn("handoff verification до Bundle preview", testing)
 
+    def test_docsify_sidebar_loader_uses_discovery_and_shared_alias(self) -> None:
+        docs_index = self.read("docs/index.html")
+        docsify_guide = self.read("docs/docsify.md")
+
+        self.assertIn("loadSidebar: true", docs_index)
+        self.assertNotIn("loadSidebar: '/docs/_sidebar.md'", docs_index)
+        self.assertIn("'/_sidebar.md': '/docs/_sidebar.md'", docs_index)
+        self.assertIn("'/.*/_sidebar.md': '/docs/_sidebar.md'", docs_index)
+        self.assertIn("loadSidebar: true", docsify_guide)
+        self.assertIn("единый `/docs/_sidebar.md`", docsify_guide)
+
     def test_documentation_map_describes_both_gate_layers(self) -> None:
         docs_map = self.read("docs/README.md")
 
