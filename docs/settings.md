@@ -33,12 +33,21 @@ legacy fallback profile и безопасные metadata:
 - username, если он задан;
 - TLS verification state;
 - наличие credential;
-- active/default state.
+- наличие custom CA;
+- enabled/disabled state;
+- legacy-fallback/default state.
 
 Admin может создать дополнительный profile, изменить его metadata, проверить соединение,
-обновить credential и удалить не-default profile, если backend разрешает mutation.
+обновить credential, установить/заменить custom CA, включить/отключить profile и удалить
+не-default profile, если backend разрешает mutation.
 
-Credential не подставляется обратно в форму и не возвращается API как plaintext.
+Credential и существующий CA content не подставляются обратно в форму и не возвращаются
+API как plaintext/PEM. Поле Custom CA используется только для новой установки/замены;
+удаление existing CA выполняется отдельным действием в строке profile.
+
+Disabled profile остаётся в management list, но не возвращается safe selectable API и не
+предлагается в новых Export/Import workflows. Legacy fallback нельзя отключить через UI:
+сначала выберите другой fallback. Backend повторно проверяет эти ограничения.
 
 ### Legacy fallback Harbor
 
