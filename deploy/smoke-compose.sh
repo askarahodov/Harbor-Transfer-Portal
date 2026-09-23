@@ -101,6 +101,8 @@ docker compose exec -T frontend wget -q -O - "${frontend_container_base}/runtime
 
 # Documentation is served by the same frontend image and must remain fully offline.
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/" | grep -F 'Harbor Transfer Portal — Документация' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/" | grep -F 'loadSidebar: true' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/" | grep -F "'/.*/_sidebar.md': '/docs/_sidebar.md'" >/dev/null
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/_sidebar.md" | grep -F '/docs/dashboard.md' >/dev/null
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/dashboard.md" | grep -F '# Dashboard' >/dev/null
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/settings.md" | grep -F '# Настройки Portal' >/dev/null
