@@ -176,6 +176,7 @@ export type ImportReceipt = {
   started_at: string
   finished_at: string
   overwrite_conflicts: boolean
+  skip_conflicts: boolean
   destination_plan_id: string | null
   destination_plan_hash?: string | null
   retry_of_operation_id?: number | null
@@ -261,11 +262,13 @@ export async function executeImport(
   operationId: number,
   overwriteConflicts: boolean,
   destinationPlanId: string,
+  skipConflicts = false,
 ): Promise<{ operation_id: number; status: OperationStatus }> {
   const response = await apiClient.post<{ operation_id: number; status: OperationStatus }>(
     `/imports/${operationId}/execute`,
     {
       overwrite_conflicts: overwriteConflicts,
+      skip_conflicts: skipConflicts,
       destination_plan_id: destinationPlanId,
     },
   )

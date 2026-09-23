@@ -24,6 +24,7 @@ from app.schemas.imports import (
     ImportArtifactDestinationOverride,
     ImportArtifactPreviewResponse,
     ImportDestinationPlanRequest,
+    ImportExecuteRequest,
     ImportPreviewResponse,
 )
 from app.services.harbor_profiles import HarborProfileService
@@ -474,6 +475,15 @@ def test_different_mapping_changes_plan_id_and_stale_plan_is_rejected(tmp_path: 
             )
         )
     assert stale.value.code == "import_destination_plan_stale"
+
+
+def test_execute_request_rejects_skip_and_overwrite_together() -> None:
+    with pytest.raises(ValueError):
+        ImportExecuteRequest(
+            overwrite_conflicts=True,
+            skip_conflicts=True,
+            destination_plan_id="e" * 64,
+        )
 
 
 def test_registry_token_scope_requires_exact_repository_push_action() -> None:

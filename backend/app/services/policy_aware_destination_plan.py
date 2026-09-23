@@ -149,6 +149,7 @@ class PolicyAwareImportDestinationPlanOrchestrator(ImportDestinationPlanOrchestr
                     "Destination plan не совпадает с persisted artifact rows",
                 )
             lineage = retry_lineage_from_policy(operation.import_policy_json)
+            policy = self._policy_object(operation)
             receipt = ImportReceiptResponse(
                 operation_id=operation.id,
                 source_delivery_id=preview.source_delivery_id,
@@ -157,6 +158,7 @@ class PolicyAwareImportDestinationPlanOrchestrator(ImportDestinationPlanOrchestr
                 started_at=requested_at,
                 finished_at=now,
                 overwrite_conflicts=overwrite,
+                skip_conflicts=bool(policy.get("skip_conflicts", False)),
                 destination_plan_id=plan.plan_id,
                 destination_plan_hash=plan.plan_hash,
                 retry_of_operation_id=(lineage.retry_of_operation_id if lineage else None),

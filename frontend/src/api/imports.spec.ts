@@ -90,15 +90,24 @@ describe('import destination API contract', () => {
     })
   })
 
-  it('binds execute to the exact confirmed destination plan id', async () => {
+  it('binds execute to the exact plan and an explicit conflict policy', async () => {
     const post = vi.spyOn(apiClient, 'post').mockResolvedValue({
       data: { operation_id: 42, status: 'IMPORTING' },
     })
 
     await executeImport(42, true, PLAN_ID)
 
-    expect(post).toHaveBeenCalledWith('/imports/42/execute', {
+    expect(post).toHaveBeenNthCalledWith(1, '/imports/42/execute', {
       overwrite_conflicts: true,
+      skip_conflicts: false,
+      destination_plan_id: PLAN_ID,
+    })
+
+    await executeImport(42, false, PLAN_ID, true)
+
+    expect(post).toHaveBeenNthCalledWith(2, '/imports/42/execute', {
+      overwrite_conflicts: false,
+      skip_conflicts: true,
       destination_plan_id: PLAN_ID,
     })
   })

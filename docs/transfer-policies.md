@@ -87,6 +87,17 @@ import_allow_overwrite=false
 
 Изменение policy только разрешает этот путь; оно не превращает overwrite в default action.
 
+## Safe skip существующих conflicts
+
+Для частично заполненного TARGET оператор может выбрать execution policy `skip_conflicts=true`. Она не требует `import_allow_overwrite`, потому что не выполняет registry mutation для конфликтующей logical reference:
+
+- `NEW` импортируются;
+- `SAME` остаются idempotent `SKIPPED`;
+- `CONFLICT` остаются нетронутыми и фиксируются как `SKIPPED` с причиной `import_conflict_skipped` и наблюдаемым TARGET digest;
+- `UNKNOWN/ERROR` продолжают блокировать execute.
+
+`skip_conflicts` и `overwrite_conflicts` взаимоисключаются. Default request с обоими `false` по-прежнему блокирует CONFLICT.
+
 ## Связанные limits
 
 Backend валидирует комбинацию целиком:

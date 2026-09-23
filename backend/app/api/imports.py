@@ -66,6 +66,7 @@ def _import_error(exc: ImportOrchestrationError) -> HTTPException:
         "import_not_ready": status.HTTP_409_CONFLICT,
         "import_preview_unresolved": status.HTTP_409_CONFLICT,
         "import_conflict_blocked": status.HTTP_409_CONFLICT,
+        "import_conflict_policy_invalid": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "import_overwrite_disabled": status.HTTP_403_FORBIDDEN,
         "import_signing_key_untrusted": status.HTTP_409_CONFLICT,
         "trusted_key_store_invalid": status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -223,6 +224,7 @@ def _audit_import_start(
     operation_id: int,
     *,
     overwrite_conflicts: bool,
+    skip_conflicts: bool,
     destination_plan: ImportDestinationPlanResponse,
 ) -> None:
     operation = orchestrator.operation_manager.get_operation(operation_id)
@@ -234,6 +236,7 @@ def _audit_import_start(
         "operation_id": operation_id,
         "bundle_sha256": destination_plan.bundle_sha256,
         "overwrite_conflicts": overwrite_conflicts,
+        "skip_conflicts": skip_conflicts,
         "conflict_count": conflict_count,
         **destination_plan_audit_metadata(destination_plan),
     }
@@ -256,6 +259,17 @@ def _audit_import_start(
                 key: value
                 for key, value in metadata.items()
                 if key != "overwrite_conflicts"
+            },
+        )
+    if skip_conflicts and conflict_count > 0:
+        repository.create(
+            actor=actor,
+            event_type="import.conflicts.skipped",
+            result="approved",
+            metadata={
+                key: value
+                for key, value in metadata.items()
+                if key != "skip_conflicts"
             },
         )
     session.commit()
@@ -419,6 +433,7 @@ async def execute_import(
             operation_id,
             actor_username=actor.username,
             overwrite_conflicts=payload.overwrite_conflicts,
+            skip_conflicts=payload.skip_conflicts,
             destination_plan_id=payload.destination_plan_id,
         )
         destination_plan = orchestrator.destination_plan(operation_id)
@@ -430,6 +445,7 @@ async def execute_import(
         orchestrator,
         operation_id,
         overwrite_conflicts=payload.overwrite_conflicts,
+        skip_conflicts=payload.skip_conflicts,
         destination_plan=destination_plan,
     )
     return ImportStartResponse(

@@ -131,6 +131,6 @@ Reader/verifier обязан отклонять:
 
 `PENDING`, `RUNNING`, `IMPORTED`, `SKIPPED`, `CONFLICT`, `FAILED`, `VERIFIED`.
 
-`SKIPPED` считается успешным идемпотентным результатом только тогда, когда политика подтверждает, что TARGET уже содержит ожидаемый артефакт.
+`SKIPPED` означает отсутствие registry mutation. Для `SAME` это идемпотентный успех, потому что TARGET уже содержит ожидаемый артефакт. Для explicit conflict-skip policy `SKIPPED` обязан сопровождаться persisted причиной `import_conflict_skipped` и фактически наблюдаемым TARGET digest: это не утверждение, что содержимое совпадает, а доказательство намеренного сохранения существующего TARGET artifact.
 
-`CONFLICT` означает, что в той же логической точке назначения уже существует другое проверенное содержимое.
+`CONFLICT` означает, что в той же логической точке назначения уже существует другое проверенное содержимое; без explicit skip/overwrite policy такой artifact блокирует execution.

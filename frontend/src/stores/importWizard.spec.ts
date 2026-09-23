@@ -267,7 +267,7 @@ describe('import wizard store', () => {
     expect(store.error?.message).toContain('Не удалось проверить TARGET Harbor')
   })
 
-  it('blocks conflict by default and executes only with confirmed exact plan id plus overwrite approval', async () => {
+  it('blocks conflict by default but can safely skip existing and import only missing artifacts', async () => {
     sessionStorage.setItem('htp.import.operation-id', '51')
     vi.spyOn(importsApi, 'getOperation')
       .mockResolvedValueOnce(operation('READY'))
@@ -288,14 +288,39 @@ describe('import wizard store', () => {
     expect(await store.validateDestinationPlan()).toBe(true)
     expect(store.conflicts).toHaveLength(1)
     expect(store.canExecuteDefault).toBe(false)
+    expect(store.canExecuteSkipConflicts).toBe(true)
     expect(await store.execute(false)).toBe(false)
     expect(executeSpy).not.toHaveBeenCalled()
 
+    expect(await store.execute(false, true)).toBe(true)
+    expect(executeSpy).toHaveBeenCalledWith(51, false, PLAN_ID, true)
+    expect(store.step).toBe(3)
+    store.stopPolling()
+  })
+
+  it('keeps overwrite as a separate explicitly confirmed conflict policy', async () => {
+    sessionStorage.setItem('htp.import.operation-id', '51')
+    vi.spyOn(importsApi, 'getOperation')
+      .mockResolvedValueOnce(operation('READY'))
+      .mockResolvedValueOnce(operation('IMPORTING'))
+    vi.spyOn(importsApi, 'getImportPreview').mockResolvedValue(preview('CONFLICT'))
+    vi.spyOn(importsApi, 'buildImportDestinationPlan').mockResolvedValue(
+      destinationPlan('CONFLICT'),
+    )
+    const executeSpy = vi.spyOn(importsApi, 'executeImport').mockResolvedValue({
+      operation_id: 51,
+      status: 'IMPORTING',
+    })
+    vi.useFakeTimers()
+    const store = useImportWizardStore()
+
+    await store.initialize()
+    store.setDefaultProject('container-image', 'target')
+    expect(await store.validateDestinationPlan()).toBe(true)
     store.overwriteConfirmed = true
     expect(store.canExecuteOverwrite).toBe(true)
     expect(await store.execute(true)).toBe(true)
-    expect(executeSpy).toHaveBeenCalledWith(51, true, PLAN_ID)
-    expect(store.step).toBe(3)
+    expect(executeSpy).toHaveBeenCalledWith(51, true, PLAN_ID, false)
     store.stopPolling()
   })
 
@@ -312,6 +337,7 @@ describe('import wizard store', () => {
       started_at: '2026-09-14T05:03:00Z',
       finished_at: '2026-09-14T05:05:00Z',
       overwrite_conflicts: false,
+      skip_conflicts: false,
       destination_plan_id: PLAN_ID,
       destination_plan_hash: PLAN_HASH,
       result: 'FAILED',
