@@ -182,6 +182,56 @@ class DocumentationContractTests(unittest.TestCase):
         self.assertIn("980px", docsify_guide)
         self.assertIn("1400px", docsify_guide)
 
+    def test_docsify_navigation_and_code_extensions_are_offline_and_accessible(self) -> None:
+        docs_index = self.read("docs/index.html")
+        docs_css = self.read("docs/portal-docs.css")
+        docsify_guide = self.read("docs/docsify.md")
+        dockerfile = self.read("frontend/Dockerfile")
+
+        self.assertIn("enhanceSidebarGroups", docs_index)
+        self.assertIn("docsSidebarStateKey", docs_index)
+        self.assertIn("aria-expanded", docs_index)
+        self.assertIn("aria-controls", docs_index)
+        self.assertNotIn("collapsibleSidebarGroups: true", docs_index)
+
+        self.assertIn("buttonText: 'Копировать'", docs_index)
+        self.assertIn("successText: 'Скопировано'", docs_index)
+        self.assertIn("previousText: 'Предыдущая'", docs_index)
+        self.assertIn("nextText: 'Следующая'", docs_index)
+        self.assertIn("crossChapter: true", docs_index)
+        self.assertIn("/docs/_vendor/docsify-copy-code.min.js", docs_index)
+        self.assertIn("/docs/_vendor/docsify-pagination.min.js", docs_index)
+
+        for language in (
+            "bash",
+            "batch",
+            "powershell",
+            "docker",
+            "json",
+            "yaml",
+            "python",
+            "sql",
+        ):
+            self.assertIn(f"/docs/_vendor/prism-{language}.min.js", docs_index)
+
+        self.assertIn(".docs-sidebar-group-toggle", docs_css)
+        self.assertIn(".docs-sidebar-group-list[hidden]", docs_css)
+        self.assertIn(".docsify-copy-code-button", docs_css)
+        self.assertIn(".docsify-pagination-container", docs_css)
+        self.assertIn("pre[data-lang]::after", docs_css)
+
+        self.assertIn("ARG DOCSIFY_COPY_CODE_VERSION=3.0.1", dockerfile)
+        self.assertIn("ARG DOCSIFY_PAGINATION_VERSION=2.10.1", dockerfile)
+        self.assertIn("ARG PRISM_VERSION=1.29.0", dockerfile)
+
+        self.assertNotIn("cdn.jsdelivr", docs_index)
+        self.assertNotIn("unpkg.com", docs_index)
+        self.assertIn("docsify-sidebar-collapse", docsify_guide)
+        self.assertIn("сознательно не используется", docsify_guide)
+        self.assertIn("docsify-copy-code@3.0.1", docsify_guide)
+        self.assertIn("docsify-pagination@2.10.1", docsify_guide)
+        self.assertIn("prismjs@1.29.0", docsify_guide)
+
     def test_documentation_map_describes_both_gate_layers(self) -> None:
         docs_map = self.read("docs/README.md")
 
