@@ -507,6 +507,7 @@ def test_skip_conflicts_imports_only_missing_artifacts_and_completes(tmp_path: P
         ArtifactStatus.VERIFIED,
     ]
     assert operation.artifacts[0].target_digest == CONFLICT_DIGEST
+    assert operation.artifacts[0].error_code == "import_conflict_skipped"
     assert skopeo.import_calls == 0
     assert helm.push_calls == 1
 
