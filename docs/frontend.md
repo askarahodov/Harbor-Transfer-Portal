@@ -59,10 +59,14 @@ selector read-only и передаёт тот же id в destination plan. Reloa
 History показывает safe operation snapshot profile name/URL вместе с persisted transfer
 evidence. Legacy operation без snapshot остаётся читаемой как legacy record.
 
-Новый profile создаётся в Settings с name/URL/username/TLS и optional credential.
-Credential отправляется отдельным request и после submission очищается из frontend state.
+Новый profile создаётся в Settings с name/URL/username/TLS и optional credential/custom CA.
+Credential и CA отправляются отдельными requests и после submission не читаются обратно
+из backend: UI видит только configured-status. Admin может enable/disable additional profile,
+заменить CA через create/edit и удалить custom CA отдельным действием. Редактирование
+disabled profile сохраняет его disabled state и не включает profile неявно.
 Connection test выполняется per-profile. Default Harbor form остаётся
-bootstrap/backward-compatible настройкой profile `default`.
+bootstrap/backward-compatible настройкой profile `default` и не участвует в additional
+profile enable/disable lifecycle.
 
 ## Transfer policies и retention в Settings
 
