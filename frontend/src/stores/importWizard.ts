@@ -147,6 +147,12 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
   const canExecuteDefault = computed(
     () => confirmedPlanReady.value && conflicts.value.length === 0 && unresolved.value.length === 0,
   )
+  const canExecuteSkipConflicts = computed(
+    () =>
+      confirmedPlanReady.value &&
+      conflicts.value.length > 0 &&
+      unresolved.value.length === 0,
+  )
   const canExecuteOverwrite = computed(
     () =>
       confirmedPlanReady.value &&
@@ -476,7 +482,10 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     }
   }
 
-  async function execute(overwriteConflicts: boolean): Promise<boolean> {
+  async function execute(
+    overwriteConflicts: boolean,
+    skipConflicts = false,
+  ): Promise<boolean> {
     if (!preview.value || !operation.value) return false
     if (!destinationPlan.value || mappingDirty.value || !destinationPlan.value.valid) {
       error.value = {
@@ -492,10 +501,17 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
       }
       return false
     }
-    if (conflicts.value.length > 0 && !overwriteConflicts) {
+    if (overwriteConflicts && skipConflicts) {
+      error.value = {
+        code: 'import_conflict_policy_invalid',
+        message: 'Нельзя одновременно пропускать и перезаписывать CONFLICT.',
+      }
+      return false
+    }
+    if (conflicts.value.length > 0 && !overwriteConflicts && !skipConflicts) {
       error.value = {
         code: 'import_conflict_blocked',
-        message: 'CONFLICT заблокирован безопасной политикой по умолчанию.',
+        message: 'Выберите безопасный skip существующих CONFLICT или подтверждённый overwrite.',
       }
       return false
     }
@@ -513,7 +529,12 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     busy.value = 'execute'
     clearError()
     try {
-      await executeImport(operation.value.id, overwriteConflicts, destinationPlan.value.plan_id)
+      await executeImport(
+        operation.value.id,
+        overwriteConflicts,
+        destinationPlan.value.plan_id,
+        skipConflicts,
+      )
       step.value = 3
       await refreshOperation(operation.value.id)
       if (operation.value && IMPORTING_STATES.has(operation.value.status)) {
@@ -627,6 +648,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     unresolved,
     confirmedPlanReady,
     canExecuteDefault,
+    canExecuteSkipConflicts,
     canExecuteOverwrite,
     canCancel,
     loadHarborProfiles,
