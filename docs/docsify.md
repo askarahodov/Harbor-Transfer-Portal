@@ -58,9 +58,16 @@ image. Отдельный Docsify container или дополнительный 
 ## Навигация
 
 Sidebar определён в [_sidebar.md](_sidebar.md) и является общей навигацией для всех
-Docsify routes. Конфигурация `loadSidebar: true` использует единый sidebar также для
-repository-level страниц (`README`, `CONTRIBUTING`, deployment guides), поэтому переход
-между каталогами не должен приводить к исчезновению меню.
+Docsify routes. Он загружается явно через `loadSidebar: '/docs/_sidebar.md'`.
+
+В sidebar используются **обычные Markdown links на site-root paths**, например
+`/docs/dashboard.md`, а не вручную собранные hash links вида `#/docs/dashboard`.
+Docsify сам преобразует Markdown target в hash route. Это важно для вложенного deployment
+под `/docs/`: одновременно использовать `relativePath: true` и вручную кодировать
+Docsify hash route нельзя, иначе route resolution может уйти в неверный Markdown path.
+
+Repository-level страницы (`README`, `CONTRIBUTING`, deployment guides) также
+указываются как реальные Markdown paths, поэтому sidebar не зависит от текущей вложенности.
 
 Навигация группирует:
 
@@ -79,6 +86,12 @@ Docsify-compatible URL вида `#/docs/dashboard?id=проверки`, поэт
 
 Search plugin индексирует открываемые Markdown pages в браузере.
 
+Nginx имеет отдельную boundary для `/docs/`: существующие Markdown/assets отдаются как
+static files, а отсутствующий docs path возвращает настоящий `404` и не проваливается в
+Vue SPA fallback. Благодаря этому ошибочная ссылка не превращается в визуально пустую
+Docsify-страницу, получившую `frontend/index.html` вместо Markdown. Для 404 Docsify
+показывает локальную [_404.md](_404.md).
+
 ## Визуальная оболочка
 
 Documentation shell следует дизайн-системе Portal:
@@ -87,6 +100,12 @@ Documentation shell следует дизайн-системе Portal:
   **Назад в портал**;
 - sidebar использует тот же brand surface и active/hover pattern, что основная
   навигация Portal;
+- sidebar использует high-contrast text, а active/hover/focus состояния видны без
+  зависимости только от цвета;
+- основной article layout использует нормальный document flow и расширяется на широком
+  desktop до readable `1180px`, вместо узкой карточки в центре;
+- основная область использует один continuous surface background; статья не создаёт
+  второй вложенный фон/карточку;
 - статья, таблицы, code blocks, focus ring и responsive breakpoints используют
   semantic design tokens frontend;
 - `frontend/src/styles/tokens.css` остаётся источником истины и при Docker build
@@ -124,9 +143,11 @@ Markdown через `:id=...`; regression test проверяет, что target
 2. Добавьте страницу в [_sidebar.md](_sidebar.md), если она должна быть видна в общей навигации.
 3. Для нового UI route задайте `meta.documentation` в frontend router. Если route ведёт на блок длинного документа, сначала объявите стабильный `:id=...` в Markdown и используйте `?id=<anchor>` в target.
 4. Обновите documentation impact в той же итерации, что и код.
-5. Если меняется navigation shell, anchors или packaging, обновите regression checks в
-   `tools/test_frontend_system_ui.py` и Compose smoke.
-6. Запустите `make docs-check` и scoped frontend/Compose tests.
+5. В sidebar добавляйте Markdown target, а не hash route. Для файла в `docs/` используйте
+   site-root форму `/docs/<name>.md`.
+6. Если меняется navigation shell, anchors или packaging, обновите regression checks в
+   `tools/test_frontend_system_ui.py`, docs link checker и Compose smoke.
+7. Запустите `make docs-check` и scoped frontend/Compose tests.
 
 Docsify не меняет правило source-of-truth: если rendered site и Markdown расходятся,
 дефект находится в packaging/navigation, а не решается копированием текста в отдельное
