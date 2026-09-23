@@ -109,7 +109,10 @@ docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/se
 docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/docsify.min.js"
 docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/search.min.js"
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/_portal/tokens.css" | grep -F -- '--color-brand-surface' >/dev/null
-docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F -- '--docs-content-max: 1180px' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F -- '--docs-article-max: 980px' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F -- 'color: var(--color-brand-text-muted) !important' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F -- 'grid-template-columns: minmax(0, var(--docs-article-max))' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/" | grep -F 'mountPageToc' >/dev/null
 if docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/__missing_route_contract__.md"; then
     echo 'Несуществующий docs Markdown не должен падать в Vue SPA fallback.' >&2
     exit 1

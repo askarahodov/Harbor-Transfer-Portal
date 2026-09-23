@@ -155,6 +155,33 @@ class DocumentationContractTests(unittest.TestCase):
         self.assertIn("loadSidebar: true", docsify_guide)
         self.assertIn("единый `/docs/_sidebar.md`", docsify_guide)
 
+    def test_docsify_visual_shell_uses_portal_tokens_and_centered_grid(self) -> None:
+        css = self.read("docs/portal-docs.css")
+        docs_index = self.read("docs/index.html")
+        docsify_guide = self.read("docs/docsify.md")
+
+        self.assertIn("--docs-article-max: 980px;", css)
+        self.assertIn("--docs-toc: 240px;", css)
+        self.assertIn(
+            "grid-template-columns: minmax(0, var(--docs-article-max))",
+            css,
+        )
+        self.assertIn("justify-content: center;", css)
+        self.assertIn("color: var(--color-brand-text-muted) !important;", css)
+        self.assertIn("color: var(--color-on-accent) !important;", css)
+        self.assertIn("@media (max-width: 1400px)", css)
+        self.assertIn("position: sticky;", css)
+        self.assertIn("@media (max-width: 768px)", css)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", css)
+        self.assertNotIn("#0B1E3A", css)
+        self.assertNotIn("#2563EB", css)
+
+        self.assertIn("mountPageToc", docs_index)
+        self.assertIn("content.appendChild(toc)", docs_index)
+        self.assertIn("article + right TOC", docsify_guide)
+        self.assertIn("980px", docsify_guide)
+        self.assertIn("1400px", docsify_guide)
+
     def test_documentation_map_describes_both_gate_layers(self) -> None:
         docs_map = self.read("docs/README.md")
 

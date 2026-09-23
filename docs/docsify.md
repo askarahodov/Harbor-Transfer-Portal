@@ -103,10 +103,16 @@ Documentation shell следует дизайн-системе Portal:
   **Назад в портал**;
 - sidebar использует тот же brand surface и active/hover pattern, что основная
   навигация Portal;
-- sidebar использует high-contrast text, а active/hover/focus состояния видны без
-  зависимости только от цвета;
-- основной article layout использует нормальный document flow и расширяется на широком
-  desktop до readable `1180px`, вместо узкой карточки в центре;
+- sidebar использует high-contrast token-based hierarchy: group headings и active item
+  используют `--color-on-accent`, обычные links — `--color-brand-text-muted`; vendor
+  theme не должен делать неактивные пункты похожими на disabled state;
+- на desktop article + right TOC образуют единый центрированный CSS Grid workspace:
+  article ограничен readable шириной `980px`, TOC — `240px`, между ними используется
+  design-system spacing;
+- right TOC переносится внутрь Docsify `.content` после render и становится sticky
+  второй колонкой, поэтому он не центрируется отдельно от статьи относительно viewport;
+- при ширине viewport до `1400px` secondary TOC скрывается, а article автоматически
+  становится единственной центрированной колонкой;
 - основная область использует один continuous surface background; статья не создаёт
   второй вложенный фон/карточку;
 - статья, таблицы, code blocks, focus ring и responsive breakpoints используют

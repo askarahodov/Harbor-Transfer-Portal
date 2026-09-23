@@ -81,6 +81,16 @@
         target.textContent = heading ? (heading.textContent || '').trim() : 'Документация'
       }
 
+      function mountPageToc() {
+        var content = document.querySelector('.content')
+        var toc = document.getElementById('docs-page-toc')
+        if (!content || !toc) return
+
+        if (toc.parentElement !== content) {
+          content.appendChild(toc)
+        }
+      }
+
       function renderPageToc() {
         var toc = document.getElementById('docs-page-toc')
         var list = document.getElementById('docs-page-toc-list')
@@ -143,6 +153,7 @@
               window.requestAnimationFrame(function () {
                 decorateHeadings()
                 updatePageTitle()
+                mountPageToc()
                 renderPageToc()
               })
             })
