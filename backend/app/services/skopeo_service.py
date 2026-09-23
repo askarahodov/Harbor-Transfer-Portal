@@ -577,6 +577,31 @@ class SkopeoService:
         elif any(marker in lowered for marker in ("x509", "certificate", "tls handshake")):
             code = "skopeo_tls_failed"
             message = "Skopeo не смог проверить TLS локального Harbor"
+        elif any(
+            marker in lowered
+            for marker in (
+                "i/o timeout",
+                "connection timed out",
+                "connect: operation timed out",
+                "context deadline exceeded",
+            )
+        ):
+            code = "skopeo_registry_connect_timeout"
+            message = (
+                "Skopeo не смог установить сетевое соединение с локальным Harbor: "
+                "истекло время ожидания"
+            )
+        elif any(
+            marker in lowered
+            for marker in (
+                "connection refused",
+                "no route to host",
+                "network is unreachable",
+                "connection reset by peer",
+            )
+        ):
+            code = "skopeo_registry_connection_failed"
+            message = "Skopeo не смог подключиться к локальному Harbor по сети"
         elif SkopeoService._is_not_found(stderr):
             code = "skopeo_not_found"
             message = "Запрошенный OCI artifact не найден"
