@@ -328,6 +328,7 @@ class ImportOrchestrator:
         *,
         actor_username: str,
         overwrite_conflicts: bool,
+        skip_conflicts: bool = False,
     ) -> None:
         self._require_target()
         with self.session_factory() as session:
@@ -366,10 +367,15 @@ class ImportOrchestrator:
                 for item in preview.artifacts
                 if item.classification is ImportPreviewState.CONFLICT
             ]
-            if conflicts and not overwrite_conflicts:
+            if overwrite_conflicts and skip_conflicts:
+                raise ImportOrchestrationError(
+                    "import_conflict_policy_invalid",
+                    "Нельзя одновременно пропускать и перезаписывать CONFLICT",
+                )
+            if conflicts and not overwrite_conflicts and not skip_conflicts:
                 raise ImportOrchestrationError(
                     "import_conflict_blocked",
-                    "Preview содержит CONFLICT; overwrite по умолчанию запрещён",
+                    "Preview содержит CONFLICT; выберите skip или разрешённый overwrite",
                 )
             if overwrite_conflicts and not self.settings.import_allow_overwrite:
                 raise ImportOrchestrationError(
@@ -380,6 +386,7 @@ class ImportOrchestrator:
                 {
                     "bundle_sha256": operation.bundle_sha256,
                     "overwrite_conflicts": overwrite_conflicts,
+                    "skip_conflicts": skip_conflicts,
                     "requested_by": actor_username,
                     "requested_at": datetime.now(UTC).isoformat(),
                 },
@@ -492,9 +499,13 @@ class ImportOrchestrator:
 
     async def _import_worker(self, context: OperationContext, operation_id: int) -> None:
         context.transition(OperationStatus.IMPORTING)
-        operation, preview, overwrite, requested_at = self.persistence.load_execution_state(
-            operation_id
-        )
+        (
+            operation,
+            preview,
+            overwrite,
+            skip_conflicts,
+            requested_at,
+        ) = self.persistence.load_execution_state(operation_id)
         profile = self._assert_operation_profile(operation)
         archive, sidecar = self._bundle_paths(operation_id)
         observed_sha = await asyncio.to_thread(self._sha256_file, archive)
@@ -571,12 +582,19 @@ class ImportOrchestrator:
                         context.set_progress(current=index + 1, total=len(artifacts))
                         continue
                     if outcome[0] is ImportPreviewState.CONFLICT and not overwrite:
-                        context.set_artifact_status(
-                            row.id,
-                            ArtifactStatus.CONFLICT,
-                            target_digest=outcome[1],
-                        )
-                        failures += 1
+                        if skip_conflicts:
+                            context.set_artifact_status(
+                                row.id,
+                                ArtifactStatus.SKIPPED,
+                                target_digest=outcome[1],
+                            )
+                        else:
+                            context.set_artifact_status(
+                                row.id,
+                                ArtifactStatus.CONFLICT,
+                                target_digest=outcome[1],
+                            )
+                            failures += 1
                         context.set_progress(current=index + 1, total=len(artifacts))
                         continue
                     if outcome[0] in {ImportPreviewState.UNKNOWN, ImportPreviewState.ERROR}:
