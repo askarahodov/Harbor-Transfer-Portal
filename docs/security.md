@@ -47,7 +47,17 @@ Backend не доверяет client-supplied `X-Forwarded-Proto` как док�
 
 ### 3.2. Portal ↔ Local Harbor
 
-Граница local credential и TLS trust. Экземпляр может хранить несколько Harbor profiles, но в каждый момент имеет ровно один server-side authoritative active profile. Browse/Skopeo/Helm/export/import используют только его; browser не передаёт произвольный profile id в transfer API.
+Граница local credential, TLS trust и выбора registry execution context. Экземпляр может
+хранить несколько именованных Harbor profiles. Новый browser Export/Import получает список
+только enabled profiles через safe API и передаёт выбранный `profile_id` явно. Backend не
+доверяет произвольному registry URL/credential от browser: он разрешает `profile_id` в
+server-side profile record и при создании transfer operation фиксирует immutable snapshot
+`harbor_profile_id/name/url`.
+
+После создания operation worker использует operation-bound profile. Изменение browser
+selection или installation-wide **Legacy fallback Harbor** не может перенаправить уже
+persisted operation на другой registry. Legacy fallback используется только для старых
+callers/operations без explicit profile binding.
 
 ### 3.3. Backend ↔ Skopeo / Helm
 
@@ -139,7 +149,22 @@ Environment credential сохраняется для bootstrap compatibility, н
 
 API сообщает только, настроен ли credential, и не возвращает его значение или источник.
 
-Дополнительные Harbor profiles имеют изолированные credential/CA files под server-generated profile id. Active profile нельзя disable/delete. Его переключение является admin-only audit event и отклоняется при незавершённых export/import operations. Изменение URL/username/TLS/credential/CA active profile подчиняется тому же запрету. Process-local serialization barrier связывает activation/profile mutation с созданием transfer operation; SOURCE export дополнительно удерживает одну profile boundary от exact Harbor preview до persisted operation creation. Это не позволяет preview и mutation оказаться направленными в разные registries в v1 single-backend deployment.
+Дополнительные Harbor profiles имеют изолированные credential/CA files под server-generated
+profile id. Credential и CA content не возвращаются browser; API сообщает только
+configured-state.
+
+Mutation safety привязана не к глобальному active profile, а к persisted operation evidence.
+Пока существует non-terminal operation, связанная с profile, backend блокирует изменение
+URL/username/TLS/credential/CA и enabled state, способное изменить registry/trust identity
+во время выполнения. Persisted historical reference блокирует удаление profile. Текущий
+**Legacy fallback Harbor** нельзя disable/delete, пока admin не выберет другой enabled
+fallback, но переключение fallback не меняет уже pinned operations.
+
+Process-local serialization barrier связывает profile mutation с созданием transfer
+operation; SOURCE export дополнительно удерживает одну profile boundary от exact Harbor
+preview до persisted operation creation. Это не позволяет preview и mutation оказаться
+направленными в разные registries в v1 single-backend deployment. Полный contract:
+[harbor-profiles.md](harbor-profiles.md).
 
 ### URL validation
 

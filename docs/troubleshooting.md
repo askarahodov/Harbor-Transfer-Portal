@@ -533,38 +533,45 @@ BUNDLE_MAX_EXTRACTED_BYTES
 
 Если свободного места достаточно, но preflight стабильно считает иначе, приложите filesystem/volume topology и значения limits без secrets.
 
-## 13. Incoming bundle без `.sha256`
+## 13. Incoming delivery неполная: нет `.sha256` или signed handoff
 
 ### Текущее поведение
 
-TARGET incoming discovery реализован. `POST /api/imports/discover` сканирует только `*.htp.tar.gz` непосредственно в `IMPORT_DISCOVERY_ROOT` и claim-ит archive только при наличии обычного соседнего `<bundle>.sha256`.
+TARGET incoming discovery реализован. `POST /api/imports/discover` сканирует `*.htp.tar.gz` непосредственно в `IMPORT_DISCOVERY_ROOT`, но claim выполняется только для полного physical delivery triplet:
 
-Archive без sidecar **игнорируется** и не создаёт import operation. Это защищает от обработки ещё копируемого или не полностью доставленного bundle.
+- `<delivery>.htp.tar.gz`;
+- `<delivery>.htp.tar.gz.sha256`;
+- `<delivery>.htp-handoff.json`.
 
-Даже при корректном имени и наличии sidecar discovery также пропускает archive нулевого размера или archive, превышающий текущий effective `bundle_max_archive_bytes` (`BUNDLE_MAX_ARCHIVE_BYTES` без runtime override). В этих случаях import operation также не создаётся.
+Archive без sidecar или signed handoff **игнорируется** и не создаёт import operation. Перед claim backend дополнительно проверяет handoff signature/trust, Delivery ID, имена, размеры и SHA-256 фактических файлов. Это защищает от обработки ещё копируемой, неполной или подменённой delivery.
+
+Даже при полном triplet discovery пропускает archive нулевого размера или archive, превышающий текущий effective `bundle_max_archive_bytes` (`BUNDLE_MAX_ARCHIVE_BYTES` без runtime override). В этих случаях import operation также не создаётся.
 
 ### Диагностика
 
 Для transfer-media flow:
 
-1. скопируйте в configured incoming directory готовую пару archive + `.sha256`;
-2. откройте `/import`;
-3. нажмите **«Обнаружить готовые пакеты»**;
-4. проверьте, что появилась новая import operation.
+1. скопируйте в configured incoming directory все три файла одной delivery;
+2. убедитесь, что имена bundle/sidecar/handoff относятся к одному Delivery ID;
+3. откройте `/import`;
+4. нажмите **«Обнаружить готовые пакеты»**;
+5. проверьте, что появилась новая import operation.
 
 Если operation не появилась, проверьте одновременно:
 
-- имена archive/sidecar совпадают и образуют ожидаемую пару;
-- оба объекта являются обычными файлами в корне discovery directory;
+- все три объекта являются обычными non-symlink files в корне discovery directory;
 - archive не пустой;
+- sidecar соответствует archive;
+- signed handoff относится к тому же Delivery ID и подписан доверенным SOURCE key;
 - размер archive не превышает effective `bundle_max_archive_bytes` в admin transfer policies/Settings.
 
 ### Безопасное решение
 
-Если есть archive без sidecar или pair не проходит discovery:
+Если delivery неполная или не проходит discovery:
 
-- не пытайтесь запускать его как «почти готовый» bundle;
-- для отсутствующего sidecar дождитесь/повторите копирование пары файлов с SOURCE/носителя;
+- не пытайтесь запускать её как «почти готовый» bundle;
+- не создавайте sidecar/handoff вручную на TARGET и не переподписывайте delivery;
+- повторно перенесите полный triplet из исходного SOURCE output;
 - для пустого archive повторите физическое копирование готового SOURCE output;
 - при превышении archive limit сначала сверяйте ожидаемый размер bundle и capacity/security policy; не увеличивайте limit только ради обхода проверки;
 - если изменение лимита действительно утверждено, admin меняет `bundle_max_archive_bytes` через штатную policy/Settings и затем повторяет discovery;

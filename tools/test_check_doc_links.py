@@ -71,34 +71,5 @@ class CheckDocLinksTests(unittest.TestCase):
         self.assertEqual(check_file(self.root, source), [])
 
 
-class CurrentGuideContractTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.repository_root = Path(__file__).resolve().parents[1]
-
-    def test_user_guide_distinguishes_terminal_history_from_lifecycle_actions(self) -> None:
-        guide = (self.repository_root / "docs/user-guide.md").read_text(encoding="utf-8")
-
-        self.assertNotIn(
-            "History — read-only экран. Из него нельзя менять policy, перезапускать или отменять operation.",
-            guide,
-        )
-        self.assertIn("Terminal History остаётся read-only", guide)
-        self.assertIn("«Продолжить/Открыть»", guide)
-        self.assertIn("«Отменить»", guide)
-        self.assertIn("viewer остаётся read-only", guide)
-
-    def test_admin_guide_separates_legacy_fallback_from_transfer_selection(self) -> None:
-        guide = (self.repository_root / "docs/admin-guide.md").read_text(encoding="utf-8")
-
-        self.assertNotIn(
-            "Один profile всегда является **active**. Именно его используют Harbor browse API",
-            guide,
-        )
-        self.assertIn("нет installation-wide active Harbor", guide)
-        self.assertIn("Legacy fallback Harbor", guide)
-        self.assertIn("operation-bound profile", guide)
-        self.assertIn("новый browser Export/Import всегда отправляет выбранный profile explicitly", guide)
-
 if __name__ == "__main__":
     unittest.main()

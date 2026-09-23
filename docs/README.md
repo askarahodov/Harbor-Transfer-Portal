@@ -173,13 +173,36 @@ CI qualification покрывает:
 make docs-check
 ```
 
-Он запускает repository-relative Markdown link checker и его unit tests. Checker проверяет:
+Он запускает два независимых слоя проверки:
+
+1. **Markdown link checker** — проверяет repository-local targets без сетевых запросов;
+2. **documentation contract tests** — фиксируют ключевые current-state утверждения в entry
+   guides и не дают вернуть известные stale contracts.
+
+Link checker проверяет:
 
 - target file существует;
 - local link не выходит за repository root;
+- Docsify `_sidebar.md` использует разрешённые site-root Markdown targets, например
+  `/docs/dashboard.md`, и каждый такой target существует;
+- absolute Markdown links вне Docsify sidebar запрещены;
 - links внутри fenced code block не считаются реальными docs links;
 - external `http(s)`, `mailto`, `tel`, `data` links не crawl-ятся;
 - pure `#anchor` не требует file lookup.
+
+Documentation contract tests отдельно проверяют, в частности:
+
+- актуальный History lifecycle contract;
+- explicit/immutable Harbor profile selection вместо старого global active-Harbor
+  утверждения;
+- отсутствие конфликта `/docs/` между Docsify и якобы опубликованным OpenAPI UI;
+- Windows CMD/Python launcher как поддерживаемый путь без обязательного PowerShell/WSL;
+- physical delivery triplet с signed `.htp-handoff.json`;
+- multi-Harbor и русскоязычный release note contract.
+
+Live packaging/routing `/docs/` дополнительно проверяется Compose smoke: Markdown endpoints
+должны реально отдаваться как static files, а отсутствующий docs path не должен
+проваливаться в Vue SPA fallback.
 
 Path-aware CI включает documentation gate; результат входит в общий `quality-gate`.
 
@@ -219,7 +242,7 @@ Path-aware CI включает documentation gate; результат входи
 - planned behavior не описано как implemented;
 - normative protocol не переопределён prose example;
 - historical doc не используется как current source;
-- `make docs-check` зелёный;
+- `make docs-check` зелёный, включая link checker и documentation contract tests;
 - security recommendation не ослабляет TLS/signature/path/RBAC controls;
 - current-state assertions согласованы с code/tests и закрытыми release tasks;
 - CI выбрал gates по фактическому blast radius.

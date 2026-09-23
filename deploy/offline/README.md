@@ -78,9 +78,9 @@ PORTAL_BROWSER_SCHEME=https
 
 Полная модель: `docs/browser-transport.md` внутри release kit.
 
-После первого запуска настройте через admin UI **только local Harbor этой installation**, CA/credentials и требуемое key material. В universal installation SOURCE private signing key и TARGET trusted public keys могут сосуществовать в persistent storage, но active semantics жёстко разделяются текущим runtime mode.
+После первого запуска настройте через admin UI **только Harbor profiles локального security-контура этой installation**, их CA/credentials и требуемое key material. В одной installation может быть несколько именованных profiles, но SOURCE credentials не должны ссылаться на TARGET-контур и наоборот. В universal installation SOURCE private signing key и TARGET trusted public keys могут сосуществовать в persistent storage, но active semantics жёстко разделяются текущим runtime mode.
 
-Полный штатный пользовательский перенос выполняется через browser: в SOURCE role выбираются артефакты и скачивается bundle + `.sha256`, файлы физически переносятся в принимающий контур, затем Portal в TARGET role выполняет verify/preview/import через UI. Пошаговая процедура находится прямо в release kit: `docs/user-guide.md`.
+Полный штатный пользовательский перенос выполняется через browser: в SOURCE role выбирается SOURCE Harbor profile и артефакты, затем скачиваются **три файла одной delivery** — bundle, `.sha256` и signed `.htp-handoff.json`. В TARGET role выбирается TARGET Harbor profile, переносится полный triplet, signed handoff проверяется до Bundle v1 preview, после чего Portal выполняет verify/preview/import через UI. Пошаговая процедура находится прямо в release kit: `docs/user-guide.md`.
 
 ## Backup
 

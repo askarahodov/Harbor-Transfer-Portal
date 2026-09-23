@@ -33,7 +33,24 @@ python3 tools/dev.py build
 python3 tools/dev.py up
 ```
 
-### Windows PowerShell
+### Windows CMD — canonical path
+
+Для Windows source build/run PowerShell не требуется. В обычном `cmd.exe`:
+
+```bat
+copy /Y .env.example .env
+py -3 tools/dev.py doctor
+py -3 tools/dev.py build
+py -3 tools/dev.py up
+```
+
+`tools/dev.py` — основной cross-platform launcher. Он не зависит от shell-specific
+features и подходит для окружений, где запуск `.ps1` запрещён локальной политикой.
+
+### Windows PowerShell — optional convenience
+
+Если PowerShell scripts разрешены, `dev.ps1` остаётся тонким convenience wrapper над тем
+же `tools/dev.py`:
 
 ```powershell
 Copy-Item .env.example .env
@@ -42,13 +59,8 @@ Copy-Item .env.example .env
 .\dev.ps1 up
 ```
 
-Эквивалент без PowerShell wrapper:
-
-```powershell
-py -3 tools/dev.py doctor
-py -3 tools/dev.py build
-py -3 tools/dev.py up
-```
+Использование wrapper не даёт отдельного runtime behavior и не является обязательным
+условием поддержки Windows.
 
 ## Команды
 
@@ -74,14 +86,15 @@ git pull
 python3 tools/dev.py up
 ```
 
-Windows PowerShell:
+Windows CMD:
 
-```powershell
+```bat
 git pull
-.\dev.ps1 up
+py -3 tools/dev.py up
 ```
 
-Обе команды пересобирают images и force-recreate контейнеры. Простой restart старого container не считается обновлением source build.
+При разрешённом PowerShell тот же шаг можно выполнить через optional `.\dev.ps1 up`.
+Обе формы пересобирают images и force-recreate контейнеры. Простой restart старого container не считается обновлением source build.
 
 ## Что именно поддерживается на Windows
 
@@ -89,8 +102,8 @@ git pull
 
 Frontend source build можно выполнять native на Windows после `npm ci`:
 
-```powershell
-Set-Location frontend
+```bat
+cd frontend
 npm ci --no-audit --no-fund
 npm run build
 ```
