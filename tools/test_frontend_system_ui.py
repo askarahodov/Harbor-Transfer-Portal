@@ -142,7 +142,10 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
 
         self.assertIn("homepage: '/docs/README.md'", docs_index)
         self.assertIn("routerMode: 'hash'", docs_index)
-        self.assertIn("loadSidebar: '/docs/_sidebar.md'", docs_index)
+        self.assertIn("loadSidebar: true", docs_index)
+        self.assertNotIn("loadSidebar: '/docs/_sidebar.md'", docs_index)
+        self.assertIn("'/_sidebar.md': '/docs/_sidebar.md'", docs_index)
+        self.assertIn("'/.*/_sidebar.md': '/docs/_sidebar.md'", docs_index)
         self.assertIn("collapsibleSidebarGroups: true", docs_index)
         self.assertIn("relativePath: true", docs_index)
         self.assertIn("notFoundPage: '/docs/_404.md'", docs_index)
