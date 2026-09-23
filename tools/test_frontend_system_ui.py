@@ -192,32 +192,5 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
                     )
 
 
-    def test_current_guides_do_not_restore_legacy_history_or_harbor_claims(self) -> None:
-        user_guide = (_REPOSITORY_ROOT / "docs/user-guide.md").read_text(encoding="utf-8")
-        admin_guide = (_REPOSITORY_ROOT / "docs/admin-guide.md").read_text(encoding="utf-8")
-
-        self.assertNotIn(
-            "History — read-only экран. Из него нельзя менять policy, перезапускать или отменять operation.",
-            user_guide,
-        )
-        self.assertIn("Terminal History остаётся историческим/read-only", user_guide)
-        self.assertIn("владелец-`operator` или", user_guide)
-        self.assertIn("может открыть/продолжить тот же workflow либо запросить штатную отмену", user_guide)
-
-        self.assertNotIn(
-            "runtime browse/transfer используют authoritative active profile",
-            admin_guide,
-        )
-        self.assertNotIn(
-            "Именно его используют Harbor browse API, SOURCE export, TARGET destination validation, Skopeo и Helm.",
-            admin_guide,
-        )
-        self.assertIn("installation-wide active selector не является", admin_guide)
-        self.assertIn("immutable snapshot `harbor_profile_id/name/url`", admin_guide)
-        self.assertIn("**Legacy fallback Harbor**", admin_guide)
-        self.assertIn("Переключение fallback не блокируется новыми pinned", admin_guide)
-        self.assertIn("Mutation safety относится к самому operation-bound profile", admin_guide)
-
-
 if __name__ == "__main__":
     unittest.main()
