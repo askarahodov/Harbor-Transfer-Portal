@@ -94,9 +94,18 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
                 )
 
         class _Orchestrator:
-            def __init__(self, operation_id: int, states: list[ImportPreviewState]) -> None:
+            def __init__(
+                self,
+                operation_id: int,
+                states: list[ImportPreviewState],
+                *,
+                expected_overwrite: bool = True,
+                expected_skip: bool = False,
+            ) -> None:
                 self.operation_manager = _OperationManager(operation_id)
                 self.states = states
+                self.expected_overwrite = expected_overwrite
+                self.expected_skip = expected_skip
 
             def destination_plan(self, operation_id: int):
                 assert operation_id == self.operation_manager.operation_id
@@ -124,11 +133,13 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
                 *,
                 actor_username: str,
                 overwrite_conflicts: bool,
+                skip_conflicts: bool = False,
                 destination_plan_id: str | None = None,
             ) -> None:
                 assert operation_id == self.operation_manager.operation_id
                 assert actor_username == operator.username
-                assert overwrite_conflicts is True
+                assert overwrite_conflicts is self.expected_overwrite
+                assert skip_conflicts is self.expected_skip
                 assert destination_plan_id is None
 
         no_conflict = _Orchestrator(41, [ImportPreviewState.NEW, ImportPreviewState.SAME])
@@ -158,6 +169,23 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
         )
         assert response.operation_id == 42
 
+        skip_conflict = _Orchestrator(
+            43,
+            [ImportPreviewState.CONFLICT, ImportPreviewState.NEW],
+            expected_overwrite=False,
+            expected_skip=True,
+        )
+        response = asyncio.run(
+            execute_import(
+                43,
+                ImportExecuteRequest(skip_conflicts=True),
+                operator,
+                skip_conflict,
+                session,
+            )
+        )
+        assert response.operation_id == 43
+
         events = list(
             session.scalars(
                 select(AuditEvent)
@@ -170,10 +198,14 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
         "import.started",
         "import.started",
         "import.overwrite.approved",
+        "import.started",
+        "import.conflicts.skipped",
     ]
     first_metadata = json.loads(events[0].metadata_json)
     second_metadata = json.loads(events[1].metadata_json)
     approval_metadata = json.loads(events[2].metadata_json)
+    skip_started_metadata = json.loads(events[3].metadata_json)
+    skip_approval_metadata = json.loads(events[4].metadata_json)
     assert first_metadata["conflict_count"] == 0
     assert first_metadata["destination_plan_id"] == "plan-41"
     assert first_metadata["destination_plan_hash"] == "b" * 64
@@ -201,8 +233,19 @@ def test_overwrite_approval_requires_actual_conflict(tmp_path: Path) -> None:
     assert second_metadata["destination_plan_hash"] == "b" * 64
     assert approval_metadata["conflict_count"] == 2
     assert approval_metadata["source_delivery_id"] == "DELIVERY-42"
+    assert skip_started_metadata["conflict_count"] == 1
+    assert skip_started_metadata["skip_conflicts"] is True
+    assert skip_started_metadata["overwrite_conflicts"] is False
+    assert skip_approval_metadata["conflict_count"] == 1
+    assert skip_approval_metadata["source_delivery_id"] == "DELIVERY-43"
     serialized = json.dumps(
-        [first_metadata, second_metadata, approval_metadata],
+        [
+            first_metadata,
+            second_metadata,
+            approval_metadata,
+            skip_started_metadata,
+            skip_approval_metadata,
+        ],
         sort_keys=True,
     ).lower()
     assert "password" not in serialized
