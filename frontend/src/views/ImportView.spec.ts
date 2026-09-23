@@ -162,6 +162,81 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.find('.overwrite-confirmation').exists()).toBe(false)
   })
 
+  it('offers safe skip-existing action when TARGET plan contains conflicts', async () => {
+    sessionStorage.setItem('htp.import.operation-id', '51')
+    vi.spyOn(importsApi, 'getOperation')
+      .mockResolvedValueOnce(operation('READY'))
+      .mockResolvedValueOnce(operation('IMPORTING'))
+    vi.spyOn(importsApi, 'getImportPreview').mockResolvedValue(conflictPreview())
+    vi.spyOn(importsApi, 'buildImportDestinationPlan').mockResolvedValue({
+      operation_id: 51,
+      source_delivery_id: 'DELIVERY-20260914-IMPORT01',
+      actor_username: 'operator',
+      bundle_sha256: 'c'.repeat(64),
+      plan_id: 'e'.repeat(64),
+      plan_hash: 'f'.repeat(64),
+      mapping_policy_revision: 1,
+      created_at: '2026-09-14T05:02:30Z',
+      valid: true,
+      artifacts: [
+        {
+          index: 0,
+          artifact_type: 'container-image',
+          source_repository: 'project/app',
+          source_project: 'project',
+          name: null,
+          reference: '1.0.0',
+          version: null,
+          expected_digest: `sha256:${'a'.repeat(64)}`,
+          payload_size: 4096,
+          target_project: 'docker-prod',
+          target_repository: 'docker-prod/app',
+          final_reference: 'harbor.local/docker-prod/app:1.0.0',
+          project_exists: true,
+          write_allowed: true,
+          target_digest: `sha256:${'b'.repeat(64)}`,
+          classification: 'CONFLICT',
+          error_code: null,
+          message: null,
+        },
+      ],
+    })
+    const execute = vi.spyOn(importsApi, 'executeImport').mockResolvedValue({
+      operation_id: 51,
+      status: 'IMPORTING',
+    })
+
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('TARGET')
+    const auth = useAuthStore(pinia)
+    auth.initialized = true
+    auth.user = { id: 1, username: 'operator', role: 'operator', is_active: true }
+
+    const wrapper = mount(ImportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    const check = wrapper.findAll('button').find((item) => item.text().includes('Проверить TARGET'))
+    if (!check) throw new Error('TARGET validation button not found')
+    await check.trigger('click')
+    await flushPromises()
+
+    const skip = wrapper.findAll('button').find((item) =>
+      item.text().includes('Импортировать отсутствующие'),
+    )
+    expect(skip).toBeDefined()
+    expect(skip?.attributes('disabled')).toBeUndefined()
+    expect(wrapper.text()).toContain('существующие CONFLICT')
+    await skip!.trigger('click')
+    await flushPromises()
+
+    expect(execute).toHaveBeenCalledWith(51, false, 'e'.repeat(64), true)
+  })
+
   it('keeps drag-and-drop fully keyboard accessible and exposes empty discovery state', async () => {
     const runtime = useRuntimeStore(pinia)
     runtime.setContour('TARGET')
@@ -302,6 +377,7 @@ describe('TARGET import wizard view', () => {
       started_at: '2026-09-14T05:00:00Z',
       finished_at: '2026-09-14T05:05:00Z',
       overwrite_conflicts: false,
+      skip_conflicts: false,
       destination_plan_id: 'plan-51',
       result: 'COMPLETED',
       artifacts: [
