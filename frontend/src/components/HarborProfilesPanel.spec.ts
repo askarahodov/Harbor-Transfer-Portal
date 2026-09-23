@@ -232,7 +232,7 @@ describe('HarborProfilesPanel', () => {
     await flushPromises()
 
     expect(patch).toHaveBeenCalledWith(
-      \`/settings/harbor/profiles/\${secondProfile.id}\`,
+      `/settings/harbor/profiles/${secondProfile.id}`,
       expect.objectContaining({ enabled: false }),
     )
   })
@@ -256,7 +256,7 @@ describe('HarborProfilesPanel', () => {
     await flushPromises()
 
     expect(patch).toHaveBeenCalledWith(
-      \`/settings/harbor/profiles/\${secondProfile.id}\`,
+      `/settings/harbor/profiles/${secondProfile.id}`,
       { enabled: false },
     )
     expect(get).toHaveBeenCalledTimes(2)
@@ -293,7 +293,7 @@ describe('HarborProfilesPanel', () => {
     await flushPromises()
 
     expect(put).toHaveBeenCalledWith(
-      \`/settings/harbor/profiles/\${secondProfile.id}/ca\`,
+      `/settings/harbor/profiles/${secondProfile.id}/ca`,
       { certificate_pem: pem },
     )
     expect(wrapper.text()).not.toContain(pem)
@@ -317,7 +317,7 @@ describe('HarborProfilesPanel', () => {
     await flushPromises()
 
     expect(remove).toHaveBeenCalledWith(
-      \`/settings/harbor/profiles/\${secondProfile.id}/ca\`,
+      `/settings/harbor/profiles/${secondProfile.id}/ca`,
     )
     expect(wrapper.text()).toContain('Custom CA профиля Harbor DC-2 удалён')
   })
