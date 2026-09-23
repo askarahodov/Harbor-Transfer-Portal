@@ -40,6 +40,18 @@ class CheckDocLinksTests(unittest.TestCase):
         )
         self.assertEqual(check_file(self.root, source), [])
 
+    def test_docsify_sidebar_allows_site_root_markdown_target(self) -> None:
+        self.write("docs/dashboard.md", "# Dashboard\n")
+        sidebar = self.write("docs/_sidebar.md", "[Dashboard](/docs/dashboard.md)\n")
+        self.assertEqual(check_file(self.root, sidebar), [])
+
+    def test_site_root_markdown_target_remains_invalid_outside_sidebar(self) -> None:
+        self.write("docs/dashboard.md", "# Dashboard\n")
+        source = self.write("docs/source.md", "[Dashboard](/docs/dashboard.md)\n")
+        errors = check_file(self.root, source)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("absolute path", errors[0].reason)
+
     def test_path_escape_fails(self) -> None:
         source = self.write("docs/source.md", "[Outside](../../outside.md)\n")
         errors = check_file(self.root, source)
