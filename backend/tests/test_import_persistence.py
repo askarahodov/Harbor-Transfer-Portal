@@ -112,19 +112,25 @@ def test_preview_is_persisted_once_and_execution_state_round_trips(tmp_path: Pat
         assert operation is not None
         operation.import_policy_json = json.dumps(
             {
-                "overwrite_conflicts": True,
+                "overwrite_conflicts": False,
+                "skip_conflicts": True,
                 "requested_at": requested_at.isoformat(),
             }
         )
         session.commit()
 
-    operation, loaded_preview, overwrite, loaded_requested_at = persistence.load_execution_state(
-        operation_id
-    )
+    (
+        operation,
+        loaded_preview,
+        overwrite,
+        skip_conflicts,
+        loaded_requested_at,
+    ) = persistence.load_execution_state(operation_id)
 
     assert operation.id == operation_id
     assert loaded_preview == expected_preview
-    assert overwrite is True
+    assert overwrite is False
+    assert skip_conflicts is True
     assert loaded_requested_at == requested_at
 
     with pytest.raises(OperationTaskFailure) as captured:
