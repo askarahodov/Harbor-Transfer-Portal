@@ -93,7 +93,7 @@ describe('HarborProfilesPanel', () => {
     expect(wrapper.emitted('changed')).toHaveLength(1)
   })
 
-  it('creates a profile and stores an optional credential separately', async () => {
+  it('creates a profile and stores credential/CA separately without reading secrets back', async () => {
     vi.spyOn(apiClient, 'get')
       .mockResolvedValueOnce(response({ items: [defaultProfile] }))
       .mockResolvedValueOnce(response({ items: [defaultProfile, secondProfile] }))
@@ -117,6 +117,8 @@ describe('HarborProfilesPanel', () => {
     if (!user || !credential) throw new Error('Profile inputs not found')
     await user.setValue('svc-b')
     await credential.setValue('profile-secret-value')
+    const ca = wrapper.get('#harbor-profile-ca')
+    await ca.setValue('-----BEGIN CERTIFICATE-----\nTEST-CA\n-----END CERTIFICATE-----')
     await wrapper.get('.create-form').trigger('submit')
     await flushPromises()
 
@@ -131,7 +133,13 @@ describe('HarborProfilesPanel', () => {
       `/settings/harbor/profiles/${secondProfile.id}/credential`,
       { secret: 'profile-secret-value' },
     )
+    expect(put).toHaveBeenCalledWith(
+      `/settings/harbor/profiles/${secondProfile.id}/ca`,
+      { certificate_pem: '-----BEGIN CERTIFICATE-----\nTEST-CA\n-----END CERTIFICATE-----' },
+    )
     expect(wrapper.text()).not.toContain('profile-secret-value')
+    expect(wrapper.text()).not.toContain('TEST-CA')
+    expect(wrapper.get('#harbor-profile-ca').element).toHaveProperty('value', '')
   })
 
   it('edits an additional profile without reading the existing credential', async () => {
@@ -182,11 +190,77 @@ describe('HarborProfilesPanel', () => {
         url: 'https://harbor-b-new.local',
         username: 'svc-b',
         verify_tls: true,
-        enabled: true,
       },
     )
     expect(put).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('Harbor profile обновлён')
+  })
+
+  it('disables and re-enables an additional profile without changing the legacy fallback', async () => {
+    const disabledProfile = { ...secondProfile, enabled: false }
+    vi.spyOn(apiClient, 'get')
+      .mockResolvedValueOnce(response({ items: [defaultProfile, secondProfile] }))
+      .mockResolvedValueOnce(response({ items: [defaultProfile, disabledProfile] }))
+      .mockResolvedValueOnce(response({ items: [defaultProfile, secondProfile] }))
+    const patch = vi.spyOn(apiClient, 'patch')
+      .mockResolvedValueOnce(response(disabledProfile))
+      .mockResolvedValueOnce(response(secondProfile))
+
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+
+    const disable = wrapper.findAll('button').find((button) => button.text() === 'Отключить')
+    if (!disable) throw new Error('Disable button not found')
+    await disable.trigger('click')
+    await flushPromises()
+
+    expect(patch).toHaveBeenNthCalledWith(
+      1,
+      `/settings/harbor/profiles/${secondProfile.id}`,
+      { enabled: false },
+    )
+    expect(wrapper.text()).toContain('disabled')
+    expect(wrapper.text()).toContain('больше не предлагается для новых transfer workflows')
+    expect(wrapper.text()).toContain('Legacy fallback · Default Harbor')
+
+    const enable = wrapper.findAll('button').find((button) => button.text() === 'Включить')
+    if (!enable) throw new Error('Enable button not found')
+    await enable.trigger('click')
+    await flushPromises()
+
+    expect(patch).toHaveBeenNthCalledWith(
+      2,
+      `/settings/harbor/profiles/${secondProfile.id}`,
+      { enabled: true },
+    )
+    expect(wrapper.text()).toContain('снова доступен для новых transfer workflows')
+  })
+
+  it('removes an additional profile custom CA without exposing its PEM', async () => {
+    const withCa = { ...secondProfile, custom_ca_configured: true }
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(apiClient, 'get')
+      .mockResolvedValueOnce(response({ items: [defaultProfile, withCa] }))
+      .mockResolvedValueOnce(response({ items: [defaultProfile, secondProfile] }))
+    const remove = vi.spyOn(apiClient, 'delete').mockResolvedValue(
+      response({ changed_fields: ['custom_ca'] }),
+    )
+
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('custom CA есть')
+    const removeCa = wrapper.findAll('button').find((button) => button.text() === 'Удалить CA')
+    if (!removeCa) throw new Error('Remove CA button not found')
+    await removeCa.trigger('click')
+    await flushPromises()
+
+    expect(window.confirm).toHaveBeenCalledOnce()
+    expect(remove).toHaveBeenCalledWith(
+      `/settings/harbor/profiles/${secondProfile.id}/ca`,
+    )
+    expect(wrapper.text()).toContain('Custom CA для Harbor DC-2 удалён')
+    expect(wrapper.text()).not.toContain('BEGIN CERTIFICATE')
   })
 
   it('tests a profile without exposing credentials', async () => {
