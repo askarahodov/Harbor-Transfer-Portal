@@ -58,7 +58,10 @@ image. Отдельный Docsify container или дополнительный 
 ## Навигация
 
 Sidebar определён в [_sidebar.md](_sidebar.md) и является общей навигацией для всех
-Docsify routes. Он загружается явно через `loadSidebar: '/docs/_sidebar.md'`.
+Docsify routes. Конфигурация использует `loadSidebar: true`, чтобы Docsify выполнял
+штатный sidebar discovery для текущего route. Alias перенаправляет root/nested
+`_sidebar.md` requests на единый `/docs/_sidebar.md`, поэтому меню не исчезает при
+переходе к repository-level или deployment pages.
 
 В sidebar используются **обычные Markdown links на site-root paths**, например
 `/docs/dashboard.md`, а не вручную собранные hash links вида `#/docs/dashboard`.
