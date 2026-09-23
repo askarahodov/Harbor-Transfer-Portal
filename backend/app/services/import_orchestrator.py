@@ -587,6 +587,11 @@ class ImportOrchestrator:
                                 row.id,
                                 ArtifactStatus.SKIPPED,
                                 target_digest=outcome[1],
+                                error_code="import_conflict_skipped",
+                                error_message=(
+                                    "TARGET reference уже содержит другой digest; "
+                                    "артефакт явно пропущен без overwrite"
+                                ),
                             )
                         else:
                             context.set_artifact_status(
