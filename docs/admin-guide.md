@@ -166,9 +166,32 @@ Backend защищает от удаления последнего active admin
 
 Через admin **«Настройки локального Harbor»** можно хранить несколько именованных Harbor profiles. Для каждого profile задаются URL, username/service account, отдельный managed credential, TLS verification, optional custom CA и connection test.
 
-Один profile всегда является **active**. Именно его используют Harbor browse API, SOURCE export, TARGET destination validation, Skopeo и Helm. Переключение active profile выполняет admin; оно блокируется, пока существует незавершённая export/import operation. Active profile нельзя disable или удалить — сначала выберите другой. URL/username/TLS/credential/CA активного profile также нельзя менять во время незавершённой transfer operation: это предотвращает смену registry или trust context между preview и mutation. Inactive profiles при этом можно заранее редактировать и проверять.
+Для **новых browser transfer workflows** installation-wide active selector не является
+registry authority. Operator/admin явно выбирает enabled Harbor profile непосредственно в
+SOURCE **Отправка** до browse/preview/export или в TARGET **Приём** до
+upload/discovery/preview/import. Frontend передаёт `profile_id` явно, а backend при
+создании operation фиксирует immutable snapshot `harbor_profile_id/name/url`. После этого
+selector становится read-only, а worker использует operation-bound profile; изменение
+browser preference или legacy fallback не может перенаправить уже созданную operation.
 
-Существующая single-Harbor конфигурация из `.env`/legacy Settings представлена как защищённый **Default Harbor** profile. Это сохраняет backward compatibility: после upgrade active profile остаётся `default`, пока admin явно не выберет другой. Legacy `GET/PATCH /api/settings/harbor`, credential/CA endpoints и их connection test относятся именно к Default Harbor; runtime browse/transfer используют authoritative active profile.
+Installation-wide selector в Settings сохранён как **Legacy fallback Harbor** только для
+старых API callers/automation, которые не передают explicit `profile_id`, и для legacy
+operations без profile snapshot. Переключение fallback не блокируется новыми pinned
+operations; оно блокируется только незавершёнными legacy operations, которые действительно
+зависят от global fallback. Profile, являющийся текущим fallback, нельзя disable или
+удалить — сначала выберите другой enabled fallback.
+
+Mutation safety относится к самому operation-bound profile: пока существует связанная с
+ним non-terminal operation, backend блокирует изменение URL/username/TLS/credential/CA и
+enabled state, способное изменить execution identity/trust context. Profile, на который
+ссылается persisted operation evidence, нельзя удалить. Это ограничение действует
+независимо от того, является ли profile legacy fallback.
+
+Существующая single-Harbor конфигурация из `.env`/legacy Settings представлена как
+защищённый **Default Harbor** profile. Это сохраняет backward compatibility. Legacy
+`GET/PATCH /api/settings/harbor`, credential/CA endpoints и их connection test относятся
+именно к Default Harbor. Новый browse/export/import использует Default только когда он
+явно выбран в workflow; legacy caller без `profile_id` использует Legacy fallback.
 
 `HARBOR_URL` задаёт bootstrap/default profile и должен указывать на Harbor origin без embedded credentials, query/fragment или произвольного subpath. Дополнительные profiles хранят non-secret metadata в SQLite, а credentials/CA — отдельными files в persistent secret area; secret values API/UI не возвращают.
 
