@@ -125,6 +125,120 @@
         toc.hidden = list.children.length === 0
       }
 
+      var docsSidebarStateKey = 'htp.docs.sidebar.groups.v1'
+
+      function readSidebarGroupState() {
+        try {
+          return JSON.parse(window.localStorage.getItem(docsSidebarStateKey) || '{}')
+        } catch (error) {
+          return {}
+        }
+      }
+
+      function writeSidebarGroupState(state) {
+        try {
+          window.localStorage.setItem(docsSidebarStateKey, JSON.stringify(state))
+        } catch (error) {
+          // Local UI persistence is optional; navigation must still work without storage.
+        }
+      }
+
+      function directChild(element, predicate) {
+        return Array.prototype.find.call(element.children || [], predicate)
+      }
+
+      function sidebarGroupLabel(group) {
+        var directStrong = directChild(group, function (child) {
+          return child.tagName === 'STRONG'
+        })
+        if (directStrong) return { node: directStrong, container: directStrong }
+
+        var paragraph = directChild(group, function (child) {
+          return child.tagName === 'P'
+        })
+        if (!paragraph) return null
+
+        var strong = directChild(paragraph, function (child) {
+          return child.tagName === 'STRONG'
+        })
+        return strong ? { node: strong, container: paragraph } : null
+      }
+
+      function setSidebarGroupOpen(group, list, button, open) {
+        list.hidden = !open
+        group.classList.toggle('docs-sidebar-group--open', open)
+        button.setAttribute('aria-expanded', open ? 'true' : 'false')
+      }
+
+      function enhanceSidebarGroups() {
+        var root = document.querySelector('.sidebar-nav > ul')
+        if (!root) return
+
+        var storedState = readSidebarGroupState()
+        var groups = Array.prototype.slice.call(root.children || []).filter(function (child) {
+          return child.tagName === 'LI'
+        })
+
+        groups.forEach(function (group, index) {
+          var list = directChild(group, function (child) {
+            return child.tagName === 'UL'
+          })
+          var label = sidebarGroupLabel(group)
+          if (!list || !label) return
+
+          var groupName = (label.node.textContent || '').trim()
+          if (!groupName) return
+
+          var active = Boolean(group.querySelector('li.active, a.active')) || group.classList.contains('active')
+          var listId = 'docs-sidebar-group-' + index
+          list.id = listId
+          list.classList.add('docs-sidebar-group-list')
+          label.container.hidden = true
+
+          var button = directChild(group, function (child) {
+            return child.classList && child.classList.contains('docs-sidebar-group-toggle')
+          })
+
+          if (!button) {
+            button = document.createElement('button')
+            button.type = 'button'
+            button.className = 'docs-sidebar-group-toggle'
+            button.setAttribute('aria-controls', listId)
+
+            var title = document.createElement('span')
+            title.className = 'docs-sidebar-group-toggle__title'
+            title.textContent = groupName
+
+            var chevron = document.createElement('span')
+            chevron.className = 'docs-sidebar-group-toggle__chevron'
+            chevron.setAttribute('aria-hidden', 'true')
+            chevron.textContent = '›'
+
+            button.appendChild(title)
+            button.appendChild(chevron)
+            group.insertBefore(button, list)
+
+            button.addEventListener('click', function () {
+              var containsActive =
+                Boolean(group.querySelector('li.active, a.active')) || group.classList.contains('active')
+              var expanded = button.getAttribute('aria-expanded') === 'true'
+
+              if (containsActive && expanded) return
+
+              var nextOpen = !expanded
+              setSidebarGroupOpen(group, list, button, nextOpen)
+
+              var state = readSidebarGroupState()
+              state[groupName] = nextOpen
+              writeSidebarGroupState(state)
+            })
+          }
+
+          var open = active || storedState[groupName] === true
+          setSidebarGroupOpen(group, list, button, open)
+        })
+      }
+
       window.$docsify = {
         name: 'Harbor Transfer Portal',
         homepage: '/docs/README.md',
@@ -135,8 +249,8 @@
           '/_sidebar.md': '/docs/_sidebar.md',
           '/.*/_sidebar.md': '/docs/_sidebar.md',
         },
-        collapsibleSidebarGroups: true,
         auto2top: true,
+        skipLink: 'Перейти к содержимому',
         relativePath: true,
         notFoundPage: '/docs/_404.md',
         maxLevel: 3,
@@ -147,10 +261,22 @@
           noData: 'Ничего не найдено',
           depth: 4,
         },
+        copyCode: {
+          buttonText: 'Копировать',
+          errorText: 'Ошибка копирования',
+          successText: 'Скопировано',
+        },
+        pagination: {
+          previousText: 'Предыдущая',
+          nextText: 'Следующая',
+          crossChapter: true,
+          crossChapterText: false,
+        },
         plugins: [
           function (hook) {
             hook.doneEach(function () {
               window.requestAnimationFrame(function () {
+                enhanceSidebarGroups()
                 decorateHeadings()
                 updatePageTitle()
                 mountPageToc()
@@ -162,6 +288,26 @@
       }
     </script>
     <script src="/docs/_vendor/docsify.min.js"></script>
+    <script src="/docs/_vendor/prism-bash.min.js"></script>
+    <script src="/docs/_vendor/prism-batch.min.js"></script>
+    <script src="/docs/_vendor/prism-powershell.min.js"></script>
+    <script src="/docs/_vendor/prism-docker.min.js"></script>
+    <script src="/docs/_vendor/prism-json.min.js"></script>
+    <script src="/docs/_vendor/prism-yaml.min.js"></script>
+    <script src="/docs/_vendor/prism-python.min.js"></script>
+    <script src="/docs/_vendor/prism-sql.min.js"></script>
+    <script>
+      if (window.Prism) {
+        if (Prism.languages.batch) Prism.languages.bat = Prism.languages.batch
+        if (Prism.languages.bash) {
+          Prism.languages.sh = Prism.languages.bash
+          Prism.languages.shell = Prism.languages.bash
+        }
+        if (Prism.languages.docker) Prism.languages.dockerfile = Prism.languages.docker
+      }
+    </script>
     <script src="/docs/_vendor/search.min.js"></script>
+    <script src="/docs/_vendor/docsify-copy-code.min.js"></script>
+    <script src="/docs/_vendor/docsify-pagination.min.js"></script>
   </body>
 </html>
