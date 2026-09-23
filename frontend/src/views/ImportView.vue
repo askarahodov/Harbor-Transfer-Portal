@@ -463,7 +463,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <p v-if="!canOfferOverwrite">
-            Server-side policy не разрешает overwrite. Безопасное действие — остановить import и разрешить конфликт отдельно.
+            Overwrite запрещён server-side policy. Можно безопасно пропустить существующие CONFLICT и импортировать только отсутствующие NEW.
           </p>
           <label v-else class="overwrite-confirmation">
             <input v-model="wizard.overwriteConfirmed" type="checkbox">
@@ -482,7 +482,16 @@ onBeforeUnmount(() => {
             Импортировать NEW · пропустить SAME
           </button>
           <button
-            v-else-if="canOfferOverwrite"
+            v-else
+            class="button button--primary"
+            type="button"
+            :disabled="!wizard.canExecuteSkipConflicts || wizard.busy !== null"
+            @click="wizard.execute(false, true)"
+          >
+            Импортировать отсутствующие · существующие пропустить
+          </button>
+          <button
+            v-if="wizard.conflicts.length > 0 && canOfferOverwrite"
             class="button button--danger"
             type="button"
             :disabled="!wizard.canExecuteOverwrite || wizard.busy !== null"
