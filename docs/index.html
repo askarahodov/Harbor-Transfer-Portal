@@ -119,13 +119,12 @@
         name: 'Harbor Transfer Portal',
         homepage: '/docs/README.md',
         basePath: '/',
-        loadSidebar: true,
+        routerMode: 'hash',
+        loadSidebar: '/docs/_sidebar.md',
         collapsibleSidebarGroups: true,
-        alias: {
-          '/.*/_sidebar.md': '/docs/_sidebar.md',
-        },
         auto2top: true,
         relativePath: true,
+        notFoundPage: '/docs/_404.md',
         maxLevel: 3,
         subMaxLevel: 0,
         search: {
