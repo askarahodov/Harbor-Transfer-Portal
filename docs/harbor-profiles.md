@@ -130,6 +130,32 @@ Harbor browse/connection принимает:
 
 Неизвестный/disabled profile отклоняется backend.
 
+## Admin UI lifecycle :id=admin-ui-lifecycle
+
+В **Настройки → Harbor profiles** admin управляет дополнительными profiles без доступа к
+их сохранённым secret values.
+
+Для каждого дополнительного profile доступны:
+
+- редактирование display name, URL, username и TLS verification;
+- отдельная ротация credential;
+- установка/замена custom CA через PEM;
+- удаление custom CA без чтения текущего PEM обратно в browser;
+- connection test только для enabled profile;
+- enable/disable;
+- удаление profile, если backend допускает это по operation evidence.
+
+Disabled profile остаётся видимым в management UI, но исключается из
+`GET /api/harbor/profiles`, поэтому operator/admin не может выбрать его для нового
+Export/Import workflow.
+
+Profile, который сейчас является **Legacy fallback Harbor**, нельзя отключить. Сначала
+admin выбирает другой enabled fallback. Для operation-bound profiles backend независимо
+применяет mutation guards: non-terminal operation блокирует metadata/credential/CA
+mutation, а persisted historical evidence блокирует delete.
+
+Editor никогда не prefill-ит credential или CA content. Пустые secret/CA fields означают
+«не менять», а не «прочитать текущее значение».
 ## Admin API :id=admin-api
 
 Базовый prefix:
