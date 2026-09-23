@@ -30,7 +30,7 @@ class ImportOperationPersistence:
     def load_execution_state(
         self,
         operation_id: int,
-    ) -> tuple[Operation, ImportPreviewResponse, bool, datetime]:
+    ) -> tuple[Operation, ImportPreviewResponse, bool, bool, datetime]:
         with self.session_factory() as session:
             operation = session.get(Operation, operation_id)
             if (
@@ -49,10 +49,11 @@ class ImportOperationPersistence:
             policy = json.loads(operation.import_policy_json)
             requested_at = datetime.fromisoformat(policy["requested_at"])
             overwrite = bool(policy.get("overwrite_conflicts", False))
+            skip_conflicts = bool(policy.get("skip_conflicts", False))
             session.expunge(operation)
             for artifact in operation.artifacts:
                 session.expunge(artifact)
-            return operation, preview, overwrite, requested_at
+            return operation, preview, overwrite, skip_conflicts, requested_at
 
     def persist_verified_signer(
         self,
@@ -129,6 +130,7 @@ class ImportOperationPersistence:
                     "Operation отсутствует при формировании receipt",
                 )
             artifacts = sorted(operation.artifacts, key=lambda item: item.id)
+            policy = json.loads(operation.import_policy_json or "{}")
             receipt = ImportReceiptResponse(
                 operation_id=operation.id,
                 source_delivery_id=preview.source_delivery_id,
@@ -137,6 +139,7 @@ class ImportOperationPersistence:
                 started_at=requested_at,
                 finished_at=now,
                 overwrite_conflicts=overwrite,
+                skip_conflicts=bool(policy.get("skip_conflicts", False)),
                 result="FAILED" if failures else "COMPLETED",
                 artifacts=[
                     ImportReceiptArtifactResponse(
