@@ -77,7 +77,9 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
 
         self.assertIn("location = /index.html", nginx)
         self.assertIn("location = /runtime-config.js", nginx)
-        self.assertGreaterEqual(nginx.count('Cache-Control "no-store"'), 2)
+        self.assertGreaterEqual(nginx.count('Cache-Control "no-store"'), 4)
+        self.assertIn("location = /docs/", nginx)
+        self.assertIn("location = /docs/index.html", nginx)
         self.assertIn('Cache-Control "public, max-age=31536000, immutable"', nginx)
 
     def test_nginx_keeps_docsify_markdown_out_of_vue_spa_fallback(self) -> None:
@@ -85,6 +87,8 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
 
         self.assertIn("location = /docs", nginx)
         self.assertIn("return 308 /docs/;", nginx)
+        self.assertIn("location = /docs/", nginx)
+        self.assertIn("try_files /docs/index.html =404;", nginx)
         self.assertIn("location /docs/", nginx)
         self.assertIn("try_files $uri $uri/ =404;", nginx)
 
