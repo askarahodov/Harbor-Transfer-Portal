@@ -390,7 +390,16 @@ History использует persisted backend state, а не raw container logs
 - SOURCE/TARGET digest;
 - safe error code/message.
 
-History — read-only экран. Из него нельзя менять policy, перезапускать или отменять operation.
+Terminal History остаётся read-only: завершённые `COMPLETED`, `FAILED`, `REJECTED` и `CANCELLED` operations из History не перезапускаются и не мутируются.
+
+Для **незавершённой** operation History предоставляет только bounded lifecycle actions в рамках существующей backend policy:
+
+- владелец operation или admin может **«Продолжить/Открыть»** существующий workflow; Portal восстанавливает тот же operation id и не создаёт новую operation;
+- владелец operation или admin может **«Отменить»** operation через штатный backend cancel endpoint;
+- viewer остаётся read-only и lifecycle actions не получает;
+- если runtime mode не соответствует типу незавершённой operation, History не переключает mode автоматически, а показывает объяснение.
+
+Из History нельзя менять transfer policy, Harbor profile binding, persisted destination plan или результат terminal operation.
 
 ## 19. CSV и PDF отчёты
 
