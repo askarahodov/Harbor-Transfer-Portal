@@ -166,6 +166,10 @@ Backend защищает от удаления последнего active admin
 
 Через admin **«Настройки локального Harbor»** можно хранить несколько именованных Harbor profiles. Для каждого profile задаются URL, username/service account, отдельный managed credential, TLS verification, optional custom CA и connection test.
 
+Для дополнительных profiles UI также показывает состояние `enabled/disabled` и наличие custom CA. Admin может включать/отключать profile, устанавливать или заменять CA из локального PEM/CRT-файла и удалять custom CA отдельным действием. Содержимое ранее сохранённого credential или CA **никогда не подставляется обратно** в форму; при редактировании пустое secret/file поле означает «не менять».
+
+Default Harbor profile остаётся bootstrap/legacy fallback и не отключается через profile lifecycle UI. Active legacy fallback profile также нельзя отключить; backend остаётся authoritative и отклоняет небезопасные изменения.
+
 Один profile всегда является **active**. Именно его используют Harbor browse API, SOURCE export, TARGET destination validation, Skopeo и Helm. Переключение active profile выполняет admin; оно блокируется, пока существует незавершённая export/import operation. Active profile нельзя disable или удалить — сначала выберите другой. URL/username/TLS/credential/CA активного profile также нельзя менять во время незавершённой transfer operation: это предотвращает смену registry или trust context между preview и mutation. Inactive profiles при этом можно заранее редактировать и проверять.
 
 Существующая single-Harbor конфигурация из `.env`/legacy Settings представлена как защищённый **Default Harbor** profile. Это сохраняет backward compatibility: после upgrade active profile остаётся `default`, пока admin явно не выберет другой. Legacy `GET/PATCH /api/settings/harbor`, credential/CA endpoints и их connection test относятся именно к Default Harbor; runtime browse/transfer используют authoritative active profile.
