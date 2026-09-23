@@ -120,7 +120,11 @@
         homepage: '/docs/README.md',
         basePath: '/',
         routerMode: 'hash',
-        loadSidebar: '/docs/_sidebar.md',
+        loadSidebar: true,
+        alias: {
+          '/_sidebar.md': '/docs/_sidebar.md',
+          '/.*/_sidebar.md': '/docs/_sidebar.md',
+        },
         collapsibleSidebarGroups: true,
         auto2top: true,
         relativePath: true,
