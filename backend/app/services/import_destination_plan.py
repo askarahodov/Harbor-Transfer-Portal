@@ -545,6 +545,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         *,
         actor_username: str,
         overwrite_conflicts: bool,
+        skip_conflicts: bool = False,
         destination_plan_id: str | None = None,
     ) -> None:
         self._require_target()
@@ -579,10 +580,15 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         conflicts = [
             item for item in plan.artifacts if item.classification is ImportPreviewState.CONFLICT
         ]
-        if conflicts and not overwrite_conflicts:
+        if overwrite_conflicts and skip_conflicts:
+            raise ImportOrchestrationError(
+                "import_conflict_policy_invalid",
+                "Нельзя одновременно пропускать и перезаписывать CONFLICT",
+            )
+        if conflicts and not overwrite_conflicts and not skip_conflicts:
             raise ImportOrchestrationError(
                 "import_conflict_blocked",
-                "Destination plan содержит CONFLICT; overwrite по умолчанию запрещён",
+                "Destination plan содержит CONFLICT; выберите skip или разрешённый overwrite",
             )
         if overwrite_conflicts and not self.settings.import_allow_overwrite:
             raise ImportOrchestrationError(
@@ -634,6 +640,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     "bundle_sha256": operation.bundle_sha256,
                     "destination_plan_hash": persisted.plan_hash,
                     "overwrite_conflicts": overwrite_conflicts,
+                    "skip_conflicts": skip_conflicts,
                     "requested_by": actor_username,
                     "requested_at": requested_at.isoformat(),
                 }
