@@ -206,7 +206,14 @@ class ImportDestinationPlanResponse(BaseModel):
 
 class ImportExecuteRequest(BaseModel):
     overwrite_conflicts: bool = False
+    skip_conflicts: bool = False
     destination_plan_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_conflict_policy(self) -> ImportExecuteRequest:
+        if self.overwrite_conflicts and self.skip_conflicts:
+            raise ValueError("overwrite_conflicts and skip_conflicts are mutually exclusive")
+        return self
 
 
 class ImportStartResponse(BaseModel):
@@ -238,6 +245,7 @@ class ImportReceiptResponse(BaseModel):
     started_at: datetime
     finished_at: datetime
     overwrite_conflicts: bool
+    skip_conflicts: bool = False
     destination_plan_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     destination_plan_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     retry_of_operation_id: int | None = Field(default=None, gt=0)
