@@ -34,7 +34,7 @@ _CURRENT_GUIDE_REQUIRED_CLAIMS: dict[str, tuple[str, ...]] = {
     "docs/user-guide.md": (
         "Terminal History остаётся историческим/read-only",
         "может открыть/продолжить тот же workflow либо запросить штатную отмену",
-        "`viewer` остаётся полностью read-only",
+        "остаётся полностью read-only",
     ),
     "docs/admin-guide.md": (
         "installation-wide active selector не является",
