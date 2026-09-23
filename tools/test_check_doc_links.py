@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.check_doc_links import check_file
+from tools.check_doc_links import check_current_contract_claims, check_file
 
 
 class CheckDocLinksTests(unittest.TestCase):
@@ -57,6 +57,63 @@ class CheckDocLinksTests(unittest.TestCase):
         self.write("docs/img/logo.png", "not-binary-for-test")
         source = self.write("docs/source.md", "![Logo](img/logo.png)\n")
         self.assertEqual(check_file(self.root, source), [])
+
+
+    def write_current_guides(self) -> None:
+        self.write(
+            "docs/user-guide.md",
+            "\n".join(
+                (
+                    "Terminal History остаётся историческим/read-only",
+                    "owner может открыть/продолжить тот же workflow либо запросить штатную отмену",
+                    "`viewer` остаётся полностью read-only",
+                )
+            ),
+        )
+        self.write(
+            "docs/admin-guide.md",
+            "\n".join(
+                (
+                    "installation-wide active selector не является registry authority",
+                    "immutable snapshot `harbor_profile_id/name/url`",
+                    "**Legacy fallback Harbor**",
+                    "Переключение fallback не блокируется новыми pinned operations",
+                    "Mutation safety относится к самому operation-bound profile",
+                )
+            ),
+        )
+
+    def test_current_contract_claims_accept_current_guides(self) -> None:
+        self.write_current_guides()
+        self.assertEqual(check_current_contract_claims(self.root), [])
+
+    def test_current_contract_claims_reject_stale_history_statement(self) -> None:
+        self.write_current_guides()
+        source = self.root / "docs/user-guide.md"
+        source.write_text(
+            source.read_text(encoding="utf-8")
+            + "\nHistory — read-only экран. Из него нельзя менять policy, перезапускать или отменять operation.\n",
+            encoding="utf-8",
+        )
+
+        errors = check_current_contract_claims(self.root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("устаревшее утверждение", errors[0].reason)
+        self.assertGreater(errors[0].line, 1)
+
+    def test_current_contract_claims_reject_stale_active_harbor_authority(self) -> None:
+        self.write_current_guides()
+        source = self.root / "docs/admin-guide.md"
+        source.write_text(
+            source.read_text(encoding="utf-8")
+            + "\nИменно его используют Harbor browse API, SOURCE export, TARGET destination validation, Skopeo и Helm.\n",
+            encoding="utf-8",
+        )
+
+        errors = check_current_contract_claims(self.root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("current contract", errors[0].reason)
+
 
 
 if __name__ == "__main__":
