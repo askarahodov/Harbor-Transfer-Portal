@@ -82,6 +82,17 @@ Repository-level страницы (`README`, `CONTRIBUTING`, deployment guides) 
 - repository-level README/CONTRIBUTING/CHANGELOG;
 - исторический reference.
 
+Top-level groups после render превращаются в keyboard-accessible toggle buttons с
+`aria-expanded` / `aria-controls`. Активная group всегда остаётся раскрытой, а
+ручное состояние остальных groups сохраняется локально в browser storage. Это уменьшает
+длину sidebar без изменения source-of-truth `_sidebar.md`.
+
+Прямой `docsify-sidebar-collapse` из awesome-docsify сознательно не используется:
+его текущая implementation включает отдельный mobile pin behavior с hardcoded transform
+шириной 300px. Для Portal это конфликтует с нашим responsive sidebar contract и semantic
+layout tokens, поэтому collapse behavior реализован небольшим first-party enhancement
+поверх стандартного Docsify DOM.
+
 На desktop справа отображается блок **На этой странице** по заголовкам `H2/H3`.
 У каждого такого заголовка есть заметная permalink-ссылка. Anchor использует
 Docsify-compatible URL вида `#/docs/dashboard?id=проверки`, поэтому ссылка сохраняет
@@ -125,6 +136,40 @@ Documentation shell следует дизайн-системе Portal:
 
 Кастомные стили находятся в [portal-docs.css](portal-docs.css).
 
+## Code blocks и offline extensions
+
+Для технической документации используются fenced Markdown code blocks с explicit
+language tag, например:
+
+````markdown
+```bash
+docker compose up -d --build --force-recreate
+```
+````
+
+Docsify v5 использует Prism. Базовый runtime поддерживает HTML/CSS/JavaScript, а frontend
+image дополнительно содержит pinned `prismjs@1.29.0` grammars для `bash`, `batch`,
+`powershell`, `docker`, `json`, `yaml`, `python` и `sql`. Для существующих aliases
+`bat`, `sh`, `shell` и `dockerfile` регистрируются локальные mappings. Grammar files
+загружаются после Docsify, как требует Prism integration, и не обращаются к CDN.
+
+Из awesome-docsify выбраны два small-scope extensions, которые действительно улучшают
+операторскую документацию:
+
+- pinned `docsify-copy-code@3.0.1` — добавляет всегда видимое действие **Копировать** к
+  fenced code blocks; success/error labels локализованы;
+- pinned `docsify-pagination@2.10.1` — добавляет **Предыдущая / Следующая** в порядке
+  sidebar links и позволяет переходить между top-level groups.
+
+Оба extension и Prism grammars извлекаются через `npm pack --ignore-scripts` только на
+Docker build stage и копируются в final frontend image. Runtime Internet/CDN dependency
+не появляется.
+
+`docsify-tabs` из awesome-docsify не включён глобально: текущая документация не имеет
+достаточного объёма параллельных mutually-exclusive variants, чтобы оправдать дополнительный
+UI pattern. Его следует добавлять только при появлении реального content case, например
+Linux/Windows команды в одном и том же длинном procedure, а не как декоративный элемент.
+
 ## Контекстные ссылки из Portal
 
 Route metadata во frontend задаёт documentation target для основных экранов:
@@ -154,9 +199,11 @@ Markdown через `:id=...`; regression test проверяет, что target
 4. Обновите documentation impact в той же итерации, что и код.
 5. В sidebar добавляйте Markdown target, а не hash route. Для файла в `docs/` используйте
    site-root форму `/docs/<name>.md`.
-6. Если меняется navigation shell, anchors или packaging, обновите regression checks в
-   `tools/test_frontend_system_ui.py`, docs link checker и Compose smoke.
-7. Запустите `make docs-check` и scoped frontend/Compose tests.
+6. Для команд, конфигурации и payload examples используйте fenced code block с explicit
+   language tag; не оформляйте многострочные команды как inline code.
+7. Если меняется navigation shell, anchors, extension versions или packaging, обновите
+   regression checks в `tools/test_frontend_system_ui.py`, documentation contracts и Compose smoke.
+8. Запустите `make docs-check` и scoped frontend/Compose tests.
 
 Docsify не меняет правило source-of-truth: если rendered site и Markdown расходятся,
 дефект находится в packaging/navigation, а не решается копированием текста в отдельное
