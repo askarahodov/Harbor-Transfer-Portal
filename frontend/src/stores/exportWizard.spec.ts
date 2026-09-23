@@ -84,6 +84,22 @@ function operation(status: Operation['status']): Operation {
 }
 
 function mockBrowse(): void {
+  vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+    items: [
+      {
+        id: 'default',
+        name: 'Default Harbor',
+        url: 'https://harbor.local',
+        is_default: true,
+      },
+      {
+        id: 'profile-b',
+        name: 'Harbor B',
+        url: 'https://harbor-b.local',
+        is_default: false,
+      },
+    ],
+  })
   vi.spyOn(exportsApi, 'getHarborConnection').mockResolvedValue({
     connected: true,
     version: '2.14.0',
@@ -160,7 +176,32 @@ describe('export wizard store', () => {
         },
       ],
       comment: null,
+      harbor_profile_id: 'default',
     })
+  })
+
+  it('clears dependent SOURCE selection when Harbor profile changes', async () => {
+    const store = useExportWizardStore()
+    await store.initialize()
+    await store.chooseProject('team')
+    await store.chooseRepository('apps/demo')
+    store.toggleArtifact(store.artifacts[0]!, '1.0.0')
+
+    const connectionSpy = vi.mocked(exportsApi.getHarborConnection)
+    const projectsSpy = vi.mocked(exportsApi.listHarborProjects)
+    connectionSpy.mockClear()
+    projectsSpy.mockClear()
+
+    await store.selectHarborProfile('profile-b')
+
+    expect(store.selectedHarborProfileId).toBe('profile-b')
+    expect(store.selectedProject).toBeNull()
+    expect(store.selectedRepository).toBeNull()
+    expect(store.selectedCount).toBe(0)
+    expect(store.preview).toBeNull()
+    expect(connectionSpy).toHaveBeenCalledWith('profile-b')
+    expect(projectsSpy).toHaveBeenCalledWith(1, 25, '', 'profile-b')
+    expect(sessionStorage.getItem('htp.harbor.profile-id')).toBe('profile-b')
   })
 
   it('deduplicates aliases that resolve to the same immutable digest', () => {
@@ -256,11 +297,11 @@ describe('export wizard store', () => {
     await Promise.resolve()
 
     expect(projectsSpy).toHaveBeenCalledTimes(1)
-    expect(projectsSpy).toHaveBeenCalledWith(1, 25, 'report')
+    expect(projectsSpy).toHaveBeenCalledWith(1, 25, 'report', 'default')
     expect(repositoriesSpy).toHaveBeenCalledTimes(1)
-    expect(repositoriesSpy).toHaveBeenCalledWith('team', 1, 25, 'api')
+    expect(repositoriesSpy).toHaveBeenCalledWith('team', 1, 25, 'api', 'default')
     expect(artifactsSpy).toHaveBeenCalledTimes(1)
-    expect(artifactsSpy).toHaveBeenCalledWith('team', 'apps/demo', 1, 25, '1.2.3')
+    expect(artifactsSpy).toHaveBeenCalledWith('team', 'apps/demo', 1, 25, '1.2.3', 'default')
   })
 
   it('applies only the latest project response and ignores stale success and error', async () => {
@@ -275,6 +316,7 @@ describe('export wizard store', () => {
       .mockImplementationOnce(() => latestSuccess.promise)
 
     const store = useExportWizardStore()
+    await store.loadHarborProfiles()
 
     store.projectSearch = 'old'
     const oldRequest = store.loadProjects(1)

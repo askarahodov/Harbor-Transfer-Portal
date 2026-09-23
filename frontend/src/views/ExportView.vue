@@ -21,6 +21,7 @@ import {
 } from '@/api/exports'
 import ExportArtifactSelector from '@/components/ExportArtifactSelector.vue'
 import ExportReadyCard from '@/components/ExportReadyCard.vue'
+import HarborProfileSelector from '@/components/HarborProfileSelector.vue'
 import SearchCombobox from '@/components/SearchCombobox.vue'
 import WizardStepper from '@/components/WizardStepper.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
@@ -334,6 +335,17 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+
+      <HarborProfileSelector
+        id="export-harbor-profile"
+        label="SOURCE Harbor profile"
+        :profiles="wizard.harborProfiles"
+        :model-value="wizard.operation && !wizard.operation.harbor_profile_id ? null : wizard.selectedHarborProfileId"
+        :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
+        :locked="wizard.harborProfileLocked"
+        hint="Browse, preview и export будут закреплены за выбранным Harbor."
+        @update:model-value="wizard.selectHarborProfile"
+      />
 
       <section v-if="wizard.step === 1" class="wizard-card" aria-labelledby="selection-title">
         <div class="section-heading">

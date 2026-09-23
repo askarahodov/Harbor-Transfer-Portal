@@ -36,13 +36,33 @@ Sidebar также contour-aware: SOURCE operator/admin видит «Отпра�
 
 Для диагностики фактически запущенной сборки frontend image передаёт свой Git `VCS_REF` через offline-safe `runtime-config.js`. Верхняя панель показывает product version из backend health и короткий `UI <revision>` из самого frontend image. Это позволяет отличить новый backend от старого browser/frontend bundle при одинаковом product version. Для source checkout `make up` всегда выполняет build + force recreate текущего revision.
 
-## Harbor profiles в Settings
+## Harbor profiles и workflow selection
 
-Admin Settings содержит отдельную широкую карточку **Harbor profiles**. Она загружает `GET /api/settings/harbor/profiles`, показывает active profile и предоставляет компактный selector enabled profiles. `PUT /api/settings/harbor/profiles/{profile_id}/activate` меняет active profile только если backend подтверждает safe switch; при незавершённых transfer operations UI показывает server-side conflict и не подменяет его локальным состоянием.
+Admin Settings содержит карточку **Harbor profiles** для управления именованными registry
+profiles. Installation-wide selector в этой карточке явно обозначен как **legacy fallback**:
+он нужен для backward-compatible клиентов без explicit profile id и не управляет новым
+browser transfer workflow.
 
-Новый profile создаётся через тот же экран с name/URL/username/TLS и optional credential. Credential отправляется отдельным request и после submission очищается из frontend state. Connection test выполняется per-profile. Legacy connection form ниже явно подписана **Default Harbor profile** и остаётся bootstrap/backward-compatible настройкой default profile; её GET/PATCH, credential/CA и connection test не меняют смысл при выборе другого active profile.
+SOURCE Export и TARGET Import используют общий session-local selector. Список безопасных
+enabled metadata загружается через `GET /api/harbor/profiles`. Выбор хранится только как
+profile id в `sessionStorage`; credential/CA никогда не попадают в frontend.
 
-После смены active profile Settings заново проверяет Harbor readiness. Export/import не принимают profile id от браузера: они используют server-side authoritative active profile, поэтому frontend не может произвольно подменить registry для отдельной операции.
+В Export выбранный profile передаётся в Harbor browse/connection как query `profile_id`,
+а preview/start — как `harbor_profile_id`. Смена profile до preview очищает project,
+repository, artifact selection и зависимые search results.
+
+В Import выбранный profile передаётся уже на upload/discovery boundary. После создания
+operation UI читает persisted `harbor_profile_id/name/url` из operation response, фиксирует
+selector read-only и передаёт тот же id в destination plan. Reload/resume поэтому
+восстанавливает именно Harbor, закреплённый backend, а не текущую browser preference.
+
+History показывает safe operation snapshot profile name/URL вместе с persisted transfer
+evidence. Legacy operation без snapshot остаётся читаемой как legacy record.
+
+Новый profile создаётся в Settings с name/URL/username/TLS и optional credential.
+Credential отправляется отдельным request и после submission очищается из frontend state.
+Connection test выполняется per-profile. Default Harbor form остаётся
+bootstrap/backward-compatible настройкой profile `default`.
 
 ## Transfer policies и retention в Settings
 

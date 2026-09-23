@@ -4,6 +4,7 @@ import { apiClient } from '@/api/client'
 
 import {
   buildImportDestinationPlan,
+  discoverImportBundles,
   executeImport,
   uploadImportBundle,
   type ImportDestinationPlan,
@@ -32,6 +33,7 @@ afterEach(() => vi.restoreAllMocks())
 describe('import destination API contract', () => {
   it('sends mapping through the destination-plan PUT endpoint unchanged', async () => {
     const mapping: ImportDestinationPlanRequest = {
+      harbor_profile_id: 'profile-target',
       container_image_project: 'docker-target',
       helm_chart_project: 'helm-target',
       project_mappings: { source: 'mapped-target' },
@@ -59,7 +61,7 @@ describe('import destination API contract', () => {
       type: 'application/json',
     })
 
-    await uploadImportBundle(bundle, undefined, { sidecar, handoff })
+    await uploadImportBundle(bundle, undefined, { sidecar, handoff }, 'profile-target')
 
     expect(post).toHaveBeenCalledOnce()
     expect(post.mock.calls[0]?.[0]).toBe('/imports/upload')
@@ -72,9 +74,20 @@ describe('import destination API contract', () => {
           'X-HTP-Sidecar-Base64': btoa('sidecar'),
           'X-HTP-Handoff-Base64': btoa('handoff'),
         }),
+        params: { profile_id: 'profile-target' },
         timeout: 0,
       }),
     )
+  })
+
+  it('binds incoming discovery to the selected Harbor profile', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ data: { operations: [] } })
+
+    await discoverImportBundles('profile-target')
+
+    expect(post).toHaveBeenCalledWith('/imports/discover', undefined, {
+      params: { profile_id: 'profile-target' },
+    })
   })
 
   it('binds execute to the exact confirmed destination plan id', async () => {

@@ -74,6 +74,17 @@ export type HarborConnection = {
   auth_mode: string | null
 }
 
+export type HarborProfileOption = {
+  id: string
+  name: string
+  url: string
+  is_default: boolean
+}
+
+export type HarborProfileOptions = {
+  items: HarborProfileOption[]
+}
+
 export type ExportSelection = {
   kind: Exclude<ArtifactKind, 'unknown-oci'>
   project: string
@@ -85,6 +96,7 @@ export type ExportSelection = {
 export type ExportSelectionRequest = {
   artifacts: ExportSelection[]
   comment: string | null
+  harbor_profile_id?: string
 }
 
 export type ExportResolvedArtifact = {
@@ -161,6 +173,9 @@ export type Operation = {
   status: OperationStatus
   actor_username: string
   comment: string | null
+  harbor_profile_id?: string | null
+  harbor_profile_name?: string | null
+  harbor_profile_url?: string | null
   started_at: string | null
   finished_at: string | null
   error_code: string | null
@@ -205,21 +220,33 @@ export type ExportDownloadTicket = {
   expires_in_seconds: number
 }
 
-function params(page: number, pageSize: number, search: string) {
+function params(
+  page: number,
+  pageSize: number,
+  search: string,
+  profileId?: string,
+) {
   return {
     page,
     page_size: pageSize,
+    ...(profileId ? { profile_id: profileId } : {}),
     ...(search.trim() ? { search: search.trim() } : {}),
   }
+}
+
+export async function listHarborProfiles(): Promise<HarborProfileOptions> {
+  const response = await apiClient.get<HarborProfileOptions>('/harbor/profiles')
+  return response.data
 }
 
 export async function listHarborProjects(
   page: number,
   pageSize: number,
   search: string,
+  profileId?: string,
 ): Promise<PageResponse<HarborProject>> {
   const response = await apiClient.get<PageResponse<HarborProject>>('/harbor/projects', {
-    params: params(page, pageSize, search),
+    params: params(page, pageSize, search, profileId),
   })
   return response.data
 }
@@ -229,10 +256,11 @@ export async function listHarborRepositories(
   page: number,
   pageSize: number,
   search: string,
+  profileId?: string,
 ): Promise<PageResponse<HarborRepository>> {
   const response = await apiClient.get<PageResponse<HarborRepository>>(
     `/harbor/projects/${encodeURIComponent(project)}/repositories`,
-    { params: params(page, pageSize, search) },
+    { params: params(page, pageSize, search, profileId) },
   )
   return response.data
 }
@@ -243,21 +271,24 @@ export async function listHarborArtifacts(
   page: number,
   pageSize: number,
   search: string,
+  profileId?: string,
 ): Promise<PageResponse<HarborArtifact>> {
   const response = await apiClient.get<PageResponse<HarborArtifact>>(
     `/harbor/projects/${encodeURIComponent(project)}/artifacts`,
     {
       params: {
         repository,
-        ...params(page, pageSize, search),
+        ...params(page, pageSize, search, profileId),
       },
     },
   )
   return response.data
 }
 
-export async function getHarborConnection(): Promise<HarborConnection> {
-  const response = await apiClient.get<HarborConnection>('/harbor/connection')
+export async function getHarborConnection(profileId?: string): Promise<HarborConnection> {
+  const response = await apiClient.get<HarborConnection>('/harbor/connection', {
+    params: profileId ? { profile_id: profileId } : undefined,
+  })
   return response.data
 }
 
