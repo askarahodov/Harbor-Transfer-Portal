@@ -108,11 +108,27 @@ docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/da
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/settings.md" | grep -F '# Настройки Portal' >/dev/null
 docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/docsify.min.js"
 docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/search.min.js"
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/docsify-copy-code.min.js"
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/docsify-pagination.min.js"
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/prism-bash.min.js"
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/prism-batch.min.js"
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/prism-powershell.min.js"
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/prism-docker.min.js"
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/prism-json.min.js"
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/prism-yaml.min.js"
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/prism-python.min.js"
+docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/prism-sql.min.js"
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/_portal/tokens.css" | grep -F -- '--color-brand-surface' >/dev/null
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F -- '--docs-article-max: 980px' >/dev/null
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F -- 'color: var(--color-brand-text-muted) !important' >/dev/null
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F -- 'grid-template-columns: minmax(0, var(--docs-article-max))' >/dev/null
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/" | grep -F 'mountPageToc' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/" | grep -F 'enhanceSidebarGroups' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/" | grep -F "buttonText: 'Копировать'" >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/" | grep -F "previousText: 'Предыдущая'" >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F -- '.docs-sidebar-group-toggle' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F -- '.docsify-copy-code-button' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F -- '.docsify-pagination-container' >/dev/null
 if docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/__missing_route_contract__.md"; then
     echo 'Несуществующий docs Markdown не должен падать в Vue SPA fallback.' >&2
     exit 1

@@ -198,11 +198,14 @@ Documentation contract tests отдельно проверяют, в частн�
 - отсутствие конфликта `/docs/` между Docsify и якобы опубликованным OpenAPI UI;
 - Windows CMD/Python launcher как поддерживаемый путь без обязательного PowerShell/WSL;
 - physical delivery triplet с signed `.htp-handoff.json`;
-- multi-Harbor и русскоязычный release note contract.
+- multi-Harbor и русскоязычный release note contract;
+- Docsify navigation/code extension contract и отсутствие runtime CDN dependency;
+- explicit language tag у fenced code blocks во всех current-source Markdown docs.
 
 Live packaging/routing `/docs/` дополнительно проверяется Compose smoke: Markdown endpoints
-должны реально отдаваться как static files, а отсутствующий docs path не должен
-проваливаться в Vue SPA fallback.
+должны реально отдаваться как static files, отсутствующий docs path не должен
+проваливаться в Vue SPA fallback, а vendored Docsify extensions/Prism grammars должны
+фактически присутствовать в final frontend image.
 
 Path-aware CI включает documentation gate; результат входит в общий `quality-gate`.
 
@@ -237,6 +240,7 @@ Path-aware CI включает documentation gate; результат входи
 Перед merge проверить:
 
 - commands, paths, env names и endpoints существуют;
+- fenced code blocks имеют explicit language tag и не маскируют многострочные команды inline code;
 - SOURCE/TARGET не перепутаны;
 - нет real secrets/credentials/private keys;
 - planned behavior не описано как implemented;
