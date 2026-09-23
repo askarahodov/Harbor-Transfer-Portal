@@ -12,45 +12,93 @@
 
 ## Интерфейс
 
-### Dashboard
-
 ![Dashboard](docs/img/screenshots/dashboard.png)
 
-### Login
+## Быстрый старт
 
-![Login](docs/img/screenshots/login.png)
+### Требования
 
-### Export
+- Docker Engine + Docker Compose v2
+- Git
+- Windows 10/11 (с WSL 2) или Linux
 
-![Export](docs/img/screenshots/export.png)
+### Windows (PowerShell)
 
-### Import
+```powershell
+# 1. Клонировать и настроить
+git clone https://github.com/askarahodov/Harbor-Transfer-Portal.git
+cd Harbor-Transfer-Portal
+cp .env.example .env
+# Отредактируйте .env: PORTAL_CONTOUR, HARBOR_URL, HARBOR_USER, HARBOR_PASSWORD, JWT_SECRET
 
-![Import](docs/img/screenshots/import.png)
+# 2. Запуск
+docker compose up -d --build
 
-### History
+# 3. Создать админа (первый запуск)
+$env:BOOTSTRAP_ADMIN_PASSWORD = "ваш-пароль-12+"
+docker compose exec -T -e BOOTSTRAP_ADMIN_PASSWORD=$env:BOOTSTRAP_ADMIN_PASSWORD backend python -m app.auth.cli --username admin
+Remove-Item env:BOOTSTRAP_ADMIN_PASSWORD
 
-![History](docs/img/screenshots/history.png)
+# 4. Открыть в браузере
+# http://localhost:8080  (web UI)
+# http://localhost:8080/docs  (OpenAPI)
+```
 
-### Settings
+### Linux / WSL 2
 
-![Settings](docs/img/screenshots/settings.png)
+```bash
+# 1. Клонировать и настроить
+git clone https://github.com/askarahodov/Harbor-Transfer-Portal.git
+cd Harbor-Transfer-Portal
+cp .env.example .env
+# Отредактируйте .env: PORTAL_CONTOUR, HARBOR_URL, HARBOR_USER, HARBOR_PASSWORD, JWT_SECRET
 
-Портал используется, когда SOURCE и TARGET не имеют прямого сетевого соединения: пакет формируется на SOURCE, переносится разрешённым физическим способом и проверяется перед импортом на TARGET.
+# 2. Запуск
+docker compose up -d --build
 
-> **Статус:** функциональный объём **v1.0.0** реализован и прошёл release qualification. Production rollout требует локального change/release approval и проверки инфраструктуры конкретного контура.
+# 3. Создать админа (первый запуск)
+export BOOTSTRAP_ADMIN_PASSWORD="ваш-пароль-12+"
+docker compose exec -T -e BOOTSTRAP_ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD" backend python -m app.auth.cli --username admin
+unset BOOTSTRAP_ADMIN_PASSWORD
 
-## С чего начать
+# 4. Открыть в браузере
+# http://localhost:8080  (web UI)
+# http://localhost:8080/docs  (OpenAPI)
+```
 
-### Локальная web-документация
+### Обязательные переменные в `.env`
 
-После запуска Portal полная документация доступна через встроенный Docsify на том же адресе:
-`http://127.0.0.1:8080/docs/` при стандартном `PORTAL_HTTP_PORT=8080`.
-Docsify JS/CSS включены во frontend image, поэтому для чтения документации в закрытом контуре
-не требуется Internet/CDN. В основных разделах Portal кнопка **Документация** открывает
-контекстно подходящую страницу.
+| Переменная | Описание | Пример |
+|---|---|---|
+| `PORTAL_CONTOUR` | `SOURCE` или `TARGET` | `SOURCE` |
+| `HARBOR_URL` | URL локального Harbor | `https://harbor.local` |
+| `HARBOR_USER` | Service account | `transfer-bot` |
+| `HARBOR_PASSWORD` | Пароль или файл секрета | `secret` |
+| `JWT_SECRET` | Случайный секрет ≥32 символа | `openssl rand -base64 48` |
 
-Подробности: [локальный documentation portal](docs/docsify.md).
+### Полезные команды
+
+```bash
+docker compose ps           # Статус сервисов
+docker compose logs -f      # Логи в реальном времени
+docker compose down         # Остановить (данные сохраняются)
+docker compose down -v      # Остановить и удалить данные
+docker compose restart      # Перезапуск
+docker compose up -d --build # Пересборка и запуск
+```
+
+### Доступ
+
+- **Web UI:** `http://localhost:8080`
+- **OpenAPI:** `http://localhost:8080/docs`
+- **Health:** `http://localhost:8080/api/health`
+- **Docsify (встроенная документация):** `http://localhost:8080/docs/`
+
+### Встроенная документация
+
+После запуска полная документация доступна через встроенный Docsify на том же адресе:
+`http://127.0.0.1:8080/docs/` (при стандартном `PORTAL_HTTP_PORT=8080`).
+Docsify JS/CSS включены во frontend image, поэтому для чтения документации в закрытом контуре не требуется Internet/CDN.
 
 | Если вы… | Откройте |
 |---|---|
@@ -58,9 +106,7 @@ Docsify JS/CSS включены во frontend image, поэтому для чт�
 | администрируете Portal / Harbor | [Руководство администратора](docs/admin-guide.md) |
 | устанавливаете Portal в закрытом контуре | [Offline installation guide](deploy/offline/README.md) |
 | устраняете проблему | [Troubleshooting](docs/troubleshooting.md) |
-| разрабатываете или сопровождаете проект | [Локальная разработка Windows/Linux](docs/development.md), [карту документации](docs/README.md) и [CONTRIBUTING.md](CONTRIBUTING.md) |
-
-Для штатного переноса оператору не нужно вручную работать с `skopeo`, `helm`, `tar`, `sha256sum` или Harbor CLI.
+| разрабатываете или сопровождаете проект | [Локальная разработка Windows/Linux](docs/development.md), [карта документации](docs/README.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## Как это работает
 
