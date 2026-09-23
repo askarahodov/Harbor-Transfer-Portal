@@ -16,6 +16,8 @@ Detail загружается через `GET /api/operations/{id}` и пока�
 
 Для mapped TARGET import `artifact_results` дополнительно содержит immutable execution snapshot: SOURCE project/repository/reference, фактический TARGET project/repository/full reference, destination plan id/hash и explicit overwrite authorization state. History показывает SOURCE и TARGET отдельными колонками.
 
+Новые EXPORT/IMPORT operations дополнительно содержат immutable safe Harbor profile snapshot: `harbor_profile_id`, display name и URL. History показывает name/host в списке и полный URL snapshot в detail drawer. Credential, CA и другие secrets в history response не входят. Legacy rows без snapshot продолжают отображаться как legacy evidence.
+
 **Исторический TARGET никогда не вычисляется заново из текущих admin mapping defaults.** Изменение default image/Helm project, source→target map или policy revision после import не меняет уже сохранённую историю. Legacy rows без mapping snapshot остаются читаемыми: SOURCE использует существующие persisted identity fields, TARGET отображается как отсутствующий, а не угадывается.
 
 ## Receipt и bundle

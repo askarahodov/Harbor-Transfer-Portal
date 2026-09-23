@@ -4,6 +4,8 @@
 
 Этот документ описывает администрирование одной установки Harbor Transfer Portal: offline install, runtime role, local Harbor, users/RBAC, credentials/CA, signing/trust keys, transfer policies, persistent data и lifecycle. Пошаговый operator flow SOURCE → physical transfer → TARGET описан в [user-guide.md](user-guide.md). Полный contract переключения роли — [runtime-mode.md](runtime-mode.md). Нормативный переносимый формат задаёт [Offline Bundle Protocol v1](offline-bundle-v1.md), security model — [security.md](security.md).
 
+Фактическая структура экрана **Настройки** — Harbor profiles, readiness, default Harbor, credential/CA, keys, transfer policies, retention и TARGET mapping defaults — описана отдельно в [settings.md](settings.md).
+
 ![Settings](img/screenshots/settings.png)
 
 ## 1. Один deployment, runtime role SOURCE/TARGET

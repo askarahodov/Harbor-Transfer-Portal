@@ -111,6 +111,10 @@ def _profile_error(exc: HarborSettingsError) -> HTTPException:
         "harbor_profile_active_protected",
         "harbor_profile_busy",
         "harbor_active_profile_invalid",
+        "harbor_profile_in_use",
+        "harbor_profile_selection_locked",
+        "harbor_profile_changed",
+        "harbor_profile_binding_invalid",
     }:
         return _api_error(status.HTTP_409_CONFLICT, exc.code, exc.message)
     return _api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code, exc.message)

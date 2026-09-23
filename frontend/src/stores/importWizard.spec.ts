@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import * as exportsApi from '@/api/exports'
 import * as importsApi from '@/api/imports'
 import type { ImportDestinationPlan, ImportPreview, Operation } from '@/api/imports'
 
@@ -145,6 +146,22 @@ function destinationPlan(
 beforeEach(() => {
   setActivePinia(createPinia())
   sessionStorage.clear()
+  vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+    items: [
+      {
+        id: 'default',
+        name: 'Default Harbor',
+        url: 'https://harbor.local',
+        is_default: true,
+      },
+      {
+        id: 'profile-b',
+        name: 'Harbor B',
+        url: 'https://harbor-b.local',
+        is_default: false,
+      },
+    ],
+  })
 })
 
 afterEach(() => {
@@ -154,6 +171,29 @@ afterEach(() => {
 })
 
 describe('import wizard store', () => {
+  it('uses shared profile preference and locks to persisted operation binding', async () => {
+    const store = useImportWizardStore()
+    await store.loadHarborProfiles()
+    store.selectHarborProfile('profile-b')
+    expect(store.selectedHarborProfileId).toBe('profile-b')
+
+    const bound = {
+      ...operation('READY'),
+      harbor_profile_id: 'default',
+      harbor_profile_name: 'Default Harbor',
+      harbor_profile_url: 'https://harbor.local',
+    }
+    vi.spyOn(importsApi, 'getOperation').mockResolvedValue(bound)
+    vi.spyOn(importsApi, 'getImportPreview').mockResolvedValue(preview())
+
+    await store.selectOperation(51)
+
+    expect(store.selectedHarborProfileId).toBe('default')
+    expect(store.harborProfileLocked).toBe(true)
+    store.selectHarborProfile('profile-b')
+    expect(store.selectedHarborProfileId).toBe('default')
+  })
+
   it('uploads a raw bundle, persists operation id and opens verified preview with import fail-closed', async () => {
     const uploadSpy = vi.spyOn(importsApi, 'uploadImportBundle').mockResolvedValue({
       operation_id: 51,
@@ -167,7 +207,7 @@ describe('import wizard store', () => {
 
     expect(await store.upload(file)).toBe(true)
 
-    expect(uploadSpy).toHaveBeenCalledWith(file, expect.any(Function))
+    expect(uploadSpy).toHaveBeenCalledWith(file, expect.any(Function), undefined, 'default')
     expect(store.selectedFile).toEqual({ name: 'transfer.htp.tar.gz', size: 6 })
     expect(sessionStorage.getItem('htp.import.operation-id')).toBe('51')
     expect(store.step).toBe(2)

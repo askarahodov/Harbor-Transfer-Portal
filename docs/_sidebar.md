@@ -10,6 +10,7 @@
   - [Frontend](#/docs/frontend)
   - [History UI](#/docs/history-ui)
   - [Управление пользователями](#/docs/admin-user-management)
+  - [Настройки Portal](#/docs/settings)
   - [Reports и receipts](#/docs/reports-receipts)
 
 - **Перенос SOURCE → TARGET**

@@ -26,6 +26,7 @@ from app.schemas.imports import (
     ImportDestinationPlanRequest,
     ImportPreviewResponse,
 )
+from app.services.harbor_profiles import HarborProfileService
 from app.services.helm_oci_service import HelmTargetInspection, HelmTargetState
 from app.services.import_destination_plan import (
     DestinationCapability,
@@ -99,6 +100,7 @@ def _settings(tmp_path: Path, database_url: str) -> Settings:
         database_url=database_url,
         jwt_secret=JWT_SECRET,
         portal_contour=PortalContour.TARGET,
+        harbor_url="https://harbor.target.local",
         operation_workspace_root=data / "tmp" / "operations",
         bundle_payload_root=data,
         bundle_temp_root=data / "tmp" / "bundles",
@@ -227,6 +229,73 @@ def test_mixed_bundle_resolves_separate_image_and_helm_projects(tmp_path: Path) 
         assert "secret" not in persisted
         policy = json.loads(operation.import_policy_json)
         assert policy["destination_plan"]["plan_id"] == first.plan_id
+
+
+def test_destination_plan_cannot_rebind_operation_to_another_harbor_profile(
+    tmp_path: Path,
+) -> None:
+    (
+        settings,
+        session_factory,
+        _manager,
+        _skopeo,
+        _helm,
+        _validator,
+        orchestrator,
+        operation_id,
+    ) = _environment(tmp_path)
+
+    with session_factory() as session:
+        service = HarborProfileService(session, settings)
+        first = service.create(
+            name="Harbor A",
+            url="https://harbor-a.local",
+            username=None,
+            verify_tls=True,
+            enabled=True,
+        )
+        second = service.create(
+            name="Harbor B",
+            url="https://harbor-b.local",
+            username=None,
+            verify_tls=True,
+            enabled=True,
+        )
+        session.commit()
+        first_id = first.id
+        second_id = second.id
+
+    first_plan = asyncio.run(
+        orchestrator.build_destination_plan(
+            operation_id,
+            ImportDestinationPlanRequest(
+                harbor_profile_id=first_id,
+                container_image_project="docker-prod",
+                helm_chart_project="helm-prod",
+            ),
+        )
+    )
+    assert first_plan.valid is True
+
+    with pytest.raises(ImportOrchestrationError) as exc_info:
+        asyncio.run(
+            orchestrator.build_destination_plan(
+                operation_id,
+                ImportDestinationPlanRequest(
+                    harbor_profile_id=second_id,
+                    container_image_project="docker-prod",
+                    helm_chart_project="helm-prod",
+                ),
+            )
+        )
+    assert exc_info.value.code == "harbor_profile_selection_locked"
+
+    with session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        assert operation.harbor_profile_id == first_id
+        assert operation.harbor_profile_name == "Harbor A"
+        assert operation.harbor_profile_url == "https://harbor-a.local"
 
 
 def test_receipt_persists_actual_destination_references(tmp_path: Path) -> None:

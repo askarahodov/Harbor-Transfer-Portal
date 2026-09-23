@@ -5,35 +5,146 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="Локальная документация Harbor Transfer Portal" />
     <title>Harbor Transfer Portal — Документация</title>
+    <link rel="stylesheet" href="/docs/_portal/tokens.css" />
     <link rel="stylesheet" href="/docs/_vendor/core.min.css" />
-    <style>
-      :root {
-        --theme-color: #2563eb;
-        --content-max-width: 980px;
-      }
-      .app-name-link { font-weight: 700; }
-      .sidebar-nav > ul > li > strong { display: block; margin-top: 1rem; }
-      .markdown-section { max-width: var(--content-max-width); }
-    </style>
+    <link rel="stylesheet" href="/docs/portal-docs.css" />
   </head>
   <body>
+    <header class="docs-topbar">
+      <a class="docs-brand" href="/" aria-label="Harbor Transfer Portal — открыть портал">
+        <span class="docs-brand__mark" aria-hidden="true">HT</span>
+        <span class="docs-brand__name">Harbor Transfer Portal</span>
+      </a>
+      <div class="docs-context" aria-live="polite">
+        <span class="docs-context__section">Документация</span>
+        <span class="docs-context__separator" aria-hidden="true">/</span>
+        <span id="docs-page-title" class="docs-context__page">Карта документации</span>
+      </div>
+      <a class="docs-portal-link" href="/">Назад в портал</a>
+    </header>
+
     <div id="app">Загрузка документации…</div>
+
+    <aside id="docs-page-toc" class="docs-page-toc" aria-label="Навигация по текущей странице" hidden>
+      <div class="docs-page-toc__card">
+        <div class="docs-page-toc__title">На этой странице</div>
+        <nav aria-label="Разделы текущего документа">
+          <ul id="docs-page-toc-list" class="docs-page-toc__list"></ul>
+        </nav>
+      </div>
+    </aside>
+
     <script>
+      function currentDocsRoute() {
+        var hash = window.location.hash || '#/'
+        return hash.split('?')[0]
+      }
+
+      function docsifySectionHref(id) {
+        return currentDocsRoute() + '?id=' + encodeURIComponent(id)
+      }
+
+      function headingLabel(heading) {
+        return (heading.dataset.docsTitle || heading.textContent || '').trim()
+      }
+
+      function decorateHeadings() {
+        var headings = document.querySelectorAll('.markdown-section h2, .markdown-section h3')
+
+        headings.forEach(function (heading) {
+          if (!heading.id) return
+
+          if (!heading.dataset.docsTitle) {
+            heading.dataset.docsTitle = (heading.textContent || '').trim()
+          }
+
+          var existing = heading.querySelector('.docs-heading-anchor')
+          if (existing) {
+            existing.setAttribute('href', docsifySectionHref(heading.id))
+            return
+          }
+
+          var anchor = document.createElement('a')
+          anchor.className = 'docs-heading-anchor'
+          anchor.setAttribute('href', docsifySectionHref(heading.id))
+          anchor.setAttribute('aria-label', 'Ссылка на раздел: ' + headingLabel(heading))
+          anchor.setAttribute('title', 'Ссылка на раздел')
+          anchor.textContent = '#'
+          heading.appendChild(anchor)
+        })
+      }
+
+      function updatePageTitle() {
+        var target = document.getElementById('docs-page-title')
+        var heading = document.querySelector('.markdown-section h1')
+        if (!target) return
+        target.textContent = heading ? (heading.textContent || '').trim() : 'Документация'
+      }
+
+      function renderPageToc() {
+        var toc = document.getElementById('docs-page-toc')
+        var list = document.getElementById('docs-page-toc-list')
+        if (!toc || !list) return
+
+        var headings = Array.prototype.slice.call(
+          document.querySelectorAll('.markdown-section h2, .markdown-section h3'),
+        )
+
+        list.replaceChildren()
+
+        if (!headings.length) {
+          toc.hidden = true
+          return
+        }
+
+        headings.forEach(function (heading) {
+          if (!heading.id) return
+
+          var item = document.createElement('li')
+          item.className =
+            'docs-page-toc__item docs-page-toc__item--' + heading.tagName.toLowerCase()
+
+          var link = document.createElement('a')
+          link.setAttribute('href', docsifySectionHref(heading.id))
+          link.textContent = headingLabel(heading)
+
+          item.appendChild(link)
+          list.appendChild(item)
+        })
+
+        toc.hidden = list.children.length === 0
+      }
+
       window.$docsify = {
         name: 'Harbor Transfer Portal',
         homepage: '/docs/README.md',
         basePath: '/',
-        loadSidebar: '/docs/_sidebar.md',
+        loadSidebar: true,
+        collapsibleSidebarGroups: true,
+        alias: {
+          '/.*/_sidebar.md': '/docs/_sidebar.md',
+        },
         auto2top: true,
         relativePath: true,
         maxLevel: 3,
-        subMaxLevel: 2,
+        subMaxLevel: 0,
         search: {
           paths: 'auto',
           placeholder: 'Поиск по документации',
           noData: 'Ничего не найдено',
           depth: 4,
         },
+        plugins: [
+          function (hook) {
+            hook.doneEach(function () {
+              window.requestAnimationFrame(function () {
+                decorateHeadings()
+                updatePageTitle()
+                renderPageToc()
+              })
+            })
+          },
+        ],
       }
     </script>
     <script src="/docs/_vendor/docsify.min.js"></script>

@@ -44,6 +44,7 @@ const url = ref('')
 const username = ref('')
 const verifyTls = ref(true)
 const credential = ref('')
+const caPem = ref('')
 
 const activeProfile = computed(() => profiles.value.find((item) => item.is_active) ?? null)
 const enabledProfiles = computed(() => profiles.value.filter((item) => item.enabled))
@@ -80,10 +81,10 @@ async function activate(): Promise<void> {
       `/settings/harbor/profiles/${encodeURIComponent(selectedId.value)}/activate`,
     )
     await load()
-    message.value = `Активный Harbor: ${response.data.name}.`
+    message.value = `Legacy fallback Harbor: ${response.data.name}.`
     emit('changed')
   } catch (reason) {
-    error.value = safeError('Не удалось переключить Harbor profile.', reason)
+    error.value = safeError('Не удалось изменить legacy fallback Harbor.', reason)
   } finally {
     busy.value = false
   }
@@ -95,6 +96,7 @@ function resetEditor(): void {
   url.value = ''
   username.value = ''
   credential.value = ''
+  caPem.value = ''
   verifyTls.value = true
 }
 
@@ -105,6 +107,7 @@ function editProfile(profile: HarborProfile): void {
   url.value = profile.url
   username.value = profile.username ?? ''
   credential.value = ''
+  caPem.value = ''
   verifyTls.value = profile.verify_tls
   error.value = ''
   message.value = ''
@@ -124,27 +127,36 @@ async function saveProfile(): Promise<void> {
       url: url.value.trim(),
       username: username.value.trim() || null,
       verify_tls: verifyTls.value,
-      enabled: true,
     }
     const response = editingId.value
       ? await apiClient.patch<HarborProfile>(
           `/settings/harbor/profiles/${encodeURIComponent(editingId.value)}`,
           payload,
         )
-      : await apiClient.post<HarborProfile>('/settings/harbor/profiles', payload)
+      : await apiClient.post<HarborProfile>('/settings/harbor/profiles', {
+          ...payload,
+          enabled: true,
+        })
     if (credential.value) {
       await apiClient.put(
         `/settings/harbor/profiles/${encodeURIComponent(response.data.id)}/credential`,
         { secret: credential.value },
       )
     }
+    if (caPem.value.trim()) {
+      await apiClient.put(
+        `/settings/harbor/profiles/${encodeURIComponent(response.data.id)}/ca`,
+        { certificate_pem: caPem.value.trim() },
+      )
+    }
     const wasEditing = editingId.value !== null
     resetEditor()
     await load()
     selectedId.value = response.data.id
+    emit('changed')
     message.value = wasEditing
       ? 'Harbor profile обновлён.'
-      : 'Harbor profile создан. Проверьте подключение и сделайте его активным.'
+      : 'Harbor profile создан. Проверьте подключение; для transfer он выбирается в Export/Import workflow.'
   } catch (reason) {
     error.value = safeError(
       editingId.value ? 'Не удалось обновить Harbor profile.' : 'Не удалось создать Harbor profile.',
@@ -175,6 +187,54 @@ async function testProfile(profile: HarborProfile): Promise<void> {
   }
 }
 
+async function toggleProfileEnabled(profile: HarborProfile): Promise<void> {
+  if (profile.is_default || (profile.is_active && profile.enabled)) return
+  busy.value = true
+  error.value = ''
+  message.value = ''
+  const nextEnabled = !profile.enabled
+  try {
+    await apiClient.patch<HarborProfile>(
+      `/settings/harbor/profiles/${encodeURIComponent(profile.id)}`,
+      { enabled: nextEnabled },
+    )
+    await load()
+    emit('changed')
+    message.value = nextEnabled
+      ? `Профиль ${profile.name} включён и снова доступен для новых transfer workflows.`
+      : `Профиль ${profile.name} отключён и больше не предлагается для новых transfer workflows.`
+  } catch (reason) {
+    error.value = safeError(
+      `Не удалось ${nextEnabled ? 'включить' : 'отключить'} ${profile.name}.`,
+      reason,
+    )
+  } finally {
+    busy.value = false
+  }
+}
+
+async function removeProfileCa(profile: HarborProfile): Promise<void> {
+  if (profile.is_default || !profile.custom_ca_configured) return
+  if (!window.confirm(`Удалить custom CA для ${profile.name}? Новые подключения будут использовать системное trust store.`)) {
+    return
+  }
+  busy.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    await apiClient.delete(
+      `/settings/harbor/profiles/${encodeURIComponent(profile.id)}/ca`,
+    )
+    await load()
+    emit('changed')
+    message.value = `Custom CA для ${profile.name} удалён.`
+  } catch (reason) {
+    error.value = safeError(`Не удалось удалить custom CA для ${profile.name}.`, reason)
+  } finally {
+    busy.value = false
+  }
+}
+
 async function deleteProfile(profile: HarborProfile): Promise<void> {
   if (profile.is_default || profile.is_active) return
   busy.value = true
@@ -202,16 +262,16 @@ onMounted(() => void load())
       <div>
         <h2 id="harbor-profiles-title">Harbor profiles</h2>
         <p class="status">
-          Один Portal может хранить несколько Harbor. Browse, export и import используют только активный профиль.
+          Один Portal может хранить несколько Harbor. Новые Export/Import выбирают profile внутри workflow; selector ниже задаёт только legacy fallback для старых клиентов.
         </p>
       </div>
-      <span v-if="activeProfile" class="active-badge">Активный · {{ activeProfile.name }}</span>
+      <span v-if="activeProfile" class="active-badge">Legacy fallback · {{ activeProfile.name }}</span>
     </div>
 
     <p v-if="loading" class="status">Загрузка profiles…</p>
     <template v-else>
       <div class="selector-row">
-        <label for="active-harbor-profile">Активный Harbor</label>
+        <label for="active-harbor-profile">Legacy fallback Harbor</label>
         <select id="active-harbor-profile" v-model="selectedId" :disabled="busy">
           <option v-for="profile in enabledProfiles" :key="profile.id" :value="profile.id">
             {{ profile.name }} · {{ profile.url }}
@@ -222,26 +282,36 @@ onMounted(() => void load())
           :disabled="busy || !selectedId || selectedId === activeProfile?.id"
           @click="activate"
         >
-          {{ busy ? 'Переключение…' : 'Использовать' }}
+          {{ busy ? 'Переключение…' : 'Сделать fallback' }}
         </button>
       </div>
 
       <div class="profile-list">
         <article v-for="profile in profiles" :key="profile.id" class="profile-row">
           <div>
-            <strong>{{ profile.name }}</strong>
-            <span v-if="profile.is_active" class="inline-active">активный</span>
+            <div class="profile-title">
+              <strong>{{ profile.name }}</strong>
+              <span v-if="profile.is_active" class="inline-active">legacy fallback</span>
+              <span
+                class="state-badge"
+                :class="profile.enabled ? 'state-badge--enabled' : 'state-badge--disabled'"
+              >
+                {{ profile.enabled ? 'enabled' : 'disabled' }}
+              </span>
+            </div>
             <p>{{ profile.url }}</p>
             <small>
               {{ profile.username || 'без username' }} · TLS {{ profile.verify_tls ? 'on' : 'off' }}
               · credential {{ profile.credential_configured ? 'есть' : 'нет' }}
+              · custom CA {{ profile.custom_ca_configured ? 'есть' : 'нет' }}
             </small>
           </div>
           <div class="row-actions">
             <button
               type="button"
               class="secondary"
-              :disabled="testingId === profile.id"
+              :disabled="testingId === profile.id || !profile.enabled"
+              :title="profile.enabled ? undefined : 'Сначала включите profile'"
               @click="testProfile(profile)"
             >
               {{ testingId === profile.id ? 'Проверка…' : 'Проверить' }}
@@ -258,11 +328,30 @@ onMounted(() => void load())
             <button
               v-if="!profile.is_default"
               type="button"
+              class="secondary"
+              :disabled="busy || (profile.is_active && profile.enabled)"
+              :title="profile.is_active && profile.enabled ? 'Сначала выберите другой legacy fallback' : undefined"
+              @click="toggleProfileEnabled(profile)"
+            >
+              {{ profile.enabled ? 'Отключить' : 'Включить' }}
+            </button>
+            <button
+              v-if="!profile.is_default && profile.custom_ca_configured"
+              type="button"
+              class="secondary danger"
+              :disabled="busy"
+              @click="removeProfileCa(profile)"
+            >
+              Удалить CA
+            </button>
+            <button
+              v-if="!profile.is_default"
+              type="button"
               class="secondary danger"
               :disabled="busy || profile.is_active"
               @click="deleteProfile(profile)"
             >
-              Удалить
+              Удалить profile
             </button>
           </div>
         </article>
@@ -302,6 +391,20 @@ onMounted(() => void load())
           <input v-model="verifyTls" type="checkbox" />
           Проверять TLS-сертификат
         </label>
+        <label class="ca-field" for="harbor-profile-ca">
+          Custom CA (PEM)
+          <textarea
+            id="harbor-profile-ca"
+            v-model="caPem"
+            rows="6"
+            spellcheck="false"
+            placeholder="-----BEGIN CERTIFICATE-----"
+          />
+          <small>
+            Необязательно. Существующий CA никогда не читается обратно: оставьте поле пустым,
+            чтобы не менять его. Для удаления используйте действие в строке profile.
+          </small>
+        </label>
         <button type="submit" :disabled="savingProfile">
           {{ savingProfile ? 'Сохранение…' : editingId ? 'Сохранить изменения' : 'Добавить профиль' }}
         </button>
@@ -318,11 +421,15 @@ onMounted(() => void load())
 .profiles-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 .profiles-heading h2, .create-form h3 { margin: 0; }
 .status, .profile-row p { margin: 0; color: var(--color-text-muted); }
-.active-badge, .inline-active { border-radius: var(--radius-full); padding: var(--space-1) var(--space-2); background: var(--color-success-surface); color: var(--color-success-text); font-size: 12px; font-weight: 700; }
-.inline-active { margin-left: var(--space-2); }
+.profile-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.active-badge, .inline-active, .state-badge { border-radius: var(--radius-full); padding: var(--space-1) var(--space-2); font-size: 12px; font-weight: 700; }
+.active-badge, .inline-active, .state-badge--enabled { background: var(--color-success-surface); color: var(--color-success-text); }
+.state-badge--disabled { background: var(--color-surface-subtle); color: var(--color-text-muted); }
 .selector-row { display: grid; grid-template-columns: auto minmax(240px, 1fr) auto; gap: var(--space-3); align-items: end; }
 .selector-row label { align-self: center; }
-select, input { min-height: 42px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; background: var(--color-surface); color: var(--color-text); }
+select, input, textarea { border: 1px solid var(--color-border-control); border-radius: var(--radius-md); font: inherit; background: var(--color-surface); color: var(--color-text); }
+select, input { min-height: 42px; padding: 0 var(--space-3); }
+textarea { width: 100%; padding: var(--space-3); resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .profile-list { display: grid; gap: var(--space-2); }
 .profile-row { display: flex; justify-content: space-between; gap: var(--space-4); align-items: center; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .profile-row small { color: var(--color-text-muted); }
@@ -330,7 +437,8 @@ select, input { min-height: 42px; border: 1px solid var(--color-border-control);
 .create-form { display: grid; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
 .editor-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
-.form-grid label { display: grid; gap: var(--space-2); }
+.form-grid label, .ca-field { display: grid; gap: var(--space-2); }
+.ca-field small { color: var(--color-text-muted); }
 .checkbox-row { display: flex; gap: var(--space-2); align-items: center; }
 button { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-action-surface); color: var(--color-on-accent); font: inherit; cursor: pointer; }
 button.secondary { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-control); }

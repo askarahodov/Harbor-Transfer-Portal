@@ -68,15 +68,26 @@ describe('PageShell release identity', () => {
 })
 
 describe('PageShell documentation', () => {
-  it('links the current workspace to its documentation page', async () => {
-    const wrapper = await mountShell('admin', 'SOURCE', '/history')
+  it('links each workspace to the most relevant documentation page or block', async () => {
+    const wrapper = await mountShell('admin', 'SOURCE', '/export')
 
+    expect(wrapper.get('.docs-button').attributes('href')).toBe(
+      '/docs/#/docs/user-guide?id=source-export',
+    )
+
+    await router.push('/import')
+    await flushPromises()
+    expect(wrapper.get('.docs-button').attributes('href')).toBe(
+      '/docs/#/docs/user-guide?id=target-import',
+    )
+
+    await router.push('/history')
+    await flushPromises()
     expect(wrapper.get('.docs-button').attributes('href')).toBe('/docs/#/docs/history-ui')
 
     await router.push('/settings')
     await flushPromises()
-
-    expect(wrapper.get('.docs-button').attributes('href')).toBe('/docs/#/docs/admin-guide')
+    expect(wrapper.get('.docs-button').attributes('href')).toBe('/docs/#/docs/settings')
   })
 })
 

@@ -65,6 +65,17 @@ class HarborArtifactsPage(BaseModel):
     items: list[HarborArtifactResponse]
 
 
+class HarborSelectableProfileResponse(BaseModel):
+    id: str
+    name: str
+    url: str
+    is_default: bool = False
+
+
+class HarborSelectableProfilesResponse(BaseModel):
+    items: list[HarborSelectableProfileResponse]
+
+
 class HarborConnectionResponse(BaseModel):
     connected: bool
     version: str | None = None

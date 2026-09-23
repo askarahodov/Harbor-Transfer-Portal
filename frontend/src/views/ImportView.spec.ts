@@ -90,6 +90,22 @@ beforeEach(() => {
   sessionStorage.clear()
   pinia = createPinia()
   setActivePinia(pinia)
+  vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+    items: [
+      {
+        id: 'default',
+        name: 'Default Harbor',
+        url: 'https://harbor.local',
+        is_default: true,
+      },
+      {
+        id: 'profile-b',
+        name: 'Harbor B',
+        url: 'https://harbor-b.local',
+        is_default: false,
+      },
+    ],
+  })
   vi.spyOn(exportsApi, 'listHarborProjects').mockResolvedValue({
     pagination: { page: 1, page_size: 100, total: 2 },
     items: [
@@ -124,6 +140,7 @@ describe('TARGET import wizard view', () => {
     await flushPromises()
 
     expect(wrapper.get('h1').text()).toContain('Приём и импорт Offline Bundle')
+    expect(wrapper.get('#import-harbor-profile').element).toBeInstanceOf(HTMLSelectElement)
     expect(wrapper.text()).toContain('harbor.source.local')
     expect(wrapper.text()).toContain('critical offline delivery')
     expect(wrapper.text()).toContain('package verified')

@@ -39,6 +39,7 @@ class ImportHelmOciService(HelmOciService):
         session: Session,
         settings: Settings,
         *,
+        harbor_profile_id: str | None = None,
         runner: HelmCommandRunner | None = None,
         progress: Callable[[HelmProgressEvent], None] | None = None,
         digest_resolver: Callable[[HelmChartReference], str | None] | None = None,
@@ -46,6 +47,7 @@ class ImportHelmOciService(HelmOciService):
         super().__init__(
             session,
             settings,
+            harbor_profile_id=harbor_profile_id,
             runner=runner,
             progress=progress,
             digest_resolver=digest_resolver,
@@ -159,7 +161,7 @@ class ImportHelmOciService(HelmOciService):
             )
 
         package_path = self._validate_package_path(package)
-        harbor = self.harbor_settings.resolve()
+        harbor = self._resolve_harbor()
         registry = self._registry_host(harbor)
         with self._security_context(harbor) as security:
             package_metadata = await self._validate_package(package_path, target, security)

@@ -34,10 +34,21 @@ class DestinationValidator(Protocol):
 class HarborDestinationValidator:
     """Validate TARGET project existence and repository push capability without mutation."""
 
-    def __init__(self, session: Session, settings: Settings) -> None:
+    def __init__(
+        self,
+        session: Session,
+        settings: Settings,
+        *,
+        harbor_profile_id: str | None = None,
+    ) -> None:
         self.settings = settings
         self.harbor_settings = HarborSettingsService(session, settings)
-        resolved = self.harbor_settings.resolve()
+        self.harbor_profile_id = harbor_profile_id
+        resolved = (
+            self.harbor_settings.resolve()
+            if harbor_profile_id is None
+            else self.harbor_settings.resolve_profile(harbor_profile_id)
+        )
         if not resolved.url:
             raise HarborSettingsError("harbor_not_configured", "Локальный Harbor не настроен")
         self._resolved = resolved
@@ -86,7 +97,12 @@ class HarborDestinationValidator:
         cached = self._project_cache.get(project)
         if cached is not None:
             return cached
-        with self.harbor_settings.build_client() as client:
+        client_context = (
+            self.harbor_settings.build_client()
+            if self.harbor_profile_id is None
+            else self.harbor_settings.build_client_for_profile(self.harbor_profile_id)
+        )
+        with client_context as client:
             page = client.list_projects_page(1, 100, search_needle=project)
         exists = any(item.name == project for item in page.items)
         self._project_cache[project] = exists

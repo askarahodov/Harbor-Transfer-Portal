@@ -20,7 +20,7 @@ const routes: RouteRecordRaw[] = [
     path: '/login',
     name: 'login',
     component: () => import('@/views/LoginView.vue'),
-    meta: { public: true, layout: 'bare', documentation: '/docs/user-guide' },
+    meta: { public: true, layout: 'bare', documentation: '/docs/user-guide?id=login' },
   },
   {
     path: '/',
@@ -35,7 +35,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       roles: transferRoles,
       contours: sourceContours,
-      documentation: '/docs/user-guide',
+      documentation: '/docs/user-guide?id=source-export',
     },
   },
   {
@@ -45,7 +45,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       roles: transferRoles,
       contours: targetContours,
-      documentation: '/docs/user-guide',
+      documentation: '/docs/user-guide?id=target-import',
     },
   },
   {
@@ -64,7 +64,7 @@ const routes: RouteRecordRaw[] = [
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
-    meta: { roles: adminRoles, documentation: '/docs/admin-guide' },
+    meta: { roles: adminRoles, documentation: '/docs/settings' },
   },
 ]
 

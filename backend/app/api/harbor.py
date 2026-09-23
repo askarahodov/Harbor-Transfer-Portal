@@ -15,10 +15,13 @@ from app.schemas.harbor import (
     HarborProjectsPage,
     HarborRepositoriesPage,
     HarborRepositoryResponse,
+    HarborSelectableProfileResponse,
+    HarborSelectableProfilesResponse,
     PageResponse,
 )
 from app.services.harbor_client import HarborArtifact, HarborClient, HarborClientError
-from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
+from app.services.harbor_profiles import HarborProfileService
+from app.services.harbor_settings import HarborSettingsError
 
 router = APIRouter(prefix="/harbor", tags=["harbor"])
 
@@ -36,11 +39,28 @@ def _api_error(status_code: int, code: str, message: str) -> HTTPException:
 def get_harbor_client(
     request: Request,
     session: SessionDep,
+    profile_id: str | None = Query(default=None, min_length=1, max_length=64),
 ) -> Generator[HarborClient, None, None]:
     try:
-        client = HarborSettingsService(session, request.app.state.settings).build_client()
+        service = HarborProfileService(session, request.app.state.settings)
+        selected_id = profile_id or service.active_profile_id()
+        client = service.build_client(selected_id)
     except HarborSettingsError as exc:
-        raise _api_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code, exc.message) from exc
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if exc.code == "harbor_profile_not_found"
+            else status.HTTP_409_CONFLICT
+            if exc.code == "harbor_profile_disabled"
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+            if exc.code in {
+                "harbor_not_configured",
+                "harbor_ca_unavailable",
+                "harbor_active_profile_invalid",
+                "harbor_profiles_invalid",
+            }
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        raise _api_error(status_code, exc.code, exc.message) from exc
     try:
         yield client
     finally:
@@ -197,6 +217,26 @@ def _harbor_error(exc: HarborClientError) -> HTTPException:
         ),
     )
     return _api_error(status_code, code, message)
+
+
+@router.get("/profiles", response_model=HarborSelectableProfilesResponse)
+def selectable_profiles(
+    _user: CurrentUserDep,
+    request: Request,
+    session: SessionDep,
+) -> HarborSelectableProfilesResponse:
+    service = HarborProfileService(session, request.app.state.settings)
+    return HarborSelectableProfilesResponse(
+        items=[
+            HarborSelectableProfileResponse(
+                id=profile.id,
+                name=profile.name,
+                url=profile.url,
+                is_default=profile.is_default,
+            )
+            for profile in service.selectable_profiles()
+        ]
+    )
 
 
 @router.get("/connection", response_model=HarborConnectionResponse)

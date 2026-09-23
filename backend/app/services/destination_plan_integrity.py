@@ -25,6 +25,11 @@ def normalized_mapping(mapping: ImportDestinationPlanRequest) -> dict[str, objec
             for item in sorted(mapping.artifact_overrides, key=lambda item: item.index)
         ],
     }
+    # Harbor profile binding was added after the original v2 plan hash. Omit the
+    # field when absent so already-persisted plans remain hash-compatible.
+    if mapping.harbor_profile_id is not None:
+        normalized["harbor_profile_id"] = mapping.harbor_profile_id
+
     # Revision zero is the pre-policy wire/storage contract. Omitting the new field keeps
     # already-persisted READY plans hash-compatible across the upgrade.
     if mapping.mapping_policy_revision > 0:

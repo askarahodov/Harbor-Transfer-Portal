@@ -103,6 +103,7 @@ export type ImportArtifactDestinationOverride = {
 }
 
 export type ImportDestinationPlanRequest = {
+  harbor_profile_id?: string | null
   container_image_project: string | null
   helm_chart_project: string | null
   project_mappings: Record<string, string>
@@ -202,6 +203,7 @@ export async function uploadImportBundle(
   file: File,
   onProgress?: (loaded: number, total: number | null) => void,
   physicalHandoff?: Pick<BrowserPhysicalHandoffFiles, 'sidecar' | 'handoff'>,
+  profileId?: string,
 ): Promise<ImportIntake> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/gzip',
@@ -213,6 +215,7 @@ export async function uploadImportBundle(
   }
   const response = await apiClient.post<ImportIntake>('/imports/upload', file, {
     headers,
+    params: profileId ? { profile_id: profileId } : undefined,
     timeout: 0,
     onUploadProgress: (event: AxiosProgressEvent) => {
       onProgress?.(event.loaded, event.total ?? null)
@@ -221,8 +224,10 @@ export async function uploadImportBundle(
   return response.data
 }
 
-export async function discoverImportBundles(): Promise<ImportDiscovery> {
-  const response = await apiClient.post<ImportDiscovery>('/imports/discover')
+export async function discoverImportBundles(profileId?: string): Promise<ImportDiscovery> {
+  const response = await apiClient.post<ImportDiscovery>('/imports/discover', undefined, {
+    params: profileId ? { profile_id: profileId } : undefined,
+  })
   return response.data
 }
 
