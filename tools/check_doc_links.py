@@ -61,9 +61,15 @@ def _resolve_local_target(root: Path, source: Path, target: str) -> tuple[Path |
         return None, None
 
     if raw_path.startswith("/"):
-        return None, "absolute path не является repository-relative ссылкой"
-
-    candidate = (source.parent / raw_path).resolve(strict=False)
+        # Docsify sidebar is rendered from arbitrary nested routes. Site-root
+        # Markdown links are intentional there and map directly to repository
+        # files copied into the frontend image.
+        sidebar = (root / "docs/_sidebar.md").resolve(strict=False)
+        if source.resolve(strict=False) != sidebar:
+            return None, "absolute path не является repository-relative ссылкой"
+        candidate = (root / raw_path.lstrip("/")).resolve(strict=False)
+    else:
+        candidate = (source.parent / raw_path).resolve(strict=False)
     root_resolved = root.resolve()
     try:
         candidate.relative_to(root_resolved)

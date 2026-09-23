@@ -80,6 +80,14 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertGreaterEqual(nginx.count('Cache-Control "no-store"'), 2)
         self.assertIn('Cache-Control "public, max-age=31536000, immutable"', nginx)
 
+    def test_nginx_keeps_docsify_markdown_out_of_vue_spa_fallback(self) -> None:
+        nginx = (_REPOSITORY_ROOT / "frontend/nginx.conf").read_text(encoding="utf-8")
+
+        self.assertIn("location = /docs", nginx)
+        self.assertIn("return 308 /docs/;", nginx)
+        self.assertIn("location /docs/", nginx)
+        self.assertIn("try_files $uri $uri/ =404;", nginx)
+
     def test_application_compose_uses_portable_bridge_networking(self) -> None:
         for relative_path in ("compose.yaml", "deploy/offline/compose.yaml"):
             with self.subTest(relative_path=relative_path):
@@ -133,9 +141,11 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertIn("/vendor/package/dist/themes/core.min.css", dockerfile)
 
         self.assertIn("homepage: '/docs/README.md'", docs_index)
-        self.assertIn("loadSidebar: true", docs_index)
+        self.assertIn("routerMode: 'hash'", docs_index)
+        self.assertIn("loadSidebar: '/docs/_sidebar.md'", docs_index)
         self.assertIn("collapsibleSidebarGroups: true", docs_index)
-        self.assertIn("'/.*/_sidebar.md': '/docs/_sidebar.md'", docs_index)
+        self.assertIn("relativePath: true", docs_index)
+        self.assertIn("notFoundPage: '/docs/_404.md'", docs_index)
         self.assertIn("/docs/_portal/tokens.css", docs_index)
         self.assertIn("/docs/portal-docs.css", docs_index)
         self.assertIn("/docs/_vendor/docsify.min.js", docs_index)
@@ -149,19 +159,24 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertNotIn("unpkg.com", docs_index)
 
         self.assertIn("var(--color-brand-surface)", docs_css)
-        self.assertIn("var(--color-background)", docs_css)
+        self.assertIn("color: var(--color-on-accent);", docs_css)
+        self.assertIn("--docs-content-max: 1180px;", docs_css)
+        self.assertIn("position: relative;", docs_css)
+        self.assertIn("background: var(--color-surface);", docs_css)
+        self.assertIn("@media (min-width: 769px)", docs_css)
         self.assertIn(".docs-page-toc", docs_css)
         self.assertIn(".docs-heading-anchor", docs_css)
         self.assertIn("@media (max-width: 768px)", docs_css)
         self.assertNotIn("#0B1E3A", docs_css)
         self.assertNotIn("#2563EB", docs_css)
 
-        routes = re.findall(r"\]\(#/([^)]*)\)", sidebar)
-        self.assertGreater(len(routes), 20)
-        for route in routes:
-            target = _REPOSITORY_ROOT / ("docs/README.md" if route == "" else f"{route}.md")
-            with self.subTest(route=route):
-                self.assertTrue(target.is_file(), f"Docsify route {route!r} has no target {target}")
+        self.assertNotIn("](#/", sidebar)
+        markdown_links = re.findall(r"\]\((/[^)#?]+\.md)\)", sidebar)
+        self.assertGreater(len(markdown_links), 20)
+        for target_path in markdown_links:
+            target = _REPOSITORY_ROOT / target_path.removeprefix("/")
+            with self.subTest(target_path=target_path):
+                self.assertTrue(target.is_file(), f"Docsify sidebar target is missing: {target}")
 
 
     def test_contextual_documentation_targets_exist_and_anchors_are_stable(self) -> None:
