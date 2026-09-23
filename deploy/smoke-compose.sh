@@ -101,11 +101,17 @@ docker compose exec -T frontend wget -q -O - "${frontend_container_base}/runtime
 
 # Documentation is served by the same frontend image and must remain fully offline.
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/" | grep -F 'Harbor Transfer Portal — Документация' >/dev/null
-docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/_sidebar.md" | grep -F '#/docs/dashboard' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/_sidebar.md" | grep -F '/docs/dashboard.md' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/dashboard.md" | grep -F '# Dashboard' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/settings.md" | grep -F '# Настройки Portal' >/dev/null
 docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/docsify.min.js"
 docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/_vendor/search.min.js"
 docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/_portal/tokens.css" | grep -F -- '--color-brand-surface' >/dev/null
-docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F '.docs-page-toc' >/dev/null
+docker compose exec -T frontend wget -q -O - "${frontend_container_base}/docs/portal-docs.css" | grep -F -- '--docs-content-max: 1180px' >/dev/null
+if docker compose exec -T frontend wget -q -O /dev/null "${frontend_container_base}/docs/__missing_route_contract__.md"; then
+    echo 'Несуществующий docs Markdown не должен падать в Vue SPA fallback.' >&2
+    exit 1
+fi
 docker compose exec -T backend sh -c 'test "$(id -u)" -eq 10001'
 docker compose exec -T backend sh -c "skopeo --version | grep -F '1.9.3' >/dev/null"
 docker compose exec -T backend sh -c "helm version --short | grep -F 'v3.22.0' >/dev/null"
