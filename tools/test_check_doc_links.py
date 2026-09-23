@@ -66,7 +66,7 @@ class CheckDocLinksTests(unittest.TestCase):
                 (
                     "Terminal History остаётся историческим/read-only",
                     "owner может открыть/продолжить тот же workflow либо запросить штатную отмену",
-                    "`viewer` остаётся полностью read-only",
+                    "остаётся полностью read-only",
                 )
             ),
         )
