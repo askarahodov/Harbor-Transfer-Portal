@@ -109,13 +109,15 @@ Default policy:
 
 - `NEW` → import;
 - `SAME` → `SKIPPED`, без повторной записи Harbor;
-- `CONFLICT` → execute запрещён;
+- `CONFLICT` → по умолчанию execute запрещён; оператор может явно выбрать **skip conflicts**, чтобы оставить существующий TARGET reference без изменений и продолжить импорт `NEW`;
 - `UNKNOWN/ERROR` → execute запрещён.
 
-Overwrite требует одновременно:
+Для CONFLICT доступны две взаимоисключающие explicit policy:
 
-1. явного `overwrite_conflicts=true` в execute request;
-2. server-side `IMPORT_ALLOW_OVERWRITE=true`.
+1. `skip_conflicts=true` — безопасно не изменять конфликтующий TARGET artifact и продолжить остальные `NEW`;
+2. `overwrite_conflicts=true` — разрешить mutation только при server-side `IMPORT_ALLOW_OVERWRITE=true`.
+
+Одновременные `skip_conflicts=true` и `overwrite_conflicts=true` отклоняются.
 
 TARGET wizard дополнительно не показывает overwrite как normal action, пока backend preview не сообщает `overwrite_allowed=true`. При наличии conflicts оператор видит **точный список conflicting artifacts и digests** и должен отдельно подтвердить overwrite. Это UX barrier, а не замена backend policy.
 
@@ -133,7 +135,7 @@ TARGET wizard дополнительно не показывает overwrite к�
 
 Если bundle изменился после preview, operation завершается `FAILED/import_bundle_changed` до Skopeo/Helm mutation.
 
-Повторная target inspection защищает conflict policy от изменений Harbor между preview и execute. Если `NEW` превратился в `CONFLICT`, default policy блокирует именно этот artifact вместо молчаливого overwrite.
+Повторная target inspection защищает conflict policy от изменений Harbor между preview и execute. Если `NEW` превратился в `CONFLICT`, default policy не делает silent overwrite; при explicit skip policy artifact становится `SKIPPED` с причиной `import_conflict_skipped`, иначе conflict остаётся ошибкой execution.
 
 ## Import execution
 
@@ -164,7 +166,7 @@ TARGET wizard показывает persisted phase/counters и per-artifact resu
 - JSON snapshot в operation record;
 - immutable file `IMPORT_RECEIPT_ROOT/import-<operation_id>.json`, создаваемый exclusive-write (`x`) и переводимый в read-only mode.
 
-Receipt содержит source delivery id, exact bundle SHA256, actor username, execution timestamps, выбранную overwrite policy и per-artifact outcomes/digests/errors. Для Helm `expected_digest` остаётся SOURCE OCI provenance, а `target_digest` содержит фактически наблюдаемый TARGET OCI digest. Credentials, Harbor password, auth files и secret material туда не записываются.
+Receipt содержит source delivery id, exact bundle SHA256, actor username, execution timestamps, выбранные `skip_conflicts` / overwrite policy и per-artifact outcomes/digests/errors. Для Helm `expected_digest` остаётся SOURCE OCI provenance, а `target_digest` содержит фактически наблюдаемый TARGET OCI digest. Credentials, Harbor password, auth files и secret material туда не записываются.
 
 Receipt формируется и для partial failure. Если execution не начался из-за invalid bundle/conflict/unknown policy, receipt отсутствует, а причина остаётся в operation error semantics.
 
@@ -207,7 +209,7 @@ Regression suite фиксирует следующие свойства:
 - `SAME` не вызывает повторный image/chart push;
 - Helm replay признаётся `SAME` только для ранее `VERIFIED` SOURCE→TARGET digest pair, а внешняя замена TARGET digest остаётся `CONFLICT`;
 - Helm post-push проверяет signed `.tgz payload_sha256`, сохраняя реальный TARGET OCI digest отдельно;
-- conflict блокируется по умолчанию, overwrite требует server policy и отдельного UI confirmation;
+- conflict блокируется по умолчанию; explicit skip оставляет существующий TARGET artifact без mutation, а overwrite требует server policy и отдельного UI confirmation;
 - corrupt/invalid bundle отклоняется до target inspection;
 - streaming hard limit удаляет partial upload;
 - incoming archive без sidecar не claim-ится;
