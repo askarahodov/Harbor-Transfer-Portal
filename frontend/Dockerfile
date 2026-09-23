@@ -15,6 +15,22 @@ WORKDIR /vendor
 RUN npm pack --ignore-scripts --silent "docsify@${DOCSIFY_VERSION}" \
     && tar -xzf "docsify-${DOCSIFY_VERSION}.tgz"
 
+FROM node:22.23.2-alpine3.24 AS docsify-extensions-vendor
+ARG DOCSIFY_COPY_CODE_VERSION=3.0.1
+ARG DOCSIFY_PAGINATION_VERSION=2.10.1
+ARG PRISM_VERSION=1.29.0
+WORKDIR /vendor
+RUN mkdir -p copy-code pagination prism \
+    && cd copy-code \
+    && npm pack --ignore-scripts --silent "docsify-copy-code@${DOCSIFY_COPY_CODE_VERSION}" \
+    && tar -xzf "docsify-copy-code-${DOCSIFY_COPY_CODE_VERSION}.tgz" \
+    && cd ../pagination \
+    && npm pack --ignore-scripts --silent "docsify-pagination@${DOCSIFY_PAGINATION_VERSION}" \
+    && tar -xzf "docsify-pagination-${DOCSIFY_PAGINATION_VERSION}.tgz" \
+    && cd ../prism \
+    && npm pack --ignore-scripts --silent "prismjs@${PRISM_VERSION}" \
+    && tar -xzf "prismjs-${PRISM_VERSION}.tgz"
+
 FROM nginx:1.30.1-alpine
 
 ARG RELEASE_VERSION
@@ -41,6 +57,16 @@ COPY README.md CONTRIBUTING.md CHANGELOG.md LICENSE /usr/share/nginx/html/
 COPY --from=docsify-vendor /vendor/package/dist/docsify.min.js /usr/share/nginx/html/docs/_vendor/docsify.min.js
 COPY --from=docsify-vendor /vendor/package/dist/plugins/search.min.js /usr/share/nginx/html/docs/_vendor/search.min.js
 COPY --from=docsify-vendor /vendor/package/dist/themes/core.min.css /usr/share/nginx/html/docs/_vendor/core.min.css
+COPY --from=docsify-extensions-vendor /vendor/copy-code/package/dist/docsify-copy-code.min.js /usr/share/nginx/html/docs/_vendor/docsify-copy-code.min.js
+COPY --from=docsify-extensions-vendor /vendor/pagination/package/dist/docsify-pagination.min.js /usr/share/nginx/html/docs/_vendor/docsify-pagination.min.js
+COPY --from=docsify-extensions-vendor /vendor/prism/package/components/prism-bash.min.js /usr/share/nginx/html/docs/_vendor/prism-bash.min.js
+COPY --from=docsify-extensions-vendor /vendor/prism/package/components/prism-batch.min.js /usr/share/nginx/html/docs/_vendor/prism-batch.min.js
+COPY --from=docsify-extensions-vendor /vendor/prism/package/components/prism-powershell.min.js /usr/share/nginx/html/docs/_vendor/prism-powershell.min.js
+COPY --from=docsify-extensions-vendor /vendor/prism/package/components/prism-docker.min.js /usr/share/nginx/html/docs/_vendor/prism-docker.min.js
+COPY --from=docsify-extensions-vendor /vendor/prism/package/components/prism-json.min.js /usr/share/nginx/html/docs/_vendor/prism-json.min.js
+COPY --from=docsify-extensions-vendor /vendor/prism/package/components/prism-yaml.min.js /usr/share/nginx/html/docs/_vendor/prism-yaml.min.js
+COPY --from=docsify-extensions-vendor /vendor/prism/package/components/prism-python.min.js /usr/share/nginx/html/docs/_vendor/prism-python.min.js
+COPY --from=docsify-extensions-vendor /vendor/prism/package/components/prism-sql.min.js /usr/share/nginx/html/docs/_vendor/prism-sql.min.js
 
 RUN chmod 0755 /docker-entrypoint.d/40-runtime-config.sh
 
