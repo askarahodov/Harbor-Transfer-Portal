@@ -169,11 +169,11 @@ Ready screen появляется только после terminal `COMPLETED` �
 |---|---|
 | `NEW` | будет импортирован |
 | `SAME` | уже соответствует expected digest; будет `SKIPPED` |
-| `CONFLICT` | другой target digest; по умолчанию заблокирован |
+| `CONFLICT` | другой target digest; по умолчанию заблокирован, но может быть явно пропущен без mutation |
 | `UNKNOWN` | нельзя доказать безопасное состояние; execute заблокирован |
 | `ERROR` | target inspection не удался; execute заблокирован |
 
-Default button не может overwrite конфликт. Если conflicts присутствуют, overwrite action появляется только когда backend preview сообщает `overwrite_allowed=true` и текущая authenticated role имеет transfer permission. Даже тогда оператор обязан отметить отдельное confirmation рядом с **точным списком conflicting artifacts и digests**.
+Default button не может overwrite конфликт. Если conflicts присутствуют, UI всегда предлагает безопасное действие **«Импортировать отсутствующие · существующие пропустить»**; оно отправляет `skip_conflicts=true` и не изменяет конфликтующие TARGET references. Overwrite action появляется отдельно только когда backend preview сообщает `overwrite_allowed=true` и текущая authenticated role имеет transfer permission; для него требуется отдельное confirmation рядом с точным списком conflicting artifacts и digests.
 
 Frontend не ослабляет backend policy: execute endpoint заново проверяет READY state, unresolved classes, conflicts и server configuration.
 
