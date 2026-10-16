@@ -71,7 +71,7 @@ make test-ci-scope
 make dependency-locks-check
 ```
 
-Проверяет committed dependency locks до запуска scoped jobs. Backend использует `requirements-runtime.lock`/`requirements-dev.lock`, frontend — `package-lock.json` и `npm ci`.
+Проверяет committed dependency locks до запуска scoped jobs. Backend устанавливается из `requirements-runtime.lock`/`requirements-dev.lock`; их общие registry-пакеты должны иметь те же версии, что и в `backend/uv.lock`. Иначе CI мог бы быть зелёным, проверяя старую версию после Dependabot-обновления только `uv.lock`. Build-only зависимости, отсутствующие в uv resolution, в этом сравнении не учитываются. Frontend использует `package-lock.json` и `npm ci`.
 
 ### Skopeo/Helm integration
 
