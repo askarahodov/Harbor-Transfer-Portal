@@ -63,6 +63,16 @@ class DependencyLockCheckTests(unittest.TestCase):
             "fastapi==0.9\nhatchling==1.0\npytest==8.4\nuvicorn==0.9\n",
             encoding="utf-8",
         )
+        (root / "backend" / "uv.lock").write_text(
+            'version = 1\n'
+            '[[package]]\nname = "fastapi"\nversion = "0.9"\n'
+            'source = { registry = "https://pypi.org/simple" }\n'
+            '[[package]]\nname = "uvicorn"\nversion = "0.9"\n'
+            'source = { registry = "https://pypi.org/simple" }\n'
+            '[[package]]\nname = "pytest"\nversion = "8.4"\n'
+            'source = { registry = "https://pypi.org/simple" }\n',
+            encoding="utf-8",
+        )
         return temporary, root
 
     def test_valid_repository_locks_pass(self) -> None:
@@ -101,6 +111,36 @@ class DependencyLockCheckTests(unittest.TestCase):
             "frontend package version '0.9.0' does not match product version '1.0.0'",
             errors,
         )
+
+    def test_uv_lock_must_match_installed_runtime_and_dev_versions(self) -> None:
+        temporary, root = self._repository()
+        self.addCleanup(temporary.cleanup)
+        (root / "backend" / "uv.lock").write_text(
+            'version = 1\n'
+            '[[package]]\nname = "fastapi"\nversion = "0.10"\n'
+            'source = { registry = "https://pypi.org/simple" }\n',
+            encoding="utf-8",
+        )
+
+        errors = check_repository(root)
+
+        self.assertIn(
+            "backend runtime lock mismatch with uv.lock for fastapi: installed=0.9, uv=0.10",
+            errors,
+        )
+        self.assertIn(
+            "backend dev lock mismatch with uv.lock for fastapi: installed=0.9, uv=0.10",
+            errors,
+        )
+
+    def test_missing_uv_lock_is_rejected(self) -> None:
+        temporary, root = self._repository()
+        self.addCleanup(temporary.cleanup)
+        (root / "backend" / "uv.lock").unlink()
+
+        errors = check_repository(root)
+
+        self.assertTrue(any("backend/uv.lock cannot be read" in error for error in errors), errors)
 
     def test_missing_backend_top_level_pin_is_rejected(self) -> None:
         temporary, root = self._repository()
