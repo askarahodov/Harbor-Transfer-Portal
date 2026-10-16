@@ -169,6 +169,48 @@ def _check_backend(root: Path) -> list[str]:
     local_name = _normalize_name(str(project.get("name", "")))
     if local_name and (local_name in runtime_lock or local_name in dev_lock):
         errors.append("backend locks must not pin the local project itself")
+
+    errors.extend(_check_backend_uv_parity(root, runtime_lock, dev_lock))
+    return errors
+
+
+def _check_backend_uv_parity(
+    root: Path, runtime_lock: dict[str, str], dev_lock: dict[str, str]
+) -> list[str]:
+    """Prevent a green CI from testing different versions than backend/uv.lock."""
+
+    lock_path = root / "backend" / "uv.lock"
+    try:
+        uv_lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        return [f"backend/uv.lock cannot be read: {exc}"]
+
+    packages = uv_lock.get("package")
+    if not isinstance(packages, list):
+        return ["backend/uv.lock must contain a package list"]
+
+    uv_versions: dict[str, set[str]] = {}
+    for package in packages:
+        if not isinstance(package, dict):
+            return ["backend/uv.lock contains an invalid package entry"]
+        source = package.get("source")
+        if not isinstance(source, dict) or "registry" not in source:
+            continue
+        name, version = package.get("name"), package.get("version")
+        if not isinstance(name, str) or not isinstance(version, str):
+            return ["backend/uv.lock contains an invalid registry package"]
+        uv_versions.setdefault(_normalize_name(name), set()).add(version)
+
+    errors: list[str] = []
+    for label, pins in (("runtime", runtime_lock), ("dev", dev_lock)):
+        for name, version in sorted(pins.items()):
+            candidates = uv_versions.get(name)
+            if candidates is not None and version not in candidates:
+                expected = ", ".join(sorted(candidates))
+                errors.append(
+                    f"backend {label} lock mismatch with uv.lock for {name}: "
+                    f"installed={version}, uv={expected}"
+                )
     return errors
 
 
