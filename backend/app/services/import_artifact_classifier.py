@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.config import Settings
 from app.domain.bundle import ContainerImageArtifact, HelmChartArtifact
 from app.domain.imports import ImportPreviewState
 from app.schemas.imports import ImportArtifactPreviewResponse
@@ -14,6 +15,8 @@ from app.services.helm_oci_service import (
     HelmServiceError,
     HelmTargetState,
 )
+from app.services.nexus_service import TargetState
+from app.services.registry_client import RegistryClient, create_registry_client
 from app.services.skopeo_service import (
     ImageReference,
     SkopeoService,
@@ -21,15 +24,12 @@ from app.services.skopeo_service import (
     TargetState,
 )
 
-SkopeoFactory = Callable[[Session], SkopeoService]
-HelmFactory = Callable[[Session], HelmOciService]
-
 
 @dataclass(slots=True)
 class ImportArtifactClassifier:
     session_factory: sessionmaker[Session]
-    skopeo_factory: SkopeoFactory
-    helm_factory: HelmFactory
+    settings: Settings
+    registry_client_factory: Callable[[Session, str | None], "RegistryClient"]
 
     async def classify(
         self,
@@ -38,28 +38,30 @@ class ImportArtifactClassifier:
         harbor_profile_id: str | None = None,
     ) -> list[ImportArtifactPreviewResponse]:
         result: list[ImportArtifactPreviewResponse] = []
-        with self.session_factory() as session:
-            skopeo = self.skopeo_factory(session)
-            helm = self.helm_factory(session)
-            if isinstance(skopeo, SkopeoService):
-                skopeo.harbor_profile_id = harbor_profile_id
-            if isinstance(helm, HelmOciService):
-                helm.harbor_profile_id = harbor_profile_id
-            for index, artifact in enumerate(artifacts):
+        for index, artifact in enumerate(artifacts):
+            with self.session_factory() as session:
+                client = self._create_registry_client(session, harbor_profile_id)
                 if isinstance(artifact, ContainerImageArtifact):
-                    result.append(await self._classify_image(index, artifact, skopeo))
+                    result.append(await self._classify_image(index, artifact, client))
                 else:
-                    result.append(await self._classify_chart(index, artifact, helm))
+                    result.append(await self._classify_chart(index, artifact, client, session))
         return result
+
+    def _create_registry_client(self, session: Session, harbor_profile_id: str | None) -> "RegistryClient":
+        with self.session_factory() as session:
+            from app.services.harbor_profiles import HarborProfileService
+            profile = HarborProfileService(session, self.settings).operation_snapshot(harbor_profile_id)
+            registry_type = profile.registry_type if profile else "harbor"
+        return create_registry_client(registry_type, session, self.settings, profile_id=harbor_profile_id)
 
     async def _classify_image(
         self,
         index: int,
         artifact: ContainerImageArtifact,
-        skopeo: SkopeoService,
+        client: "RegistryClient",
     ) -> ImportArtifactPreviewResponse:
         try:
-            inspected = await skopeo.inspect_target(
+            inspected = await client.inspect_target(
                 ImageReference(artifact.repository, artifact.reference),
                 expected_digest=artifact.source_digest,
             )
@@ -86,9 +88,12 @@ class ImportArtifactClassifier:
         self,
         index: int,
         artifact: HelmChartArtifact,
-        helm: HelmOciService,
+        client: "RegistryClient",
+        session: Session,
     ) -> ImportArtifactPreviewResponse:
         try:
+            # For Helm, use HelmOciService directly as it works with any OCI registry
+            helm = HelmOciService(session, self.settings, harbor_profile_id=artifact.harbor_profile_id if hasattr(artifact, 'harbor_profile_id') else None)
             inspected = await helm.inspect_target(
                 HelmChartReference(artifact.repository, artifact.name, artifact.version),
                 expected_digest=artifact.source_digest,

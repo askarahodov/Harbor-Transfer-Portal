@@ -92,9 +92,8 @@ class ImportOrchestrator:
         self._registry_client_factory = registry_client_factory
         self.artifact_classifier = ImportArtifactClassifier(
             session_factory,
-            # These are still needed for preview/classification
-            lambda session: SkopeoService(session, settings),
-            lambda session: HelmOciService(session, settings),
+            settings,
+            registry_client_factory=registry_client_factory,
         )
         self.discovery_root = settings.import_discovery_root.resolve()
         self.staging_root = settings.import_staging_root.resolve()
