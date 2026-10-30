@@ -21,11 +21,7 @@ from app.services.bundle_package_service import (
     BundlePackageService,
     PackageArtifactInput,
 )
-from app.services.export_artifact_materializer import (
-    ExportArtifactMaterializer,
-    HelmFactory,
-    SkopeoFactory,
-)
+from app.services.export_artifact_materializer import ExportArtifactMaterializer
 from app.services.export_selection import (
     ExportSelectionResolutionError,
     ResolvedExportArtifact,
@@ -44,6 +40,7 @@ from app.services.operation_manager import (
     OperationManagerError,
     OperationTaskFailure,
 )
+from app.services.registry_client import RegistryClient, create_registry_client
 from app.services.skopeo_service import SkopeoServiceError
 
 
@@ -81,7 +78,7 @@ class ExportHandoffMetadata:
     signing_key_fingerprint: str
 
 
-HarborClientFactory = Callable[[], HarborClient]
+RegistryClientFactory = Callable[[Session, str | None], "RegistryClient"]
 PackageFactory = Callable[[], BundlePackageService]
 
 
@@ -92,23 +89,20 @@ class ExportOrchestrator:
         settings: Settings,
         operation_manager: OperationManager,
         *,
-        harbor_client_factory: HarborClientFactory | None = None,
-        skopeo_factory: SkopeoFactory | None = None,
-        helm_factory: HelmFactory | None = None,
+        harbor_client_factory: Callable[[], HarborClient] | None = None,
+        registry_client_factory: RegistryClientFactory | None = None,
         package_factory: PackageFactory | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
         self.operation_manager = operation_manager
         self.harbor_client_factory = harbor_client_factory
-        self.skopeo_factory = skopeo_factory
-        self.helm_factory = helm_factory
+        self._registry_client_factory = registry_client_factory
         self.package_factory = package_factory
         self.artifact_materializer = ExportArtifactMaterializer(
             session_factory,
             settings,
-            skopeo_factory=skopeo_factory,
-            helm_factory=helm_factory,
+            registry_client_factory=registry_client_factory,
         )
 
     def preview(

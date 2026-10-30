@@ -52,12 +52,7 @@ from app.services.operation_manager import (
     OperationManagerError,
     OperationTaskFailure,
 )
-from app.services.skopeo_service import (
-    ImageReference,
-    SkopeoService,
-    SkopeoServiceError,
-    TargetState,
-)
+from app.services.registry_client import RegistryClient, create_registry_client, RegistryClientFactory
 
 
 @dataclass(slots=True)
@@ -76,9 +71,8 @@ class ImportIntakeResult:
     intake_mode: ImportIntakeMode
 
 
+RegistryClientFactory = Callable[[Session, str | None], "RegistryClient"]
 PackageFactory = Callable[[], BundlePackageService]
-SkopeoFactory = Callable[[Session], SkopeoService]
-HelmFactory = Callable[[Session], HelmOciService]
 
 
 class ImportOrchestrator:
@@ -88,24 +82,19 @@ class ImportOrchestrator:
         settings: Settings,
         operation_manager: OperationManager,
         *,
-        package_factory: PackageFactory | None = None,
-        skopeo_factory: SkopeoFactory | None = None,
-        helm_factory: HelmFactory | None = None,
+        package_factory: Callable[[], BundlePackageService] | None = None,
+        registry_client_factory: RegistryClientFactory | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
         self.operation_manager = operation_manager
-        self.package_factory = package_factory or (lambda: BundlePackageService(settings))
-        self.skopeo_factory = skopeo_factory or (
-            lambda session: SkopeoService(session, settings)
-        )
-        self.helm_factory = helm_factory or (
-            lambda session: HelmOciService(session, settings)
-        )
+        self._package_factory = package_factory or (lambda: BundlePackageService(settings))
+        self._registry_client_factory = registry_client_factory
         self.artifact_classifier = ImportArtifactClassifier(
             session_factory,
-            self.skopeo_factory,
-            self.helm_factory,
+            # These are still needed for preview/classification
+            lambda session: SkopeoService(session, settings),
+            lambda session: HelmOciService(session, settings),
         )
         self.discovery_root = settings.import_discovery_root.resolve()
         self.staging_root = settings.import_staging_root.resolve()
