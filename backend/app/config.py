@@ -63,6 +63,15 @@ class Settings(BaseSettings):
     harbor_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
     harbor_read_timeout_seconds: float = Field(default=20.0, gt=0, le=300)
 
+    nexus_url: AnyHttpUrl | None = None
+    nexus_user: str | None = None
+    nexus_password: SecretStr | None = None
+    nexus_password_file: Path | None = None
+    nexus_verify_tls: bool = True
+    nexus_ca_file: Path | None = None
+    nexus_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
+    nexus_read_timeout_seconds: float = Field(default=20.0, gt=0, le=300)
+
     skopeo_binary: str = "skopeo"
     skopeo_timeout_seconds: float = Field(default=300.0, gt=0, le=3600)
     skopeo_output_limit_bytes: int = Field(default=65_536, ge=4096, le=1_048_576)

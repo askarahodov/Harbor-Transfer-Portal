@@ -97,6 +97,7 @@ def _profile_response(
         custom_ca_configured=service.custom_ca_configured(profile),
         is_default=profile.is_default,
         is_active=profile.id == service.active_profile_id(),
+        registry_type=profile.registry_type,
     )
 
 
