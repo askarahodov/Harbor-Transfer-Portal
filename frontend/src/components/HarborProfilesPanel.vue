@@ -15,6 +15,7 @@ type HarborProfile = {
   custom_ca_configured: boolean
   is_default: boolean
   is_active: boolean
+  registry_type: 'harbor' | 'nexus'
 }
 
 type ProfilesResponse = { items: HarborProfile[] }
@@ -43,6 +44,7 @@ const name = ref('')
 const url = ref('')
 const username = ref('')
 const verifyTls = ref(true)
+const registryType = ref<'harbor' | 'nexus'>('harbor')
 const credential = ref('')
 const caPem = ref('')
 
@@ -98,6 +100,7 @@ function resetEditor(): void {
   credential.value = ''
   caPem.value = ''
   verifyTls.value = true
+  registryType.value = 'harbor'
 }
 
 function editProfile(profile: HarborProfile): void {
@@ -109,6 +112,7 @@ function editProfile(profile: HarborProfile): void {
   credential.value = ''
   caPem.value = ''
   verifyTls.value = profile.verify_tls
+  registryType.value = profile.registry_type
   error.value = ''
   message.value = ''
 }
@@ -127,6 +131,7 @@ async function saveProfile(): Promise<void> {
       url: url.value.trim(),
       username: username.value.trim() || null,
       verify_tls: verifyTls.value,
+      registry_type: registryType.value,
     }
     const response = editingId.value
       ? await apiClient.patch<HarborProfile>(
@@ -274,7 +279,7 @@ onMounted(() => void load())
         <label for="active-harbor-profile">Legacy fallback Harbor</label>
         <select id="active-harbor-profile" v-model="selectedId" :disabled="busy">
           <option v-for="profile in enabledProfiles" :key="profile.id" :value="profile.id">
-            {{ profile.name }} · {{ profile.url }}
+            {{ profile.name }} · {{ profile.url }} · {{ profile.registry_type === 'nexus' ? 'Nexus' : 'Harbor' }}
           </option>
         </select>
         <button
@@ -291,6 +296,12 @@ onMounted(() => void load())
           <div>
             <div class="profile-title">
               <strong>{{ profile.name }}</strong>
+              <span
+                class="registry-badge"
+                :class="profile.registry_type === 'nexus' ? 'registry-badge--nexus' : 'registry-badge--harbor'"
+              >
+                {{ profile.registry_type === 'nexus' ? 'Nexus' : 'Harbor' }}
+              </span>
               <span v-if="profile.is_active" class="inline-active">legacy fallback</span>
               <span
                 class="state-badge"
@@ -304,6 +315,7 @@ onMounted(() => void load())
               {{ profile.username || 'без username' }} · TLS {{ profile.verify_tls ? 'on' : 'off' }}
               · credential {{ profile.credential_configured ? 'есть' : 'нет' }}
               · custom CA {{ profile.custom_ca_configured ? 'есть' : 'нет' }}
+              · тип: {{ profile.registry_type === 'nexus' ? 'Nexus' : 'Harbor' }}
             </small>
           </div>
           <div class="row-actions">
@@ -374,6 +386,13 @@ onMounted(() => void load())
             <input v-model="url" type="url" placeholder="https://harbor-dc2.local" />
           </label>
           <label>
+            Тип реестра
+            <select v-model="registryType">
+              <option value="harbor">Harbor</option>
+              <option value="nexus">Sonatype Nexus</option>
+            </select>
+          </label>
+          <label>
             Service account
             <input v-model="username" type="text" autocomplete="username" />
           </label>
@@ -425,6 +444,9 @@ onMounted(() => void load())
 .active-badge, .inline-active, .state-badge { border-radius: var(--radius-full); padding: var(--space-1) var(--space-2); font-size: 12px; font-weight: 700; }
 .active-badge, .inline-active, .state-badge--enabled { background: var(--color-success-surface); color: var(--color-success-text); }
 .state-badge--disabled { background: var(--color-surface-subtle); color: var(--color-text-muted); }
+.registry-badge { border-radius: var(--radius-full); padding: var(--space-1) var(--space-2); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.registry-badge--harbor { background: var(--color-action-surface); color: var(--color-on-accent); }
+.registry-badge--nexus { background: var(--color-info-surface); color: var(--color-info-text); }
 .selector-row { display: grid; grid-template-columns: auto minmax(240px, 1fr) auto; gap: var(--space-3); align-items: end; }
 .selector-row label { align-self: center; }
 select, input, textarea { border: 1px solid var(--color-border-control); border-radius: var(--radius-md); font: inherit; background: var(--color-surface); color: var(--color-text); }
