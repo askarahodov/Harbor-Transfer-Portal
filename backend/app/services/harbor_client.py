@@ -291,6 +291,16 @@ class HarborClient:
                 return None
             raise
 
+    def inspect_image(self, repository: str, reference: str) -> HarborArtifact:
+        """Inspect an image in Harbor, returning its metadata (similar to skopeo inspect)."""
+        # Parse repository to get project and repository name
+        # repository format: "project/repository"
+        parts = repository.split("/", 1)
+        if len(parts) != 2:
+            raise ValueError("repository must be in format 'project/repository'")
+        project, repo = parts
+        return self.get_artifact(project, repo, reference)
+
     def _fetch_page(
         self,
         path: str,

@@ -111,8 +111,8 @@ class _HarborClientWrapper:
             read_timeout=settings.harbor_read_timeout_seconds,
         )
 
-    async def inspect_image(self, image) -> ImageInspection:
-        result = await self.client.inspect_image(image)
+    async def inspect_image(self, image: ImageReference) -> ImageInspection:
+        result = await self.client.inspect_image(image.repository, image.reference)
         return ImageInspection(
             digest=result.digest,
             media_type=result.media_type,

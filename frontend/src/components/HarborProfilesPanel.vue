@@ -98,6 +98,25 @@ function resetEditor(): void {
   credential.value = ''
   caPem.value = ''
   verifyTls.value = true
+  registryType.value = 'harbor'
+}
+
+function validateUrlForRegistry(url: string, registryType: 'harbor' | 'nexus'): string | null {
+  if (!url.trim()) return 'URL обязателен'
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return 'URL должен начинаться с http:// или https://'
+    }
+    if (registryType === 'nexus') {
+      if (!parsed.hostname) return 'Неверный hostname'
+    } else {
+      if (!parsed.hostname) return 'Неверный hostname'
+    }
+    return null
+  } catch {
+    return 'Неверный формат URL'
+  }
 }
 
 function editProfile(profile: HarborProfile): void {
@@ -109,6 +128,7 @@ function editProfile(profile: HarborProfile): void {
   credential.value = ''
   caPem.value = ''
   verifyTls.value = profile.verify_tls
+  registryType.value = profile.registry_type
   error.value = ''
   message.value = ''
 }
@@ -116,6 +136,11 @@ function editProfile(profile: HarborProfile): void {
 async function saveProfile(): Promise<void> {
   if (!name.value.trim() || !url.value.trim()) {
     error.value = 'Для нового профиля обязательны имя и URL.'
+    return
+  }
+  const urlError = validateUrlForRegistry(url.value, registryType.value)
+  if (urlError) {
+    error.value = urlError
     return
   }
   savingProfile.value = true
@@ -127,6 +152,7 @@ async function saveProfile(): Promise<void> {
       url: url.value.trim(),
       username: username.value.trim() || null,
       verify_tls: verifyTls.value,
+      registry_type: registryType.value,
     }
     const response = editingId.value
       ? await apiClient.patch<HarborProfile>(
@@ -155,11 +181,11 @@ async function saveProfile(): Promise<void> {
     selectedId.value = response.data.id
     emit('changed')
     message.value = wasEditing
-      ? 'Harbor profile обновлён.'
-      : 'Harbor profile создан. Проверьте подключение; для transfer он выбирается в Export/Import workflow.'
+      ? 'Профиль обновлён.'
+      : 'Профиль создан. Проверьте подключение; для transfer он выбирается в Export/Import workflow.'
   } catch (reason) {
     error.value = safeError(
-      editingId.value ? 'Не удалось обновить Harbor profile.' : 'Не удалось создать Harbor profile.',
+      editingId.value ? 'Не удалось обновить профиль.' : 'Не удалось создать профиль.',
       reason,
     )
   } finally {
@@ -177,6 +203,26 @@ async function testProfile(profile: HarborProfile): Promise<void> {
     )
     if (response.data.ok) {
       message.value = `${profile.name}: подключение успешно${response.data.version ? ` · Harbor ${response.data.version}` : ''}.`
+    } else {
+      error.value = `${profile.name}: ${response.data.message}`
+    }
+  } catch (reason) {
+    error.value = safeError(`Не удалось проверить ${profile.name}.`, reason)
+  } finally {
+    testingId.value = null
+  }
+}
+
+async function testRegistry(profile: HarborProfile): Promise<void> {
+  testingId.value = profile.id
+  error.value = ''
+  message.value = ''
+  try {
+    const response = await apiClient.post<ConnectionTest>(
+      `/settings/harbor/profiles/${encodeURIComponent(profile.id)}/test-registry`,
+    )
+    if (response.data.ok) {
+      message.value = `${profile.name}: ${response.data.message}${response.data.version ? ` · ${response.data.version}` : ''}.`
     } else {
       error.value = `${profile.name}: ${response.data.message}`
     }
@@ -314,7 +360,15 @@ onMounted(() => void load())
               :title="profile.enabled ? undefined : 'Сначала включите profile'"
               @click="testProfile(profile)"
             >
-              {{ testingId === profile.id ? 'Проверка…' : 'Проверить' }}
+              {{ testingId === profile.id ? 'Проверка…' : 'Проверить (Harbor API)' }}
+            </button>
+            <button
+              type="button"
+              class="secondary"
+              :disabled="testingId === profile.id || !profile.enabled"
+              @click="testRegistry(profile)"
+            >
+              {{ testingId === profile.id ? 'Проверка…' : 'Проверить реестр' }}
             </button>
             <button
               v-if="!profile.is_default"
@@ -372,6 +426,13 @@ onMounted(() => void load())
           <label>
             URL
             <input v-model="url" type="url" placeholder="https://harbor-dc2.local" />
+          </label>
+          <label>
+            Тип реестра
+            <select v-model="registryType">
+              <option value="harbor">Harbor</option>
+              <option value="nexus">Sonatype Nexus</option>
+            </select>
           </label>
           <label>
             Service account
