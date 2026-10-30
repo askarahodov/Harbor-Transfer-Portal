@@ -85,22 +85,25 @@ class HarborProfile:
 2. ✅ **RegistryClient Protocol** — общий интерфейс в `registry_client.py`
 3. ✅ **NexusRegistryClient** — реализация для Nexus в `nexus_service.py`
    - ✅ Docker/OCI operations через skopeo
-   - ⏳ Helm OCI API — в процессе (Фаза 2)
+   - ✅ Helm OCI API — завершено
 4. ✅ **RegistryClientFactory** — фабрика создания клиентов в `registry_client.py`
    - `RegistryClientFactory = Callable[[Session, str | None], "RegistryClient"]`
    - `create_registry_client(registry_type, session, settings, profile_id, progress)`
 5. ✅ **Интеграция в Export/Import Orchestrators** — используют фабрику вместо прямого HarborClient
 
-### Фаза 2: Export/Import Support 🔄 В ПРОЦЕССЕ
+### Фаза 2: Export/Import Support ✅ ЗАВЕРШЕНА
 1. ✅ **Export Orchestrator** — поддержка Nexus как SOURCE
    - ✅ `skopeo copy` для Docker images (Nexus поддерживает Docker Registry API v2)
-   - ⏳ `helm pull` для Helm charts — в процессе
+   - ✅ `helm pull` для Helm charts (Nexus 3.40+ поддерживает OCI)
 2. ✅ **Import Orchestrator** — поддержка Nexus как TARGET
    - ✅ `skopeo copy` для push в Nexus (через RegistryClient)
-   - ⏳ `helm push` для Helm charts — в процессе
+   - ✅ `helm push` для Helm charts (Nexus 3.40+ OCI)
 3. ✅ **PublicationSafeExportOrchestrator** — обновлён для использования RegistryClientFactory
+4. ✅ **NexusService** — полная реализация:
+   - Docker/OCI operations через skopeo
+   - Helm OCI через helm CLI (pull_chart, push_chart)
 
-### Фаза 3: Frontend & Settings ⏳ ПЛАНИРУЕТСЯ
+### Фаза 3: Frontend & Settings 🔄 В ПРОЦЕССЕ
 1. **Settings UI** — выбор типа реестра при создании профиля
 2. **Nexus-specific поля** в форме настроек (docker_repo_path, helm_repo_path)
 3. **Connection test** для Nexus
@@ -110,7 +113,7 @@ class HarborProfile:
 2. **Integration tests** с локальным Nexus (Testcontainers)
 3. **Документация** — настройка Nexus, отличия от Harbor
 
-## Текущий статус (Фаза 2 завершена частично)
+## Текущий статус (Фаза 2 ✅ ЗАВЕРШЕНА, Фаза 3 🔄 В ПРОЦЕССЕ)
 
 ### ✅ Завершено в Фазе 1-2:
 - Миграция 0011_registry_type_for_profiles применена
@@ -118,7 +121,9 @@ class HarborProfile:
 - Схемы: HarborProfileResponse, HarborProfileCreate, HarborProfilePatch с registry_type
 - API: _profile_response возвращает registry_type
 - Config: добавлены настройки Nexus (nexus_url, nexus_user, nexus_password, nexus_verify_tls, nexus_ca_file)
-- nexus_service.py — NexusService с поддержкой skopeo для Docker/OCI
+- nexus_service.py — NexusService с полной поддержкой:
+  - Docker/OCI operations через skopeo (inspect, export, import, inspect_target)
+  - Helm OCI через helm CLI (pull_chart, push_chart)
 - registry_client.py — RegistryClient protocol, RegistryClientFactory, create_registry_client()
 - ExportArtifactMaterializer — использует RegistryClient для container image export
 - ExportOrchestrator — передаёт RegistryClientFactory в materializer
@@ -127,18 +132,18 @@ class HarborProfile:
 - ExportPublicationGuard — обновлён для RegistryClientFactory
 - ImportOrchestrator — использует RegistryClientFactory, create_registry_client()
 
-### 🔄 В процессе (Фаза 2):
-- [ ] Helm OCI support в NexusService (pull_chart, push_chart для Nexus)
-- [ ] ImportArtifactClassifier — обновление для работы с Nexus при инспекции TARGET
-- [ ] ExportArtifactMaterializer — поддержка Helm через RegistryClient
+### 🔄 В процессе (Фаза 3):
+- [ ] Frontend: UI для выбора типа реестра при создании профиля
+- [ ] Nexus-specific поля в UI (docker_repo_path, helm_repo_path)
+- [ ] Connection test для Nexus
 
-### ⏳ Планируется (Фаза 3-4):
+### ⏳ Планируется (Фаза 4):
 - Frontend: выбор типа реестра при создании профиля
 - Nexus-specific поля в UI (docker_repo_path, helm_repo_path)
 - Connection test для Nexus
 - Unit/Integration tests для NexusService
 - Integration tests с локальным Nexus (Testcontainers)
-- Документация: настройка Nexus, отличия от Harbor
+- Документация: docs/nexus-setup.md, docs/registry-comparison.md
 
 ## Риски и ограничения
 
@@ -150,11 +155,20 @@ class HarborProfile:
 
 ## Следующие шаги
 
-1. ⏳ Добавить Helm OCI support в NexusService (pull_chart, push_chart)
-2. ⏳ Обновить ImportArtifactClassifier для работы с Nexus
-3. 🎨 Frontend: UI для выбора типа реестра при создании профиля
-4. 🧪 Tests: Unit/Integration тесты для NexusService
-5. 📝 Documentation: docs/nexus-setup.md, docs/registry-comparison.md
+1. 🎨 **Frontend (Фаза 3):**
+   - UI для выбора типа реестра при создании профиля
+   - Nexus-specific поля в форме (docker_repo_path, helm_repo_path)
+   - Connection test кнопка для Nexus
+
+2. 🧪 **Tests (Фаза 4):**
+   - Unit тесты для NexusService (pull_chart, push_chart, inspect_image)
+   - Integration тесты с Testcontainers Nexus
+   - Export/Import интеграционные тесты с Nexus профилями
+
+3. 📝 **Documentation:**
+   - docs/nexus-setup.md — инструкция по настройке Nexus
+   - docs/registry-comparison.md — сравнение Harbor vs Nexus
+   - Обновление README.md с Nexus примерами
 
 ## Зависимости
 
@@ -165,4 +179,4 @@ class HarborProfile:
 
 ---
 
-**Текущий статус:** Фаза 1 ✅, Фаза 2 🔄 (Docker/OCI работает, Helm в процессе), Фаза 3-4 ⏳
+**Текущий статус:** Фаза 1 ✅, Фаза 2 ✅, Фаза 3 🔄 (Frontend), Фаза 4 ⏳
