@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
@@ -9,6 +10,9 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.services.harbor_client import HarborClient
 from app.services.nexus_service import NexusService, NexusPhase, TargetState
+
+
+RegistryClientFactory = Callable[[Session, str | None], "RegistryClient"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +95,21 @@ class _HarborClientWrapper:
     """Adapter to make HarborClient conform to RegistryClient protocol."""
 
     def __init__(self, session: Session, settings: Settings, profile_id: str | None = None):
-        self.client = HarborClient(session, settings, harbor_profile_id=profile_id)
+        from app.services.harbor_settings import HarborSettingsService
+        profile_service = HarborSettingsService(session, settings)
+        resolved = profile_service.resolve_profile(profile_id)
+        verify: bool | str = resolved.verify_tls
+        if resolved.verify_tls and resolved.ca_file is not None:
+            verify = str(resolved.ca_file)
+        password = resolved.password.get_secret_value() if resolved.password else None
+        self.client = HarborClient(
+            base_url=resolved.url,
+            username=resolved.username,
+            password=password,
+            verify=verify,
+            connect_timeout=settings.harbor_connect_timeout_seconds,
+            read_timeout=settings.harbor_read_timeout_seconds,
+        )
 
     async def inspect_image(self, image) -> ImageInspection:
         result = await self.client.inspect_image(image)
@@ -128,7 +146,7 @@ class _NexusServiceWrapper:
 
     def __init__(self, session, settings, profile_id: str | None = None):
         from app.services.nexus_service import NexusService
-        self.service = NexusService(session, None, nexus_profile_id=profile_id)
+        self.service = NexusService(session, settings, nexus_profile_id=profile_id)
 
     async def inspect_image(self, image) -> ImageInspection:
         result = await self.service.inspect_image(image)
