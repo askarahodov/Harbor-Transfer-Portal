@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -97,6 +98,25 @@ class CommandResult:
     returncode: int
     stdout: str
     stderr: str
+
+
+@dataclass(frozen=True, slots=True)
+class HelmChartReference:
+    repository: str
+    name: str
+    version: str
+
+
+@dataclass(frozen=True, slots=True)
+class HelmChartPullResult:
+    package: Path
+    source_digest: str
+    target_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class HelmChartPushResult:
+    target_digest: str
 
 
 @dataclass(slots=True)
@@ -498,14 +518,99 @@ class NexusService:
         self._validate_oci_layout(resolved)
         return resolved
 
-    def _require_under_payload_root(self, path: Path) -> None:
-        try:
-            path.relative_to(self.payload_root)
-        except ValueError as exc:
+    async def pull_chart(
+        self,
+        chart: HelmChartReference,
+        destination: Path,
+    ) -> HelmChartPullResult:
+        """Pull a Helm chart from Nexus OCI registry."""
+        self._emit(NexusPhase.INSPECTING_SOURCE, ImageReference(repository=chart.repository, reference=chart.version))
+        nexus = self._resolve_nexus()
+        with self._security_context(nexus) as security:
+            destination.mkdir(parents=True, exist_ok=True)
+            registry = self._registry_host(nexus)
+            chart_ref = f"{registry}/{chart.repository}/{chart.name}:{chart.version}"
+            argv = (
+                self.settings.helm_binary,
+                "pull",
+                chart_ref,
+                "--destination",
+                str(destination),
+                *self._helm_registry_flags(nexus, security),
+            )
+            await self._run_checked(argv, security)
+            chart_files = list(destination.glob("*.tgz"))
+            if not chart_files:
+                raise NexusServiceError(
+                    "helm_pull_failed",
+                    "Helm chart не был скачан в указанный каталог",
+                )
+            chart_path = chart_files[0]
+            digest = self._compute_sha256(chart_path)
+            self._emit(NexusPhase.EXPORTED, ImageReference(repository=chart.repository, reference=chart.version))
+            return HelmChartPullResult(
+                package=chart_path,
+                source_digest=digest,
+                target_digest=digest,
+            )
+
+    async def push_chart(
+        self,
+        chart_path: Path,
+        chart: HelmChartReference,
+        *,
+        expected_digest: str,
+        allow_existing: bool = False,
+    ) -> HelmChartPushResult:
+        """Push a Helm chart to Nexus OCI registry."""
+        if not chart_path.is_file():
             raise NexusServiceError(
-                "nexus_payload_path_outside_root",
-                "OCI payload должен находиться внутри разрешённого data root",
-            ) from exc
+                "helm_push_invalid",
+                "Helm chart файл не найден",
+            )
+        actual_digest = self._compute_sha256(chart_path)
+        if actual_digest != expected_digest:
+            raise NexusServiceError(
+                "helm_digest_mismatch",
+                "SHA-256 Helm chart не совпадает с ожидаемым",
+            )
+        nexus = self._resolve_nexus()
+        with self._security_context(nexus) as security:
+            registry = self._registry_host(nexus)
+            chart_ref = f"{registry}/{chart.repository}/{chart.name}:{chart.version}"
+            argv = (
+                self.settings.helm_binary,
+                "push",
+                str(chart_path),
+                chart_ref,
+                *self._helm_registry_flags(nexus, security),
+            )
+            if allow_existing:
+                argv += ("--force",)
+            await self._run_checked(argv, security)
+            self._emit(NexusPhase.VERIFIED, ImageReference(repository=chart.repository, reference=chart.version))
+            return HelmChartPushResult(target_digest=self._compute_sha256(chart_path))
+
+    def _helm_registry_flags(
+        self,
+        nexus: EffectiveHarborSettings,
+        security: _SecurityContext,
+    ) -> tuple[str, ...]:
+        """Generate helm registry flags for authentication."""
+        flags: list[str] = []
+        if security.auth_file is not None:
+            flags.extend(("--registry-config", str(security.auth_file)))
+        flags.append(f"--insecure-skip-tls-verify={'false' if nexus.verify_tls else 'true'}")
+        return tuple(flags)
+
+    @staticmethod
+    def _compute_sha256(path: Path) -> str:
+        import hashlib
+        digest = hashlib.sha256()
+        with path.open("rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                digest.update(chunk)
+        return f"sha256:{digest.hexdigest()}"
 
     @staticmethod
     def _validate_oci_layout(path: Path) -> None:
