@@ -126,7 +126,8 @@ class TestNexusService:
     def test_compute_sha256(self, tmp_path):
         file = tmp_path / "test.txt"
         file.write_bytes(b"hello world")
-        digest = NexusService._compute_sha256(file)
+        service = NexusService(MagicMock(), MagicMock())
+        digest = service._compute_sha256(file)
         assert digest.startswith("sha256:")
         assert len(digest) == 71
 

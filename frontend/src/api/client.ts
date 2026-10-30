@@ -44,7 +44,14 @@ apiClient.interceptors.request.use((config) => {
 })
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Handle token refresh from backend
+    const newToken = response.headers['x-new-access-token']
+    if (newToken) {
+      storeAccessToken(newToken)
+    }
+    return response
+  },
   (error: unknown) => {
     if (axios.isAxiosError(error) && error.response?.status === 401 && readAccessToken()) {
       clearAccessToken()

@@ -86,6 +86,25 @@ class TargetInspection:
 
 
 @dataclass(frozen=True, slots=True)
+class HelmChartReference:
+    repository: str
+    name: str
+    version: str
+
+
+@dataclass(frozen=True, slots=True)
+class HelmChartPullResult:
+    package: Path
+    source_digest: str
+    target_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class HelmChartPushResult:
+    target_digest: str
+
+
+@dataclass(frozen=True, slots=True)
 class NexusProgressEvent:
     phase: NexusPhase
     repository: str
@@ -552,6 +571,15 @@ class NexusService:
             ),
             os=data.get("Os") if isinstance(data.get("Os"), str) else None,
         )
+
+    @staticmethod
+    def _compute_sha256(path: Path) -> str:
+        import hashlib
+        digest = hashlib.sha256()
+        with path.open("rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                digest.update(chunk)
+        return f"sha256:{digest.hexdigest()}"
 
     @staticmethod
     def _validate_digest(value: str) -> None:

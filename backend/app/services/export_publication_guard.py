@@ -23,10 +23,8 @@ from app.services.bundle_package_service import (
 )
 from app.services.export_orchestrator import (
     ExportOrchestrator,
-    HarborClientFactory,
-    HelmFactory,
     PackageFactory,
-    SkopeoFactory,
+    RegistryClientFactory,
 )
 from app.services.operation_manager import OperationManager
 
@@ -171,18 +169,14 @@ class PublicationSafeExportOrchestrator(ExportOrchestrator):
         settings: Settings,
         operation_manager: OperationManager,
         *,
-        harbor_client_factory: HarborClientFactory | None = None,
-        skopeo_factory: SkopeoFactory | None = None,
-        helm_factory: HelmFactory | None = None,
+        registry_client_factory: RegistryClientFactory | None = None,
         package_factory: PackageFactory | None = None,
     ) -> None:
         super().__init__(
             session_factory,
             settings,
             operation_manager,
-            harbor_client_factory=harbor_client_factory,
-            skopeo_factory=skopeo_factory,
-            helm_factory=helm_factory,
+            registry_client_factory=registry_client_factory,
             package_factory=package_factory,
         )
         self._publication_lock = threading.Lock()

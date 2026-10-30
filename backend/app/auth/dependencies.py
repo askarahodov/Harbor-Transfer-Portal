@@ -1,11 +1,11 @@
 from collections.abc import Callable, Generator
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.auth.security import decode_access_token
+from app.auth.security import check_and_refresh_token, decode_access_token
 from app.db.models import User, UserRole
 from app.db.repositories import UserRepository
 
@@ -24,6 +24,7 @@ CredentialsDep = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_s
 
 def get_current_user(
     request: Request,
+    response: Response,
     credentials: CredentialsDep,
     session: SessionDep,
 ) -> User:
@@ -32,19 +33,30 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="authentication required",
         )
-    secret = request.app.state.settings.jwt_secret
+    settings = request.app.state.settings
+    secret = settings.jwt_secret
     if secret is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="authentication is not configured",
         )
+    jwt_secret = secret.get_secret_value()
     try:
-        user_id = decode_access_token(credentials.credentials, secret.get_secret_value())
+        user_id, new_token = check_and_refresh_token(
+            credentials.credentials,
+            jwt_secret,
+            inactivity_timeout_minutes=settings.jwt_inactivity_timeout_minutes,
+            lifetime_minutes=settings.jwt_access_token_minutes,
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid or expired token",
         ) from exc
+
+    # Set new token in response header if refreshed
+    if new_token is not None:
+        response.headers["X-New-Access-Token"] = new_token
 
     user = UserRepository(session).get(user_id)
     if user is None or not user.is_active:
