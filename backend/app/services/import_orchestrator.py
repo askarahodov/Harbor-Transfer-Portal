@@ -52,13 +52,11 @@ from app.services.operation_manager import (
     OperationManagerError,
     OperationTaskFailure,
 )
+from app.services.registry_client import RegistryClient, create_registry_client, RegistryClientFactory
 from app.services.skopeo_service import (
     ImageReference,
     SkopeoService,
-    SkopeoServiceError,
-    TargetState,
 )
-
 
 @dataclass(slots=True)
 class ImportOrchestrationError(Exception):
@@ -76,9 +74,8 @@ class ImportIntakeResult:
     intake_mode: ImportIntakeMode
 
 
+RegistryClientFactory = Callable[[Session, str | None], "RegistryClient"]
 PackageFactory = Callable[[], BundlePackageService]
-SkopeoFactory = Callable[[Session], SkopeoService]
-HelmFactory = Callable[[Session], HelmOciService]
 
 
 class ImportOrchestrator:
@@ -88,24 +85,19 @@ class ImportOrchestrator:
         settings: Settings,
         operation_manager: OperationManager,
         *,
-        package_factory: PackageFactory | None = None,
-        skopeo_factory: SkopeoFactory | None = None,
-        helm_factory: HelmFactory | None = None,
+        package_factory: Callable[[], BundlePackageService] | None = None,
+        registry_client_factory: RegistryClientFactory | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
         self.operation_manager = operation_manager
-        self.package_factory = package_factory or (lambda: BundlePackageService(settings))
-        self.skopeo_factory = skopeo_factory or (
-            lambda session: SkopeoService(session, settings)
-        )
-        self.helm_factory = helm_factory or (
-            lambda session: HelmOciService(session, settings)
-        )
+        self._package_factory = package_factory or (lambda: BundlePackageService(settings))
+        self._registry_client_factory = registry_client_factory
         self.artifact_classifier = ImportArtifactClassifier(
             session_factory,
-            self.skopeo_factory,
-            self.helm_factory,
+            # These are still needed for preview/classification
+            lambda session: SkopeoService(session, settings),
+            lambda session: HelmOciService(session, settings),
         )
         self.discovery_root = settings.import_discovery_root.resolve()
         self.staging_root = settings.import_staging_root.resolve()
@@ -551,17 +543,17 @@ class ImportOrchestrator:
             failures = 0
             context.set_progress(current=0, total=len(artifacts))
             with self.session_factory() as session:
-                skopeo = self.skopeo_factory(session)
-                helm = self.helm_factory(session)
-                if isinstance(skopeo, SkopeoService):
-                    skopeo.harbor_profile_id = profile.id
-                if isinstance(helm, HelmOciService):
-                    helm.harbor_profile_id = profile.id
+                client = create_registry_client(
+                    registry_type=profile.registry_type,
+                    session=session,
+                    settings=self.settings,
+                    profile_id=profile.id,
+                )
                 pairs = zip(artifacts, verified.manifest.artifacts, strict=True)
                 for index, (row, descriptor) in enumerate(pairs):
                     context.raise_if_cancelled()
                     try:
-                        outcome = await self._preflight_target(descriptor, skopeo, helm)
+                        outcome = await self._preflight_target(descriptor, client)
                     except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
                         context.set_artifact_status(
                             row.id,
@@ -619,31 +611,34 @@ class ImportOrchestrator:
                     )
                     try:
                         if isinstance(descriptor, ContainerImageArtifact):
-                            imported = await skopeo.import_image(
+                            imported = await client.import_image(
                                 payload,
                                 ImageReference(descriptor.repository, descriptor.reference),
                                 expected_digest=descriptor.source_digest,
                             )
                             target_digest = imported.target_digest
                         else:
-                            pushed = await helm.push_chart(
-                                payload,
-                                HelmChartReference(
-                                    descriptor.repository,
-                                    descriptor.name,
-                                    descriptor.version,
-                                ),
-                                source_digest=descriptor.source_digest,
-                                allow_existing=(
-                                    overwrite and outcome[0] is ImportPreviewState.CONFLICT
-                                ),
-                            )
-                            if pushed.package.sha256 != descriptor.payload_sha256:
-                                raise HelmServiceError(
-                                    "helm_payload_digest_mismatch",
-                                    "Helm package SHA-256 не совпадает с signed bundle payload",
+                            # For Helm, we still use HelmOciService directly as it works with any OCI registry
+                            with self.session_factory() as helm_session:
+                                helm_service = HelmOciService(helm_session, self.settings, harbor_profile_id=profile.id)
+                                pushed = await helm_service.push_chart(
+                                    payload,
+                                    HelmChartReference(
+                                        descriptor.repository,
+                                        descriptor.name,
+                                        descriptor.version,
+                                    ),
+                                    source_digest=descriptor.source_digest,
+                                    allow_existing=(
+                                        overwrite and outcome[0] is ImportPreviewState.CONFLICT
+                                    ),
                                 )
-                            target_digest = pushed.target_digest
+                                if pushed.package.sha256 != descriptor.payload_sha256:
+                                    raise HelmServiceError(
+                                        "helm_payload_digest_mismatch",
+                                        "Helm package SHA-256 не совпадает с signed bundle payload",
+                                    )
+                                target_digest = pushed.target_digest
                         context.set_artifact_status(
                             row.id,
                             ArtifactStatus.VERIFIED,
@@ -674,11 +669,10 @@ class ImportOrchestrator:
     async def _preflight_target(
         self,
         descriptor: ContainerImageArtifact | HelmChartArtifact,
-        skopeo: SkopeoService,
-        helm: HelmOciService,
+        client: RegistryClient,
     ) -> tuple[ImportPreviewState, str | None]:
         if isinstance(descriptor, ContainerImageArtifact):
-            inspected = await skopeo.inspect_target(
+            inspected = await client.inspect_target(
                 ImageReference(descriptor.repository, descriptor.reference),
                 expected_digest=descriptor.source_digest,
             )
@@ -689,10 +683,13 @@ class ImportOrchestrator:
                 TargetState.PRESENT: ImportPreviewState.UNKNOWN,
             }[inspected.state]
             return classification, inspected.digest
-        inspected = await helm.inspect_target(
-            HelmChartReference(descriptor.repository, descriptor.name, descriptor.version),
-            expected_digest=descriptor.source_digest,
-        )
+        # For Helm, use HelmOciService directly as it works with any OCI registry
+        with self.session_factory() as session:
+            helm = HelmOciService(session, self.settings)
+            inspected = await helm.inspect_target(
+                HelmChartReference(descriptor.repository, descriptor.name, descriptor.version),
+                expected_digest=descriptor.source_digest,
+            )
         classification = {
             HelmTargetState.ABSENT: ImportPreviewState.NEW,
             HelmTargetState.SAME_DIGEST: ImportPreviewState.SAME,

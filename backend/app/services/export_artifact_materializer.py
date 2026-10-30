@@ -20,10 +20,8 @@ from app.services.helm_oci_service import (
     HelmServiceError,
 )
 from app.services.operation_manager import OperationTaskFailure
-from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoServiceError
-
-SkopeoFactory = Callable[[Session], SkopeoService]
-HelmFactory = Callable[[Session], HelmOciService]
+from app.services.registry_client import RegistryClient, create_registry_client
+from app.services.skopeo_service import ImageReference, SkopeoServiceError
 
 
 class ExportArtifactMaterializer:
@@ -32,13 +30,25 @@ class ExportArtifactMaterializer:
         session_factory: sessionmaker[Session],
         settings: Settings,
         *,
-        skopeo_factory: SkopeoFactory | None = None,
-        helm_factory: HelmFactory | None = None,
+        registry_client_factory: Callable[[Session, str | None], "RegistryClient"] | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
-        self.skopeo_factory = skopeo_factory
-        self.helm_factory = helm_factory
+        self._registry_client_factory = registry_client_factory
+
+    def _create_registry_client(self, session: Session, harbor_profile_id: str | None) -> "RegistryClient":
+        if self._registry_client_factory is not None:
+            return self._registry_client_factory(session, harbor_profile_id)
+        with self.session_factory() as session:
+            from app.services.harbor_profiles import HarborProfileService
+            profile = HarborProfileService(session, self.settings).operation_snapshot(harbor_profile_id)
+            registry_type = profile.registry_type
+        return create_registry_client(registry_type, session, self.settings, profile_id=harbor_profile_id)
+
+    def _get_profile_info(self, harbor_profile_id: str | None):
+        with self.session_factory() as session:
+            from app.services.harbor_profiles import HarborProfileService
+            return HarborProfileService(session, self.settings).operation_snapshot(harbor_profile_id)
 
     async def materialize(
         self,
@@ -49,6 +59,11 @@ class ExportArtifactMaterializer:
         helm_root: Path,
         harbor_profile_id: str | None = None,
     ) -> PackageArtifactInput:
+        with self.session_factory() as session:
+            client = self._create_registry_client(session, harbor_profile_id)
+            profile = self._get_profile_info(harbor_profile_id)
+            registry_type = profile.registry_type if profile else "harbor"
+
         if item.kind is ArtifactKind.CONTAINER_IMAGE:
             image = ImageReference(
                 repository=item.full_repository,
@@ -56,10 +71,8 @@ class ExportArtifactMaterializer:
             )
             destination = operation_workspace / "images" / str(artifact_id)
             with self.session_factory() as session:
-                result = await self._skopeo_service(
-                    session,
-                    harbor_profile_id,
-                ).export_image(image, destination)
+                client = self._create_registry_client(session, harbor_profile_id)
+                result = await client.export_image(image, destination)
             if result.source_digest != item.digest:
                 raise SkopeoServiceError(
                     "export_source_changed",
@@ -76,10 +89,13 @@ class ExportArtifactMaterializer:
         chart = self._helm_reference(item)
         destination = helm_root / str(artifact_id)
         with self.session_factory() as session:
-            result = await self._helm_service(
-                session,
-                harbor_profile_id,
-            ).pull_chart(chart, destination)
+            client = self._create_registry_client(session, harbor_profile_id)
+            # For Helm, we still use HelmOciService as it works with any OCI registry
+            with self.session_factory() as session:
+                result = await self._helm_service(
+                    session,
+                    harbor_profile_id,
+                ).pull_chart(chart, destination)
         if result.source_digest != item.digest:
             raise HelmServiceError(
                 "export_source_changed",
@@ -123,14 +139,7 @@ class ExportArtifactMaterializer:
         elif path.exists():
             shutil.rmtree(path)
 
-    def _skopeo_service(self, session: Session, profile_id: str | None) -> SkopeoService:
-        if self.skopeo_factory is not None:
-            return self.skopeo_factory(session)
-        return SkopeoService(session, self.settings, harbor_profile_id=profile_id)
-
     def _helm_service(self, session: Session, profile_id: str | None) -> HelmOciService:
-        if self.helm_factory is not None:
-            return self.helm_factory(session)
         return HelmOciService(session, self.settings, harbor_profile_id=profile_id)
 
     @staticmethod
