@@ -26,6 +26,7 @@ from app.services.harbor_settings import (
     HarborSettingsError,
     HarborSettingsService,
 )
+from app.services.registry_client import create_registry_client
 
 router = APIRouter(prefix="/settings/harbor", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
@@ -510,4 +511,81 @@ def test_harbor_profile_connection(
         code="harbor_connection_ok",
         message="Подключение к Harbor profile успешно",
         version=info.harbor_version,
+    )
+
+
+@router.post("/profiles/{profile_id}/test-registry", response_model=HarborConnectionTestResponse)
+async def test_registry_profile_connection(
+    profile_id: str,
+    request: Request,
+    _admin: AdminDep,
+    session: SessionDep,
+) -> HarborConnectionTestResponse:
+    """Test connection for both Harbor and Nexus profiles using RegistryClient."""
+    service = HarborProfileService(session, request.app.state.settings)
+    profile = service.get(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    # Create registry client based on profile type
+    try:
+        client = create_registry_client(
+            registry_type=profile.registry_type,
+            session=session,
+            settings=request.app.state.settings,
+            profile_id=profile.id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create registry client: {exc}") from exc
+
+    try:
+        info = await client.inspect_image(
+            type("ImageReference", (), {"repository": "library/busybox", "reference": "latest"})()
+        )
+    except Exception as exc:
+        # Map common errors
+        error_str = str(exc).lower()
+        if "unauthorized" in error_str or "authentication" in error_str:
+            code, message = "registry_auth_failed", "Реестр отклонил учётные данные"
+        elif "timeout" in str(exc).lower():
+            code, message = "registry_unavailable", "Реестр не ответил вовремя"
+        elif "tls" in error_str or "certificate" in error_str:
+            code, message = "registry_tls_failed", "Не удалось проверить TLS-сертификат реестра"
+        elif "connection" in error_str or "refused" in error_str:
+            code, message = "registry_unavailable", "Не удалось подключиться к реестру"
+        else:
+            code, message = "registry_error", f"Проверка подключения к реестру завершилась ошибкой: {exc}"
+        return HarborConnectionTestResponse(ok=False, code=code, message=message)
+    
+    # Get version info based on registry type
+    version = "unknown"
+    try:
+        if profile.registry_type == "nexus":
+            # For Nexus, we can't easily get version via skopeo, use a placeholder
+            version = "Nexus (version unknown)"
+        else:
+            # For Harbor, use Harbor client to get version
+            from app.services.harbor_settings import HarborSettingsService
+            harbor_service = HarborSettingsService(session, request.app.state.settings)
+            resolved = harbor_service.resolve_profile(profile.id)
+            from app.services.harbor_client import HarborClient
+            harbor_client = HarborClient(
+                base_url=resolved.url,
+                username=resolved.username,
+                password=resolved.password.get_secret_value() if resolved.password else None,
+                verify=resolved.verify_tls if not (resolved.verify_tls and resolved.ca_file) else str(resolved.ca_file),
+                connect_timeout=request.app.state.settings.harbor_connect_timeout_seconds,
+                read_timeout=request.app.state.settings.harbor_read_timeout_seconds,
+            )
+            info = harbor_client.system_info()
+            version = info.harbor_version
+            harbor_client.close()
+    except Exception:
+        version = "unknown"
+    
+    return HarborConnectionTestResponse(
+        ok=True,
+        code="registry_connection_ok",
+        message=f"Подключение к {profile.registry_type.capitalize()} profile успешно",
+        version=version,
     )
