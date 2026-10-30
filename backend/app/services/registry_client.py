@@ -176,3 +176,20 @@ class _NexusServiceWrapper:
     async def inspect_target(self, image, *, expected_digest=None) -> TargetInspection:
         result = await self.service.inspect_target(image, expected_digest=expected_digest)
         return TargetInspection(state=result.state, digest=result.digest)
+
+
+def create_registry_client(
+    registry_type: Literal["harbor", "nexus"],
+    session: Session,
+    settings: Settings,
+    *,
+    profile_id: str | None = None,
+    progress: Callable | None = None,
+) -> "RegistryClient":
+    """Factory function to create registry client based on type."""
+    if registry_type == "harbor":
+        return _HarborClientWrapper(session, settings, profile_id)
+    elif registry_type == "nexus":
+        return _NexusServiceWrapper(session, settings, profile_id)
+    else:
+        raise ValueError(f"Unknown registry type: {registry_type}")
