@@ -6,6 +6,7 @@ import ssl
 import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -37,6 +38,7 @@ class HarborProfile:
     verify_tls: bool
     enabled: bool
     is_default: bool = False
+    registry_type: Literal["harbor", "nexus"] = "harbor"
 
 
 class HarborProfileService:
@@ -196,6 +198,7 @@ class HarborProfileService:
         username: str | None,
         verify_tls: bool,
         enabled: bool,
+        registry_type: Literal["harbor", "nexus"] = "harbor",
     ) -> HarborProfile:
         normalized_name = self._normalize_name(name)
         validated_url = HarborSettingsService._validated_url(url)
@@ -204,6 +207,12 @@ class HarborProfileService:
         profiles = self._load_additional()
         self._assert_unique_name(normalized_name, profiles)
 
+        if registry_type not in ("harbor", "nexus"):
+            raise HarborSettingsError(
+                "registry_type_invalid",
+                "registry_type должен быть 'harbor' или 'nexus'",
+            )
+
         profile = HarborProfile(
             id=uuid4().hex,
             name=normalized_name,
@@ -211,6 +220,7 @@ class HarborProfileService:
             username=self._normalize_username(username),
             verify_tls=verify_tls,
             enabled=enabled,
+            registry_type=registry_type,
         )
         profiles.append(profile)
         self._save_additional(profiles)
@@ -226,6 +236,7 @@ class HarborProfileService:
         username_set: bool = False,
         verify_tls: bool | None = None,
         enabled: bool | None = None,
+        registry_type: Literal["harbor", "nexus"] | None = None,
     ) -> HarborProfile:
         if profile_id == DEFAULT_PROFILE_ID:
             raise HarborSettingsError(
@@ -252,6 +263,16 @@ class HarborProfileService:
                 "harbor_profile_active_protected",
                 "Active Harbor profile нельзя отключить; сначала выберите другой профиль",
             )
+
+        next_registry_type = current.registry_type
+        if registry_type is not None:
+            if registry_type not in ("harbor", "nexus"):
+                raise HarborSettingsError(
+                    "registry_type_invalid",
+                    "registry_type должен быть 'harbor' или 'nexus'",
+                )
+            next_registry_type = registry_type
+
         updated = replace(
             current,
             name=next_name,
@@ -259,6 +280,7 @@ class HarborProfileService:
             username=self._normalize_username(username) if username_set else current.username,
             verify_tls=verify_tls if verify_tls is not None else current.verify_tls,
             enabled=next_enabled,
+            registry_type=next_registry_type,
         )
         self._save_additional([updated if item.id == current.id else item for item in profiles])
         return updated
@@ -414,6 +436,7 @@ class HarborProfileService:
             verify_tls=resolved.verify_tls,
             enabled=resolved.url is not None,
             is_default=True,
+            registry_type="harbor",
         )
 
     def _load_additional(self) -> list[HarborProfile]:
@@ -442,6 +465,9 @@ class HarborProfileService:
                     item.get("enabled"), bool
                 ):
                     raise TypeError
+                registry_type = str(item.get("registry_type", "harbor"))
+                if registry_type not in ("harbor", "nexus"):
+                    raise ValueError("invalid registry_type")
                 profile = HarborProfile(
                     id=str(item["id"]),
                     name=self._normalize_name(str(item["name"])),
@@ -449,6 +475,7 @@ class HarborProfileService:
                     username=self._normalize_username(item.get("username")),
                     verify_tls=item["verify_tls"],
                     enabled=item["enabled"],
+                    registry_type=registry_type,  # type: ignore[arg-type]
                 )
                 if (
                     not profile.id
@@ -477,6 +504,7 @@ class HarborProfileService:
                 "username": item.username,
                 "verify_tls": item.verify_tls,
                 "enabled": item.enabled,
+                "registry_type": item.registry_type,
             }
             for item in sorted(profiles, key=lambda value: value.name.casefold())
         ]

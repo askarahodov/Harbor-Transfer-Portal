@@ -1,4 +1,5 @@
 from pydantic import AnyHttpUrl, BaseModel, Field, SecretStr, field_validator, model_validator
+from typing import Literal
 
 from app.config import PortalContour, validate_harbor_base_url
 
@@ -74,6 +75,7 @@ class HarborProfileResponse(BaseModel):
     custom_ca_configured: bool
     is_default: bool = False
     is_active: bool = False
+    registry_type: Literal["harbor", "nexus"] = "harbor"
 
 
 class HarborProfilesResponse(BaseModel):
@@ -86,6 +88,7 @@ class HarborProfileCreate(BaseModel):
     username: str | None = Field(default=None, max_length=256)
     verify_tls: bool = True
     enabled: bool = True
+    registry_type: Literal["harbor", "nexus"] = "harbor"
 
     @field_validator("url")
     @classmethod
@@ -110,6 +113,13 @@ class HarborProfileCreate(BaseModel):
         normalized = value.strip()
         return normalized or None
 
+    @field_validator("registry_type")
+    @classmethod
+    def validate_registry_type(cls, value: str) -> str:
+        if value not in ("harbor", "nexus"):
+            raise ValueError("registry_type must be 'harbor' or 'nexus'")
+        return value
+
 
 class HarborProfilePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
@@ -117,6 +127,7 @@ class HarborProfilePatch(BaseModel):
     username: str | None = Field(default=None, max_length=256)
     verify_tls: bool | None = None
     enabled: bool | None = None
+    registry_type: Literal["harbor", "nexus"] | None = None
 
     @field_validator("url")
     @classmethod
@@ -140,6 +151,13 @@ class HarborProfilePatch(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+    @field_validator("registry_type")
+    @classmethod
+    def validate_registry_type(cls, value: str | None) -> str | None:
+        if value is not None and value not in ("harbor", "nexus"):
+            raise ValueError("registry_type must be 'harbor' or 'nexus'")
+        return value
 
     @model_validator(mode="after")
     def reject_null_required_fields(self) -> "HarborProfilePatch":
