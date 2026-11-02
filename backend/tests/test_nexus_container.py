@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test Nexus container startup using testcontainers with custom wait logic."""
+"""Test Nexus container startup using testcontainers with named volume."""
 
 from testcontainers.core.container import DockerContainer
 import tempfile
@@ -11,17 +11,17 @@ def test_nexus_startup():
     container = DockerContainer("sonatype/nexus3:latest")
     container.with_exposed_ports(8081, 8082, 8083)
     container.with_env("INSTALL4J_ADD_VM_PARAMS", "-Xms2g -Xms2g -XX:MaxDirectMemorySize=3g")
-    container.with_volume_mapping(tempfile.mkdtemp(), "/nexus-data", "rw")
+    # Use named volume to avoid permission issues
+    container.with_volume_mapping("nexus-e2e-test-data", "/nexus-data", "rw")
     container.start()
     print("Container started")
 
     # Wait for Nexus to start (can take 15-20 minutes)
     max_wait_seconds = 1800  # 30 minutes
-    check_interval = 15
     start_time = time.time()
-    
-    print(f"Waiting for Nexus to start (timeout: {max_wait_seconds}s)...")
-    while time.time() - start_time < max_wait_seconds:
+
+    print(f"Waiting for Nexus to start (timeout: 1800s)...")
+    while time.time() - start_time < 1800:
         logs = container.get_wrapped_container().logs().decode("utf-8", errors="ignore")
         if "Started Sonatype Nexus" in logs:
             print("Nexus started!")
@@ -31,7 +31,7 @@ def test_nexus_startup():
             print(f"  Waiting... ({elapsed}s elapsed)")
         time.sleep(15)
     else:
-        print(f"Timeout waiting for Nexus to start after {max_wait_seconds}s")
+        print(f"Timeout waiting for Nexus to start after 1800s")
         return False
 
     print("Nexus started!")
