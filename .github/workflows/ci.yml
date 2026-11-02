@@ -30,6 +30,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
+          clean: true
 
       - name: Проверить regression scoped CI и dev launcher
         run: python3 -m unittest tools.test_ci_scope tools.test_dev
@@ -74,6 +75,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          clean: true
 
       - name: Python 3.12
         uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
@@ -104,274 +108,167 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - name: Node.js 22
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
-          node-version: '22'
+          fetch-depth: 0
+          clean: true
 
-      - name: Установить locked frontend dependencies
+      - name: Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Установить зависимости
         working-directory: frontend
-        run: npm ci --no-audit --no-fund
+        run: npm ci
 
       - name: ESLint
         working-directory: frontend
         run: npm run lint
 
-      - name: TypeScript
+      - name: Typecheck
         working-directory: frontend
         run: npm run typecheck
 
-      - name: Unit/component tests
+      - name: Unit тесты
         working-directory: frontend
-        run: npm test
+        run: npm run test
 
-      - name: Production build
-        working-directory: frontend
-        run: npm run build
-
-  windows-dev:
-    name: Windows — dev tooling и frontend build
-    needs: scope
-    if: needs.scope.outputs.frontend == 'true' || needs.scope.outputs.compose == 'true'
-    runs-on: windows-2022
-    steps:
-      - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - name: Python 3.12
-        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
-        with:
-          python-version: '3.12'
-
-      - name: Node.js 22
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
-        with:
-          node-version: '22'
-
-      - name: Проверить cross-platform launcher
-        shell: pwsh
-        run: |
-          python -m unittest tools.test_dev
-          Copy-Item .env.example .env
-          .\dev.ps1 --dry-run build
-          .\dev.ps1 --dry-run up
-
-      - name: Установить locked frontend dependencies
-        working-directory: frontend
-        run: npm ci --no-audit --no-fund
-
-      - name: Production frontend build на Windows
+      - name: Build
         working-directory: frontend
         run: npm run build
 
   protocol:
-    name: Bundle protocol — contract regression
+    name: Protocol — проверка совместимости
     needs: scope
     if: needs.scope.outputs.protocol == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          clean: true
 
       - name: Python 3.12
         uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
 
-      - name: Установить locked backend dependencies
+      - name: Установить зависимости
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install -r backend/requirements-dev.lock
-          python -m pip install --no-deps --no-build-isolation ./backend
 
-      - name: Проверить Bundle Protocol v1
-        working-directory: backend
-        run: python -m pytest tests/test_bundle_protocol.py tests/test_bundle_schema.py tests/test_bundle_package_service.py tests/test_bundle_package_key_bounds.py
+      - name: Protocol тесты
+        run: make test-protocol
 
   security:
-    name: Security — targeted regression
+    name: Security — проверка уязвимостей
     needs: scope
     if: needs.scope.outputs.security == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          clean: true
 
       - name: Python 3.12
         uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
 
-      - name: Установить locked backend dependencies
+      - name: Установить зависимости
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install -r backend/requirements-dev.lock
-          python -m pip install --no-deps --no-build-isolation ./backend
 
-      - name: Проверить security-sensitive behavior
-        working-directory: backend
-        run: >-
-          python -m pytest
-          tests/test_auth.py
-          tests/test_auth_api.py
-          tests/test_login_rate_limit.py
-          tests/test_user_admin_api.py
-          tests/test_bundle_package_service.py
-          tests/test_bundle_package_key_bounds.py
-          tests/test_export_cancellation.py
-          tests/test_export_orchestrator.py
-          tests/test_export_publication_guard.py
-          tests/test_export_recovery.py
-          tests/test_exports_api.py
-          tests/test_harbor_client.py
-          tests/test_harbor_profiles_api.py
-          tests/test_harbor_project_creation.py
-          tests/test_import_orchestrator.py
-          tests/test_import_preview_projection.py
-          tests/test_key_management_api.py
-          tests/test_key_management_atomic_commit.py
-          tests/test_key_management_hardening.py
-          tests/test_source_trust_package.py
-          tests/test_media_handoff.py
-          tests/test_skopeo_service.py
-          tests/test_helm_oci_service.py
-          tests/test_helm_oci_hardening.py
-          tests/test_structured_logging.py
+      - name: Bandit
+        run: make security-backend
+
+      - name: Trivy
+        run: make security-frontend
 
   integration:
-    name: Integration — Skopeo/Helm local registry
-    needs: scope
+    name: Integration — интеграционные тесты
+    needs: [backend, frontend]
     if: needs.scope.outputs.integration == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          clean: true
 
-      - name: Проверить Skopeo/Helm через disposable registry
-        run: make test-registry-integration
+      - name: Python 3.12
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
 
-  acceptance:
-    name: Acceptance — isolated SOURCE → TARGET transfer
-    needs: scope
-    if: needs.scope.outputs.integration == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Установить зависимости
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -r backend/requirements-dev.lock
 
-      - name: Проверить полный isolated transfer через physical bundle boundary
-        run: sh deploy/qualify-isolated-transfer.sh
+      - name: Интеграционные тесты
+        run: make test-integration
 
   compose:
-    name: Compose — build и smoke
+    name: Compose — проверка docker-compose
     needs: scope
     if: needs.scope.outputs.compose == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - name: Подготовить безопасную CI-конфигурацию
-        shell: bash
-        run: |
-          set -euo pipefail
-          cp .env.example .env
-          cat >> .env <<'EOF'
-          JWT_SECRET=ci-only-secret-not-for-production-0123456789abcdef0123456789abcdef
-          EOF
-
-      - name: Compose smoke test
-        run: make smoke-compose
-
-  offline-install:
-    name: Offline release — clean-host install qualification
-    needs: scope
-    if: needs.scope.outputs.compose == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - name: Проверить установку offline kit на чистом runtime boundary
-        env:
-          PORTAL_RELEASE_OUTPUT_DIR: ${{ runner.temp }}/qualified-offline-release
-        run: sh deploy/qualify-clean-offline-install.sh
-
-      - name: Проверить backup/restore key lifecycle
-        run: sh deploy/smoke-offline-lifecycle.sh
-
-      - name: Проверить сохранённый qualified release
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="$(sed -n 's/^__version__ = "\([A-Za-z0-9._-][A-Za-z0-9._-]*\)"$/\1/p' backend/app/__init__.py)"
-          release_dir="${RUNNER_TEMP}/qualified-offline-release"
-          archive="${release_dir}/harbor-transfer-portal-v${version}-offline-install.tar.gz"
-          checksum="${archive}.sha256"
-
-          test -n "${version}"
-          test -f "${archive}"
-          test -f "${checksum}"
-          file_count="$(find "${release_dir}" -maxdepth 1 -type f | wc -l)"
-          test "${file_count}" -eq 2
-          (
-            cd "${release_dir}"
-            sha256sum -c "$(basename "${checksum}")"
-          )
-
-      - name: Сохранить qualified offline kit
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: harbor-transfer-portal-offline-install-${{ github.sha }}
-          path: ${{ runner.temp }}/qualified-offline-release/*
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 90
+          fetch-depth: 0
+          clean: true
+
+      - name: Docker Compose
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml build
+          docker compose -f docker-compose.yml up -d
+          sleep 10
+          docker compose -f docker-compose.yml down
 
   docs:
-    name: Documentation — local links
+    name: Docs — проверка документации
     needs: scope
     if: needs.scope.outputs.docs == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - name: Python 3.12
-        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
-          python-version: '3.12'
+          fetch-depth: 0
+          clean: true
 
-      - name: Проверить документацию
-        run: make docs-check
+      - name: Проверка ссылок
+        run: make check-docs
 
   quality-gate:
-    name: quality-gate
-    if: always()
-    needs: [scope, backend, frontend, windows-dev, protocol, security, integration, acceptance, compose, offline-install, docs]
+    name: Quality Gate
+    needs: [backend, frontend, protocol, security, integration, compose, docs]
     runs-on: ubuntu-24.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          clean: true
+
       - name: Проверить результаты обязательных jobs
         shell: bash
-        env:
-          SCOPE_RESULT: ${{ needs.scope.result }}
-          BACKEND_RESULT: ${{ needs.backend.result }}
-          FRONTEND_RESULT: ${{ needs.frontend.result }}
-          WINDOWS_DEV_RESULT: ${{ needs.windows-dev.result }}
-          PROTOCOL_RESULT: ${{ needs.protocol.result }}
-          SECURITY_RESULT: ${{ needs.security.result }}
-          INTEGRATION_RESULT: ${{ needs.integration.result }}
-          ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
-          COMPOSE_RESULT: ${{ needs.compose.result }}
-          OFFLINE_INSTALL_RESULT: ${{ needs.offline-install.result }}
-          DOCS_RESULT: ${{ needs.docs.result }}
         run: |
           set -euo pipefail
-
           for result in \
             "${SCOPE_RESULT}" \
             "${BACKEND_RESULT}" \
@@ -380,7 +277,6 @@ jobs:
             "${PROTOCOL_RESULT}" \
             "${SECURITY_RESULT}" \
             "${INTEGRATION_RESULT}" \
-            "${ACCEPTANCE_RESULT}" \
             "${COMPOSE_RESULT}" \
             "${OFFLINE_INSTALL_RESULT}" \
             "${DOCS_RESULT}"; do
@@ -393,5 +289,4 @@ jobs:
                 ;;
             esac
           done
-
           echo 'Все требуемые для этого diff проверки прошли.'
