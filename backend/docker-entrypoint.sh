@@ -1,5 +1,7 @@
 #!/bin/sh
 set -eu
 
-python -m alembic -c /app/alembic.ini upgrade head
+if [ -z "${ALEMBIC_SKIP:-}" ]; then
+    python -m alembic -c /app/alembic.ini upgrade head
+fi
 exec "$@"
