@@ -28,8 +28,8 @@ from sqlalchemy.pool import StaticPool
 @pytest.fixture(scope="session")
 def nexus_container():
     """Start a Nexus container for integration tests."""
-    container = DockerContainer("sonatype/nexus3:3.68")
-    container.with_exposed_ports(8081, 8082, 8083)  # UI, Docker registry, HTTPS
+    container = DockerContainer("sonatype/nexus3:latest")
+    container.with_exposed_ports(8081, 8082, 8083)
     container.with_env("INSTALL4J_ADD_VM_PARAMS", "-Xms2g -Xms2g -XX:MaxDirectMemorySize=3g")
     container.with_volume_mapping(
         tempfile.mkdtemp(),
@@ -38,8 +38,8 @@ def nexus_container():
     )
     container.start()
     
-    # Wait for Nexus to be ready
-    wait_for_logs(container, "Started Sonatype Nexus", timeout=300)
+    # Wait for Nexus to be ready (can take 15-20 minutes)
+    wait_for_logs(container, "Started Sonatype Nexus", timeout=1800)
     
     # Get the mapped ports
     ui_port = container.get_exposed_port(8081)

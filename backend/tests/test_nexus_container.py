@@ -15,15 +15,23 @@ def test_nexus_startup():
     container.start()
     print("Container started")
 
-    # Wait for Nexus to start
-    for i in range(60):
+    # Wait for Nexus to start (can take 15-20 minutes)
+    max_wait_seconds = 1800  # 30 minutes
+    check_interval = 15
+    start_time = time.time()
+    
+    print(f"Waiting for Nexus to start (timeout: {max_wait_seconds}s)...")
+    while time.time() - start_time < max_wait_seconds:
         logs = container.get_wrapped_container().logs().decode("utf-8", errors="ignore")
         if "Started Sonatype Nexus" in logs:
             print("Nexus started!")
             break
-        time.sleep(10)
+        elapsed = int(time.time() - start_time)
+        if elapsed % 60 == 0:
+            print(f"  Waiting... ({elapsed}s elapsed)")
+        time.sleep(15)
     else:
-        print("Timeout waiting for Nexus to start")
+        print(f"Timeout waiting for Nexus to start after {max_wait_seconds}s")
         return False
 
     print("Nexus started!")
