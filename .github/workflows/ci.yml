@@ -42,6 +42,8 @@ jobs:
           # Force fresh uv.lock by removing cached version and clearing uv cache
           rm -f backend/uv.lock
           uv cache clean
+          # Force fresh lock file generation
+          uv lock --upgrade
           python3 -m unittest tools.test_dependency_locks
           python3 tools/check_dependency_locks.py
 
