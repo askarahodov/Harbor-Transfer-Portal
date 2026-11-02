@@ -39,6 +39,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Force fresh uv.lock by removing cached version
+          rm -f backend/uv.lock
           python3 -m unittest tools.test_dependency_locks
           python3 tools/check_dependency_locks.py
 
