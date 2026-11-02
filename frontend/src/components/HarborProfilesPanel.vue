@@ -36,6 +36,7 @@ const busy = ref(false)
 const savingProfile = ref(false)
 const editingId = ref<string | null>(null)
 const testingId = ref<string | null>(null)
+const testingRegistryId = ref<string | null>(null)
 const message = ref('')
 const error = ref('')
 
@@ -216,7 +217,7 @@ async function testProfile(profile: HarborProfile): Promise<void> {
 }
 
 async function testRegistry(profile: HarborProfile): Promise<void> {
-  testingId.value = profile.id
+  testingRegistryId.value = profile.id
   error.value = ''
   message.value = ''
   try {
@@ -233,7 +234,7 @@ async function testRegistry(profile: HarborProfile): Promise<void> {
   } catch (reason) {
     error.value = safeError(`Не удалось проверить ${profile.name}.`, reason)
   } finally {
-    testingId.value = null
+    testingRegistryId.value = null
   }
 }
 
@@ -369,10 +370,11 @@ onMounted(() => void load())
             <button
               type="button"
               class="secondary"
-              :disabled="testingId === profile.id || !profile.enabled"
+              :disabled="testingRegistryId === profile.id || !profile.enabled"
               @click="testRegistry(profile)"
             >
-              {{ testingId === profile.id ? 'Проверка реестра…' : 'Проверить реестр' }}
+              <span v-if="testingRegistryId === profile.id" class="spinner-inline"></span>
+              {{ testingRegistryId === profile.id ? 'Проверка реестра…' : 'Проверить реестр' }}
             </button>
             <button
               v-if="!profile.is_default"
@@ -516,5 +518,21 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   .profiles-heading, .profile-row { align-items: stretch; flex-direction: column; }
   .selector-row { grid-template-columns: 1fr; }
   .row-actions { flex-wrap: wrap; }
+}
+
+.spinner-inline {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: var(--space-2);
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>
