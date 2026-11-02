@@ -200,6 +200,8 @@ async function testProfile(profile: HarborProfile): Promise<void> {
   try {
     const response = await apiClient.post<ConnectionTest>(
       `/settings/harbor/profiles/${encodeURIComponent(profile.id)}/test`,
+      {},
+      { timeout: 15000 }
     )
     if (response.data.ok) {
       message.value = `${profile.name}: подключение успешно${response.data.version ? ` · Harbor ${response.data.version}` : ''}.`
@@ -220,6 +222,8 @@ async function testRegistry(profile: HarborProfile): Promise<void> {
   try {
     const response = await apiClient.post<ConnectionTest>(
       `/settings/harbor/profiles/${encodeURIComponent(profile.id)}/test-registry`,
+      {},
+      { timeout: 60000 }
     )
     if (response.data.ok) {
       message.value = `${profile.name}: ${response.data.message}${response.data.version ? ` · ${response.data.version}` : ''}.`
@@ -368,7 +372,7 @@ onMounted(() => void load())
               :disabled="testingId === profile.id || !profile.enabled"
               @click="testRegistry(profile)"
             >
-              {{ testingId === profile.id ? 'Проверка…' : 'Проверить реестр' }}
+              {{ testingId === profile.id ? 'Проверка реестра…' : 'Проверить реестр' }}
             </button>
             <button
               v-if="!profile.is_default"
