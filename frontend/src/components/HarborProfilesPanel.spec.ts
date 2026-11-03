@@ -195,7 +195,7 @@ describe('HarborProfilesPanel', () => {
       },
     )
     expect(put).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('Harbor profile обновлён')
+    expect(wrapper.text()).toContain('Профиль обновлён.')
   })
 
   it('disables and re-enables an additional profile without changing the legacy fallback', async () => {
