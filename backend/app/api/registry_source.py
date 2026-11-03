@@ -54,7 +54,10 @@ async def inspect_exact_source(
     if profile.registry_type != "nexus":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "registry_type_mismatch", "message": "Требуется Nexus Docker v2 profile"},
+            detail={
+                "code": "registry_type_mismatch",
+                "message": "Требуется Nexus Docker v2 profile",
+            },
         )
 
     try:
