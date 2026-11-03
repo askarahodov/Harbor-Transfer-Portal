@@ -56,6 +56,7 @@ from app.services.helm_oci_service import (
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
 from app.services.nexus_service import NexusServiceError
+from app.services.nexus_destination_validator import NexusDestinationValidator
 from app.services.operation_manager import (
     OperationContext,
     OperationManagerError,
@@ -181,6 +182,13 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             raise ImportOrchestrationError(exc.code, exc.message) from exc
 
         preview = ImportPreviewResponse.model_validate_json(operation.import_preview_json)
+        if profile.registry_type == "nexus" and any(
+            artifact.artifact_type == "helm-chart" for artifact in preview.artifacts
+        ):
+            raise ImportOrchestrationError(
+                "nexus_legacy_helm_unsupported",
+                "Nexus Docker v2 не поддерживает Helm OCI import",
+            )
         planner_username = actor_username or operation.actor_username
         if not planner_username:
             raise ImportOrchestrationError(
@@ -201,10 +209,14 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 validator = (
                     self.destination_validator_factory(session)
                     if self.destination_validator_factory is not None
-                    else HarborDestinationValidator(
-                        session,
-                        self.settings,
-                        harbor_profile_id=profile.id,
+                    else (
+                        NexusDestinationValidator(session, self.settings, profile_id=profile.id)
+                        if profile.registry_type == "nexus"
+                        else HarborDestinationValidator(
+                            session,
+                            self.settings,
+                            harbor_profile_id=profile.id,
+                        )
                     )
                 )
             except (HarborSettingsError, ValueError) as exc:
