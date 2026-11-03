@@ -577,9 +577,9 @@ async def test_registry_profile_connection(
             from app.services.harbor_client import HarborClient
 
             harbor_client = HarborClient(
-                base_url=resolved.url,
+                base_url=resolved.url or "",
                 username=resolved.username,
-                password=resolved.password.get_secret_value() if resolved.password else None,
+                password=resolved.password,
                 verify=resolved.verify_tls
                 if not (resolved.verify_tls and resolved.ca_file)
                 else str(resolved.ca_file),
