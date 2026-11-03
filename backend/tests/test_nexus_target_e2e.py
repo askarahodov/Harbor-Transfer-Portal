@@ -328,7 +328,7 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
         assert denied.status_code == 409, denied.text
         assert denied.json()["error"]["code"] == "import_conflict_blocked"
         assert asyncio.run(
-            seed.inspect_image(ImageReference("htp-e2e-target/source", "1.0.0"))
+            target_registry.inspect_image(ImageReference("htp-e2e-target/source", "1.0.0"))
         ).digest == competing
         skip = target_client.post(
             f"/api/imports/{conflict_id}/execute",
