@@ -86,11 +86,9 @@ class TestNexusService:
             reference="sha256:abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890",
         )
         result = nexus_service._docker_transport(image, nexus)
-        assert (
-            result
-== (
-                ""
-            )
+        assert result == (
+            "docker://nexus.example.com/myproject/myimage@"
+            "sha256:abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890"
         )
 
     def test_oci_transport(self, nexus_service):
