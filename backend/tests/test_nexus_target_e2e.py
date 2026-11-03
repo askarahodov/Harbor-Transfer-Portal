@@ -124,7 +124,8 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
 
     filename = metadata["archive_name"]
     sidecar = (source.bundle_outgoing_root / f"{filename}.sha256").read_bytes()
-    handoff = (source.bundle_outgoing_root / f"{metadata['delivery_id']}.htp-handoff.json").read_bytes()
+    handoff_path = source.bundle_outgoing_root / f"{metadata['delivery_id']}.htp-handoff.json"
+    handoff = handoff_path.read_bytes()
     target_seed = source_settings(tmp_path / "target")
     # TARGET trusts only SOURCE's public key; no SOURCE private key is needed.
     public_key = (source.bundle_trusted_public_keys_dir / "source.pem").read_bytes()
@@ -232,6 +233,9 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
         assert receipt2.json()["artifacts"][0]["target_digest"] == digest
 
     checked = asyncio.run(
-        seed.inspect_target(ImageReference("htp-e2e-target/source", "1.0.0"), expected_digest=digest)
+        seed.inspect_target(
+            ImageReference("htp-e2e-target/source", "1.0.0"),
+            expected_digest=digest,
+        )
     )
     assert checked.state == TargetState.SAME_DIGEST
