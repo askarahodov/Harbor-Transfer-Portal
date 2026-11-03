@@ -131,6 +131,8 @@ def test_real_source_api_signed_bundle_and_browser_ticket(tmp_path: Path) -> Non
         preview = client.post("/api/exports/preview", json=selection, headers=auth)
         assert preview.status_code == 200, preview.text
         assert preview.json()["artifacts"][0]["source_digest"] == expected
+        assert preview.json()["artifacts"][0]["project"] == "htp-e2e"
+        assert preview.json()["artifacts"][0]["repository"] == "source"
         assert preview.json()["artifacts"][0]["size_bytes"] is None
 
         wrong = {**selection, "artifacts": [{
