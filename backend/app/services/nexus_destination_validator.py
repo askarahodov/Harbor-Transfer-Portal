@@ -37,7 +37,11 @@ class NexusDestinationValidator:
                 "nexus_not_configured", "Docker Registry v2 URL не настроен"
             )
         parsed = urlsplit(resolved.url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.path not in {"", "/"}:
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path not in {"", "/"}
+        ):
             raise HarborSettingsError(
                 "nexus_url_invalid", "Ожидается корневой URL Docker Registry v2"
             )
