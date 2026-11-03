@@ -38,13 +38,11 @@ class TestRegistryClientProtocol:
 class TestHarborClientWrapper:
     @pytest.mark.asyncio
     async def test_wraps_harbor_client(self):
-        mock_session = MagicMock()
         mock_settings = MagicMock()
         mock_settings.harbor_connect_timeout_seconds = 5.0
         mock_settings.harbor_read_timeout_seconds = 20.0
 
         with patch("app.services.harbor_settings.HarborSettingsService") as mock_profile_class:
-            mock_profile_service = MagicMock()
             mock_resolved = MagicMock()
             mock_resolved.url = "https://harbor.example.com"
             mock_resolved.username = "admin"
@@ -104,7 +102,7 @@ class TestNexusServiceWrapper:
             assert result.digest == "sha256:abc"
 
 
-class TestRegistryClientProtocol:
+class TestRegistryClientProtocolSecondary:
     def test_registry_client_protocol_has_required_methods(self):
         assert "inspect_image" in dir(RegistryClient)
         assert "export_image" in dir(RegistryClient)
@@ -117,13 +115,13 @@ class TestCreateRegistryClient:
         with patch("app.services.registry_client._HarborClientWrapper") as mock_wrapper:
             mock_wrapper.return_value = MagicMock()
             client = create_registry_client("harbor", MagicMock(), MagicMock())
-            assert mock_wrapper.called
+            assert client is mock_wrapper.return_value
 
     def test_create_registry_client_nexus(self):
         with patch("app.services.registry_client._NexusServiceWrapper") as mock_wrapper:
             mock_wrapper.return_value = MagicMock()
             client = create_registry_client("nexus", MagicMock(), MagicMock())
-            assert mock_wrapper.called
+            assert client is mock_wrapper.return_value
 
     def test_create_registry_client_invalid(self):
         with pytest.raises(ValueError, match="Unknown registry type"):
