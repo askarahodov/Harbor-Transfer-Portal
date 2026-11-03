@@ -626,7 +626,7 @@ class NexusService:
                 *self._helm_registry_flags(nexus, security),
             )
             result = await self._run_checked(argv, security)
-            digest_match = re.search(r"(?im)^Digest:\\s*(sha256:[a-f0-9]{64})\\s*$", result.stdout + "\\n" + result.stderr)
+            digest_match = re.search(r"(?im)^Digest:\s*(sha256:[a-f0-9]{64})\s*$", result.stdout + "\n" + result.stderr)
             if digest_match is None:
                 raise NexusServiceError(
                     "helm_push_unverified",
