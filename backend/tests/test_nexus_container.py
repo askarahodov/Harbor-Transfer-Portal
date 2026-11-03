@@ -6,13 +6,12 @@ import sys
 import time
 
 import pytest
+from testcontainers.core.container import DockerContainer
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("HTP_RUN_NEXUS_E2E") != "1",
     reason="Requires a separately configured Nexus container test environment",
 )
-
-from testcontainers.core.container import DockerContainer
 
 
 def test_nexus_startup():
