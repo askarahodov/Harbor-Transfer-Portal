@@ -304,6 +304,7 @@ def create_harbor_profile(
             username=payload.username,
             verify_tls=payload.verify_tls,
             enabled=payload.enabled,
+            registry_type=payload.registry_type,
         )
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
@@ -366,6 +367,9 @@ def update_harbor_profile(
                     payload.verify_tls if "verify_tls" in payload.model_fields_set else None
                 ),
                 enabled=payload.enabled if "enabled" in payload.model_fields_set else None,
+                registry_type=(
+                    payload.registry_type if "registry_type" in payload.model_fields_set else None
+                ),
             )
             if changed_fields:
                 _audit_profile(

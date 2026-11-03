@@ -440,3 +440,87 @@ def test_profile_name_uniqueness_and_safe_audit_metadata(tmp_path: Path) -> None
     assert metadata["profile_id"] == profile_id
     assert metadata["profile_name"] == "Primary Lab"
     assert metadata["changed_fields"] == ["credential"]
+
+
+
+def test_profile_create_edit_disable_enable_and_delete_persist_registry_type(
+    tmp_path: Path,
+) -> None:
+    """API must persist the type sent by the settings UI across every CRUD step."""
+    client, app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Legacy Nexus",
+            "url": "http://nexus-legacy.example.test:8082",
+            "username": "robot",
+            "verify_tls": False,
+            "enabled": True,
+            "registry_type": "nexus",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+    assert created.json()["registry_type"] == "nexus"
+
+    listed = client.get("/api/settings/harbor/profiles", headers=headers)
+    assert listed.status_code == 200
+    nexus_profile = next(
+        item for item in listed.json()["items"] if item["id"] == profile_id
+    )
+    assert nexus_profile["registry_type"] == "nexus"
+    assert nexus_profile["url"] == "http://nexus-legacy.example.test:8082"
+    assert nexus_profile["is_active"] is False
+
+    updated = client.patch(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        json={
+            "name": "Harbor DC-2",
+            "url": "https://harbor-dc2.example.test",
+            "username": "transfer-bot",
+            "verify_tls": True,
+            "registry_type": "harbor",
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Harbor DC-2"
+    assert updated.json()["registry_type"] == "harbor"
+    assert updated.json()["url"] == "https://harbor-dc2.example.test"
+    assert updated.json()["username"] == "transfer-bot"
+    assert updated.json()["verify_tls"] is True
+
+    disabled = client.patch(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        json={"enabled": False},
+        headers=headers,
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] is False
+    assert disabled.json()["registry_type"] == "harbor"
+
+    enabled = client.patch(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        json={"enabled": True},
+        headers=headers,
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["enabled"] is True
+
+    with app.state.session_factory() as session:
+        profiles = HarborProfileService(session, app.state.settings)
+        stored = profiles.get(profile_id)
+        assert stored.name == "Harbor DC-2"
+        assert stored.registry_type == "harbor"
+        assert stored.url == "https://harbor-dc2.example.test"
+
+    deleted = client.delete(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        headers=headers,
+    )
+    assert deleted.status_code == 204
+    listed_after = client.get("/api/settings/harbor/profiles", headers=headers)
+    assert listed_after.status_code == 200
+    assert [item["id"] for item in listed_after.json()["items"]] == ["default"]
