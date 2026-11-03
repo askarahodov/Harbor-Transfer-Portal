@@ -21,6 +21,7 @@ from app.services.export_orchestrator import ExportOrchestrator
 from app.services.harbor_client import HarborArtifact
 from app.services.harbor_profile_runtime import harbor_profile_boundary
 from app.services.harbor_profiles import HarborProfileService
+from app.services.harbor_settings import HarborSettingsError
 from app.services.helm_oci_service import (
     HelmPackageMetadata,
     HelmPullResult,
@@ -449,4 +450,56 @@ def test_failure_after_publication_removes_archive_and_readiness_sidecar(tmp_pat
     assert operation is not None
     assert operation.status is OperationStatus.FAILED
     assert operation.error_code == "bundle_post_publish_failure"
+    assert _outgoing_is_empty(settings)
+
+
+def test_profile_resolution_failure_during_export_keeps_actionable_error(
+    tmp_path: Path,
+) -> None:
+    """A registry-profile error must not become operation_worker_failed."""
+
+    class BrokenProfileSkopeoService(FakeSkopeoService):
+        async def export_image(
+            self, _image, destination: Path  # type: ignore[no-untyped-def]
+        ) -> ExportResult:
+            raise HarborSettingsError(
+                "harbor_profile_disabled", "Профиль Harbor недоступен для export"
+            )
+
+    settings, manager, harbor, package_service, _ = _environment(tmp_path)
+    orchestrator = ExportOrchestrator(
+        manager.session_factory,
+        settings,
+        manager,
+        harbor_client_factory=lambda: harbor,
+        skopeo_factory=lambda _session: BrokenProfileSkopeoService(),
+        helm_factory=lambda _session: FakeHelmService(),
+        package_factory=lambda: package_service,
+    )
+
+    async def scenario() -> int:
+        await manager.startup()
+        started = await orchestrator.start_export(
+            _selections(),
+            actor_user_id=None,  # type: ignore[arg-type]
+            actor_username="operator",
+            comment=None,
+        )
+        await manager.wait(started.operation_id)
+        await manager.shutdown()
+        return started.operation_id
+
+    operation = manager.get_operation(asyncio.run(scenario()))
+    assert operation is not None
+    assert operation.status is OperationStatus.FAILED
+    assert operation.error_code == "harbor_profile_disabled"
+    assert operation.error_message == "Профиль Harbor недоступен для export"
+    assert [artifact.status for artifact in operation.artifacts] == [
+        ArtifactStatus.FAILED,
+        ArtifactStatus.FAILED,
+    ]
+    assert [artifact.error_code for artifact in operation.artifacts] == [
+        "harbor_profile_disabled",
+        "export_aborted",
+    ]
     assert _outgoing_is_empty(settings)
