@@ -17,6 +17,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+from registry_smoke import _write_oci_image_fixture
+
 from app.config import Settings
 from app.services.nexus_service import (
     HelmChartReference,
@@ -25,8 +27,6 @@ from app.services.nexus_service import (
     NexusServiceError,
     TargetState,
 )
-from registry_smoke import _write_oci_image_fixture
-
 REGISTRY = "http://nexus:5000"
 VERSION = "1.2.3"
 
@@ -89,7 +89,11 @@ def _chart_package(root: Path) -> Path:
     chart_dir = root / "chart-source" / "smoke-chart"
     chart_dir.mkdir(parents=True)
     (chart_dir / "Chart.yaml").write_text(
-        "apiVersion: v2\nname: smoke-chart\nversion: 1.2.3\ndescription: Nexus E2E\ntype: application\n",
+        "apiVersion: v2\n"
+        "name: smoke-chart\n"
+        "version: 1.2.3\n"
+        "description: Nexus E2E\n"
+        "type: application\n",
         encoding="utf-8",
     )
     package_dir = root / "chart-packages"
