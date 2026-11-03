@@ -31,7 +31,7 @@ from app.services.harbor_client import HarborClient
 from app.services.harbor_profile_runtime import harbor_profile_boundary
 from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
-from app.services.helm_oci_service import HelmServiceError
+from app.services.helm_oci_service import HelmOciService, HelmServiceError
 from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.operation_manager import (
     OperationArtifactSpec,
@@ -41,7 +41,7 @@ from app.services.operation_manager import (
     OperationTaskFailure,
 )
 from app.services.registry_client import RegistryClient
-from app.services.skopeo_service import SkopeoServiceError
+from app.services.skopeo_service import SkopeoService, SkopeoServiceError
 
 
 @dataclass(slots=True)
@@ -90,6 +90,8 @@ class ExportOrchestrator:
         operation_manager: OperationManager,
         *,
         harbor_client_factory: Callable[[], HarborClient] | None = None,
+        skopeo_factory: Callable[[Session], SkopeoService] | None = None,
+        helm_factory: Callable[[Session], HelmOciService] | None = None,
         registry_client_factory: RegistryClientFactory | None = None,
         package_factory: PackageFactory | None = None,
     ) -> None:
@@ -102,6 +104,8 @@ class ExportOrchestrator:
         self.artifact_materializer = ExportArtifactMaterializer(
             session_factory,
             settings,
+            skopeo_factory=skopeo_factory,
+            helm_factory=helm_factory,
             registry_client_factory=registry_client_factory,
         )
 
