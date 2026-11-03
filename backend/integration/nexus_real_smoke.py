@@ -137,7 +137,7 @@ def _manifest_digest(password: str, repository: str, version: str) -> str:
         challenge = exc.headers.get("WWW-Authenticate", "")
         if not challenge.startswith("Bearer "):
             raise AssertionError("Expected Nexus Bearer challenge") from exc
-        parts = dict(re.findall(r'(\\w+)="([^"]*)"', challenge))
+        parts = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
         endpoint = urlsplit(parts.get("realm", ""))
         if endpoint.scheme != "http" or endpoint.hostname != "nexus":
             raise AssertionError("Token realm must remain inside disposable Nexus")
