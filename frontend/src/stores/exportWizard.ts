@@ -418,6 +418,45 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     preview.value = null
   }
 
+  function addExactNexusImage(
+    repositoryPath: string,
+    reference: string,
+    digest: string,
+  ): boolean {
+    if (!isNexus.value || !selectedHarborProfileId.value) return false
+    const separator = repositoryPath.indexOf('/')
+    if (separator <= 0 || separator === repositoryPath.length - 1) {
+      error.value = {
+        code: 'registry_reference_invalid',
+        message: 'Укажите repository с namespace: team/application.',
+      }
+      return false
+    }
+    const project = repositoryPath.slice(0, separator)
+    const repository = repositoryPath.slice(separator + 1)
+    if (!/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(project) ||
+        !/^[a-z0-9]+(?:[._/-][a-z0-9]+)*$/.test(repository) ||
+        !/^sha256:[a-f0-9]{64}$/.test(digest)) {
+      error.value = {
+        code: 'registry_reference_invalid',
+        message: 'Некорректный Docker repository или digest.',
+      }
+      return false
+    }
+    const item: SelectedExportArtifact = {
+      kind: 'container-image',
+      project,
+      repository,
+      reference,
+      digest,
+      size_bytes: null,
+    }
+    selected.value = { ...selected.value, [selectedKey(item)]: item }
+    preview.value = null
+    clearError()
+    return true
+  }
+
   function requestPayload() {
     const profileId = selectedHarborProfileId.value
     if (!profileId) {
@@ -711,6 +750,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     isSelected,
     toggleArtifact,
     addArtifact,
+    addExactNexusImage,
     preparePreview,
     backToSelection,
     start,
