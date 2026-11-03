@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.harbor_profiles import HarborProfile
+from app.config import Settings
+from app.db.base import Base
+from app.db.session import create_db_engine, create_session_factory
+from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.registry_client import (
     RegistryClient,
     _HarborClientWrapper,
@@ -153,6 +156,85 @@ class TestHarborProfileRegistryType:
             registry_type="nexus",
         )
         assert profile.registry_type == "nexus"
+
+
+def test_default_harbor_profile_keeps_harbor_transport_when_nexus_is_configured(
+    tmp_path: Path,
+) -> None:
+    """Adding global Nexus credentials must never switch the default Harbor adapter."""
+    database_url = f"sqlite:///{tmp_path / 'registry-default.db'}"
+    settings = Settings(
+        _env_file=None,
+        database_url=database_url,
+        harbor_url="https://harbor.example.test",
+        nexus_url="http://127.0.0.1:8082",
+        nexus_user="nexus-admin",
+        nexus_password="unused-nexus-secret",
+        harbor_managed_secret_file=tmp_path / "secrets" / "harbor-password",
+    )
+    engine = create_db_engine(database_url)
+    Base.metadata.create_all(engine)
+    sessions = create_session_factory(engine)
+
+    with sessions() as session:
+        selected = HarborProfileService(session, settings).operation_snapshot(None)
+        assert selected.id == "default"
+        assert selected.registry_type == "harbor"
+        client = create_registry_client(
+            selected.registry_type, session, settings, profile_id=selected.id
+        )
+        assert isinstance(client, _HarborClientWrapper)
+        assert client.client.harbor_profile_id == "default"
+        assert client.client._resolve_harbor().url == "https://harbor.example.test"
+
+
+def test_named_nexus_profile_does_not_inherit_global_or_harbor_credentials(
+    tmp_path: Path,
+) -> None:
+    """Profile-selected client must use its own stored endpoint and credential."""
+    database_url = f"sqlite:///{tmp_path / 'registry-profiles.db'}"
+    settings = Settings(
+        _env_file=None,
+        database_url=database_url,
+        harbor_url="https://harbor.example.test",
+        nexus_url="http://127.0.0.1:8089",
+        nexus_user="wrong-global",
+        nexus_password="wrong-global-secret",
+        harbor_managed_secret_file=tmp_path / "secrets" / "harbor-password",
+    )
+    engine = create_db_engine(database_url)
+    Base.metadata.create_all(engine)
+    sessions = create_session_factory(engine)
+
+    with sessions() as session:
+        profiles = HarborProfileService(session, settings)
+        target = profiles.create(
+            name="Legacy Docker Registry",
+            url="http://127.0.0.1:8082",
+            username="registry-robot",
+            verify_tls=False,
+            enabled=True,
+            registry_type="nexus",
+        )
+        profiles.rotate_credential(target.id, "profile-specific-secret")
+        selected = profiles.operation_snapshot(target.id)
+        client = create_registry_client(
+            selected.registry_type, session, settings, profile_id=selected.id
+        )
+        assert isinstance(client, _NexusServiceWrapper)
+        assert client.service.nexus_profile_id == target.id
+        resolved = client.service._resolve_nexus()
+        assert resolved.url == "http://127.0.0.1:8082"
+        assert resolved.username == "registry-robot"
+        assert resolved.password == "profile-specific-secret"
+        assert resolved.verify_tls is False
+
+        default_profile = profiles.operation_snapshot(None)
+        assert default_profile.registry_type == "harbor"
+        default_client = create_registry_client(
+            default_profile.registry_type, session, settings, profile_id=default_profile.id
+        )
+        assert isinstance(default_client, _HarborClientWrapper)
 
 
 if __name__ == "__main__":
