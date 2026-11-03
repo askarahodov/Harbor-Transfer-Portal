@@ -32,13 +32,15 @@ from app.main import create_app
 from app.services.harbor_profiles import HarborProfileService
 from app.services.nexus_service import ImageReference, NexusService, TargetState
 
+TARGET_REGISTRY_URL = "http://127.0.0.1:8083"
+
 pytestmark = pytest.mark.skipif(
     os.environ.get("HTP_NEXUS_LEGACY_E2E") != "1",
     reason="Requires disposable Nexus 3.69 OSS and Skopeo",
 )
 
 
-def _app(settings: Settings, password: str):
+def _app(settings: Settings, password: str, *, url: str = REGISTRY_URL):
     app = create_app(settings)
     Base.metadata.create_all(app.state.db_engine)
     with app.state.session_factory() as session:
@@ -50,7 +52,7 @@ def _app(settings: Settings, password: str):
         profiles = HarborProfileService(session, settings)
         profile = profiles.create(
             name="Nexus Docker v2",
-            url=REGISTRY_URL,
+            url=url,
             username="admin",
             verify_tls=False,
             enabled=True,
@@ -120,7 +122,7 @@ def _seed_conflicting_target(layout: Path, password: str) -> None:
     authfile = layout.parent / "conflict-auth.json"
     authfile.write_text(
         json.dumps({"auths": {
-            "127.0.0.1:8082": {
+            "127.0.0.1:8083": {
                 "auth": base64.b64encode(f"admin:{password}".encode()).decode("ascii")
             }
         }}),
@@ -132,7 +134,7 @@ def _seed_conflicting_target(layout: Path, password: str) -> None:
             "skopeo", "copy", "--format", "v2s2",
             "--dest-authfile", str(authfile), "--dest-tls-verify=false",
             f"oci:{layout}",
-            "docker://127.0.0.1:8082/htp-e2e-target/source:1.0.0",
+            "docker://127.0.0.1:8083/htp-e2e-target/source:1.0.0",
         ],
         capture_output=True,
         check=True,
@@ -195,7 +197,10 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
         "import_discovery_root": tmp_path / "target" / "data" / "incoming" / "discovery",
         "import_receipt_root": tmp_path / "target" / "data" / "receipts",
     })
-    target_app, target_profile = _app(target, password)
+    target_app, target_profile = _app(target, password, url=TARGET_REGISTRY_URL)
+    target_registry = NexusService(
+        MagicMock(), make_settings(tmp_path / "target-probe", password, url=TARGET_REGISTRY_URL)
+    )
     browser_headers = {
         "x-htp-bundle-filename": filename,
         "x-htp-sidecar-base64": base64.b64encode(sidecar).decode("ascii"),
@@ -294,7 +299,7 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
         shutil.copytree(source.skopeo_payload_root / "seed", conflict_layout)
         _seed_conflicting_target(conflict_layout, password)
         competing = asyncio.run(
-            seed.inspect_image(ImageReference("htp-e2e-target/source", "1.0.0"))
+            target_registry.inspect_image(ImageReference("htp-e2e-target/source", "1.0.0"))
         ).digest
         assert competing != digest
         third = target_client.post(
@@ -341,7 +346,7 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
         assert skipped.json()["artifacts"][0]["target_digest"] == competing
 
     checked = asyncio.run(
-        seed.inspect_target(
+        target_registry.inspect_target(
             ImageReference("htp-e2e-target/source", "1.0.0"),
             expected_digest=digest,
         )
