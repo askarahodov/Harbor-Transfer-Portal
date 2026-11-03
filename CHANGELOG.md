@@ -15,10 +15,11 @@ Detailed evidence and acceptance tracker: [Nexus release readiness](docs/nexus-r
 - Nexus SOURCE export preview/digest revalidation; fail-closed legacy Helm rejection (#440).
 - Signed Nexus origin in Bundle v1.1, maintaining historical Harbor v1.0 canonical metadata (#441).
 - Full disposable Nexus 3.69.0-02 OSS SOURCE API → signed bundle → download test (#442).
+- Nexus TARGET Docker v2 destination planning and disposable SOURCE→TARGET API E2E: separate hosted connectors, signed handoff, digest/receipt, SAME and conflict default-deny/explicit skip (#446, draft; not shipped).
 
 ### Verified / not yet verified
 - Integrated draft branch #442: [CI success](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41633770476), [Nexus Docker v2 E2E success](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41633770502).
-- Not verified: real corporate browser/network acceptance, full Nexus TARGET import E2E (#434), remaining UX (#431), infra acceptance (#436), Helm support decision (#435).
+- CI verified for disposable Nexus TARGET import E2E (#446): [Nexus E2E](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41649019315). Not verified: real corporate TARGET/network acceptance (#436), physical isolation and mixed registry combinations (#434), remaining UX (#431), Helm decision (#435).
 - Independent Harbor export incident #422 remains open.
 - **Release gate: NO-GO** pending the items above and review/merges.
 
