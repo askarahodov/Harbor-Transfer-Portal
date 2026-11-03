@@ -70,7 +70,10 @@ async def probe_docker_v2(
     try:
         async with httpx.AsyncClient(
             verify=verify,
-            timeout=httpx.Timeout(\n                connect=connect_timeout, read=read_timeout,\n                write=read_timeout, pool=connect_timeout,\n            ),
+            timeout=httpx.Timeout(
+                connect=connect_timeout, read=read_timeout,
+                write=read_timeout, pool=connect_timeout,
+            ),
             follow_redirects=False,
             trust_env=False,
         ) as client:
@@ -140,7 +143,14 @@ async def probe_docker_v2(
             return _result("registry_auth_failed", "Авторизация Docker Registry v2 не подтверждена")
     except httpx.TimeoutException:
         return _result("registry_unavailable", "Реестр не ответил вовремя")
-    except (httpx.ConnectError, httpx.NetworkError):
+    except httpx.ConnectError as exc:
+        cause = exc.__cause__
+        while cause is not None:
+            if isinstance(cause, ssl.SSLError):
+                return _result("registry_tls_failed", "Не удалось проверить TLS-сертификат реестра")
+            cause = cause.__cause__
+        return _result("registry_unavailable", "Не удалось подключиться к реестру")
+    except httpx.NetworkError:
         return _result("registry_unavailable", "Не удалось подключиться к реестру")
     except (httpx.InvalidURL, ValueError, OSError, ssl.SSLError):
         return _result("registry_tls_failed", "Ошибка TLS/CA или конфигурации подключения")
