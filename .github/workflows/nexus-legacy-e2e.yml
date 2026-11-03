@@ -83,6 +83,7 @@ jobs:
             --memory 4g \
             -p 127.0.0.1:8081:8081 \
             -p 127.0.0.1:8082:8082 \
+            -p 127.0.0.1:8083:8083 \
             -e INSTALL4J_ADD_VM_PARAMS="-Xms512m -Xmx2g -XX:MaxDirectMemorySize=1g" \
             "sonatype/nexus3:${HTP_NEXUS_VERSION}"
 
