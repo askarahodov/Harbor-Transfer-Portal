@@ -197,7 +197,12 @@ TARGET, **не гарантирует push-право**; успешный тес
   `repository:tag` и не обещает Helm OCI, удалён устаревший текст о
   недоступности экспорта Nexus. Добавлены Vue-регрессии: отсутствие вызовов
   Harbor browse/API для Nexus и совместимость старого profile без
-  `registry_type` (fallback Harbor). **CI оценивается отдельно на head PR.**
+  `registry_type` (fallback Harbor).
+  [Frontend CI #41651347744](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41651347744)
+  **PASS** на head `f9468db`. **Зависимость:** backend Docker `/v2/`
+  connection probe находится в отдельном [PR #438](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/438);
+  без него старый `test-registry` проверяет несуществующий `library/busybox`.
+  UI нельзя включать отдельно от корректного backend probe.
 - **Draft [PR #448](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/448)** от
   `main`: тест `test_unconfigured_harbor_has_stable_error` теперь
   не наследует `HARBOR_URL` из репозиторного `.env`/окружения;
