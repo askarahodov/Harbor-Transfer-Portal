@@ -53,7 +53,10 @@ async def probe_docker_v2(
         or parsed.username
         or parsed.password
     ):
-        return _result("registry_invalid_endpoint", "Укажите корневой адрес Docker Registry v2, не Nexus UI")
+        return _result(
+            "registry_invalid_endpoint",
+            "Укажите корневой адрес Docker Registry v2, не Nexus UI",
+        )
     if parsed.scheme == "http" and profile.username and profile.password:
         return _result(
             "registry_insecure_transport", "Проверка пароля по незашифрованному HTTP запрещена"
@@ -82,13 +85,16 @@ async def probe_docker_v2(
             if response.status_code == 403:
                 return _result("registry_forbidden", "Реестр запретил доступ")
             if response.status_code != 401:
-                return _result("registry_invalid_endpoint", "Endpoint не отвечает как Docker Registry v2")
+                return _result(
+                    "registry_invalid_endpoint", "Endpoint не отвечает как Docker Registry v2"
+                )
             challenge = response.headers.get("www-authenticate", "")
             if not challenge:
                 return _result("registry_invalid_endpoint", "Нет Docker Registry v2 auth challenge")
             if not auth:
                 return _result(
-                    "registry_auth_required", "Docker Registry v2 доступен, учётные данные не настроены"
+                    "registry_auth_required",
+                    "Docker Registry v2 доступен, учётные данные не настроены"
                 )
             if challenge.lower().startswith("basic "):
                 return _result("registry_auth_failed", "Реестр отклонил учётные данные")
@@ -107,7 +113,8 @@ async def probe_docker_v2(
                 or realm.fragment
             ):
                 return _result(
-                    "registry_auth_unsupported", "Auth realm требует отдельной проверки безопасности"
+                    "registry_auth_unsupported",
+                    "Auth realm требует отдельной проверки безопасности"
                 )
             token_response = await client.get(
                 parameters["realm"],
@@ -118,7 +125,8 @@ async def probe_docker_v2(
                 return _result("registry_auth_failed", "Реестр отклонил учётные данные")
             if token_response.status_code != 200:
                 return _result(
-                    "registry_auth_unsupported", "Не удалось проверить авторизацию Docker Registry v2"
+                    "registry_auth_unsupported",
+                    "Не удалось проверить авторизацию Docker Registry v2"
                 )
             try:
                 payload = token_response.json()
@@ -135,7 +143,9 @@ async def probe_docker_v2(
             )
             if verified.status_code == 200:
                 return _result(
-                    "registry_connection_ok", "Docker Registry v2 доступен, авторизация подтверждена", True
+                    "registry_connection_ok",
+                    "Docker Registry v2 доступен, авторизация подтверждена",
+                    True
                 )
             if verified.status_code == 403:
                 return _result("registry_forbidden", "Реестр запретил доступ")
