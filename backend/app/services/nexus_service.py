@@ -120,25 +120,6 @@ class CommandResult:
     stderr: str
 
 
-@dataclass(frozen=True, slots=True)
-class HelmChartReference:
-    repository: str
-    name: str
-    version: str
-
-
-@dataclass(frozen=True, slots=True)
-class HelmChartPullResult:
-    package: Path
-    source_digest: str
-    target_digest: str
-
-
-@dataclass(frozen=True, slots=True)
-class HelmChartPushResult:
-    target_digest: str
-
-
 @dataclass(slots=True)
 class NexusServiceError(Exception):
     code: str
@@ -564,7 +545,10 @@ class NexusService:
         destination: Path,
     ) -> HelmChartPullResult:
         """Pull a Helm chart from Nexus OCI registry."""
-        self._emit(NexusPhase.INSPECTING_SOURCE, ImageReference(repository=chart.repository, reference=chart.version))
+        self._emit(
+            NexusPhase.INSPECTING_SOURCE,
+            ImageReference(repository=chart.repository, reference=chart.version),
+        )
         nexus = self._resolve_nexus()
         with self._security_context(nexus) as security:
             destination.mkdir(parents=True, exist_ok=True)
@@ -592,7 +576,10 @@ class NexusService:
                 raise NexusServiceError("helm_pull_ambiguous", "Helm создал несколько chart файлов")
             chart_path = chart_files[0]
             digest = self._compute_sha256(chart_path)
-            self._emit(NexusPhase.EXPORTED, ImageReference(repository=chart.repository, reference=chart.version))
+            self._emit(
+                NexusPhase.EXPORTED,
+                ImageReference(repository=chart.repository, reference=chart.version),
+            )
             return HelmChartPullResult(
                 package=chart_path,
                 source_digest=digest,
@@ -636,13 +623,19 @@ class NexusService:
                 *self._helm_registry_flags(nexus, security),
             )
             result = await self._run_checked(argv, security)
-            digest_match = re.search(r"(?im)^Digest:\s*(sha256:[a-f0-9]{64})\s*$", result.stdout + "\n" + result.stderr)
+            digest_match = re.search(
+                r"(?im)^Digest:\s*(sha256:[a-f0-9]{64})\s*$",
+                result.stdout + "\n" + result.stderr,
+            )
             if digest_match is None:
                 raise NexusServiceError(
                     "helm_push_unverified",
                     "Helm не вернул digest опубликованного OCI chart",
                 )
-            self._emit(NexusPhase.VERIFIED, ImageReference(repository=chart.repository, reference=chart.version))
+            self._emit(
+                NexusPhase.VERIFIED,
+                ImageReference(repository=chart.repository, reference=chart.version),
+            )
             return HelmChartPushResult(target_digest=digest_match.group(1))
 
     def _helm_registry_flags(
