@@ -155,6 +155,8 @@ types-pyyaml==6.0.12.20261030
     # via harbor-transfer-portal-backend (pyproject.toml)
 types-reportlab==4.5.1.20260827
     # via harbor-transfer-portal-backend (pyproject.toml)
+tomlkit==0.15.1
+    # via hatchling
 trove-classifiers==2026.6.1.19
     # via hatchling
 typing-extensions==4.16.0
