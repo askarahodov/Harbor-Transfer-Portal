@@ -183,3 +183,67 @@ def test_docker_v2_not_helm_oci(admin_password: str, tmp_path: Path) -> None:
     """A Docker v2 integration test does not claim Helm OCI compatibility."""
     service = NexusService(MagicMock(), make_settings(tmp_path, admin_password))
     assert service._registry_host(service._resolve_nexus()) == "127.0.0.1:8082"
+
+
+@pytest.fixture(scope="session")
+def tls_certificate() -> Path:
+    raw = os.environ.get("HTP_NEXUS_TLS_CA_FILE")
+    if not raw:
+        pytest.skip("HTTPS reverse proxy is not configured")
+    certificate = Path(raw)
+    assert certificate.is_file()
+    return certificate
+
+
+@pytest.mark.asyncio
+async def test_tls_proxy_rejects_unknown_ca(
+    admin_password: str, tls_certificate: Path, tmp_path: Path
+) -> None:
+    """An HTTPS Nexus endpoint with an unknown CA must fail closed."""
+    settings = make_settings(
+        tmp_path, admin_password, url="https://127.0.0.1:8443"
+    )
+    settings.nexus_verify_tls = True
+    settings.nexus_ca_file = None
+    service = NexusService(MagicMock(), settings)
+    with pytest.raises(NexusServiceError) as error:
+        await service.inspect_image(ImageReference("htp-e2e/any", "1.0.0"))
+    assert error.value.code == "nexus_tls_failed"
+
+
+@pytest.mark.asyncio
+async def test_tls_proxy_with_custom_ca_and_named_profile(
+    admin_password: str, tls_certificate: Path, tmp_path: Path
+) -> None:
+    """HTTPS through nginx succeeds only with selected profile CA and credentials."""
+    # Seed with a direct Docker v2 connector before using the independent TLS path.
+    seed_settings = make_settings(tmp_path / "seed", admin_password)
+    seed = NexusService(MagicMock(), seed_settings)
+    fixture_root = seed_settings.skopeo_payload_root / "seed"
+    expected = await asyncio.to_thread(
+        seeded_schema2_image, seed, fixture_root, admin_password
+    )
+    settings = make_settings(tmp_path, "wrong-global-password")
+    engine = create_db_engine(settings.database_url)
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        profiles = HarborProfileService(session, settings)
+        profile = profiles.create(
+            name="Nexus behind TLS proxy",
+            url="https://127.0.0.1:8443",
+            username="admin",
+            enabled=True,
+            verify_tls=True,
+            registry_type="nexus",
+        )
+        profiles.rotate_credential(profile.id, admin_password)
+        profiles.install_ca(profile.id, tls_certificate.read_text(encoding="utf-8"))
+        service = NexusService(session, settings, nexus_profile_id=profile.id)
+        resolved = service._resolve_nexus()
+        assert resolved.verify_tls is True
+        assert resolved.ca_file is not None
+        assert resolved.ca_file.is_file()
+        assert resolved.password == admin_password
+        observed = await service.inspect_image(ImageReference("htp-e2e/source", "1.0.0"))
+        assert observed.digest == expected
