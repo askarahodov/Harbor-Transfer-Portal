@@ -69,7 +69,7 @@ def check_and_refresh_token(
         if payload.get("type") != "access":
             raise ValueError("invalid token type")
 
-        user_id = int(payload["sub"])
+        int(payload["sub"])  # validate subject before timeout checks
 
         # Check inactivity timeout
         last_activity_str = payload.get("last_activity")
