@@ -51,11 +51,19 @@ def _probe_docker_connector(password: str) -> None:
             with urlopen(request, timeout=5) as response:
                 status = response.status
                 challenge = response.headers.get("WWW-Authenticate", "")
+                server = response.headers.get("Server", "")
+                snippet = response.read(250).decode("utf-8", errors="replace")
         except HTTPError as exc:
             status = exc.code
             challenge = exc.headers.get("WWW-Authenticate", "")
-        # Do not print passwords or auth headers.
-        print(f"REAL NEXUS /v2/ probe ({mode}): HTTP {status}; challenge={challenge[:150]}")
+            server = exc.headers.get("Server", "")
+            snippet = exc.read(250).decode("utf-8", errors="replace")
+        # Do not print passwords or authorization headers.
+        print(
+            f"REAL NEXUS /v2/ probe ({mode}): HTTP {status}; "
+            f"server={server[:80]!r}; challenge={challenge[:150]!r}; "
+            f"body={snippet[:200]!r}"
+        )
 
 
 def main() -> None:
@@ -70,6 +78,8 @@ def main() -> None:
     if "DockerToken" not in realms:
         realms.append("DockerToken")
         _api("PUT", "/security/realms/active", password, realms)
+    active_realms = json.loads(_api("GET", "/security/realms/active", password))
+    print(f"REAL NEXUS active authentication realms: {active_realms!r}")
 
     # TEST INSTANCE ONLY: enable read-only anonymous access to let the Docker
     # connector advertise its Bearer challenge. This network has no external
@@ -87,6 +97,7 @@ def main() -> None:
     anonymous = json.loads(_api("GET", "/security/anonymous", password))
     if anonymous.get("enabled") is not True:
         raise RuntimeError("Disposable Nexus anonymous read access was not enabled")
+    print(f"REAL NEXUS disposable anonymous access enabled: {anonymous['enabled']}")
 
     hosted_repository = {
         "name": "e2e-docker-hosted",
