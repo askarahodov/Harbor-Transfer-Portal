@@ -65,7 +65,7 @@ def main() -> None:
         "component": {"proprietaryComponents": False},
         "docker": {
             "v1Enabled": False,
-            "forceBasicAuth": True,
+            "forceBasicAuth": False,
             "httpPort": 5000,
         },
     }
