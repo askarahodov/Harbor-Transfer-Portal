@@ -10,11 +10,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.error import HTTPError
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from registry_smoke import _write_oci_image_fixture
@@ -112,22 +115,49 @@ def _manifest_digest(password: str, repository: str, version: str) -> str:
     registry = urlsplit(REGISTRY)
     assert registry.hostname == "nexus" and registry.port == 5000
     basic = base64.b64encode(f"admin:{password}".encode()).decode("ascii")
-    request = Request(
-        f"{REGISTRY}/v2/{repository}/manifests/{version}",
-        method="HEAD",
-        headers={
-            "Authorization": f"Basic {basic}",
-            "Accept": (
-                "application/vnd.oci.image.manifest.v1+json,"
-                "application/vnd.docker.distribution.manifest.v2+json"
-            ),
-        },
+    url = f"{REGISTRY}/v2/{repository}/manifests/{version}"
+    accept = (
+        "application/vnd.oci.image.manifest.v1+json,"
+        "application/vnd.docker.distribution.manifest.v2+json"
     )
-    with urlopen(request, timeout=20) as response:
-        digest = response.headers.get("Docker-Content-Digest")
+
+    def head(authorization: str) -> str | None:
+        request = Request(
+            url, method="HEAD",
+            headers={"Authorization": authorization, "Accept": accept},
+        )
+        with urlopen(request, timeout=20) as response:
+            return response.headers.get("Docker-Content-Digest")
+
+    try:
+        digest = head(f"Basic {basic}")
+    except HTTPError as exc:
+        if exc.code != 401:
+            raise
+        challenge = exc.headers.get("WWW-Authenticate", "")
+        if not challenge.startswith("Bearer "):
+            raise AssertionError("Expected Nexus Bearer challenge") from exc
+        parts = dict(re.findall(r'(\\w+)="([^"]*)"', challenge))
+        endpoint = urlsplit(parts.get("realm", ""))
+        if endpoint.scheme != "http" or endpoint.hostname != "nexus":
+            raise AssertionError("Token realm must remain inside disposable Nexus")
+        if endpoint.port not in (8081, 5000):
+            raise AssertionError("Unexpected Nexus token endpoint port")
+        query = parse_qsl(endpoint.query, keep_blank_values=True)
+        query.extend((key, parts[key]) for key in ("service", "scope") if key in parts)
+        token_url = urlunsplit(
+            (endpoint.scheme, endpoint.netloc, endpoint.path, urlencode(query), "")
+        )
+        token_request = Request(token_url, headers={"Authorization": f"Basic {basic}"})
+        with urlopen(token_request, timeout=20) as response:
+            data = json.load(response)
+        token = data.get("token") or data.get("access_token")
+        if not isinstance(token, str) or not token:
+            raise AssertionError("Nexus returned no registry bearer token")
+        digest = head(f"Bearer {token}")
+
     assert digest is not None and digest.startswith("sha256:"), digest
     return digest
-
 
 async def _chart_roundtrip(service: NexusService, root: Path, password: str) -> None:
     chart = HelmChartReference(repository="charts", name="smoke-chart", version=VERSION)
