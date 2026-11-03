@@ -33,7 +33,7 @@ from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
 from app.services.helm_oci_service import HelmOciService, HelmServiceError
 from app.services.key_management import KeyManagementError, KeyManagementService
-from app.services.nexus_service import NexusServiceError
+from app.services.nexus_service import ImageReference, NexusServiceError
 from app.services.operation_manager import (
     OperationArtifactSpec,
     OperationContext,
@@ -41,7 +41,7 @@ from app.services.operation_manager import (
     OperationManagerError,
     OperationTaskFailure,
 )
-from app.services.registry_client import RegistryClient
+from app.services.registry_client import RegistryClient, create_registry_client
 from app.services.skopeo_service import SkopeoService, SkopeoServiceError
 
 
@@ -117,13 +117,75 @@ class ExportOrchestrator:
         harbor_profile_id: str | None = None,
     ) -> tuple[ResolvedExportArtifact, ...]:
         self._require_source_contour()
-        client = self._build_harbor_client(harbor_profile_id)
+        profile = self._profile_snapshot(harbor_profile_id)
+        if profile.registry_type == "nexus":
+            if any(selection.kind is ArtifactKind.HELM_CHART for selection in selections):
+                raise ExportOrchestrationError(
+                    "nexus_legacy_helm_unsupported",
+                    "Nexus Docker v2 не поддерживает экспорт legacy Helm charts",
+                )
+            return self._preview_nexus(selections, profile)
+
+        client = self._build_harbor_client(profile.id)
         try:
             return tuple(resolve_export_selection(client, selection) for selection in selections)
         except ExportSelectionResolutionError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
         finally:
             client.close()
+
+    def _preview_nexus(
+        self,
+        selections: Sequence[ExportArtifactSelection],
+        profile: HarborProfile,
+    ) -> tuple[ResolvedExportArtifact, ...]:
+        """Inspect exact Docker references without invoking Harbor REST endpoints."""
+        async def inspect() -> tuple[ResolvedExportArtifact, ...]:
+            with self.session_factory() as session:
+                client = (
+                    self._registry_client_factory(session, profile.id)
+                    if self._registry_client_factory is not None
+                    else create_registry_client(
+                        "nexus", session, self.settings, profile_id=profile.id
+                    )
+                )
+                results: list[ResolvedExportArtifact] = []
+                for selection in selections:
+                    if selection.kind is not ArtifactKind.CONTAINER_IMAGE:
+                        raise ExportOrchestrationError(
+                            "nexus_legacy_helm_unsupported",
+                            "Nexus Docker v2 поддерживает только container images",
+                        )
+                    image = ImageReference(
+                        repository=f"{selection.project}/{selection.repository}",
+                        reference=selection.reference,
+                    )
+                    inspected = await client.inspect_image(image)
+                    if inspected.digest != selection.digest:
+                        raise ExportOrchestrationError(
+                            "export_source_changed",
+                            "SOURCE artifact digest изменился после выбора",
+                        )
+                    results.append(
+                        ResolvedExportArtifact(
+                            kind=ArtifactKind.CONTAINER_IMAGE,
+                            project=selection.project,
+                            repository=selection.repository,
+                            reference=selection.reference,
+                            digest=inspected.digest,
+                            size_bytes=None,
+                        )
+                    )
+                return tuple(results)
+
+        try:
+            return asyncio.run(inspect())
+        except (NexusServiceError, SkopeoServiceError) as exc:
+            raise ExportOrchestrationError(
+                "registry_inspection_failed",
+                "Не удалось проверить SOURCE Docker image в Nexus",
+            ) from exc
+
 
     async def start_export(
         self,
