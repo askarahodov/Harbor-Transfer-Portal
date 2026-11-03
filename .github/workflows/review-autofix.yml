@@ -1,0 +1,59 @@
+name: Review branch safe Ruff autofix
+on:
+  push:
+    branches:
+      - fix/review-2026-11-03-ci-nexus
+
+permissions:
+  contents: write
+
+jobs:
+  safe-autofix:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/review-2026-11-03-ci-nexus
+          persist-credentials: true
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Safe Ruff fixes for Nexus-related changed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install ruff==0.17.3
+          cd backend
+          files=(
+            alembic/versions/0011_registry_type_for_profiles.py
+            app/api/settings.py
+            app/auth/dependencies.py
+            app/auth/security.py
+            app/schemas/settings.py
+            app/services/export_artifact_materializer.py
+            app/services/export_orchestrator.py
+            app/services/export_publication_guard.py
+            app/services/import_artifact_classifier.py
+            app/services/import_orchestrator.py
+            app/services/nexus_service.py
+            app/services/registry_client.py
+            tests/test_nexus_container.py
+            tests/test_nexus_e2e.py
+            tests/test_nexus_integration.py
+            tests/test_nexus_review_regressions.py
+            tests/test_registry_client.py
+          )
+          ruff check --fix "${files[@]}" || true
+          ruff format "${files[@]}"
+      - name: Commit only resulting changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend
+          if ! git diff --cached --quiet; then
+            git commit -m "style: apply safe Ruff fixes to reviewed Nexus files"
+            git push origin HEAD:fix/review-2026-11-03-ci-nexus
+          fi
