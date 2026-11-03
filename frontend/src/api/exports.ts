@@ -286,6 +286,26 @@ export async function listHarborArtifacts(
   return response.data
 }
 
+export type ExactNexusInspection = {
+  repository: string
+  reference: string
+  digest: string
+  media_type: string | null
+}
+
+export async function inspectExactNexusImage(
+  profileId: string,
+  repository: string,
+  reference: string,
+): Promise<ExactNexusInspection> {
+  const response = await apiClient.post<ExactNexusInspection>('/registry/source/inspect', {
+    profile_id: profileId,
+    repository,
+    reference,
+  })
+  return response.data
+}
+
 export async function getHarborConnection(profileId?: string): Promise<HarborConnection> {
   const response = await apiClient.get<HarborConnection>('/harbor/connection', {
     params: profileId ? { profile_id: profileId } : undefined,
