@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import ssl
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -25,8 +26,6 @@ def _result(code: str, message: str, ok: bool = False) -> ProbeResult:
 def _bearer_parameters(challenge: str) -> dict[str, str] | None:
     if not challenge.lower().startswith("bearer "):
         return None
-    import re
-
     params = dict(re.findall(r'([a-zA-Z]+)="([^"]*)"', challenge[7:]))
     return params if "realm" in params else None
 
