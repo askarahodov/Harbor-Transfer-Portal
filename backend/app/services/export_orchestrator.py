@@ -33,7 +33,7 @@ from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
 from app.services.helm_oci_service import HelmOciService, HelmServiceError
 from app.services.key_management import KeyManagementError, KeyManagementService
-from app.services.nexus_service import ImageReference, NexusServiceError
+from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
     OperationArtifactSpec,
     OperationContext,
@@ -42,7 +42,7 @@ from app.services.operation_manager import (
     OperationTaskFailure,
 )
 from app.services.registry_client import RegistryClient, create_registry_client
-from app.services.skopeo_service import SkopeoService, SkopeoServiceError
+from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoServiceError
 
 
 @dataclass(slots=True)
