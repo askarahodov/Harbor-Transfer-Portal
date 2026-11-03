@@ -181,7 +181,10 @@ class ExportOrchestrator:
 
         try:
             return asyncio.run(inspect())
-        except (NexusServiceError, SkopeoServiceError) as exc:
+        except NexusServiceError as exc:
+            # NexusService emits sanitized, stable codes; preserve missing-tag diagnostics.
+            raise ExportOrchestrationError(exc.code, exc.message) from exc
+        except SkopeoServiceError as exc:
             raise ExportOrchestrationError(
                 "registry_inspection_failed",
                 "Не удалось проверить SOURCE Docker image в Nexus",
