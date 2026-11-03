@@ -6,13 +6,13 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from test_export_orchestrator import IMAGE_DIGEST, _environment
 
 from app.domain.artifacts import ArtifactKind
 from app.schemas.exports import ExportArtifactSelection
 from app.services.export_orchestrator import ExportOrchestrationError, ExportOrchestrator
 from app.services.harbor_profiles import HarborProfileService
 from app.services.registry_client import ImageInspection
-from test_export_orchestrator import IMAGE_DIGEST, _environment
 
 
 def _nexus_orchestrator(tmp_path: Path, digest: str = IMAGE_DIGEST):
