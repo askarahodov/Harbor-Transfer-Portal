@@ -33,6 +33,7 @@ from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
 from app.services.helm_oci_service import HelmOciService, HelmServiceError
 from app.services.key_management import KeyManagementError, KeyManagementService
+from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
     OperationArtifactSpec,
     OperationContext,
@@ -154,15 +155,20 @@ class ExportOrchestrator:
         bound_profile_id = persisted.harbor_profile_id
 
         async def worker(context: OperationContext) -> None:
-            await self._run_export(
-                context,
-                resolved=resolved,
-                artifact_ids=artifact_ids,
-                delivery_id=delivery_id,
-                actor_username=actor_username,
-                comment=comment,
-                harbor_profile_id=bound_profile_id,
-            )
+            try:
+                await self._run_export(
+                    context,
+                    resolved=resolved,
+                    artifact_ids=artifact_ids,
+                    delivery_id=delivery_id,
+                    actor_username=actor_username,
+                    comment=comment,
+                    harbor_profile_id=bound_profile_id,
+                )
+            except (ExportOrchestrationError, HarborSettingsError, NexusServiceError) as exc:
+                # Profile/configuration errors can also occur before the artifact loop.
+                # They are operational failures, not unexpected worker crashes.
+                raise OperationTaskFailure(exc.code, exc.message) from exc
 
         try:
             self.operation_manager.submit(operation_id, worker)
@@ -392,7 +398,13 @@ class ExportOrchestrator:
                         helm_root=helm_root,
                         harbor_profile_id=harbor_profile_id,
                     )
-                except (SkopeoServiceError, HelmServiceError) as exc:
+                except (
+                    SkopeoServiceError,
+                    HelmServiceError,
+                    NexusServiceError,
+                    HarborSettingsError,
+                    ExportOrchestrationError,
+                ) as exc:
                     context.set_artifact_status(
                         artifact_id,
                         ArtifactStatus.FAILED,
