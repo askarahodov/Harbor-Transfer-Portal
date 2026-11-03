@@ -332,11 +332,11 @@ onBeforeUnmount(() => {
         <p class="eyebrow">SOURCE · офлайн-передача</p>
         <h1 id="export-title">Отправка артефактов</h1>
         <p class="lead">
-          Выберите точные версии из локального Harbor, проверьте digest и создайте подписанный
-          Offline Bundle v1 для физического переноса в TARGET.
+          Выберите точный Docker-образ Nexus или версию из Harbor, проверьте digest и создайте подписанный
+          Offline Bundle для физического переноса в TARGET.
         </p>
       </div>
-      <div v-if="wizard.connection" class="connection-chip" aria-label="Состояние локального Harbor">
+      <div v-if="wizard.connection && !wizard.isNexus" class="connection-chip" aria-label="Состояние локального Harbor">
         <CheckCircle2 :size="18" aria-hidden="true" />
         Harbor {{ wizard.connection.version || 'подключён' }}
       </div>
@@ -382,7 +382,7 @@ onBeforeUnmount(() => {
         :model-value="wizard.operation && !wizard.operation.harbor_profile_id ? null : wizard.selectedHarborProfileId"
         :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
         :locked="wizard.harborProfileLocked"
-        hint="Выбранный профиль закрепляется за операцией. Для Nexus Harbor API не используется."
+        hint="Выбранный профиль закрепляется за операцией. Для Nexus используется Docker Registry v2 без Harbor API."
         @update:model-value="wizard.selectHarborProfile"
       />
 
@@ -404,7 +404,7 @@ onBeforeUnmount(() => {
           <AlertTriangle :size="22" aria-hidden="true" />
           <div>
             <strong>Nexus Docker v2: каталог Harbor недоступен</strong>
-            <p>Каталог Docker v2 может быть недоступен с ограниченными правами. Укажите точные repository и tag для проверки digest. Экспорт Nexus будет доступен после исправления SOURCE preview (задача 430).</p>
+            <p>Nexus 3.69 OSS использует Docker Registry v2, а не Harbor API. Укажите точный Docker repository и tag для проверки digest. Helm OCI здесь не поддерживается.</p>
             <form class="nexus-exact-form" @submit.prevent="inspectNexusReference">
               <label>Repository
                 <input v-model="exactRepository" type="text" required maxlength="255" placeholder="team/application" autocomplete="off" />
@@ -526,7 +526,7 @@ onBeforeUnmount(() => {
             <strong>SOURCE</strong>
           </div>
           <div class="info-box">
-            <span>Локальный Harbor</span>
+            <span>{{ wizard.isNexus ? 'Nexus · Docker v2' : 'Локальный Harbor' }}</span>
             <strong>{{ wizard.connection?.version || 'подключён' }}</strong>
             <small v-if="wizard.connection?.auth_mode">Auth: {{ wizard.connection.auth_mode }}</small>
           </div>
