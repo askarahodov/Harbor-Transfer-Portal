@@ -27,6 +27,7 @@ from app.services.nexus_service import (
     NexusServiceError,
     TargetState,
 )
+
 REGISTRY = "http://nexus:5000"
 VERSION = "1.2.3"
 
