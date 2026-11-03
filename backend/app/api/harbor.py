@@ -46,7 +46,9 @@ def get_harbor_client(
         selected_id = profile_id or service.active_profile_id()
         selected = service.get(selected_id)
         if selected is None:
-            raise _api_error(status.HTTP_404_NOT_FOUND, "harbor_profile_not_found", "Профиль не найден")
+            raise _api_error(
+                status.HTTP_404_NOT_FOUND, "harbor_profile_not_found", "Профиль не найден"
+            )
         if selected.registry_type != "harbor":
             raise _api_error(
                 status.HTTP_409_CONFLICT,
