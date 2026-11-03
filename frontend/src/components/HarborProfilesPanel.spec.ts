@@ -292,4 +292,114 @@ describe('HarborProfilesPanel', () => {
     )
     expect(wrapper.text()).toContain('Harbor DC-2: подключение успешно · Harbor 2.13.0')
   })
+
+  it('shows validation feedback next to the Add Harbor button instead of silently blocking', async () => {
+    vi.spyOn(apiClient, 'get').mockResolvedValue(response({ items: [defaultProfile] }))
+    const post = vi.spyOn(apiClient, 'post')
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+
+    await wrapper.find('input[placeholder="Harbor DC-2"]').setValue('Region Harbor')
+    await wrapper.find('input[placeholder="https://harbor-dc2.local"]').setValue('not-a-url')
+    expect(wrapper.get('.create-form').attributes()).toHaveProperty('novalidate')
+
+    await wrapper.get('.create-form').trigger('submit')
+    await flushPromises()
+
+    expect(post).not.toHaveBeenCalled()
+    expect(wrapper.get('.create-form [role="alert"]').text()).toContain('Неверный формат URL')
+    wrapper.unmount()
+  })
+
+  it('explains protected active fallback and focuses editor when editing profile', async () => {
+    const activeAdditional = { ...secondProfile, is_active: true }
+    vi.spyOn(apiClient, 'get').mockResolvedValue(
+      response({ items: [{ ...defaultProfile, is_active: false }, activeAdditional] }),
+    )
+    const wrapper = mount(HarborProfilesPanel, { attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('сначала')
+    expect(wrapper.text()).toContain('выберите другой fallback')
+    const disable = wrapper.findAll('button').find((button) => button.text() === 'Отключить')
+    const remove = wrapper.findAll('button').find((button) => button.text() === 'Удалить profile')
+    expect(disable?.attributes('disabled')).toBeDefined()
+    expect(remove?.attributes('disabled')).toBeDefined()
+
+    const edit = wrapper.findAll('button').find((button) => button.text() === 'Изменить')
+    if (!edit) throw new Error('Edit button missing')
+    await edit.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Изменить Harbor profile')
+    expect(document.activeElement).toBe(wrapper.get('input[name="profile-name"]').element)
+    wrapper.unmount()
+  })
+
+  it('sends modified registry type on save and confirms saved response in editor', async () => {
+    vi.spyOn(apiClient, 'get')
+      .mockResolvedValueOnce(response({ items: [defaultProfile, secondProfile] }))
+      .mockResolvedValueOnce(
+        response({
+          items: [
+            defaultProfile,
+            { ...secondProfile, registry_type: 'nexus' as const, name: 'Regional Nexus' },
+          ],
+        }),
+      )
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(
+      response({
+        ...secondProfile,
+        registry_type: 'nexus',
+        name: 'Regional Nexus',
+      }),
+    )
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+    const edit = wrapper.findAll('button').find((button) => button.text() === 'Изменить')
+    if (!edit) throw new Error('Edit button missing')
+    await edit.trigger('click')
+
+    await wrapper.get('input[name="profile-name"]').setValue('Regional Nexus')
+    await wrapper.get('.create-form select').setValue('nexus')
+    await wrapper.get('.create-form').trigger('submit')
+    await flushPromises()
+
+    expect(patch).toHaveBeenCalledWith(
+      `/settings/harbor/profiles/${secondProfile.id}`,
+      {
+        name: 'Regional Nexus',
+        url: 'https://harbor-b.local',
+        username: 'svc-b',
+        verify_tls: true,
+        registry_type: 'nexus',
+      },
+    )
+    expect(wrapper.get('.create-form [role="status"]').text()).toContain('Профиль обновлён')
+    expect(wrapper.text()).toContain('Regional Nexus')
+    wrapper.unmount()
+  })
+
+  it('shows server error close to form after failed profile create', async () => {
+    vi.spyOn(apiClient, 'get').mockResolvedValue(response({ items: [defaultProfile] }))
+    vi.spyOn(apiClient, 'post').mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 409,
+        data: { error: { code: 'harbor_profile_name_conflict', message: 'Имя уже занято' } },
+      },
+    })
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+    await wrapper.get('input[name="profile-name"]').setValue('Default Harbor')
+    await wrapper.find('input[placeholder="https://harbor-dc2.local"]').setValue(
+      'https://harbor-b.local',
+    )
+    await wrapper.get('.create-form').trigger('submit')
+    await flushPromises()
+    const alert = wrapper.get('.create-form [role="alert"]')
+    expect(alert.text()).toBeTruthy()
+    wrapper.unmount()
+  })
+
 })
