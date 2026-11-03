@@ -331,7 +331,7 @@ describe('HarborProfilesPanel', () => {
     await edit.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Изменить Harbor profile')
+    expect(wrapper.text()).toContain('Изменить профиль реестра')
     expect(document.activeElement).toBe(wrapper.get('input[name="profile-name"]').element)
     wrapper.unmount()
   })
