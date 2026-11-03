@@ -25,6 +25,7 @@ from app.services.nexus_service import (
     NexusServiceError,
     TargetState,
 )
+from app.services.registry_client import _NexusServiceWrapper, create_registry_client
 from integration.registry_smoke import _write_oci_image_fixture
 
 pytestmark = pytest.mark.skipif(
@@ -247,3 +248,59 @@ async def test_tls_proxy_with_custom_ca_and_named_profile(
         assert resolved.password == admin_password
         observed = await service.inspect_image(ImageReference("htp-e2e/source", "1.0.0"))
         assert observed.digest == expected
+
+
+@pytest.mark.asyncio
+async def test_real_registry_client_adapter_round_trip(
+    admin_password: str, tmp_path: Path
+) -> None:
+    """Exercise the actual Portal adapter, not only NexusService in isolation."""
+    settings = make_settings(tmp_path, "deliberately-invalid-global-password")
+    seed_settings = make_settings(tmp_path / "seed", admin_password)
+    seed_service = NexusService(MagicMock(), seed_settings)
+    expected_digest = await asyncio.to_thread(
+        seeded_schema2_image,
+        seed_service,
+        seed_settings.skopeo_payload_root / "seed-image",
+        admin_password,
+    )
+
+    engine = create_db_engine(settings.database_url)
+    Base.metadata.create_all(engine)
+    sessions = create_session_factory(engine)
+    with sessions() as session:
+        profiles = HarborProfileService(session, settings)
+        target = profiles.create(
+            name="Nexus E2E via Portal Adapter",
+            url=REGISTRY_URL,
+            username="admin",
+            verify_tls=False,
+            enabled=True,
+            registry_type="nexus",
+        )
+        profiles.rotate_credential(target.id, admin_password)
+        selected = profiles.operation_snapshot(target.id)
+        assert selected.registry_type == "nexus"
+        client = create_registry_client(
+            selected.registry_type, session, settings, profile_id=selected.id
+        )
+        assert isinstance(client, _NexusServiceWrapper)
+
+        source = ImageReference("htp-e2e/source", "1.0.0")
+        destination = ImageReference("htp-e2e/via-adapter", "1.0.0")
+        exported = await client.export_image(
+            source, settings.skopeo_payload_root / "via-adapter"
+        )
+        assert exported.source_digest == expected_digest
+        assert exported.payload_digest == expected_digest
+        assert exported.payload_path.is_dir()
+
+        imported = await client.import_image(
+            exported.payload_path, destination, expected_digest=expected_digest
+        )
+        assert imported.verified is True
+        assert imported.target_digest == expected_digest
+        inspected = await client.inspect_target(
+            destination, expected_digest=expected_digest
+        )
+        assert inspected.state == TargetState.SAME_DIGEST
