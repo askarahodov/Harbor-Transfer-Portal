@@ -8,16 +8,10 @@ from typing import Literal, Protocol
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.services.nexus_service import NexusService, TargetState
-from app.services.skopeo_service import SkopeoService
+from app.services.nexus_service import NexusService
+from app.services.skopeo_service import ImageReference, SkopeoService, TargetState
 
 RegistryClientFactory = Callable[[Session, str | None], "RegistryClient"]
-
-
-@dataclass(frozen=True, slots=True)
-class ImageReference:
-    repository: str
-    reference: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +154,6 @@ class _NexusServiceWrapper:
 
     async def inspect_target(self, image, *, expected_digest=None) -> TargetInspection:
         result = await self.service.inspect_target(image, expected_digest=expected_digest)
-        return TargetInspection(state=result.state, digest=result.digest)
+        return TargetInspection(state=TargetState(result.state.value), digest=result.digest)
 
 
