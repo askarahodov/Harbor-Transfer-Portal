@@ -189,6 +189,26 @@ TARGET, **не гарантирует push-право**; успешный тес
 до review и необходимой дополнительной квалификации; #436 — до региональной
 приёмки. Вердикт общего выпуска **NO-GO**.
 
+## 3c. Интерфейс Nexus и изоляция тестов (03.11.2026)
+
+- **Draft [PR #447](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/447)** поверх
+  исправленного #442: Nexus `Docker v2` в настройках и profile selector,
+  без кнопки `Harbor API` для Nexus. SOURCE показывает точный
+  `repository:tag` и не обещает Helm OCI, удалён устаревший текст о
+  недоступности экспорта Nexus. Добавлены Vue-регрессии: отсутствие вызовов
+  Harbor browse/API для Nexus и совместимость старого profile без
+  `registry_type` (fallback Harbor). **CI оценивается отдельно на head PR.**
+- **Draft [PR #448](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/448)** от
+  `main`: тест `test_unconfigured_harbor_has_stable_error` теперь
+  не наследует `HARBOR_URL` из репозиторного `.env`/окружения;
+  `test_export_cancellation` использует ключи только в `tmp_path`,
+  не зависит от локального `backend/data/keys`.
+  [CI #41650982260](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41650982260)
+  завершён успешно.
+- **Ограничения:** оба PR пока черновики. Это не означает, что региональный
+  browser UI/экспорт и TARGET приемка повторно проведены на едином
+  release commit SHA. Основной выпуск по-прежнему **NO-GO**.
+
 ## 4. Перед выпуском и после выпуска
 
 1. Завершить/согласовать зависимые PR #438–#442, затем обязательные #431,
