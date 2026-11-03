@@ -41,7 +41,7 @@ class ImportArtifactClassifier:
             self.helm_factory = helm_factory
         else:
             # Keep the existing fake-client injection used by domain tests.
-            self.settings = Settings(_env_file=None)
+            self.settings = Settings.model_construct()
             self.skopeo_factory = settings
             self.helm_factory = helm_factory
 
