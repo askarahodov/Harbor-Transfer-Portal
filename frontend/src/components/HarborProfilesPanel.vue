@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import axios from 'axios'
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 
 import { apiClient } from '@/api/client'
 
@@ -40,6 +40,8 @@ const testingId = ref<string | null>(null)
 const testingRegistryId = ref<string | null>(null)
 const message = ref('')
 const error = ref('')
+const feedbackLocation = ref<'list' | 'editor'>('list')
+const editorForm = ref<HTMLFormElement | null>(null)
 
 const name = ref('')
 const url = ref('')
@@ -54,8 +56,19 @@ const enabledProfiles = computed(() => profiles.value.filter((item) => item.enab
 
 function safeError(fallback: string, value: unknown): string {
   if (axios.isAxiosError(value)) {
-    const apiMessage = value.response?.data?.error?.message
+    const data = value.response?.data
+    const apiMessage = data?.error?.message
     if (typeof apiMessage === 'string') return apiMessage
+    if (typeof data?.detail === 'string') return data.detail
+    if (Array.isArray(data?.detail)) {
+      const messages = data.detail
+        .map((item: { msg?: unknown }) => item.msg)
+        .filter((message: unknown): message is string => typeof message === 'string')
+      if (messages.length) return `Проверьте поля формы: ${messages.join('; ')}`
+    }
+    if (value.response?.status === 403) {
+      return 'У вас нет прав администратора для изменения профилей.'
+    }
   }
   return value instanceof Error && value.message ? value.message : fallback
 }
@@ -76,6 +89,7 @@ async function load(): Promise<void> {
 
 async function activate(): Promise<void> {
   if (!selectedId.value || selectedId.value === activeProfile.value?.id) return
+  feedbackLocation.value = 'list'
   busy.value = true
   error.value = ''
   message.value = ''
@@ -124,6 +138,7 @@ function validateUrlForRegistry(url: string, registryType: 'harbor' | 'nexus'): 
 
 function editProfile(profile: HarborProfile): void {
   if (profile.is_default) return
+  feedbackLocation.value = 'editor'
   editingId.value = profile.id
   name.value = profile.name
   url.value = profile.url
@@ -134,9 +149,17 @@ function editProfile(profile: HarborProfile): void {
   registryType.value = profile.registry_type ?? 'harbor'
   error.value = ''
   message.value = ''
+  void nextTick(() => {
+    editorForm.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    editorForm.value?.querySelector<HTMLInputElement>('input[name="profile-name"]')
+      ?.focus({ preventScroll: true })
+  })
 }
 
 async function saveProfile(): Promise<void> {
+  feedbackLocation.value = 'editor'
+  error.value = ''
+  message.value = ''
   if (!name.value.trim() || !url.value.trim()) {
     error.value = 'Для нового профиля обязательны имя и URL.'
     return
@@ -181,7 +204,7 @@ async function saveProfile(): Promise<void> {
     const wasEditing = editingId.value !== null
     resetEditor()
     await load()
-    selectedId.value = response.data.id
+    feedbackLocation.value = 'editor'
     emit('changed')
     message.value = wasEditing
       ? 'Профиль обновлён.'
@@ -197,6 +220,7 @@ async function saveProfile(): Promise<void> {
 }
 
 async function testProfile(profile: HarborProfile): Promise<void> {
+  feedbackLocation.value = 'list'
   testingId.value = profile.id
   error.value = ''
   message.value = ''
@@ -219,6 +243,7 @@ async function testProfile(profile: HarborProfile): Promise<void> {
 }
 
 async function testRegistry(profile: HarborProfile): Promise<void> {
+  feedbackLocation.value = 'list'
   testingRegistryId.value = profile.id
   error.value = ''
   message.value = ''
@@ -242,6 +267,7 @@ async function testRegistry(profile: HarborProfile): Promise<void> {
 
 async function toggleProfileEnabled(profile: HarborProfile): Promise<void> {
   if (profile.is_default || (profile.is_active && profile.enabled)) return
+  feedbackLocation.value = 'list'
   busy.value = true
   error.value = ''
   message.value = ''
@@ -271,6 +297,7 @@ async function removeProfileCa(profile: HarborProfile): Promise<void> {
   if (!window.confirm(`Удалить custom CA для ${profile.name}? Новые подключения будут использовать системное trust store.`)) {
     return
   }
+  feedbackLocation.value = 'list'
   busy.value = true
   error.value = ''
   message.value = ''
@@ -290,6 +317,7 @@ async function removeProfileCa(profile: HarborProfile): Promise<void> {
 
 async function deleteProfile(profile: HarborProfile): Promise<void> {
   if (profile.is_default || profile.is_active) return
+  feedbackLocation.value = 'list'
   busy.value = true
   error.value = ''
   message.value = ''
@@ -339,6 +367,9 @@ onMounted(() => void load())
         </button>
       </div>
 
+      <p v-if="feedbackLocation === 'list' && message" class="success" role="status">{{ message }}</p>
+      <p v-if="feedbackLocation === 'list' && error" class="error" role="alert">{{ error }}</p>
+
       <div class="profile-list">
         <article v-for="profile in profiles" :key="profile.id" class="profile-row">
           <div>
@@ -353,6 +384,13 @@ onMounted(() => void load())
               </span>
             </div>
             <p>{{ profile.url }}</p>
+            <p v-if="profile.is_active && !profile.is_default" class="profile-hint">
+              Это текущий legacy fallback. Чтобы отключить или удалить профиль, сначала
+              выберите другой fallback в списке выше.
+            </p>
+            <p v-if="profile.is_default" class="profile-hint">
+              Default Harbor защищён от удаления и редактируется в разделе ниже.
+            </p>
             <small>
               {{ profile.username || 'без username' }} · TLS {{ profile.verify_tls ? 'on' : 'off' }}
               · credential {{ profile.credential_configured ? 'есть' : 'нет' }}
@@ -411,6 +449,7 @@ onMounted(() => void load())
               type="button"
               class="secondary danger"
               :disabled="busy || profile.is_active"
+              :title="profile.is_active ? 'Сначала выберите другой legacy fallback' : undefined"
               @click="deleteProfile(profile)"
             >
               Удалить profile
@@ -419,7 +458,7 @@ onMounted(() => void load())
         </article>
       </div>
 
-      <form class="create-form" @submit.prevent="saveProfile">
+      <form ref="editorForm" class="create-form" novalidate @submit.prevent="saveProfile">
         <div class="editor-heading">
           <h3>{{ editingId ? 'Изменить Harbor profile' : 'Добавить Harbor' }}</h3>
           <button v-if="editingId" type="button" class="secondary" @click="resetEditor">
@@ -429,7 +468,7 @@ onMounted(() => void load())
         <div class="form-grid">
           <label>
             Имя профиля
-            <input v-model="name" type="text" maxlength="128" placeholder="Harbor DC-2" />
+            <input v-model="name" name="profile-name" type="text" maxlength="128" placeholder="Harbor DC-2" />
           </label>
           <label>
             URL
@@ -477,11 +516,10 @@ onMounted(() => void load())
         <button type="submit" :disabled="savingProfile">
           {{ savingProfile ? 'Сохранение…' : editingId ? 'Сохранить изменения' : 'Добавить профиль' }}
         </button>
+        <p v-if="feedbackLocation === 'editor' && message" class="success" role="status">{{ message }}</p>
+        <p v-if="feedbackLocation === 'editor' && error" class="error" role="alert">{{ error }}</p>
       </form>
     </template>
-
-    <p v-if="message" class="success" role="status">{{ message }}</p>
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
   </section>
 </template>
 
@@ -502,6 +540,7 @@ textarea { width: 100%; padding: var(--space-3); resize: vertical; font-family: 
 .profile-list { display: grid; gap: var(--space-2); }
 .profile-row { display: flex; justify-content: space-between; gap: var(--space-4); align-items: center; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .profile-row small { color: var(--color-text-muted); }
+.profile-row .profile-hint { margin-top: var(--space-2); font-size: 13px; color: var(--color-text-muted); }
 .row-actions { display: flex; gap: var(--space-2); }
 .create-form { display: grid; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
 .editor-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
