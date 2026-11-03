@@ -55,6 +55,10 @@ async def probe_docker_v2(
         or parsed.password
     ):
         return _result("registry_invalid_endpoint", "Укажите корневой адрес Docker Registry v2, не Nexus UI")
+    if parsed.scheme == "http" and profile.username and profile.password:
+        return _result(
+            "registry_insecure_transport", "Проверка пароля по незашифрованному HTTP запрещена"
+        )
     verify: bool | str = profile.verify_tls
     if profile.verify_tls and profile.ca_file:
         verify = str(profile.ca_file)
