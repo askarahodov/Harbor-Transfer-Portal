@@ -78,10 +78,13 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     const response = await apiClient.get<ProfilesResponse>('/settings/harbor/profiles')
-    profiles.value = response.data.items
+    profiles.value = response.data.items.map((profile) => ({
+      ...profile,
+      registry_type: profile.registry_type === 'nexus' ? 'nexus' : 'harbor',
+    }))
     selectedId.value = response.data.items.find((item) => item.is_active)?.id ?? ''
   } catch (reason) {
-    error.value = safeError('Не удалось загрузить Harbor profiles.', reason)
+    error.value = safeError('Не удалось загрузить профили реестров.', reason)
   } finally {
     loading.value = false
   }
@@ -98,7 +101,7 @@ async function activate(): Promise<void> {
       `/settings/harbor/profiles/${encodeURIComponent(selectedId.value)}/activate`,
     )
     await load()
-    message.value = `Legacy fallback Harbor: ${response.data.name}.`
+    message.value = `Legacy fallback: ${response.data.name}.`
     emit('changed')
   } catch (reason) {
     error.value = safeError('Не удалось изменить legacy fallback Harbor.', reason)
@@ -341,9 +344,9 @@ onMounted(() => void load())
   <section class="profiles-card" aria-labelledby="harbor-profiles-title">
     <div class="profiles-heading">
       <div>
-        <h2 id="harbor-profiles-title">Harbor profiles</h2>
+        <h2 id="harbor-profiles-title">Профили реестров Harbor / Nexus</h2>
         <p class="status">
-          Один Portal может хранить несколько Harbor. Новые Export/Import выбирают profile внутри workflow; selector ниже задаёт только legacy fallback для старых клиентов.
+          Portal хранит профили Harbor и Nexus. SOURCE/ TARGET выбирают реестр внутри workflow; selector ниже задаёт legacy fallback для старых клиентов.
         </p>
       </div>
       <span v-if="activeProfile" class="active-badge">Legacy fallback · {{ activeProfile.name }}</span>
@@ -355,7 +358,7 @@ onMounted(() => void load())
         <label for="active-harbor-profile">Legacy fallback Harbor</label>
         <select id="active-harbor-profile" v-model="selectedId" :disabled="busy">
           <option v-for="profile in enabledProfiles" :key="profile.id" :value="profile.id">
-            {{ profile.name }} · {{ profile.url }}
+            {{ profile.registry_type === 'nexus' ? 'Nexus · Docker v2' : 'Harbor' }} · {{ profile.name }} · {{ profile.url }}
           </option>
         </select>
         <button
@@ -375,6 +378,7 @@ onMounted(() => void load())
           <div>
             <div class="profile-title">
               <strong>{{ profile.name }}</strong>
+              <span class="registry-kind">{{ profile.registry_type === 'nexus' ? 'Nexus · Docker v2' : 'Harbor' }}</span>
               <span v-if="profile.is_active" class="inline-active">legacy fallback</span>
               <span
                 class="state-badge"
@@ -399,6 +403,7 @@ onMounted(() => void load())
           </div>
           <div class="row-actions">
             <button
+              v-if="profile.registry_type !== 'nexus'"
               type="button"
               class="secondary"
               :disabled="testingId === profile.id || !profile.enabled"
@@ -414,7 +419,7 @@ onMounted(() => void load())
               @click="testRegistry(profile)"
             >
               <span v-if="testingRegistryId === profile.id" class="spinner-inline"></span>
-              {{ testingRegistryId === profile.id ? 'Проверка реестра…' : 'Проверить реестр' }}
+              {{ testingRegistryId === profile.id ? 'Проверка реестра…' : profile.registry_type === 'nexus' ? 'Проверить Docker Registry v2' : 'Проверить реестр' }}
             </button>
             <button
               v-if="!profile.is_default"
@@ -460,7 +465,7 @@ onMounted(() => void load())
 
       <form ref="editorForm" class="create-form" novalidate @submit.prevent="saveProfile">
         <div class="editor-heading">
-          <h3>{{ editingId ? 'Изменить Harbor profile' : 'Добавить Harbor' }}</h3>
+          <h3>{{ editingId ? 'Изменить профиль реестра' : 'Добавить реестр' }}</h3>
           <button v-if="editingId" type="button" class="secondary" @click="resetEditor">
             Отмена
           </button>
@@ -481,6 +486,7 @@ onMounted(() => void load())
               <option value="nexus">Sonatype Nexus</option>
             </select>
           </label>
+          <p v-if="registryType === 'nexus'" class="profile-hint">Nexus 3.69 OSS: Docker Registry v2 (точный repository:tag). Harbor API и Helm OCI недоступны.</p>
           <label>
             Service account
             <input v-model="username" type="text" autocomplete="username" />
