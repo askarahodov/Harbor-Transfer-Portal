@@ -202,7 +202,7 @@ jobs:
         run: python -m bandit -q -r backend/app -ll
 
       - name: Trivy - filesystem vulnerability scan
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           scan-type: fs
           scan-ref: .
