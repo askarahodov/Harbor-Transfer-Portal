@@ -8,8 +8,8 @@ from typing import Literal, Protocol
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.services.skopeo_service import SkopeoService
 from app.services.nexus_service import NexusService, TargetState
+from app.services.skopeo_service import SkopeoService
 
 RegistryClientFactory = Callable[[Session, str | None], "RegistryClient"]
 
