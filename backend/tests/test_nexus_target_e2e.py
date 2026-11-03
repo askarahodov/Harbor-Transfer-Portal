@@ -138,7 +138,6 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
     target_seed.bundle_signing_private_key_file.unlink()
     target = target_seed.model_copy(update={
         "portal_contour": PortalContour.TARGET,
-        "bundle_signing_private_key_file": None,
         "import_staging_root": tmp_path / "target" / "data" / "incoming" / "staged",
         "import_discovery_root": tmp_path / "target" / "data" / "incoming" / "discovery",
         "import_receipt_root": tmp_path / "target" / "data" / "receipts",
