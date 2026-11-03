@@ -5,8 +5,8 @@ Starts only in the dedicated opt-in GitHub Actions workflow.
 
 from __future__ import annotations
 
-import base64
 import asyncio
+import base64
 import json
 import os
 import subprocess
@@ -148,7 +148,9 @@ def test_payload_path_isolation(admin_password: str, tmp_path: Path) -> None:
     settings = make_settings(tmp_path, admin_password)
     service = NexusService(MagicMock(), settings)
     settings.skopeo_payload_root.mkdir(parents=True)
-    (settings.skopeo_payload_root / "escape").symlink_to(tmp_path, target_is_directory=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (settings.skopeo_payload_root / "escape").symlink_to(outside, target_is_directory=True)
     with pytest.raises(NexusServiceError) as error:
         service._validate_export_path(settings.skopeo_payload_root / "escape" / "payload")
     assert error.value.code == "nexus_payload_path_outside_root"
