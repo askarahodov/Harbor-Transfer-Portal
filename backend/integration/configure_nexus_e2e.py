@@ -71,6 +71,23 @@ def main() -> None:
         realms.append("DockerToken")
         _api("PUT", "/security/realms/active", password, realms)
 
+    # TEST INSTANCE ONLY: enable read-only anonymous access to let the Docker
+    # connector advertise its Bearer challenge. This network has no external
+    # routes and the Nexus container/volume are discarded after the job.
+    _api(
+        "PUT",
+        "/security/anonymous",
+        password,
+        {
+            "enabled": True,
+            "userId": "anonymous",
+            "realmName": "NexusAuthorizingRealm",
+        },
+    )
+    anonymous = json.loads(_api("GET", "/security/anonymous", password))
+    if anonymous.get("enabled") is not True:
+        raise RuntimeError("Disposable Nexus anonymous read access was not enabled")
+
     hosted_repository = {
         "name": "e2e-docker-hosted",
         "online": True,
@@ -92,7 +109,22 @@ def main() -> None:
         _api("GET", "/repositories/docker/hosted/e2e-docker-hosted", password)
     )
     print(f"REAL NEXUS Docker forceBasicAuth={configured['docker']['forceBasicAuth']}")
+    # A Docker connector can need a short initialization period after the REST POST.
+    for attempt in range(20):
+        request = Request("http://nexus:5000/v2/")
+        try:
+            with urlopen(request, timeout=5) as response:
+                status = response.status
+        except HTTPError as exc:
+            status = exc.code
+        except (URLError, TimeoutError, OSError):
+            status = 0
+        if status in (200, 401):
+            break
+        time.sleep(2)
     _probe_docker_connector(password)
+    if status not in (200, 401):
+        raise RuntimeError(f"Nexus Docker connector returned unexpected HTTP {status}")
     print("REAL NEXUS: configured Docker hosted registry using the REST API")
 
 
