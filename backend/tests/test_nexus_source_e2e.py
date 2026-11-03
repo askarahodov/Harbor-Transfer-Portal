@@ -4,7 +4,6 @@ Runs only with the disposable Nexus 3.69 OSS service in the dedicated workflow.
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import os
@@ -31,6 +30,7 @@ from app.services.nexus_service import NexusService
 from test_nexus_legacy_e2e import (
     REGISTRY_URL,
     admin_password,
+    make_settings,
     seeded_schema2_image,
 )
 
@@ -88,10 +88,7 @@ def test_real_source_api_signed_bundle_and_browser_ticket(
 ) -> None:
     settings = _settings(tmp_path)
     # Seed via the real Nexus Docker schema2 registry before creating the app.
-    seed = NexusService(MagicMock(), settings.model_copy(update={
-        "nexus_url": REGISTRY_URL,
-        "nexus_password": admin_password,
-    }))
+    seed = NexusService(MagicMock(), make_settings(tmp_path / "seed", admin_password))
     expected = seeded_schema2_image(
         seed, settings.skopeo_payload_root / "seed", admin_password,
     )
