@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """Test Nexus container startup using testcontainers with named volume."""
 
+import os
 import sys
 import time
+
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("HTP_RUN_NEXUS_E2E") != "1",
+    reason="Requires a separately configured Nexus container test environment",
+)
 
 from testcontainers.core.container import DockerContainer
 
@@ -22,7 +30,7 @@ def test_nexus_startup():
     start_time = time.time()
 
     print("Waiting for Nexus to start (timeout: 1800s)...")
-    while time.time() - start_time < 1800:
+    while time.time() - start_time < max_wait_seconds:
         logs = container.get_wrapped_container().logs().decode("utf-8", errors="ignore")
         if "Started Sonatype Nexus" in logs:
             print("Nexus started!")
@@ -38,9 +46,7 @@ def test_nexus_startup():
     print("Nexus started!")
     ui_port = container.get_exposed_port(8081)
     docker_port = container.get_exposed_port(8082)
-    print(
-        f"UI port: {container.get_exposed_port(8081)}, Docker port: {container.get_exposed_port(8082)}"
-    )
+    print(f"UI port: {ui_port}, Docker port: {docker_port}")
 
     container.stop()
     print("Test passed!")
