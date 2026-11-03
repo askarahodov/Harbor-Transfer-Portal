@@ -16,6 +16,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
+from test_nexus_legacy_e2e import REGISTRY_URL, make_settings, seeded_schema2_image
 
 from app.auth.security import hash_password
 from app.config import PortalContour, Settings
@@ -27,12 +28,6 @@ from app.main import create_app
 from app.services.bundle_package_service import BundlePackageService
 from app.services.harbor_profiles import HarborProfileService
 from app.services.nexus_service import NexusService
-from test_nexus_legacy_e2e import (
-    REGISTRY_URL,
-    admin_password,
-    make_settings,
-    seeded_schema2_image,
-)
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("HTP_NEXUS_LEGACY_E2E") != "1",
@@ -83,14 +78,15 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-def test_real_source_api_signed_bundle_and_browser_ticket(
-    tmp_path: Path, admin_password: str,
-) -> None:
+def test_real_source_api_signed_bundle_and_browser_ticket(tmp_path: Path) -> None:
+    password = Path(os.environ["HTP_NEXUS_E2E_PASSWORD_FILE"]).read_text(
+        encoding="utf-8"
+    ).strip()
     settings = _settings(tmp_path)
     # Seed via the real Nexus Docker schema2 registry before creating the app.
-    seed = NexusService(MagicMock(), make_settings(tmp_path / "seed", admin_password))
+    seed = NexusService(MagicMock(), make_settings(tmp_path / "seed", password))
     expected = seeded_schema2_image(
-        seed, settings.skopeo_payload_root / "seed", admin_password,
+        seed, settings.skopeo_payload_root / "seed", password,
     )
     app = create_app(settings)
     Base.metadata.create_all(app.state.db_engine)
@@ -109,7 +105,7 @@ def test_real_source_api_signed_bundle_and_browser_ticket(
             enabled=True,
             registry_type="nexus",
         )
-        profiles.rotate_credential(profile.id, admin_password)
+        profiles.rotate_credential(profile.id, password)
         profile_id = profile.id
         actor_id = actor.id
         session.commit()
