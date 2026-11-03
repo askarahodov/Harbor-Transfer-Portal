@@ -214,6 +214,28 @@ TARGET, **не гарантирует push-право**; успешный тес
   browser UI/экспорт и TARGET приемка повторно проведены на едином
   release commit SHA. Основной выпуск по-прежнему **NO-GO**.
 
+## 3d. SOURCE негативные E2E — черновик PR #449
+
+**Draft [PR #449](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/449)**
+поверх #442 расширяет disposable Nexus 3.69 OSS тесты:
+неизвестный точный Docker tag (нельзя создавать operation или публиковать bundle),
+истёкший download ticket и ticket другого operation, а также инъекция сбоя
+Nexus transport **после preview, но до публикации** (нет частичного архива,
+sidecar, handoff и download ticket; operation и artifact завершаются FAILED).
+Первый прогон обнаружил реальный недостаток диагностики: `nexus_not_found`
+скрывался за общим `registry_inspection_failed`. Изменение сохраняет
+санитизированный код `nexus_not_found` и возвращает HTTP 404 для отсутствующего
+тега, не передавая клиенту необработанный stderr.
+
+Проверять по **актуальному head PR #449**, а не по старой успешно
+протестированной ревизии #442:
+[CI](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41653728752),
+[real Nexus E2E](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41653728349).
+**Статус этих прогонов на момент записи не подтверждён как PASS.**
+Остаются дополнительные recovery/диск/cancel и ручные браузерные доказательства.
+Региональный SOURCE успех относится к предыдущему оттестированному коммиту,
+не автоматически к новому head. Релиз **NO-GO**.
+
 ## 4. Перед выпуском и после выпуска
 
 1. Завершить/согласовать зависимые PR #438–#442, затем обязательные #431,
