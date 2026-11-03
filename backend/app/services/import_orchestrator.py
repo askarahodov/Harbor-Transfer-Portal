@@ -106,7 +106,12 @@ class ImportOrchestrator:
         self.helm_factory = helm_factory or (lambda session: HelmOciService(session, settings))
         classifier_factory = registry_client_factory
         if classifier_factory is None and skopeo_factory is not None:
-            classifier_factory = lambda session, _profile_id: skopeo_factory(session)
+            def classifier_skopeo_client(
+                session: Session, _profile_id: str | None
+            ) -> SkopeoService:
+                return skopeo_factory(session)
+
+            classifier_factory = classifier_skopeo_client
         self.artifact_classifier = ImportArtifactClassifier(
             session_factory,
             settings,
