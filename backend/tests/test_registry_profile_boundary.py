@@ -23,7 +23,10 @@ def test_selectable_profile_type_backward_compatible():
 
 
 def test_nexus_profile_rejected_before_harbor_client_creation():
-    request = Request({"type": "http", "app": SimpleNamespace(state=SimpleNamespace(settings=MagicMock()))})
+    request = Request({
+        "type": "http",
+        "app": SimpleNamespace(state=SimpleNamespace(settings=MagicMock())),
+    })
     session = MagicMock()
     service = MagicMock()
     service.get.return_value = SimpleNamespace(registry_type="nexus")
