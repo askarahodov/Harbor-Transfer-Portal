@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -15,7 +14,7 @@ from app.services.helm_oci_service import (
     HelmServiceError,
     HelmTargetState,
 )
-from app.services.nexus_service import TargetState
+from app.services.nexus_service import NexusServiceError
 from app.services.registry_client import RegistryClient, create_registry_client
 from app.services.skopeo_service import (
     ImageReference,
@@ -25,11 +24,26 @@ from app.services.skopeo_service import (
 )
 
 
-@dataclass(slots=True)
 class ImportArtifactClassifier:
-    session_factory: sessionmaker[Session]
-    settings: Settings
-    registry_client_factory: Callable[[Session, str | None], "RegistryClient"]
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        settings: Settings | Callable[[Session], SkopeoService],
+        helm_factory: Callable[[Session], HelmOciService] | None = None,
+        *,
+        registry_client_factory: Callable[[Session, str | None], RegistryClient] | None = None,
+    ) -> None:
+        self.session_factory = session_factory
+        self.registry_client_factory = registry_client_factory
+        if isinstance(settings, Settings):
+            self.settings = settings
+            self.skopeo_factory = None
+            self.helm_factory = helm_factory
+        else:
+            # Keep the existing fake-client injection used by domain tests.
+            self.settings = Settings(_env_file=None)
+            self.skopeo_factory = settings
+            self.helm_factory = helm_factory
 
     async def classify(
         self,
@@ -40,25 +54,38 @@ class ImportArtifactClassifier:
         result: list[ImportArtifactPreviewResponse] = []
         for index, artifact in enumerate(artifacts):
             with self.session_factory() as session:
-                client = self._create_registry_client(session, harbor_profile_id)
                 if isinstance(artifact, ContainerImageArtifact):
+                    client = self._create_registry_client(session, harbor_profile_id)
                     result.append(await self._classify_image(index, artifact, client))
                 else:
-                    result.append(await self._classify_chart(index, artifact, client, session))
+                    result.append(
+                        await self._classify_chart(
+                            index, artifact, session, harbor_profile_id
+                        )
+                    )
         return result
 
-    def _create_registry_client(self, session: Session, harbor_profile_id: str | None) -> "RegistryClient":
-        with self.session_factory() as session:
-            from app.services.harbor_profiles import HarborProfileService
-            profile = HarborProfileService(session, self.settings).operation_snapshot(harbor_profile_id)
-            registry_type = profile.registry_type if profile else "harbor"
-        return create_registry_client(registry_type, session, self.settings, profile_id=harbor_profile_id)
+    def _create_registry_client(
+        self, session: Session, harbor_profile_id: str | None
+    ) -> RegistryClient | SkopeoService:
+        if self.registry_client_factory is not None:
+            return self.registry_client_factory(session, harbor_profile_id)
+        if self.skopeo_factory is not None:
+            return self.skopeo_factory(session)
+        from app.services.harbor_profiles import HarborProfileService
+
+        profile = HarborProfileService(session, self.settings).operation_snapshot(
+            harbor_profile_id
+        )
+        return create_registry_client(
+            profile.registry_type, session, self.settings, profile_id=profile.id
+        )
 
     async def _classify_image(
         self,
         index: int,
         artifact: ContainerImageArtifact,
-        client: "RegistryClient",
+        client: RegistryClient | SkopeoService,
     ) -> ImportArtifactPreviewResponse:
         try:
             inspected = await client.inspect_target(
@@ -81,19 +108,24 @@ class ImportArtifactClassifier:
                 payload_size=artifact.payload_size,
                 classification=classification,
             )
-        except (SkopeoServiceError, ValueError) as exc:
+        except (SkopeoServiceError, NexusServiceError, ValueError) as exc:
             return self._inspection_error(index, artifact, exc)
 
     async def _classify_chart(
         self,
         index: int,
         artifact: HelmChartArtifact,
-        client: "RegistryClient",
         session: Session,
+        harbor_profile_id: str | None,
     ) -> ImportArtifactPreviewResponse:
         try:
-            # For Helm, use HelmOciService directly as it works with any OCI registry
-            helm = HelmOciService(session, self.settings, harbor_profile_id=artifact.harbor_profile_id if hasattr(artifact, 'harbor_profile_id') else None)
+            helm = (
+                self.helm_factory(session)
+                if self.helm_factory is not None
+                else HelmOciService(
+                    session, self.settings, harbor_profile_id=harbor_profile_id
+                )
+            )
             inspected = await helm.inspect_target(
                 HelmChartReference(artifact.repository, artifact.name, artifact.version),
                 expected_digest=artifact.source_digest,
