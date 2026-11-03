@@ -170,7 +170,7 @@ describe('HarborProfilesPanel', () => {
     if (!edit) throw new Error('Edit button not found')
     await edit.trigger('click')
 
-    expect(wrapper.text()).toContain('Изменить Harbor profile')
+    expect(wrapper.text()).toContain('Изменить профиль реестра')
     const credential = wrapper.findAll('input').find(
       (input) => input.attributes('autocomplete') === 'new-password',
     )
@@ -399,6 +399,52 @@ describe('HarborProfilesPanel', () => {
     await flushPromises()
     const alert = wrapper.get('.create-form [role="alert"]')
     expect(alert.text()).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('only offers Docker Registry v2 to Nexus and never invokes Harbor API', async () => {
+    const nexus = {
+      ...secondProfile,
+      registry_type: 'nexus' as const,
+      name: 'Regional Nexus',
+      url: 'https://nexus.example.test',
+    }
+    vi.spyOn(apiClient, 'get').mockResolvedValue(response({ items: [defaultProfile, nexus] }))
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue(response({
+      ok: true,
+      code: 'registry_connection_ok',
+      message: 'Docker v2 connected',
+      version: null,
+    }))
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Nexus · Docker v2')
+    expect(wrapper.text()).toContain('Проверить Docker Registry v2')
+    const nexusRow = wrapper.findAll('.profile-row').find((row) => row.text().includes('Regional Nexus'))
+    if (!nexusRow) throw new Error('Nexus row not found')
+    expect(nexusRow.text()).not.toContain('Проверить (Harbor API)')
+    const testRegistry = nexusRow.findAll('button').find((button) =>
+      button.text() === 'Проверить Docker Registry v2',
+    )
+    if (!testRegistry) throw new Error('Docker v2 button not found')
+    await testRegistry.trigger('click')
+    await flushPromises()
+    expect(post).toHaveBeenCalledWith(
+      `/settings/harbor/profiles/${nexus.id}/test-registry`,
+      {},
+      { timeout: 60000 },
+    )
+    expect(post.mock.calls.some(([path]) => String(path).endsWith('/test'))).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('treats legacy profiles without registry_type as Harbor', async () => {
+    vi.spyOn(apiClient, 'get').mockResolvedValue(response({ items: [defaultProfile] }))
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+    expect(wrapper.text()).toContain('Harbor')
+    expect(wrapper.text()).toContain('Проверить (Harbor API)')
     wrapper.unmount()
   })
 
