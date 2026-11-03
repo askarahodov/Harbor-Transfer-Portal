@@ -75,6 +75,7 @@ export type HarborConnection = {
 }
 
 export type HarborProfileOption = {
+  registry_type?: 'harbor' | 'nexus'
   id: string
   name: string
   url: string
