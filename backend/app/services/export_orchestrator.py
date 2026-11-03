@@ -140,6 +140,7 @@ class ExportOrchestrator:
         profile: HarborProfile,
     ) -> tuple[ResolvedExportArtifact, ...]:
         """Inspect exact Docker references without invoking Harbor REST endpoints."""
+
         async def inspect() -> tuple[ResolvedExportArtifact, ...]:
             with self.session_factory() as session:
                 client = (
@@ -169,8 +170,8 @@ class ExportOrchestrator:
                     results.append(
                         ResolvedExportArtifact(
                             kind=ArtifactKind.CONTAINER_IMAGE,
-                            project=selection.project,
-                            repository=selection.repository,
+                            project=None,
+                            repository=image.repository,
                             reference=selection.reference,
                             digest=inspected.digest,
                             size_bytes=None,
@@ -185,7 +186,6 @@ class ExportOrchestrator:
                 "registry_inspection_failed",
                 "Не удалось проверить SOURCE Docker image в Nexus",
             ) from exc
-
 
     async def start_export(
         self,
@@ -485,18 +485,12 @@ class ExportOrchestrator:
                 context.set_progress(current=index + 1, total=len(artifact_ids))
 
             context.transition(OperationStatus.PACKAGING)
-            source_profile = self._assert_operation_profile(
-                context.operation_id, harbor_profile_id
-            )
+            source_profile = self._assert_operation_profile(context.operation_id, harbor_profile_id)
             source = BundleSource(
                 contour="SOURCE",
                 harbor=source_profile.url if source_profile.registry_type == "harbor" else None,
-                registry_type=(
-                    "nexus" if source_profile.registry_type == "nexus" else None
-                ),
-                registry=(
-                    source_profile.url if source_profile.registry_type == "nexus" else None
-                ),
+                registry_type=("nexus" if source_profile.registry_type == "nexus" else None),
+                registry=(source_profile.url if source_profile.registry_type == "nexus" else None),
                 portal_version=self.settings.app_version,
             )
             try:

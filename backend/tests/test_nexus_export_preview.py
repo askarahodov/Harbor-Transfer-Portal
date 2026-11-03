@@ -19,14 +19,20 @@ def _nexus_orchestrator(tmp_path: Path, digest: str = IMAGE_DIGEST):
     settings, manager, harbor, package_service, _ = _environment(tmp_path)
     with manager.session_factory() as session:
         profile = HarborProfileService(session, settings).create(
-            name="Nexus", url="https://nexus.example.test",
-            username="operator", verify_tls=True, enabled=True, registry_type="nexus",
+            name="Nexus",
+            url="https://nexus.example.test",
+            username="operator",
+            verify_tls=True,
+            enabled=True,
+            registry_type="nexus",
         )
         session.commit()
     client = MagicMock()
     client.inspect_image = AsyncMock(return_value=ImageInspection(digest=digest))
     orchestrator = ExportOrchestrator(
-        manager.session_factory, settings, manager,
+        manager.session_factory,
+        settings,
+        manager,
         harbor_client_factory=lambda: harbor,
         registry_client_factory=lambda _session, _profile_id: client,
         package_factory=lambda: package_service,
@@ -36,8 +42,11 @@ def _nexus_orchestrator(tmp_path: Path, digest: str = IMAGE_DIGEST):
 
 def _image() -> ExportArtifactSelection:
     return ExportArtifactSelection(
-        kind=ArtifactKind.CONTAINER_IMAGE, project="team", repository="app",
-        reference="1.0.0", digest=IMAGE_DIGEST,
+        kind=ArtifactKind.CONTAINER_IMAGE,
+        project="team",
+        repository="app",
+        reference="1.0.0",
+        digest=IMAGE_DIGEST,
     )
 
 
@@ -53,9 +62,7 @@ def test_nexus_preview_uses_docker_inspection_without_harbor_api(tmp_path: Path)
 
 
 def test_nexus_changed_digest_rejected_before_operation(tmp_path: Path) -> None:
-    orchestrator, profile_id, harbor, _client = _nexus_orchestrator(
-        tmp_path, "sha256:" + "b" * 64
-    )
+    orchestrator, profile_id, harbor, _client = _nexus_orchestrator(tmp_path, "sha256:" + "b" * 64)
     with pytest.raises(ExportOrchestrationError) as error:
         orchestrator.preview((_image(),), harbor_profile_id=profile_id)
     assert error.value.code == "export_source_changed"
@@ -65,8 +72,11 @@ def test_nexus_changed_digest_rejected_before_operation(tmp_path: Path) -> None:
 def test_nexus_helm_rejected_before_client_creation(tmp_path: Path) -> None:
     orchestrator, profile_id, harbor, client = _nexus_orchestrator(tmp_path)
     chart = ExportArtifactSelection(
-        kind=ArtifactKind.HELM_CHART, project="team", repository="charts/sample",
-        reference="1.2.3", digest=IMAGE_DIGEST,
+        kind=ArtifactKind.HELM_CHART,
+        project="team",
+        repository="charts/sample",
+        reference="1.2.3",
+        digest=IMAGE_DIGEST,
     )
     with pytest.raises(ExportOrchestrationError) as error:
         orchestrator.preview((chart,), harbor_profile_id=profile_id)
@@ -79,7 +89,22 @@ def test_nexus_prepare_reinspects_before_persisting(tmp_path: Path) -> None:
     orchestrator, profile_id, _harbor, client = _nexus_orchestrator(tmp_path)
     client.inspect_image.return_value = ImageInspection(digest="sha256:" + "c" * 64)
     with pytest.raises(ExportOrchestrationError) as error:
-        orchestrator._prepare_export_operation(
-            (_image(),), None, "operator", None, profile_id
-        )
+        orchestrator._prepare_export_operation((_image(),), None, "operator", None, profile_id)
     assert error.value.code == "export_source_changed"
+
+
+def test_nexus_repository_with_namespace_keeps_full_path(tmp_path: Path) -> None:
+    """Registry namespace must not be dropped: project + repository is the Docker path."""
+    orchestrator, profile_id, _harbor, client = _nexus_orchestrator(tmp_path)
+    selection = ExportArtifactSelection(
+        kind=ArtifactKind.CONTAINER_IMAGE,
+        project="0702",
+        repository="centos7",
+        reference="kcptun",
+        digest=IMAGE_DIGEST,
+    )
+    result = orchestrator.preview((selection,), harbor_profile_id=profile_id)
+    assert result[0].full_repository == "0702/centos7"
+    assert result[0].project is None
+    inspected = client.inspect_image.await_args.args[0]
+    assert inspected.repository == "0702/centos7"
