@@ -66,6 +66,7 @@ class HarborArtifactsPage(BaseModel):
 
 
 class HarborSelectableProfileResponse(BaseModel):
+    registry_type: str = "harbor"
     id: str
     name: str
     url: str
