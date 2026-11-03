@@ -81,7 +81,7 @@ async def test_push_uses_repository_and_remote_digest(service: NexusService, tmp
     digest = service._compute_sha256(package)
     published_digest = "sha256:" + "a" * 64
     service._run_checked.return_value = CommandResult(
-        0, "Pushed: oci://nexus.test:5000/team/sample:1.2.3\\nDigest: " + published_digest, ""
+        0, "Pushed: oci://nexus.test:5000/team/sample:1.2.3\nDigest: " + published_digest, ""
     )
     result = await service.push_chart(
         package, HelmChartReference("team", "sample", "1.2.3"), expected_digest=digest
