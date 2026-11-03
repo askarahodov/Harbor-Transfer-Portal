@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.services.harbor_settings import EffectiveHarborSettings, HarborSettingsService
+from app.services.harbor_profiles import HarborProfileService
 
 _DIGEST_PATTERN = r"sha256:[a-f0-9]{64}"
 _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
@@ -287,26 +288,35 @@ class NexusService:
         progress: Callable[[NexusProgressEvent], None] | None = None,
     ) -> None:
         self.settings = settings
+        self.session = session
         self.nexus_profile_id = nexus_profile_id
         self.runner = runner or AsyncioCommandRunner(settings.skopeo_temp_root)
         self.progress = progress
         self.payload_root = settings.skopeo_payload_root.resolve()
 
     def _resolve_nexus(self) -> EffectiveHarborSettings:
-        if self.nexus_profile_id is None:
-            # Use default settings
-            return EffectiveHarborSettings(
-                url=self.settings.nexus_url,
-                username=self.settings.nexus_user,
-                password=self.settings.nexus_password,
-                verify_tls=self.settings.nexus_verify_tls,
-                ca_file=self.settings.nexus_ca_file,
-            )
-        # TODO: Resolve specific Nexus profile
+        if self.nexus_profile_id is not None:
+            profile = HarborProfileService(self.session, self.settings).get(self.nexus_profile_id)
+            if not profile.enabled or not profile.url:
+                raise NexusServiceError(
+                    "nexus_profile_disabled", "Выбранный Nexus profile отключён",
+                )
+            if profile.registry_type != "nexus":
+                raise NexusServiceError(
+                    "nexus_profile_invalid_type", "Выбранный profile не является Nexus",
+                )
+            return HarborSettingsService(self.session, self.settings).resolve_profile(profile.id)
+
+        # The legacy installation-wide Nexus registry remains supported.
+        password = self.settings.nexus_password
+        if password is not None:
+            password = password.get_secret_value()
+        elif self.settings.nexus_password_file is not None:
+            password = self.settings.nexus_password_file.read_text(encoding="utf-8").strip()
         return EffectiveHarborSettings(
-            url=self.settings.nexus_url,
+            url=str(self.settings.nexus_url).rstrip("/") if self.settings.nexus_url else None,
             username=self.settings.nexus_user,
-            password=self.settings.nexus_password,
+            password=password,
             verify_tls=self.settings.nexus_verify_tls,
             ca_file=self.settings.nexus_ca_file,
         )
