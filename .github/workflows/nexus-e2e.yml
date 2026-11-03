@@ -6,6 +6,7 @@ on:
       - .github/workflows/nexus-e2e.yml
       - backend/app/services/nexus_service.py
       - backend/integration/nexus_real_smoke.py
+      - backend/integration/configure_nexus_e2e.py
       - backend/tests/test_nexus_review_regressions.py
       - deploy/smoke-nexus-e2e.sh
   workflow_dispatch:
