@@ -75,6 +75,7 @@ export type HarborConnection = {
 }
 
 export type HarborProfileOption = {
+  registry_type?: 'harbor' | 'nexus'
   id: string
   name: string
   url: string
@@ -282,6 +283,26 @@ export async function listHarborArtifacts(
       },
     },
   )
+  return response.data
+}
+
+export type ExactNexusInspection = {
+  repository: string
+  reference: string
+  digest: string
+  media_type: string | null
+}
+
+export async function inspectExactNexusImage(
+  profileId: string,
+  repository: string,
+  reference: string,
+): Promise<ExactNexusInspection> {
+  const response = await apiClient.post<ExactNexusInspection>('/registry/source/inspect', {
+    profile_id: profileId,
+    repository,
+    reference,
+  })
   return response.data
 }
 
