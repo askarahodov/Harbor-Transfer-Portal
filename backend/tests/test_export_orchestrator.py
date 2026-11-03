@@ -27,7 +27,7 @@ from app.services.helm_oci_service import (
     HelmPullResult,
     HelmServiceError,
 )
-from app.services.operation_manager import OperationManager
+from app.services.operation_manager import OperationManager, OperationTaskFailure
 from app.services.skopeo_service import ExportResult
 
 IMAGE_DIGEST = "sha256:" + "a" * 64
@@ -620,4 +620,48 @@ def test_unexpected_export_error_does_not_expose_secret_and_aborts_artifacts(
         "export_aborted",
     ]
     assert all(artifact.status is ArtifactStatus.FAILED for artifact in operation.artifacts)
+    assert _outgoing_is_empty(settings)
+
+
+def test_manager_disk_preflight_failure_aborts_pending_export_artifacts(
+    tmp_path: Path,
+) -> None:
+    settings, manager, _harbor, _package_service, orchestrator = _environment(tmp_path)
+    original_require_disk = manager.require_disk
+    checks = 0
+
+    def fail_worker_preflight(required_bytes: int = 0) -> None:
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            raise OperationTaskFailure(
+                "operation_insufficient_disk",
+                "Недостаточно свободного места для запуска операции",
+            )
+        original_require_disk(required_bytes)
+
+    manager.require_disk = fail_worker_preflight  # type: ignore[method-assign]
+
+    async def scenario() -> int:
+        await manager.startup()
+        started = await orchestrator.start_export(
+            _selections(),
+            actor_user_id=None,  # type: ignore[arg-type]
+            actor_username="operator",
+            comment=None,
+        )
+        await manager.wait(started.operation_id)
+        await manager.shutdown()
+        return started.operation_id
+
+    operation = manager.get_operation(asyncio.run(scenario()))
+    assert operation is not None
+    assert checks == 2
+    assert operation.status is OperationStatus.FAILED
+    assert operation.error_code == "operation_insufficient_disk"
+    assert all(artifact.status is ArtifactStatus.FAILED for artifact in operation.artifacts)
+    assert [artifact.error_code for artifact in operation.artifacts] == [
+        "export_aborted",
+        "export_aborted",
+    ]
     assert _outgoing_is_empty(settings)
