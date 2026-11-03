@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
 from test_nexus_legacy_e2e import REGISTRY_URL, make_settings, seeded_schema2_image
 
-from app.auth.security import hash_password
+from app.auth.security import create_export_download_token, hash_password
 from app.config import PortalContour, Settings
 from app.db.base import Base
 from app.db.models import UserRole
@@ -135,6 +135,19 @@ def test_real_source_api_signed_bundle_and_browser_ticket(tmp_path: Path) -> Non
         assert preview.json()["artifacts"][0]["repository"] == "source"
         assert preview.json()["artifacts"][0]["size_bytes"] is None
 
+        # Nonexistent Nexus tag must fail closed before starting a worker or
+        # creating any downloadable output.
+        missing = {**selection, "artifacts": [{
+            **selection["artifacts"][0], "reference": "tag-does-not-exist-433",
+        }]}
+        missing_preview = client.post("/api/exports/preview", json=missing, headers=auth)
+        assert missing_preview.status_code in {404, 422}, missing_preview.text
+        assert missing_preview.json()["error"]["code"] == "nexus_not_found"
+        missing_start = client.post("/api/exports", json=missing, headers=auth)
+        assert missing_start.status_code in {404, 422}, missing_start.text
+        assert missing_start.json()["error"]["code"] == "nexus_not_found"
+        assert not list(settings.bundle_outgoing_root.glob("*.htp.tar.gz"))
+
         wrong = {**selection, "artifacts": [{
             **selection["artifacts"][0], "digest": "sha256:" + "f" * 64,
         }]}
@@ -182,6 +195,33 @@ def test_real_source_api_signed_bundle_and_browser_ticket(tmp_path: Path) -> Non
         assert digest == metadata["sha256"]
         assert downloaded.headers["x-checksum-sha256"] == digest
         assert metadata["archive_name"] in downloaded.headers["content-disposition"]
+
+        # Exercise real JWT expiry and operation binding, without sleeping.
+        client.cookies.clear()
+        expired = create_export_download_token(
+            user_id=actor_id,
+            operation_id=operation_id,
+            secret=settings.jwt_secret.get_secret_value(),
+            lifetime_seconds=-60,
+        )
+        denied_expired = client.get(
+            f"/api/exports/{operation_id}/download",
+            cookies={"htp_export_download": expired},
+        )
+        assert denied_expired.status_code == 401, denied_expired.text
+        assert denied_expired.json()["error"]["code"] == "download_auth_invalid"
+        wrong_operation = create_export_download_token(
+            user_id=actor_id,
+            operation_id=operation_id + 1,
+            secret=settings.jwt_secret.get_secret_value(),
+            lifetime_seconds=60,
+        )
+        denied_binding = client.get(
+            f"/api/exports/{operation_id}/download",
+            cookies={"htp_export_download": wrong_operation},
+        )
+        assert denied_binding.status_code == 401, denied_binding.text
+        assert denied_binding.json()["error"]["code"] == "download_auth_invalid"
 
     archive = settings.bundle_outgoing_root / metadata["archive_name"]
     assert archive.read_bytes() == downloaded.content
