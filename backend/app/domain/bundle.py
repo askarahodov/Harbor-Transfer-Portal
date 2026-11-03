@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class OperationType(StrEnum):
@@ -42,8 +42,22 @@ class ArtifactStatus(StrEnum):
 
 class BundleSource(BaseModel):
     contour: Literal["SOURCE"]
-    harbor: str
+    # Legacy Harbor 1.0 manifests keep their exact canonical representation.
+    harbor: str | None = None
     portal_version: str | None = None
+    registry_type: Literal["harbor", "nexus"] | None = None
+    registry: str | None = None
+
+    @model_validator(mode="after")
+    def validate_registry_provenance(self) -> BundleSource:
+        if self.registry_type == "nexus":
+            if self.harbor is not None or not self.registry:
+                raise ValueError("Nexus source requires registry and forbids source.harbor")
+        elif not self.harbor:
+            raise ValueError("Legacy Harbor source requires source.harbor")
+        if self.registry_type == "harbor" and self.registry not in (None, self.harbor):
+            raise ValueError("Harbor registry origin conflicts with source.harbor")
+        return self
 
 
 class ArtifactBase(BaseModel):
