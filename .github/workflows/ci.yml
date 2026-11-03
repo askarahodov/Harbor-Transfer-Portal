@@ -35,15 +35,17 @@ jobs:
       - name: Проверить regression scoped CI и dev launcher
         run: python3 -m unittest tools.test_ci_scope tools.test_dev
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.9"
+
       - name: Проверить dependency lock invariants
         shell: bash
         run: |
           set -euo pipefail
-          # Force fresh uv.lock by removing cached version and clearing uv cache
-          rm -f backend/uv.lock
-          uv cache clean
-          # Force fresh lock file generation with pinned pytest
-          uv lock --upgrade --no-cache
+          # Verify the committed lock without replacing it.
+          uv lock --check --directory backend
           python3 -m unittest tools.test_dependency_locks
           python3 tools/check_dependency_locks.py
 
@@ -103,6 +105,7 @@ jobs:
         run: make typecheck-backend
 
       - name: Pytest
+        if: ${{ !cancelled() }}
         run: make test-backend
 
   frontend:
@@ -122,6 +125,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Установить зависимости
         working-directory: frontend
@@ -167,7 +171,7 @@ jobs:
           python -m pip install -r backend/requirements-dev.lock
 
       - name: Protocol тесты
-        run: make test-protocol
+        run: cd backend && python -m pytest tests/test_bundle_protocol.py tests/test_bundle_schema.py tests/test_bundle_package_service.py
 
   security:
     name: Security — проверка уязвимостей
@@ -192,16 +196,28 @@ jobs:
           set -euo pipefail
           python -m pip install -r backend/requirements-dev.lock
 
-      - name: Bandit
-        run: make security-backend
+      - name: Install Bandit
+        run: python -m pip install bandit==1.8.6
 
-      - name: Trivy
-        run: make security-frontend
+      - name: Bandit - high and medium severity
+        run: python -m bandit -q -r backend/app -ll
+
+      - name: Trivy - filesystem vulnerability scan
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${PWD}:/workspace:ro" \
+            aquasec/trivy:0.65.0 fs \
+            --scanners vuln \
+            --exit-code 1 \
+            --severity CRITICAL,HIGH \
+            --format table \
+            /workspace
 
   integration:
     name: Integration — интеграционные тесты
-    needs: [backend, frontend]
-    if: needs.scope.outputs.integration == 'true'
+    needs: [scope, backend, frontend]
+    if: ${{ always() && needs.scope.outputs.integration == 'true' && needs.backend.result == 'success' && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -222,7 +238,7 @@ jobs:
           python -m pip install -r backend/requirements-dev.lock
 
       - name: Интеграционные тесты
-        run: make test-integration
+        run: make test-registry-integration
 
   compose:
     name: Compose — проверка docker-compose
@@ -239,10 +255,12 @@ jobs:
       - name: Docker Compose
         run: |
           set -euo pipefail
-          docker compose -f docker-compose.yml build
-          docker compose -f docker-compose.yml up -d
-          sleep 10
-          docker compose -f docker-compose.yml down
+          cp .env.example .env
+          docker compose -f compose.yaml config -q
+          docker compose -f compose.yaml build
+          trap 'docker compose -f compose.yaml down --volumes --remove-orphans' EXIT
+          docker compose -f compose.yaml up -d --wait
+          curl --fail --silent --show-error http://127.0.0.1:8080/api/health
 
   docs:
     name: Docs — проверка документации
@@ -257,42 +275,47 @@ jobs:
           clean: true
 
       - name: Проверка ссылок
-        run: make check-docs
+        run: make docs-check
 
   quality-gate:
     name: Quality Gate
-    needs: [backend, frontend, protocol, security, integration, compose, docs]
+    needs: [scope, backend, frontend, protocol, security, integration, compose, docs]
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-        with:
-          fetch-depth: 0
-          clean: true
-
       - name: Проверить результаты обязательных jobs
         shell: bash
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          PROTOCOL_RESULT: ${{ needs.protocol.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          COMPOSE_RESULT: ${{ needs.compose.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+          BACKEND_REQUIRED: ${{ needs.scope.outputs.backend }}
+          FRONTEND_REQUIRED: ${{ needs.scope.outputs.frontend }}
+          PROTOCOL_REQUIRED: ${{ needs.scope.outputs.protocol }}
+          SECURITY_REQUIRED: ${{ needs.scope.outputs.security }}
+          INTEGRATION_REQUIRED: ${{ needs.scope.outputs.integration }}
+          COMPOSE_REQUIRED: ${{ needs.scope.outputs.compose }}
+          DOCS_REQUIRED: ${{ needs.scope.outputs.docs }}
         run: |
           set -euo pipefail
-          for result in \
-            "${SCOPE_RESULT}" \
-            "${BACKEND_RESULT}" \
-            "${FRONTEND_RESULT}" \
-            "${WINDOWS_DEV_RESULT}" \
-            "${PROTOCOL_RESULT}" \
-            "${SECURITY_RESULT}" \
-            "${INTEGRATION_RESULT}" \
-            "${COMPOSE_RESULT}" \
-            "${OFFLINE_INSTALL_RESULT}" \
-            "${DOCS_RESULT}"; do
-            case "${result}" in
-              success|skipped)
-                ;;
-              *)
-                echo "Обязательный CI job завершился со статусом: ${result}" >&2
-                exit 1
-                ;;
-            esac
+          [[ "$SCOPE_RESULT" == "success" ]] || { echo "Scope failed: $SCOPE_RESULT"; exit 1; }
+          for area in BACKEND FRONTEND PROTOCOL SECURITY INTEGRATION COMPOSE DOCS; do
+            result_key="${area}_RESULT"
+            required_key="${area}_REQUIRED"
+            result="${!result_key}"
+            required="${!required_key}"
+            if [[ "$required" == "true" && "$result" != "success" ]]; then
+              echo "${area} required, but result is ${result}" >&2
+              exit 1
+            fi
+            if [[ "$required" == "false" && "$result" != "skipped" && "$result" != "success" ]]; then
+              echo "${area} unexpected result: ${result}" >&2
+              exit 1
+            fi
           done
           echo 'Все требуемые для этого diff проверки прошли.'
-

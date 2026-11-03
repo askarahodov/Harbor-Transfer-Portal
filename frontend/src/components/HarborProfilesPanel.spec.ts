@@ -127,6 +127,7 @@ describe('HarborProfilesPanel', () => {
       url: 'https://harbor-b.local',
       username: 'svc-b',
       verify_tls: true,
+      registry_type: 'harbor',
       enabled: true,
     })
     expect(put).toHaveBeenCalledWith(
@@ -190,10 +191,11 @@ describe('HarborProfilesPanel', () => {
         url: 'https://harbor-b-new.local',
         username: 'svc-b',
         verify_tls: true,
+        registry_type: 'harbor',
       },
     )
     expect(put).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('Harbor profile обновлён')
+    expect(wrapper.text()).toContain('Профиль обновлён.')
   })
 
   it('disables and re-enables an additional profile without changing the legacy fallback', async () => {
@@ -279,12 +281,14 @@ describe('HarborProfilesPanel', () => {
     const wrapper = mount(HarborProfilesPanel)
     await flushPromises()
 
-    const testButtons = wrapper.findAll('button').filter((button) => button.text() === 'Проверить')
+    const testButtons = wrapper.findAll('button').filter((button) => button.text() === 'Проверить (Harbor API)')
     await testButtons[1]?.trigger('click')
     await flushPromises()
 
     expect(post).toHaveBeenCalledWith(
       `/settings/harbor/profiles/${secondProfile.id}/test`,
+      {},
+      { timeout: 15000 },
     )
     expect(wrapper.text()).toContain('Harbor DC-2: подключение успешно · Harbor 2.13.0')
   })

@@ -55,11 +55,13 @@ from app.services.helm_oci_service import (
 )
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
+from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
     OperationContext,
     OperationManagerError,
     OperationTaskFailure,
 )
+from app.services.registry_client import RegistryClient, create_registry_client
 from app.services.skopeo_service import (
     ImageReference,
     SkopeoService,
@@ -210,7 +212,14 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     getattr(exc, "code", "import_destination_validation_failed"),
                     str(exc),
                 ) from exc
-            skopeo = self.skopeo_factory(session)
+            if self._registry_client_factory is not None:
+                skopeo = self._registry_client_factory(session, profile.id)
+            elif self.skopeo_factory is not None:
+                skopeo = self.skopeo_factory(session)
+            else:
+                skopeo = create_registry_client(
+                    profile.registry_type, session, self.settings, profile_id=profile.id
+                )
             helm = self.helm_factory(session)
             if isinstance(skopeo, SkopeoService):
                 skopeo.harbor_profile_id = profile.id
@@ -279,7 +288,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         mapping: ImportDestinationPlanRequest,
         overrides: dict[int, str],
         validator: DestinationValidator,
-        skopeo: SkopeoService,
+        skopeo: SkopeoService | RegistryClient,
         helm: HelmOciService,
     ) -> ImportDestinationArtifactPlanResponse:
         try:
@@ -374,7 +383,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         reference: str | None,
         expected_digest: str | None,
         validator: DestinationValidator,
-        skopeo: SkopeoService,
+        skopeo: SkopeoService | RegistryClient,
     ) -> ImportDestinationArtifactPlanResponse:
         try:
             if reference is None:
@@ -415,7 +424,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 target_digest=inspected.digest,
                 classification=classification,
             )
-        except (SkopeoServiceError, ValueError) as exc:
+        except (SkopeoServiceError, NexusServiceError, ValueError) as exc:
             return self._destination_inspection_error(
                 base,
                 target_project,

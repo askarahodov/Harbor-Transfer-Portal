@@ -20,7 +20,8 @@ from app.services.helm_oci_service import (
     HelmServiceError,
 )
 from app.services.operation_manager import OperationTaskFailure
-from app.services.skopeo_service import ImageReference, SkopeoServiceError
+from app.services.registry_client import RegistryClient, create_registry_client
+from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoServiceError
 
 
 class ExportArtifactMaterializer:
@@ -29,25 +30,29 @@ class ExportArtifactMaterializer:
         session_factory: sessionmaker[Session],
         settings: Settings,
         *,
-        registry_client_factory: Callable[[Session, str | None], "RegistryClient"] | None = None,
+        skopeo_factory: Callable[[Session], SkopeoService] | None = None,
+        helm_factory: Callable[[Session], HelmOciService] | None = None,
+        registry_client_factory: Callable[[Session, str | None], RegistryClient] | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
+        self._skopeo_factory = skopeo_factory
+        self._helm_factory = helm_factory
         self._registry_client_factory = registry_client_factory
 
-    def _create_registry_client(self, session: Session, harbor_profile_id: str | None) -> "RegistryClient":
+    def _create_registry_client(
+        self, session: Session, harbor_profile_id: str | None
+    ) -> RegistryClient | SkopeoService:
         if self._registry_client_factory is not None:
             return self._registry_client_factory(session, harbor_profile_id)
-        with self.session_factory() as session:
-            from app.services.harbor_profiles import HarborProfileService
-            profile = HarborProfileService(session, self.settings).operation_snapshot(harbor_profile_id)
-            registry_type = profile.registry_type
-        return create_registry_client(registry_type, session, self.settings, profile_id=harbor_profile_id)
+        if self._skopeo_factory is not None:
+            return self._skopeo_factory(session)
+        from app.services.harbor_profiles import HarborProfileService
 
-    def _get_profile_info(self, harbor_profile_id: str | None):
-        with self.session_factory() as session:
-            from app.services.harbor_profiles import HarborProfileService
-            return HarborProfileService(session, self.settings).operation_snapshot(harbor_profile_id)
+        profile = HarborProfileService(session, self.settings).operation_snapshot(harbor_profile_id)
+        return create_registry_client(
+            profile.registry_type, session, self.settings, profile_id=profile.id
+        )
 
     async def materialize(
         self,
@@ -58,11 +63,6 @@ class ExportArtifactMaterializer:
         helm_root: Path,
         harbor_profile_id: str | None = None,
     ) -> PackageArtifactInput:
-        with self.session_factory() as session:
-            client = self._create_registry_client(session, harbor_profile_id)
-            profile = self._get_profile_info(harbor_profile_id)
-            registry_type = profile.registry_type if profile else "harbor"
-
         if item.kind is ArtifactKind.CONTAINER_IMAGE:
             image = ImageReference(
                 repository=item.full_repository,
@@ -88,13 +88,12 @@ class ExportArtifactMaterializer:
         chart = self._helm_reference(item)
         destination = helm_root / str(artifact_id)
         with self.session_factory() as session:
-            client = self._create_registry_client(session, harbor_profile_id)
-            # For Helm, we still use HelmOciService as it works with any OCI registry
-            with self.session_factory() as session:
-                result = await self._helm_service(
-                    session,
-                    harbor_profile_id,
-                ).pull_chart(chart, destination)
+            helm = (
+                self._helm_factory(session)
+                if self._helm_factory is not None
+                else self._helm_service(session, harbor_profile_id)
+            )
+            result = await helm.pull_chart(chart, destination)
         if result.source_digest != item.digest:
             raise HelmServiceError(
                 "export_source_changed",
@@ -111,9 +110,7 @@ class ExportArtifactMaterializer:
 
     def prepare_helm_root(self, operation_id: int) -> Path:
         workspace_root = self.settings.helm_workspace_root.resolve()
-        target = (
-            workspace_root / "export-operations" / f"operation-{operation_id}"
-        ).resolve()
+        target = (workspace_root / "export-operations" / f"operation-{operation_id}").resolve()
         try:
             target.relative_to(workspace_root)
         except ValueError as exc:

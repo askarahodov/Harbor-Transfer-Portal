@@ -46,13 +46,24 @@ from app.services.import_bundle_storage import (
 from app.services.import_persistence import ImportOperationPersistence
 from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.media_handoff import MediaHandoffError, MediaHandoffService
+from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
     OperationContext,
     OperationManager,
     OperationManagerError,
     OperationTaskFailure,
 )
-from app.services.registry_client import RegistryClient, create_registry_client, RegistryClientFactory
+from app.services.registry_client import (
+    RegistryClient,
+    RegistryClientFactory,
+    create_registry_client,
+)
+from app.services.skopeo_service import (
+    ImageReference,
+    SkopeoService,
+    SkopeoServiceError,
+    TargetState,
+)
 
 
 @dataclass(slots=True)
@@ -71,7 +82,6 @@ class ImportIntakeResult:
     intake_mode: ImportIntakeMode
 
 
-RegistryClientFactory = Callable[[Session, str | None], "RegistryClient"]
 PackageFactory = Callable[[], BundlePackageService]
 
 
@@ -83,18 +93,28 @@ class ImportOrchestrator:
         operation_manager: OperationManager,
         *,
         package_factory: Callable[[], BundlePackageService] | None = None,
+        skopeo_factory: Callable[[Session], SkopeoService] | None = None,
+        helm_factory: Callable[[Session], HelmOciService] | None = None,
         registry_client_factory: RegistryClientFactory | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
         self.operation_manager = operation_manager
-        self._package_factory = package_factory or (lambda: BundlePackageService(settings))
+        self.package_factory = package_factory or (lambda: BundlePackageService(settings))
         self._registry_client_factory = registry_client_factory
-        self.artifact_classifier = ImportArtifactClassifier(
-            session_factory,
-            settings,
-            registry_client_factory=registry_client_factory,
-        )
+        self.skopeo_factory = skopeo_factory
+        self.helm_factory = helm_factory or (lambda session: HelmOciService(session, settings))
+        if registry_client_factory is None and skopeo_factory is not None:
+            self.artifact_classifier = ImportArtifactClassifier(
+                session_factory, skopeo_factory, self.helm_factory
+            )
+        else:
+            self.artifact_classifier = ImportArtifactClassifier(
+                session_factory,
+                settings,
+                helm_factory=self.helm_factory,
+                registry_client_factory=registry_client_factory,
+            )
         self.discovery_root = settings.import_discovery_root.resolve()
         self.staging_root = settings.import_staging_root.resolve()
         self.receipt_root = settings.import_receipt_root.resolve()
@@ -229,9 +249,9 @@ class ImportOrchestrator:
             ):
                 continue
             try:
-                verified_handoff = MediaHandoffService(
-                    self.settings
-                ).verify_from_discovery(handoff.read_bytes())
+                verified_handoff = MediaHandoffService(self.settings).verify_from_discovery(
+                    handoff.read_bytes()
+                )
             except (OSError, MediaHandoffError) as exc:
                 if isinstance(exc, MediaHandoffError):
                     raise ImportOrchestrationError(exc.code, exc.message) from exc
@@ -467,7 +487,6 @@ class ImportOrchestrator:
         """Extension hook for preview enrichment; persistence lives in the collaborator."""
         self.persistence.persist_preview(operation_id, preview)
 
-
     def _write_receipt(
         self,
         operation_id: int,
@@ -539,7 +558,17 @@ class ImportOrchestrator:
             failures = 0
             context.set_progress(current=0, total=len(artifacts))
             with self.session_factory() as session:
-                skopeo = self.skopeo_factory(session)
+                if self._registry_client_factory is not None:
+                    skopeo = self._registry_client_factory(session, profile.id)
+                elif self.skopeo_factory is not None:
+                    skopeo = self.skopeo_factory(session)
+                else:
+                    skopeo = create_registry_client(
+                        profile.registry_type,
+                        session,
+                        self.settings,
+                        profile_id=profile.id,
+                    )
                 helm = self.helm_factory(session)
                 if isinstance(skopeo, SkopeoService):
                     skopeo.harbor_profile_id = profile.id
@@ -550,7 +579,12 @@ class ImportOrchestrator:
                     context.raise_if_cancelled()
                     try:
                         outcome = await self._preflight_target(descriptor, skopeo, helm)
-                    except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
+                    except (
+                        SkopeoServiceError,
+                        NexusServiceError,
+                        HelmServiceError,
+                        ValueError,
+                    ) as exc:
                         context.set_artifact_status(
                             row.id,
                             ArtifactStatus.FAILED,
@@ -637,7 +671,12 @@ class ImportOrchestrator:
                             ArtifactStatus.VERIFIED,
                             target_digest=target_digest,
                         )
-                    except (SkopeoServiceError, HelmServiceError, ValueError) as exc:
+                    except (
+                        SkopeoServiceError,
+                        NexusServiceError,
+                        HelmServiceError,
+                        ValueError,
+                    ) as exc:
                         context.set_artifact_status(
                             row.id,
                             ArtifactStatus.FAILED,
@@ -662,7 +701,7 @@ class ImportOrchestrator:
     async def _preflight_target(
         self,
         descriptor: ContainerImageArtifact | HelmChartArtifact,
-        skopeo: SkopeoService,
+        skopeo: SkopeoService | RegistryClient,
         helm: HelmOciService,
     ) -> tuple[ImportPreviewState, str | None]:
         if isinstance(descriptor, ContainerImageArtifact):

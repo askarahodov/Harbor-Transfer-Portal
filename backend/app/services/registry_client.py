@@ -8,17 +8,10 @@ from typing import Literal, Protocol
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.services.harbor_client import HarborClient
-from app.services.nexus_service import NexusService, NexusPhase, TargetState
-
+from app.services.nexus_service import NexusService
+from app.services.skopeo_service import ImageReference, SkopeoService, TargetState
 
 RegistryClientFactory = Callable[[Session, str | None], "RegistryClient"]
-
-
-@dataclass(frozen=True, slots=True)
-class ImageReference:
-    repository: str
-    reference: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,37 +75,24 @@ def create_registry_client(
 ) -> RegistryClient:
     """Factory function to create registry client based on type."""
     if registry_type == "harbor":
-        from app.services.harbor_client import HarborClient
         return _HarborClientWrapper(session, settings, profile_id)
     elif registry_type == "nexus":
-        from app.services.nexus_service import NexusService
         return _NexusServiceWrapper(session, settings, profile_id)
     else:
         raise ValueError(f"Unknown registry type: {registry_type}")
 
 
 class _HarborClientWrapper:
-    """Adapter to make HarborClient conform to RegistryClient protocol."""
+    """Adapter for Harbor OCI transfer operations via SkopeoService."""
 
     def __init__(self, session: Session, settings: Settings, profile_id: str | None = None):
-        from app.services.harbor_settings import HarborSettingsService
-        profile_service = HarborSettingsService(session, settings)
-        resolved = profile_service.resolve_profile(profile_id)
-        verify: bool | str = resolved.verify_tls
-        if resolved.verify_tls and resolved.ca_file is not None:
-            verify = str(resolved.ca_file)
-        password = resolved.password.get_secret_value() if resolved.password else None
-        self.client = HarborClient(
-            base_url=resolved.url,
-            username=resolved.username,
-            password=password,
-            verify=verify,
-            connect_timeout=settings.harbor_connect_timeout_seconds,
-            read_timeout=settings.harbor_read_timeout_seconds,
+        # Transfer operations use the OCI transport (Skopeo), not Harbor's HTTP API.
+        self.client = SkopeoService(
+            session, settings, harbor_profile_id=profile_id
         )
 
     async def inspect_image(self, image: ImageReference) -> ImageInspection:
-        result = await self.client.inspect_image(image.repository, image.reference)
+        result = await self.client.inspect_image(image)
         return ImageInspection(
             digest=result.digest,
             media_type=result.media_type,
@@ -145,7 +125,6 @@ class _NexusServiceWrapper:
     """Adapter to make NexusService conform to RegistryClient protocol."""
 
     def __init__(self, session, settings, profile_id: str | None = None):
-        from app.services.nexus_service import NexusService
         self.service = NexusService(session, settings, nexus_profile_id=profile_id)
 
     async def inspect_image(self, image) -> ImageInspection:
@@ -175,21 +154,6 @@ class _NexusServiceWrapper:
 
     async def inspect_target(self, image, *, expected_digest=None) -> TargetInspection:
         result = await self.service.inspect_target(image, expected_digest=expected_digest)
-        return TargetInspection(state=result.state, digest=result.digest)
+        return TargetInspection(state=TargetState(result.state.value), digest=result.digest)
 
 
-def create_registry_client(
-    registry_type: Literal["harbor", "nexus"],
-    session: Session,
-    settings: Settings,
-    *,
-    profile_id: str | None = None,
-    progress: Callable | None = None,
-) -> "RegistryClient":
-    """Factory function to create registry client based on type."""
-    if registry_type == "harbor":
-        return _HarborClientWrapper(session, settings, profile_id)
-    elif registry_type == "nexus":
-        return _NexusServiceWrapper(session, settings, profile_id)
-    else:
-        raise ValueError(f"Unknown registry type: {registry_type}")

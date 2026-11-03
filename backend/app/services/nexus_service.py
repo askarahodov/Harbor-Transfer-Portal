@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.services.harbor_profiles import HarborProfileService
 from app.services.harbor_settings import EffectiveHarborSettings, HarborSettingsService
 
 _DIGEST_PATTERN = r"sha256:[a-f0-9]{64}"
@@ -52,9 +53,10 @@ class ImageReference:
     def __post_init__(self) -> None:
         if fullmatch(_REPOSITORY_PATTERN, self.repository) is None:
             raise ValueError("repository must be a normalized registry repository path")
-        if fullmatch(_TAG_PATTERN, self.reference) is None and fullmatch(
-            _DIGEST_PATTERN, self.reference
-        ) is None:
+        if (
+            fullmatch(_TAG_PATTERN, self.reference) is None
+            and fullmatch(_DIGEST_PATTERN, self.reference) is None
+        ):
             raise ValueError("reference must be an OCI tag or sha256 digest")
 
 
@@ -117,25 +119,6 @@ class CommandResult:
     returncode: int
     stdout: str
     stderr: str
-
-
-@dataclass(frozen=True, slots=True)
-class HelmChartReference:
-    repository: str
-    name: str
-    version: str
-
-
-@dataclass(frozen=True, slots=True)
-class HelmChartPullResult:
-    package: Path
-    source_digest: str
-    target_digest: str
-
-
-@dataclass(frozen=True, slots=True)
-class HelmChartPushResult:
-    target_digest: str
 
 
 @dataclass(slots=True)
@@ -287,26 +270,37 @@ class NexusService:
         progress: Callable[[NexusProgressEvent], None] | None = None,
     ) -> None:
         self.settings = settings
+        self.session = session
         self.nexus_profile_id = nexus_profile_id
         self.runner = runner or AsyncioCommandRunner(settings.skopeo_temp_root)
         self.progress = progress
         self.payload_root = settings.skopeo_payload_root.resolve()
 
     def _resolve_nexus(self) -> EffectiveHarborSettings:
-        if self.nexus_profile_id is None:
-            # Use default settings
-            return EffectiveHarborSettings(
-                url=self.settings.nexus_url,
-                username=self.settings.nexus_user,
-                password=self.settings.nexus_password,
-                verify_tls=self.settings.nexus_verify_tls,
-                ca_file=self.settings.nexus_ca_file,
-            )
-        # TODO: Resolve specific Nexus profile
+        if self.nexus_profile_id is not None:
+            profile = HarborProfileService(self.session, self.settings).get(self.nexus_profile_id)
+            if not profile.enabled or not profile.url:
+                raise NexusServiceError(
+                    "nexus_profile_disabled",
+                    "Выбранный Nexus profile отключён",
+                )
+            if profile.registry_type != "nexus":
+                raise NexusServiceError(
+                    "nexus_profile_invalid_type",
+                    "Выбранный profile не является Nexus",
+                )
+            return HarborSettingsService(self.session, self.settings).resolve_profile(profile.id)
+
+        # The legacy installation-wide Nexus registry remains supported.
+        password = self.settings.nexus_password
+        if password is not None:
+            password = password.get_secret_value()
+        elif self.settings.nexus_password_file is not None:
+            password = self.settings.nexus_password_file.read_text(encoding="utf-8").strip()
         return EffectiveHarborSettings(
-            url=self.settings.nexus_url,
+            url=str(self.settings.nexus_url).rstrip("/") if self.settings.nexus_url else None,
             username=self.settings.nexus_user,
-            password=self.settings.nexus_password,
+            password=password,
             verify_tls=self.settings.nexus_verify_tls,
             ca_file=self.settings.nexus_ca_file,
         )
@@ -522,6 +516,16 @@ class NexusService:
             )
         return f"oci:{payload_path}"
 
+    def _require_under_payload_root(self, path: Path) -> None:
+        """Reject OCI payload paths outside the configured data root."""
+        try:
+            path.relative_to(self.payload_root)
+        except ValueError as exc:
+            raise NexusServiceError(
+                "nexus_payload_path_outside_root",
+                "OCI payload должен находиться внутри разрешённого data root",
+            ) from exc
+
     def _validate_export_path(self, path: Path) -> Path:
         resolved = path.resolve()
         self._require_under_payload_root(resolved)
@@ -544,30 +548,41 @@ class NexusService:
         destination: Path,
     ) -> HelmChartPullResult:
         """Pull a Helm chart from Nexus OCI registry."""
-        self._emit(NexusPhase.INSPECTING_SOURCE, ImageReference(repository=chart.repository, reference=chart.version))
+        self._emit(
+            NexusPhase.INSPECTING_SOURCE,
+            ImageReference(repository=chart.repository, reference=chart.version),
+        )
         nexus = self._resolve_nexus()
         with self._security_context(nexus) as security:
             destination.mkdir(parents=True, exist_ok=True)
             registry = self._registry_host(nexus)
-            chart_ref = f"{registry}/{chart.repository}/{chart.name}:{chart.version}"
+            chart_ref = f"oci://{registry}/{chart.repository}/{chart.name}"
+            existing = set(destination.glob("*.tgz"))
             argv = (
                 self.settings.helm_binary,
                 "pull",
                 chart_ref,
+                "--version",
+                chart.version,
                 "--destination",
                 str(destination),
                 *self._helm_registry_flags(nexus, security),
             )
             await self._run_checked(argv, security)
-            chart_files = list(destination.glob("*.tgz"))
+            chart_files = list(set(destination.glob("*.tgz")) - existing)
             if not chart_files:
                 raise NexusServiceError(
                     "helm_pull_failed",
                     "Helm chart не был скачан в указанный каталог",
                 )
+            if len(chart_files) != 1:
+                raise NexusServiceError("helm_pull_ambiguous", "Helm создал несколько chart файлов")
             chart_path = chart_files[0]
             digest = self._compute_sha256(chart_path)
-            self._emit(NexusPhase.EXPORTED, ImageReference(repository=chart.repository, reference=chart.version))
+            self._emit(
+                NexusPhase.EXPORTED,
+                ImageReference(repository=chart.repository, reference=chart.version),
+            )
             return HelmChartPullResult(
                 package=chart_path,
                 source_digest=digest,
@@ -597,7 +612,12 @@ class NexusService:
         nexus = self._resolve_nexus()
         with self._security_context(nexus) as security:
             registry = self._registry_host(nexus)
-            chart_ref = f"{registry}/{chart.repository}/{chart.name}:{chart.version}"
+            if allow_existing:
+                raise NexusServiceError(
+                    "helm_overwrite_unsupported",
+                    "Helm OCI push не поддерживает принудительную перезапись chart",
+                )
+            chart_ref = f"oci://{registry}/{chart.repository}"
             argv = (
                 self.settings.helm_binary,
                 "push",
@@ -605,11 +625,21 @@ class NexusService:
                 chart_ref,
                 *self._helm_registry_flags(nexus, security),
             )
-            if allow_existing:
-                argv += ("--force",)
-            await self._run_checked(argv, security)
-            self._emit(NexusPhase.VERIFIED, ImageReference(repository=chart.repository, reference=chart.version))
-            return HelmChartPushResult(target_digest=self._compute_sha256(chart_path))
+            result = await self._run_checked(argv, security)
+            digest_match = re.search(
+                r"(?im)^Digest:\s*(sha256:[a-f0-9]{64})\s*$",
+                result.stdout + "\n" + result.stderr,
+            )
+            if digest_match is None:
+                raise NexusServiceError(
+                    "helm_push_unverified",
+                    "Helm не вернул digest опубликованного OCI chart",
+                )
+            self._emit(
+                NexusPhase.VERIFIED,
+                ImageReference(repository=chart.repository, reference=chart.version),
+            )
+            return HelmChartPushResult(target_digest=digest_match.group(1))
 
     def _helm_registry_flags(
         self,
@@ -626,6 +656,7 @@ class NexusService:
     @staticmethod
     def _compute_sha256(path: Path) -> str:
         import hashlib
+
         digest = hashlib.sha256()
         with path.open("rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
@@ -635,9 +666,7 @@ class NexusService:
     @staticmethod
     def _validate_oci_layout(path: Path) -> None:
         required_files_exist = (
-            path.is_dir()
-            and (path / "oci-layout").is_file()
-            and (path / "index.json").is_file()
+            path.is_dir() and (path / "oci-layout").is_file() and (path / "index.json").is_file()
         )
         if not required_files_exist:
             raise NexusServiceError(
@@ -676,15 +705,6 @@ class NexusService:
             ),
             os=data.get("Os") if isinstance(data.get("Os"), str) else None,
         )
-
-    @staticmethod
-    def _compute_sha256(path: Path) -> str:
-        import hashlib
-        digest = hashlib.sha256()
-        with path.open("rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                digest.update(chunk)
-        return f"sha256:{digest.hexdigest()}"
 
     @staticmethod
     def _validate_digest(value: str) -> None:
@@ -733,8 +753,7 @@ class NexusService:
         ):
             code = "nexus_registry_connect_timeout"
             message = (
-                "Не удалось установить сетевое соединение с локальным Nexus: "
-                "истекло время ожидания"
+                "Не удалось установить сетевое соединение с локальным Nexus: истекло время ожидания"
             )
         elif any(
             marker in lowered

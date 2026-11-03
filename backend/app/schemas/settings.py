@@ -1,5 +1,6 @@
-from pydantic import AnyHttpUrl, BaseModel, Field, SecretStr, field_validator, model_validator
 from typing import Literal
+
+from pydantic import AnyHttpUrl, BaseModel, Field, SecretStr, field_validator, model_validator
 
 from app.config import PortalContour, validate_harbor_base_url
 
@@ -119,13 +120,6 @@ class HarborProfileCreate(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
-
-    @field_validator("registry_type")
-    @classmethod
-    def validate_registry_type(cls, value: str) -> str:
-        if value not in ("harbor", "nexus"):
-            raise ValueError("registry_type must be 'harbor' or 'nexus'")
-        return value
 
 
 class HarborProfilePatch(BaseModel):

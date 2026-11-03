@@ -1,28 +1,29 @@
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import os
-import shutil
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.waiting_utils import wait_for_logs
 
 from app.config import Settings
 from app.services.nexus_service import (
-    NexusService,
-    ImageReference,
     HelmChartReference,
+    ImageReference,
+    NexusService,
 )
 from app.services.registry_client import create_registry_client
-from app.config import Settings
-from sqlalchemy.orm import Session
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("HTP_RUN_NEXUS_E2E") != "1",
+    reason="Requires a configured Nexus test registry and Docker daemon",
+)
 
 
 @pytest.fixture(scope="session")
@@ -37,14 +38,14 @@ def nexus_container():
         "rw",
     )
     container.start()
-    
+
     # Wait for Nexus to be ready (can take 15-20 minutes)
     wait_for_logs(container, "Started Sonatype Nexus", timeout=1800)
-    
+
     # Get the mapped ports
     ui_port = container.get_exposed_port(8081)
     docker_port = container.get_exposed_port(8082)
-    
+
     yield {
         "container": container,
         "ui_url": f"http://localhost:{ui_port}",
@@ -52,7 +53,7 @@ def nexus_container():
         "host": "localhost",
         "docker_port": docker_port,
     }
-    
+
     container.stop()
 
 
@@ -83,12 +84,11 @@ def session_factory():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SessionLocal = sessionmaker(bind=engine, class_=Session)
-    
     # Import and create tables
     from app.db.models import Base
+
     Base.metadata.create_all(engine)
-    
+
     yield sessionmaker(bind=engine, class_=Session)
 
 
@@ -105,7 +105,7 @@ class TestNexusE2E:
             settings=settings_with_nexus,
             nexus_profile_id=None,
         )
-        
+
         # Test docker transport URL construction
         image = ImageReference(repository="library/busybox", reference="latest")
         nexus_settings = service._resolve_nexus()
@@ -127,9 +127,7 @@ class TestNexusE2E:
 
     def test_registry_client_factory_creates_nexus(self, settings_with_nexus):
         """Test that factory creates Nexus client."""
-        from app.services.registry_client import create_registry_client
-        from sqlalchemy.orm import Session
-        
+
         mock_session = MagicMock()
         client = create_registry_client(
             "nexus",
@@ -138,6 +136,7 @@ class TestNexusE2E:
             profile_id="test-profile",
         )
         from app.services.registry_client import _NexusServiceWrapper
+
         assert isinstance(client, _NexusServiceWrapper)
 
 
@@ -146,7 +145,9 @@ class TestNexusE2EIntegration:
 
     @pytest.mark.slow
     @pytest.mark.asyncio
-    async def test_full_export_import_cycle(self, settings_with_nexus, nexus_container, session_factory):
+    async def test_full_export_import_cycle(
+        self, settings_with_nexus, nexus_container, session_factory
+    ):
         """
         Test full export/import cycle with Nexus:
         1. Push an image to Nexus

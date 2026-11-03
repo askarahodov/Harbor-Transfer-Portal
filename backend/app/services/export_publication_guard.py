@@ -5,8 +5,7 @@ import os
 import secrets
 import shutil
 import threading
-from collections.abc import Callable, Sequence
-from datetime import datetime
+from collections.abc import Callable
 from pathlib import Path
 
 from sqlalchemy import select
@@ -14,12 +13,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
 from app.db.models import Operation
-from app.domain.bundle import BundleSource, OperationStatus, OperationType
 from app.services.bundle_package_service import (
-    BundleBuildResult,
     BundlePackageError,
     BundlePackageService,
-    PackageArtifactInput,
 )
 from app.services.export_orchestrator import (
     ExportOrchestrator,
@@ -44,22 +40,6 @@ class _OwnedBundlePackageService(BundlePackageService):
         self._on_publication_rolled_back = on_publication_rolled_back
         self._published_delivery_id: str | None = None
 
-    def build_bundle(
-        self,
-        artifacts: list[PackageArtifactInput],
-        operation_id: int,
-    ) -> BundleBuildResult:
-        result = super().build_bundle(artifacts, operation_id)
-        if result.delivery_id is not None:
-            self._published_delivery_id = result.delivery_id
-            self._on_publication_recorded(
-                result.delivery_id,
-                result.archive_path.name,
-                result.sha256,
-                result.archive_size,
-            )
-        return result
-
     def _stage_archive(self, source: Path, stage: Path) -> None:
         try:
             os.link(source, stage)
@@ -72,14 +52,85 @@ class _OwnedBundlePackageService(BundlePackageService):
                 os.fsync(output_stream.fileno())
         os.chmod(stage, 0o600)
 
+    def _atomic_publish(
+        self,
+        temporary_archive: Path,
+        final_archive: Path,
+        final_sidecar: Path,
+        archive_sha: str,
+    ) -> None:
+        """Publish an archive/sidecar pair without replacing another delivery."""
+        self.outgoing_root.mkdir(parents=True, exist_ok=True)
+        sidecar_tmp = self.outgoing_root / (
+            f".{final_sidecar.name}.{secrets.token_hex(6)}.tmp"
+        )
+        owned_archive = False
+        try:
+            try:
+                self._stage_archive(temporary_archive, final_archive)
+            except FileExistsError as exc:
+                raise BundlePackageError(
+                    "bundle_delivery_exists",
+                    "Bundle с таким delivery_id уже опубликован",
+                ) from exc
+            owned_archive = True
+            delivery_id = final_archive.name.removesuffix(".htp.tar.gz")
+            self._published_delivery_id = delivery_id
+            self._on_publication_recorded(
+                delivery_id, final_archive.name, archive_sha, final_archive.stat().st_size
+            )
+            sidecar_tmp.write_text(
+                f"{archive_sha}  {final_archive.name}\n", encoding="utf-8"
+            )
+            os.chmod(sidecar_tmp, 0o600)
+            try:
+                os.link(sidecar_tmp, final_sidecar)
+            except FileExistsError as exc:
+                raise BundlePackageError(
+                    "bundle_delivery_exists",
+                    "Bundle с таким delivery_id уже содержит sidecar",
+                ) from exc
+        except Exception:
+            if owned_archive:
+                final_archive.unlink(missing_ok=True)
+                if self._published_delivery_id is not None:
+                    self._on_publication_rolled_back(self._published_delivery_id)
+                    self._published_delivery_id = None
+            raise
+        finally:
+            sidecar_tmp.unlink(missing_ok=True)
+
+    def _atomic_publish_metadata(self, destination: Path, payload: bytes) -> None:
+        temporary = self.outgoing_root / (
+            f".{destination.name}.{secrets.token_hex(6)}.tmp"
+        )
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temporary, 0o600)
+            try:
+                os.link(temporary, destination)
+            except FileExistsError as exc:
+                raise BundlePackageError(
+                    "bundle_delivery_exists",
+                    "Metadata для delivery уже существует",
+                ) from exc
+        finally:
+            temporary.unlink(missing_ok=True)
+
     def _rollback_completed_publication(self, delivery_id: str) -> None:
+        if self._published_delivery_id != delivery_id:
+            return
         archive = self.outgoing_root / f"{delivery_id}.htp.tar.gz"
         sidecar = self.outgoing_root / f"{delivery_id}.htp.tar.gz.sha256"
+        handoff = self.outgoing_root / f"{delivery_id}.htp-handoff.json"
+        handoff.unlink(missing_ok=True)
         sidecar.unlink(missing_ok=True)
         archive.unlink(missing_ok=True)
         self._on_publication_rolled_back(delivery_id)
         self._published_delivery_id = None
-
 
 class PublicationSafeExportOrchestrator(ExportOrchestrator):
     """Export orchestrator with explicit ownership of outgoing publication files."""
@@ -130,10 +181,27 @@ class PublicationSafeExportOrchestrator(ExportOrchestrator):
         finally:
             self._publication_lock.release()
 
-    def _rollback_owned_publication(self, delivery_id: str) -> None:
-        self._publication_lock.acquire()
-        try:
+    def _cleanup_published_delivery(self, delivery_id: str) -> None:
+        with self._publication_lock:
+            if delivery_id not in self._owned_deliveries:
+                return
+            super()._cleanup_published_delivery(delivery_id)
             self._owned_deliveries.discard(delivery_id)
-            super()._rollback_completed_publication(delivery_id)
-        finally:
-            self._publication_lock.release()
+
+        with self.session_factory() as session:
+            operations = session.scalars(
+                select(Operation).where(Operation.delivery_id == delivery_id)
+            ).all()
+            for operation in operations:
+                operation.bundle_filename = None
+                operation.bundle_sha256 = None
+                operation.bundle_size_bytes = None
+                operation.handoff_filename = None
+                operation.handoff_sha256 = None
+                operation.handoff_size_bytes = None
+                operation.bundle_signing_key_fingerprint = None
+            session.commit()
+
+    def _rollback_owned_publication(self, delivery_id: str) -> None:
+        with self._publication_lock:
+            self._owned_deliveries.discard(delivery_id)
