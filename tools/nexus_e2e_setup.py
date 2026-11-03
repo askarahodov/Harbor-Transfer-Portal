@@ -67,11 +67,6 @@ def wait_ready(timeout: float = 900) -> str:
 
 
 def provision(password: str) -> None:
-    eula = request("GET", "/system/eula", password)
-    if eula and not eula.get("accepted"):
-        eula["accepted"] = True  # preserve the exact server-supplied disclaimer
-        request("POST", "/system/eula", password, eula)
-
     realms = request("GET", "/security/realms/active", password)
     if not isinstance(realms, list):
         raise RuntimeError(f"Unexpected realms response type: {type(realms).__name__}")
@@ -123,7 +118,7 @@ def main() -> int:
     args.password_file.chmod(0o600)
     print("::add-mask::" + password)
     provision(password)
-    print("Nexus Community EULA, Docker Bearer Token realm and hosted registry ready")
+    print("Legacy Nexus Docker Bearer Token realm and hosted Docker v2 registry ready")
     return 0
 
 
