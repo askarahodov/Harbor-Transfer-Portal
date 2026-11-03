@@ -202,13 +202,16 @@ jobs:
         run: python -m bandit -q -r backend/app -ll
 
       - name: Trivy - filesystem vulnerability scan
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: table
-          exit-code: '1'
-          severity: 'CRITICAL,HIGH'
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${PWD}:/workspace:ro" \
+            aquasec/trivy:0.65.0 fs \
+            --scanners vuln \
+            --exit-code 1 \
+            --severity CRITICAL,HIGH \
+            --format table \
+            /workspace
 
   integration:
     name: Integration — интеграционные тесты
