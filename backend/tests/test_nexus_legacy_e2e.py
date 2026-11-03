@@ -6,7 +6,7 @@ Starts only in the dedicated opt-in GitHub Actions workflow.
 from __future__ import annotations
 
 import base64
-import hashlib
+import asyncio
 import json
 import os
 import subprocess
@@ -80,7 +80,6 @@ def seeded_schema2_image(service: NexusService, layout: Path, password: str) -> 
         ),
         check=True, capture_output=True, text=True, timeout=120,
     )
-    import asyncio
     source = ImageReference("htp-e2e/source", "1.0.0")
     return asyncio.run(service.inspect_image(source)).digest
 
@@ -91,13 +90,14 @@ async def test_docker_schema2_round_trip(admin_password: str, tmp_path: Path) ->
     settings = make_settings(tmp_path, admin_password)
     service = NexusService(MagicMock(), settings)
     layout = settings.skopeo_payload_root / "seed"
-    expected = await __import__("asyncio").to_thread(
+    expected = await asyncio.to_thread(
         seeded_schema2_image, service, layout, admin_password
     )
     source = ImageReference("htp-e2e/source", "1.0.0")
     target = ImageReference("htp-e2e/copied", "1.0.0")
 
-    assert (await service.inspect_target(source, expected_digest=expected)).state == TargetState.SAME_DIGEST
+    source_status = await service.inspect_target(source, expected_digest=expected)
+    assert source_status.state == TargetState.SAME_DIGEST
 
     exported = await service.export_image(source, settings.skopeo_payload_root / "exported")
     assert exported.source_digest == expected
@@ -107,7 +107,8 @@ async def test_docker_schema2_round_trip(admin_password: str, tmp_path: Path) ->
     )
     assert imported.verified
     assert imported.target_digest == expected
-    assert (await service.inspect_target(target, expected_digest=expected)).state == TargetState.SAME_DIGEST
+    target_status = await service.inspect_target(target, expected_digest=expected)
+    assert target_status.state == TargetState.SAME_DIGEST
 
 
 @pytest.mark.asyncio
