@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import tempfile
-from unittest.mock import MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import create_engine
