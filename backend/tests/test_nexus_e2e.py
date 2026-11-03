@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import tempfile
+from unittest.mock import MagicMock
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,11 @@ from app.services.nexus_service import (
     NexusService,
 )
 from app.services.registry_client import create_registry_client
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("HTP_RUN_NEXUS_E2E") != "1",
+    reason="Requires a configured Nexus test registry and Docker daemon",
+)
 
 
 @pytest.fixture(scope="session")
@@ -77,8 +84,6 @@ def session_factory():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SessionLocal = sessionmaker(bind=engine, class_=Session)
-
     # Import and create tables
     from app.db.models import Base
 
