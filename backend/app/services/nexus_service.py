@@ -707,16 +707,6 @@ class NexusService:
         )
 
     @staticmethod
-    def _compute_sha256(path: Path) -> str:
-        import hashlib
-
-        digest = hashlib.sha256()
-        with path.open("rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                digest.update(chunk)
-        return f"sha256:{digest.hexdigest()}"
-
-    @staticmethod
     def _validate_digest(value: str) -> None:
         if fullmatch(_DIGEST_PATTERN, value) is None:
             raise ValueError("expected_digest must be a sha256 digest")
