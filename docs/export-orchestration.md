@@ -254,3 +254,20 @@ Regression suite покрывает:
 - ticket mint authorization;
 - `Content-Length`, SHA-256 и no-store metadata;
 - frontend selection/preview/progress/reload/ready flow.
+
+
+## Nexus SOURCE preview (в разработке, #430)
+
+Для профиля `registry_type=nexus` SOURCE preview проверяет указанный Docker
+`project/repository:tag` через registry transport, не вызывая Harbor API.
+Полученный digest сравнивается с digest, выбранным оператором; изменение
+или удаление исходного тега блокирует подготовку операции. Перед публикацией
+bundle materializer дополнительно сверяет digest с ожидаемым. Размер
+Nexus image на этапе preview считается неизвестным, а не оценивается по
+неполной информации.
+
+Legacy Helm charts на Nexus 3.69 OSS не поддерживаются: сервер возвращает
+`nexus_legacy_helm_unsupported`. Нельзя использовать успешный Docker v2
+inspect как доказательство поддержки Helm OCI. До завершения #432
+(provenance в подписанном манифесте), полного SOURCE/TARGET E2E и региональной
+приёмки выпуск Nexus export в production запрещён.
