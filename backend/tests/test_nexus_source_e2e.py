@@ -191,6 +191,8 @@ def test_real_source_api_signed_bundle_and_browser_ticket(tmp_path: Path) -> Non
     assert verified.manifest.source.registry == REGISTRY_URL
     assert verified.manifest.source.harbor is None
     assert verified.manifest.artifacts[0].source_digest == expected
+    # Guard the exact Docker namespace after preview -> materialization -> signing.
+    assert verified.manifest.artifacts[0].repository == "htp-e2e/source"
     with tarfile.open(archive, "r:gz") as packed:
         manifest_file = packed.extractfile("manifest.json")
         assert manifest_file is not None
