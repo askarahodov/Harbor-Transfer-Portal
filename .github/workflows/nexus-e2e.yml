@@ -1,0 +1,36 @@
+name: Nexus real E2E
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/nexus-e2e.yml
+      - backend/app/services/nexus_service.py
+      - backend/integration/nexus_real_smoke.py
+      - backend/tests/test_nexus_review_regressions.py
+      - deploy/smoke-nexus-e2e.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nexus-real:
+    name: Sonatype Nexus Docker + Helm round-trip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout tested revision
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          clean: true
+
+      - name: Build application and test against disposable Nexus
+        shell: bash
+        run: bash deploy/smoke-nexus-e2e.sh
+
+      - name: Summarize verification
+        if: success()
+        run: |
+          echo "### Nexus E2E: PASS" >> "$GITHUB_STEP_SUMMARY"
+          echo "Real Sonatype Nexus 3.89.2; Skopeo image round-trip and digest checks;" >> "$GITHUB_STEP_SUMMARY"
+          echo "Helm OCI chart push/pull and remote manifest digest; bad credentials and path rejection." >> "$GITHUB_STEP_SUMMARY"
