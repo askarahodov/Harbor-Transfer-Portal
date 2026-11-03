@@ -143,4 +143,4 @@ Harbor Transfer Portal поддерживает два типа реестров
 - [Harbor API Documentation](https://goharbor.io/docs/2.10/working-with-projects/working-with-images/)
 - [Nexus Docker Registry](https://help.sonatype.com/repomanager3/docker-registry)
 - [Nexus Helm Registry](https://help.sonatype.com/repomanager3/helm-repositories)
-- [Harbor Transfer Portal Docs](/docs/)
+- Встроенная документация Portal доступна по маршруту `/docs/` после запуска приложения.
