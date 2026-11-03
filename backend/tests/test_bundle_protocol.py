@@ -122,3 +122,34 @@ def test_archive_validation_rejects_empty_payload_directories() -> None:
     empty_directory.type = tarfile.DIRTYPE
     with pytest.raises(ValueError, match="empty or undeclared"):
         validate_archive_members([*_required_members(), empty_directory])
+
+
+def test_nexus_source_has_explicit_origin_and_no_harbor_alias() -> None:
+    legacy = make_manifest()
+    legacy_bytes = canonical_manifest_bytes(legacy)
+    assert b'"registry_type"' not in legacy_bytes
+    assert b'"registry"' not in legacy_bytes
+    assert b'"harbor":"harbor.source.local"' in legacy_bytes
+
+    nexus = legacy.model_copy(deep=True)
+    nexus.schema_version = "1.1"
+    nexus.source = BundleSource(
+        contour="SOURCE",
+        registry_type="nexus",
+        registry="https://docker-nexus.internal",
+    )
+    payload = canonical_manifest_bytes(nexus)
+    assert b'"registry_type":"nexus"' in payload
+    assert b'"registry":"https://docker-nexus.internal"' in payload
+    assert b'"harbor"' not in payload
+    assert BundleManifest.model_validate_json(payload) == nexus
+    assert canonical_manifest_bytes(BundleManifest.model_validate_json(payload)) == payload
+
+
+def test_nexus_source_rejects_misleading_harbor_and_missing_origin() -> None:
+    with pytest.raises(ValidationError):
+        BundleSource(contour="SOURCE", registry_type="nexus", harbor="nexus.example")
+    with pytest.raises(ValidationError):
+        BundleSource(contour="SOURCE", registry_type="nexus")
+    with pytest.raises(ValidationError):
+        BundleSource(contour="SOURCE", registry_type="harbor", harbor="harbor", registry="other")
