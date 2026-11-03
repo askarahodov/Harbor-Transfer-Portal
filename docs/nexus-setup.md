@@ -1,203 +1,98 @@
 # Настройка Sonatype Nexus для Harbor Transfer Portal
 
-## Обзор
+## Важно: Docker v2 не означает Helm OCI
 
-Harbor Transfer Portal поддерживает **Sonatype Nexus Repository** (версия 3.40+) как альтернативный реестр для Docker/OCI образов и Helm чартов. Nexus работает как полноценная альтернатива Harbor в контексте передачи артефактов между изолированными контурами.
+В инфраструктуре с **Nexus 3 до 3.94** необходимо различать:
 
-## Требования к Nexus
+- **Docker hosted**: обычный Docker Registry HTTP API v2, доступный через отдельный connector (порт или отдельный виртуальный хост). Portal использует Skopeo для экспорта/импорта контейнерных образов. Этот сценарий проверен на настоящем **Nexus 3.70.1**, Docker schema2, в GitHub Actions.
+- **Helm hosted**: классический Helm chart repository с HTTP-путём /repository/helm-hosted/index.yaml и пакетами .tgz. **Текущий Helm OCI transport Portal не реализует протокол legacy Helm hosted**. Не включайте передачу Helm через Nexus до разработки и проверки отдельного адаптера, если используется именно этот тип репозитория.
+- **OCI repository**: отдельный формат Nexus, появившийся в **3.94.0**. Не предполагается и не требуется для существующих старых Nexus. Применять helm push oci://... к legacy Helm hosted нельзя.
 
-- **Nexus Repository Manager** версии **3.40.0+** (для поддержки Helm OCI)
-- **Docker Registry API v2** (встроен в Nexus 3.x)
-- **Helm Registry API** (доступен с Nexus 3.40+)
-- Настроенный **Docker-hosted** репозиторий
-- Настроенный **Helm-hosted** репозиторий (OCI формат)
+Подтверждённая совместимость с Nexus **3.70.1** не доказывает поведение каждой версии Nexus, конкретных корпоративных сертификатов или reverse proxy.
 
-## Настройка Nexus
+Официальные источники: [Sonatype — OCI Repositories](https://help.sonatype.com/en/oci-repositories.html), [Sonatype — Helm Repositories](https://help.sonatype.com/en/helm-repositories.html).
 
-### 1. Создание Docker-hosted репозитория
+## Docker hosted: подготовка Nexus
 
-1. В Nexus UI: **Administration → Repositories → Create repository**
-2. Тип: **Docker (hosted)**
-3. Настройки:
-   - **Name**: `docker-hosted` (или любое имя)
-   - **HTTP порт**: `8082` (или другой свободный)
-   - **HTTPS порт**: `8443` (рекомендуется для production)
-   - **Force basic auth**: включить
-   - **Deploy policy**: `Allow redeploy` (для перезаписи тегов)
+1. В Nexus UI откройте **Administration → Repositories → Create repository → docker (hosted)**.
+2. Создайте отдельный репозиторий и назначьте **HTTP/HTTPS connector** (например, внутренний HTTP 8082). Для внешних клиентов используйте HTTPS на самом Nexus либо через reverse proxy.
+3. Включите Docker Bearer Token Realm (**Administration → Security → Realms**) и настройте авторизацию. При необходимости включите Force Basic Authentication в параметрах Docker hosted.
+4. Создайте минимально привилегированного сервисного пользователя. Для выбранного Docker repository нужны права просмотра и чтения на SOURCE, а также добавления/редактирования на TARGET. Административные права repository-wide не требуются для обычной передачи.
+5. Проверьте путь **https://registry-host/v2/**: ответ **401** с challenge без credentials и успешная авторизация с credentials допустимы. URL профиля Portal должен быть **корнем Docker Registry v2**, а не URL Nexus UI и не /repository/docker-hosted.
 
-### 2. Создание Helm-hosted репозитория (Nexus 3.40+)
+### TLS через reverse proxy
 
-1. **Administration → Repositories → Create repository**
-2. Тип: **Helm (hosted)**
-3. Настройки:
-   - **Name**: `helm-hosted`
-   - **Online**: включить
-   - **Force basic auth**: включить
+Внешний virtual host реестра должен передавать Docker Registry v2 запросы **в Docker connector**, например порт 8082, а не в Nexus UI на 8081:
 
-### 3. Настройка пользователей и прав
-
-#### Создание роли для Transfer Portal:
-1. **Administration → Security → Roles → Create role**
-2. **Role ID**: `transfer-portal-role`
-3. **Name**: `Transfer Portal Role`
-4. **Privileges**:
-   - `nx-repository-view-docker-docker-hosted-*` (для Docker)
-   - `nx-repository-view-helm-helm-hosted-*` (для Helm)
-   - `nx-repository-admin-docker-docker-hosted` (для управления)
-   - `nx-repository-admin-helm-helm-hosted` (для управления)
-
-#### Создание пользователя:
-1. **Administration → Security → Users → Create user**
-2. **User ID**: `transfer-bot`
-3. **Name**: `Transfer Portal Bot`
-4. **Email**: `transfer@company.com`
-5. **Password**: сгенерированный сложный пароль
-6. **Roles**: назначить `transfer-portal-role`
-
-### 4. Настройка TLS/SSL (для production)
-
-#### Вариант А: Nexus за reverse proxy (nginx/Traefik)
-```nginx
-# nginx.conf
+~~~nginx
 server {
     listen 443 ssl;
-    server_name nexus.company.com;
-    
-    ssl_certificate /etc/ssl/certs/nexus.crt;
-    ssl_certificate_key /etc/ssl/private/nexus.key;
-    
+    server_name docker-nexus.example.internal;
+
+    ssl_certificate /etc/nginx/tls/server.crt;
+    ssl_certificate_key /etc/nginx/tls/server.key;
+
     location / {
-        proxy_pass http://nexus:8081;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_pass http://nexus:8082;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $http_host;
     }
 }
-```
+~~~
 
-#### Вариант Б: Nexus с встроенным HTTPS
-1. Импортируйте сертификат в Java keystore:
-```bash
-keytool -importkeystore \
-  -srckeystore nexus.p12 \
-  -srcstoretype PKCS12 \
-  -destkeystore /opt/sonatype-work/nexus3/etc/ssl/keystore.jks \
-  -deststoretype JKS
-```
-2. Настройте `nexus.properties`:
-```properties
-application-port-ssl=8443
-ssl.etc=etc/ssl
-ssl.keystore=etc/ssl/keystore.jks
-ssl.keystore.password=changeit
-ssl.key.password=changeit
-```
+Проверьте, что Docker token/auth challenge совместим с внешним HTTPS-адресом и сертификат доверен стороне Portal. Для внутреннего CA используйте NEXUS_CA_FILE либо установите CA в профиль Nexus. **Не отключайте** TLS verification в production.
 
-### 5. Настройка в Harbor Transfer Portal
+Пример настроек Portal:
 
-#### В .env файле:
-```bash
-# Nexus настройки
-NEXUS_URL=https://nexus.company.com:8443
+~~~dotenv
+NEXUS_URL=https://docker-nexus.example.internal
 NEXUS_USER=transfer-bot
-NEXUS_PASSWORD=your-secure-password
+NEXUS_PASSWORD_FILE=/app/data/secrets/nexus-password
 NEXUS_VERIFY_TLS=true
 NEXUS_CA_FILE=/app/data/secrets/nexus-ca.pem
-```
+~~~
 
-#### Создание профиля Nexus в UI:
-1. Откройте **Settings → Harbor Profiles**
-2. Нажмите **Добавить профиль**
-3. Заполните:
-   - **Имя**: `Nexus DC-1`
-   - **URL**: `https://nexus.company.com:8443`
-   - **Тип реестра**: `Sonatype Nexus`
-   - **Service account**: `transfer-bot`
-   - **Проверять TLS**: ✓
-   - **Enabled**: ✓
-4. Нажмите **Добавить профиль**
-5. Нажмите **Проверить** для теста подключения
+Можно создать отдельный профиль с типом **nexus** через **Settings → Harbor Profiles**. У каждого профиля должны быть собственные URL, credentials и CA; глобальный Nexus-пароль не должен подменять пароль выбранного профиля.
 
-## Особенности работы с Nexus
+## Форматы артефактов
 
-### Docker/OCI Images
-- Nexus использует стандартный **Docker Registry API v2**
-- Поддерживаются все стандартные операции: `pull`, `push`, `inspect`
-- Путь к образу: `nexus.company.com:8443/project/image:tag`
+| Операция | Nexus Docker hosted v2 | Nexus Helm hosted (legacy) |
+| --- | --- | --- |
+| Container image inspect | Поддерживается и тестируется | Не применяется |
+| Container image export/import через Skopeo | Поддерживается и тестируется | Не применяется |
+| Helm pull через index.yaml | Не применяется | **Пока не реализован в Portal** |
+| Helm upload .tgz через Components API | Не применяется | **Пока не реализован в Portal** |
+| Helm pull/push через OCI | Не считать поддерживаемым на старом Nexus | **Неприменимо** |
 
-### Helm Charts (Nexus 3.40+)
-- Nexus 3.40+ поддерживает **Helm OCI Registry API**
-- Формат пуша: `helm push chart.tgz oci://nexus.company.com:8443/helm-hosted`
-- Формат пула: `helm pull oci://nexus.company.com:8443/helm-hosted/chart-name --version 1.0.0`
-- Путь к чарту: `nexus.company.com:8443/helm-hosted/chart-name:version`
+Классический Helm hosted обычно предоставляет index.yaml и tarball через HTTP. Даже если Helm-чарты физически хранятся в Nexus, это не делает его OCI registry. Если Helm в ваших контурах не используется, подключать его к Nexus в Portal пока не нужно.
 
-### Поддерживаемые операции
+## Проверка совместимости в GitHub Actions
 
-| Операция | Harbor | Nexus |
-|----------|--------|-------|
-| `skopeo copy` (export) | ✅ | ✅ |
-| `skopeo copy` (import) | ✅ | ✅ |
-| `helm pull` (export) | ✅ | ✅ (3.40+) |
-| `helm push` (import) | ✅ | ✅ (3.40+) |
-| `inspect` | ✅ | ✅ |
+Workflow: **Actions → Nexus legacy Docker v2 E2E**, файл [.github/workflows/nexus-legacy-e2e.yml](../.github/workflows/nexus-legacy-e2e.yml).
 
-## Ограничения и нюансы
+Автоматический PR-тест запускает Nexus 3.70.1 с Docker hosted v2 и проверяет:
 
-1. **Nexus версии**: Helm OCI требует **Nexus 3.40.0+**
-2. **Репозитории**: В Nexus пути к репозиториям включают имя репозитория в пути (например, `docker-hosted/project/image`)
-3. **Права доступа**: Nexus использует granular privileges, нужно правильно настроить роли
-4. **TLS**: Для production всегда используйте HTTPS с валидным сертификатом
-5. **Anonymous access**: По умолчанию отключен, требуется аутентификация
+- реальный Skopeo export/import, digest и Docker schema2;
+- неправильные credentials, недоступный connector, несовпадение digest, path traversal;
+- отдельный именованный Nexus profile;
+- HTTPS через тестовый nginx reverse proxy: отказ с недоверенным CA и успешное соединение с CA выбранного профиля.
 
-## Пример docker-compose для локального тестирования Nexus
+Для проверки **конкретной версии** используйте **Run workflow** и параметр **nexus_version** — опубликованный тег Nexus **3.x до 3.94**. Если тег образа недоступен или эта версия использует другой REST API/настройки, workflow должен завершиться с ошибкой, а не пропускать тесты. Запуск не подключается к корпоративному Nexus: используется одноразовый контейнер на GitHub-hosted runner.
 
-```yaml
-version: '3.8'
-services:
-  nexus:
-    image: sonatype/nexus3:3.68
-    container_name: nexus
-    ports:
-      - "8081:8081"   # UI
-      - "8082:8082"   # Docker registry
-      - "8443:8443"   # HTTPS
-    volumes:
-      - nexus-data:/nexus-data
-    environment:
-      - INSTALL4J_ADD_VM_PARAMS=-Xms2g -Xms2g -XX:MaxDirectMemorySize=3g
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
+### Что НЕ доказывает CI
 
-volumes:
-  nexus-data:
-```
+- Версию, конфигурацию и права доступа реальных корпоративных Nexus, которые не предоставлены.
+- Доверие к корпоративному CA, особенности внутреннего reverse proxy, DNS/Firewall.
+- Совместимость с **legacy Helm hosted**, пока не разработан отдельный сервис и сквозные тесты.
+- Готовность к production release без проверки на выделенном стенде соответствующего контура.
 
-## Troubleshooting
+## Диагностика
 
-### Ошибка "nexus_not_configured"
-- Проверьте, что `NEXUS_URL` задан в `.env`
-- Убедитесь, что URL доступен из контейнера Portal
-
-### Ошибка "nexus_auth_failed"
-- Проверьте логин/пароль в профиле
-- Убедитесь, что пользователь имеет правильные права в Nexus
-
-### Ошибка "nexus_tls_failed"
-- Проверьте `NEXUS_VERIFY_TLS` и `NEXUS_CA_FILE`
-- Убедитесь, что CA сертификат доступен в контейнере
-
-### Ошибка "helm_pull_failed"
-- Убедитесь, что Nexus версии 3.40+
-- Проверьте, что Helm-hosted репозиторий создан и доступен
-- Проверьте формат URL: `oci://nexus-host/helm-repo/chart-name`
-
-## Миграция с Harbor на Nexus
-
-Для миграции существующих профилей:
-1. Создайте новый профиль с `registry_type: "nexus"`
-2. Укажите URL Nexus, credentials
-3. Проверьте подключение через UI
-4. В Export/Import workflow выбирайте Nexus профиль
-
-Существующие Harbor профили продолжают работать без изменений (`registry_type="harbor"` по умолчанию).
+- **nexus_not_configured / nexus_url_invalid**: проверьте URL корня Docker Registry v2 без пути /repository/....
+- **nexus_auth_failed**: проверьте сервисную учётную запись, Docker Token Realm и repository privileges.
+- **nexus_tls_failed**: проверьте сертификат virtual host, hostname/SAN и цепочку CA, доступную Portal.
+- **nexus_registry_connection_failed**: проверьте порт Docker connector, DNS, маршрутизацию и Firewall.
+- **skopeo_digest_mismatch**: проверьте source и target registry, сохранность схемы Docker manifest и ограничения на перепаковку.
+- Ошибки Helm OCI при работе с legacy Helm hosted — **несовместимость протоколов**, а не повод отключать проверку TLS.
