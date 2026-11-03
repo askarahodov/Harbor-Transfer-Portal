@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 35
     env:
       HTP_NEXUS_LEGACY_E2E: '1'
-      HTP_NEXUS_E2E_PASSWORD_FILE: ${{ runner.temp }}/htp-nexus-admin-password
+      HTP_NEXUS_E2E_PASSWORD_FILE: /tmp/htp-nexus-admin-password
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
