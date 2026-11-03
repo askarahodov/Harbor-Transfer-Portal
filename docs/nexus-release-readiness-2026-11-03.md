@@ -229,9 +229,10 @@ sidecar, handoff и download ticket; operation и artifact завершаютс�
 
 Проверять по **актуальному head PR #449**, а не по старой успешно
 протестированной ревизии #442:
-[CI](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41653728752),
-[real Nexus E2E](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41653728349).
-**Статус этих прогонов на момент записи не подтверждён как PASS.**
+[CI](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41653728752)
+**SUCCESS**, включая Quality Gate и integration,
+[real Nexus E2E](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41653728349)
+**SUCCESS — 11 passed** на head `1e7bf45`.
 Остаются дополнительные recovery/диск/cancel и ручные браузерные доказательства.
 Региональный SOURCE успех относится к предыдущему оттестированному коммиту,
 не автоматически к новому head. Релиз **NO-GO**.
