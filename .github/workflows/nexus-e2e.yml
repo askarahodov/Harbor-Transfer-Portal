@@ -33,5 +33,5 @@ jobs:
         if: success()
         run: |
           echo "### Nexus E2E: PASS" >> "$GITHUB_STEP_SUMMARY"
-          echo "Real Sonatype Nexus 3.89.2; Skopeo image round-trip and digest checks;" >> "$GITHUB_STEP_SUMMARY"
+          echo "Real Sonatype Nexus OSS 3.76.1; Skopeo image round-trip and digest checks;" >> "$GITHUB_STEP_SUMMARY"
           echo "Helm OCI chart push/pull and remote manifest digest; bad credentials and path rejection." >> "$GITHUB_STEP_SUMMARY"
