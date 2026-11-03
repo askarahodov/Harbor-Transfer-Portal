@@ -165,7 +165,7 @@ def _client(
     if configured:
         settings_kwargs["harbor_url"] = "https://harbor.local"
 
-    app = create_app(Settings(**settings_kwargs))
+    app = create_app(Settings(_env_file=None, harbor_url=None, **settings_kwargs) if not configured else Settings(_env_file=None, **settings_kwargs))
     with app.state.session_factory() as session:
         UserRepository(session).create(
             username="viewer",
