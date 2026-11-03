@@ -57,7 +57,7 @@
 | --- | --- | --- |
 | Ruff / Mypy / backend pytest / frontend lint, typecheck, tests, build / security | **PASS** на интеграционной ветке #442 | После финального объединения заново запустить CI на окончательном SHA |
 | Disposable Nexus 3.69.0-02 OSS, Docker schema2, SOURCE signed export, checksum, download-ticket | **PASS**: [workflow](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41633770502) | Проверить на финальном интегрированном SHA |
-| TARGET upload/discovery → trust → classification → import → digest → receipt | **НЕ ПРОВЕРЕНО сквозным Nexus E2E**: [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434) открыта | Отдельный успешный Nexus TARGET E2E на 3.69 OSS |
+| TARGET upload → trust → classification → import → digest → receipt | **CI PASS на draft #446**: два Docker hosted connector (8082/8083), подписанная передача, import, SAME/replay, CONFLICT default-deny/skip; [Nexus E2E #41649019315](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41649019315) | Независимые региональные контуры, реальные TLS/RBAC, отказные сценарии и финальный интеграционный SHA остаются непроверенными (#434/#436) |
 | UI/a11y и корректные Harbor/Nexus подписи в Settings/Export | **ЧАСТИЧНО**: типизированный SOURCE selection есть; [#431](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/431) открыта | Проверка UI/сетевых вызовов и отсутствие неверных Harbor-подписей |
 | Негативные сценарии: missing tag/digest drift, отсутствие частичного bundle, cancel, недостаток диска, сбой worker, expiry ticket | **ЧАСТИЧНО**: digest drift проверен; остальные acceptance cases #433 не закрыты | Дополнительные регрессионные и интеграционные тесты |
 | Региональные Docker connector / auth realm / TLS / CA / reverse proxy / RBAC / DNS | **НЕ ПРОВЕРЕНО в корпоративной сети**: [#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436) открыта | Заполненный протокол приёмки ниже, без записи секретов |
@@ -66,8 +66,8 @@
 | Merge, release tag, offline-kit qualification и deploy | **НЕ ВЫПОЛНЕНЫ** | Code review, сквозной TARGET E2E, региональная приёмка и release approval |
 
 **Релизный вердикт на дату документа: NO-GO** для Nexus production.
-Причины: несмерженные PR, отсутствие полного TARGET E2E и региональной
-приёмки. Текущий Harbor v1.0.0 и его прежняя квалификация **не переименовываются**
+Причины: несмерженные PR, отсутствие регионального TARGET E2E и региональной
+приёмки. CI на одноразовом TARGET уже подтверждён, но не заменяет эксплуатационную проверку. Текущий Harbor v1.0.0 и его прежняя квалификация **не переименовываются**
 в «Nexus release». Решение о включении Nexus Docker-only и отдельном
 инциденте Harbor #422 оформляется на release review явно.
 
@@ -154,8 +154,40 @@
   окружения, чтобы поведение на чистом CI не маскировало дефекты.
 
 **Обновлённый вердикт:** региональный **SOURCE сценарий — PASS с фиксом**,
-но Nexus SOURCE+TARGET release по-прежнему **NO-GO** до полного TARGET E2E,
+но Nexus SOURCE+TARGET release по-прежнему **NO-GO** до регионального TARGET E2E,
 проверки итогового commit SHA, review/merge и release qualification.
+
+## 3b. Nexus TARGET — автоматическая квалификация на disposable CI
+
+**03.11.2026 · draft [PR #446](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/446)**
+поверх [PR #442](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/442).
+Проверки на head `02dd524`: [общий CI #41649018742](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41649018742),
+[real Nexus OSS E2E #41649019315](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41649019315).
+E2E **PASS**, CI status см. ссылку на run.
+
+В тестовом Nexus **3.69.0-02 OSS** создаются два отдельных Docker hosted
+репозитория (SOURCE connector `8082`, TARGET connector `8083`).
+Контуры Portal имеют разные БД, хранилища и конфигурацию ключей;
+на TARGET переносится **только утверждённый SOURCE public key**, а не
+private key. Взаимодействие SOURCE/TARGET — через байты файла, sidecar и
+подписанный handoff, а не по сети между Portal-инстансами.
+
+Проверены автоматикой: SOURCE preview/export/download; TARGET browser-compatible
+upload; handoff и Ed25519 trust; verified preview; Nexus-aware Docker v2
+destination planning **без Harbor API**; NEW → import → post-inspection/digest
+→ immutable receipt; SAME → идемпотентный `SKIPPED`; CONFLICT с другим
+фактическим digest → запрет без explicit policy и safe `skip_conflicts`
+с фиксацией `import_conflict_skipped`.
+
+**Границы доказательства:** два Docker hosted connector принадлежат **одному**
+одноразовому серверу Nexus и **одной CI-сети**. Это не доказательство
+физического разделения корпоративных контуров и реальных TARGET TLS/CA,
+proxy, namespace RBAC, отсутствия утечек, rollback/recovery или
+Harbor↔Nexus комбинаций. Read-only `/v2/` подтверждает доступность
+TARGET, **не гарантирует push-право**; успешный тестовый push подтверждён
+лишь для одноразовой CI-учётной записи. Задача #434 остаётся открытой
+до review и необходимой дополнительной квалификации; #436 — до региональной
+приёмки. Вердикт общего выпуска **NO-GO**.
 
 ## 4. Перед выпуском и после выпуска
 
