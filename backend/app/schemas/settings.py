@@ -1,5 +1,6 @@
-from pydantic import AnyHttpUrl, BaseModel, Field, SecretStr, field_validator, model_validator
 from typing import Literal
+
+from pydantic import AnyHttpUrl, BaseModel, Field, SecretStr, field_validator, model_validator
 
 from app.config import PortalContour, validate_harbor_base_url
 

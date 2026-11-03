@@ -536,7 +536,9 @@ async def test_registry_profile_connection(
             profile_id=profile.id,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to create registry client: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create registry client: {exc}"
+        ) from exc
 
     try:
         info = await client.inspect_image(
@@ -554,9 +556,12 @@ async def test_registry_profile_connection(
         elif "connection" in error_str or "refused" in error_str:
             code, message = "registry_unavailable", "Не удалось подключиться к реестру"
         else:
-            code, message = "registry_error", f"Проверка подключения к реестру завершилась ошибкой: {exc}"
+            code, message = (
+                "registry_error",
+                f"Проверка подключения к реестру завершилась ошибкой: {exc}",
+            )
         return HarborConnectionTestResponse(ok=False, code=code, message=message)
-    
+
     # Get version info based on registry type
     version = "unknown"
     try:
@@ -566,14 +571,18 @@ async def test_registry_profile_connection(
         else:
             # For Harbor, use Harbor client to get version
             from app.services.harbor_settings import HarborSettingsService
+
             harbor_service = HarborSettingsService(session, request.app.state.settings)
             resolved = harbor_service.resolve_profile(profile.id)
             from app.services.harbor_client import HarborClient
+
             harbor_client = HarborClient(
                 base_url=resolved.url,
                 username=resolved.username,
                 password=resolved.password.get_secret_value() if resolved.password else None,
-                verify=resolved.verify_tls if not (resolved.verify_tls and resolved.ca_file) else str(resolved.ca_file),
+                verify=resolved.verify_tls
+                if not (resolved.verify_tls and resolved.ca_file)
+                else str(resolved.ca_file),
                 connect_timeout=request.app.state.settings.harbor_connect_timeout_seconds,
                 read_timeout=request.app.state.settings.harbor_read_timeout_seconds,
             )
@@ -582,7 +591,7 @@ async def test_registry_profile_connection(
             harbor_client.close()
     except Exception:
         version = "unknown"
-    
+
     return HarborConnectionTestResponse(
         ok=True,
         code="registry_connection_ok",

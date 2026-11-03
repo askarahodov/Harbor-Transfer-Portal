@@ -9,8 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.services.harbor_client import HarborClient
-from app.services.nexus_service import NexusService, NexusPhase, TargetState
-
+from app.services.nexus_service import NexusService, TargetState
 
 RegistryClientFactory = Callable[[Session, str | None], "RegistryClient"]
 
@@ -82,10 +81,8 @@ def create_registry_client(
 ) -> RegistryClient:
     """Factory function to create registry client based on type."""
     if registry_type == "harbor":
-        from app.services.harbor_client import HarborClient
         return _HarborClientWrapper(session, settings, profile_id)
     elif registry_type == "nexus":
-        from app.services.nexus_service import NexusService
         return _NexusServiceWrapper(session, settings, profile_id)
     else:
         raise ValueError(f"Unknown registry type: {registry_type}")
@@ -96,6 +93,7 @@ class _HarborClientWrapper:
 
     def __init__(self, session: Session, settings: Settings, profile_id: str | None = None):
         from app.services.harbor_settings import HarborSettingsService
+
         profile_service = HarborSettingsService(session, settings)
         resolved = profile_service.resolve_profile(profile_id)
         verify: bool | str = resolved.verify_tls
@@ -145,7 +143,6 @@ class _NexusServiceWrapper:
     """Adapter to make NexusService conform to RegistryClient protocol."""
 
     def __init__(self, session, settings, profile_id: str | None = None):
-        from app.services.nexus_service import NexusService
         self.service = NexusService(session, settings, nexus_profile_id=profile_id)
 
     async def inspect_image(self, image) -> ImageInspection:
@@ -185,7 +182,7 @@ def create_registry_client(
     *,
     profile_id: str | None = None,
     progress: Callable | None = None,
-) -> "RegistryClient":
+) -> RegistryClient:
     """Factory function to create registry client based on type."""
     if registry_type == "harbor":
         return _HarborClientWrapper(session, settings, profile_id)

@@ -46,14 +46,18 @@ from app.services.import_bundle_storage import (
 from app.services.import_persistence import ImportOperationPersistence
 from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.media_handoff import MediaHandoffError, MediaHandoffService
+from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
     OperationContext,
     OperationManager,
     OperationManagerError,
     OperationTaskFailure,
 )
-from app.services.registry_client import RegistryClient, RegistryClientFactory, create_registry_client
-from app.services.nexus_service import NexusServiceError
+from app.services.registry_client import (
+    RegistryClient,
+    RegistryClientFactory,
+    create_registry_client,
+)
 from app.services.skopeo_service import (
     ImageReference,
     SkopeoService,
@@ -99,9 +103,7 @@ class ImportOrchestrator:
         self.package_factory = package_factory or (lambda: BundlePackageService(settings))
         self._registry_client_factory = registry_client_factory
         self.skopeo_factory = skopeo_factory
-        self.helm_factory = helm_factory or (
-            lambda session: HelmOciService(session, settings)
-        )
+        self.helm_factory = helm_factory or (lambda session: HelmOciService(session, settings))
         classifier_factory = registry_client_factory
         if classifier_factory is None and skopeo_factory is not None:
             classifier_factory = lambda session, _profile_id: skopeo_factory(session)
@@ -245,9 +247,9 @@ class ImportOrchestrator:
             ):
                 continue
             try:
-                verified_handoff = MediaHandoffService(
-                    self.settings
-                ).verify_from_discovery(handoff.read_bytes())
+                verified_handoff = MediaHandoffService(self.settings).verify_from_discovery(
+                    handoff.read_bytes()
+                )
             except (OSError, MediaHandoffError) as exc:
                 if isinstance(exc, MediaHandoffError):
                     raise ImportOrchestrationError(exc.code, exc.message) from exc
@@ -483,7 +485,6 @@ class ImportOrchestrator:
         """Extension hook for preview enrichment; persistence lives in the collaborator."""
         self.persistence.persist_preview(operation_id, preview)
 
-
     def _write_receipt(
         self,
         operation_id: int,
@@ -576,7 +577,12 @@ class ImportOrchestrator:
                     context.raise_if_cancelled()
                     try:
                         outcome = await self._preflight_target(descriptor, skopeo, helm)
-                    except (SkopeoServiceError, NexusServiceError, HelmServiceError, ValueError) as exc:
+                    except (
+                        SkopeoServiceError,
+                        NexusServiceError,
+                        HelmServiceError,
+                        ValueError,
+                    ) as exc:
                         context.set_artifact_status(
                             row.id,
                             ArtifactStatus.FAILED,
@@ -663,7 +669,12 @@ class ImportOrchestrator:
                             ArtifactStatus.VERIFIED,
                             target_digest=target_digest,
                         )
-                    except (SkopeoServiceError, NexusServiceError, HelmServiceError, ValueError) as exc:
+                    except (
+                        SkopeoServiceError,
+                        NexusServiceError,
+                        HelmServiceError,
+                        ValueError,
+                    ) as exc:
                         context.set_artifact_status(
                             row.id,
                             ArtifactStatus.FAILED,

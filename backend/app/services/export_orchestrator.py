@@ -40,7 +40,7 @@ from app.services.operation_manager import (
     OperationManagerError,
     OperationTaskFailure,
 )
-from app.services.registry_client import RegistryClient, create_registry_client
+from app.services.registry_client import RegistryClient
 from app.services.skopeo_service import SkopeoServiceError
 
 
@@ -131,9 +131,7 @@ class ExportOrchestrator:
     ) -> ExportStartResult:
         self._require_source_contour()
         self._require_signing_identity()
-        harbor_profile_id = (
-            harbor_profile_id.strip() if harbor_profile_id is not None else None
-        )
+        harbor_profile_id = harbor_profile_id.strip() if harbor_profile_id is not None else None
         selection_snapshot = tuple(selections)
         resolved, operation_id, delivery_id, artifact_ids = await asyncio.to_thread(
             self._prepare_export_operation,
@@ -379,9 +377,7 @@ class ExportOrchestrator:
         materialized_artifact_ids: list[int] = []
         completed = False
         try:
-            for index, (artifact_id, item) in enumerate(
-                zip(artifact_ids, resolved, strict=True)
-            ):
+            for index, (artifact_id, item) in enumerate(zip(artifact_ids, resolved, strict=True)):
                 context.raise_if_cancelled()
                 context.set_artifact_status(artifact_id, ArtifactStatus.RUNNING)
                 try:
@@ -490,8 +486,7 @@ class ExportOrchestrator:
     ) -> None:
         expected_archive, expected_sidecar = self._delivery_paths(delivery_id)
         expected_handoff = (
-            self.settings.bundle_outgoing_root.resolve()
-            / f"{delivery_id}.htp-handoff.json"
+            self.settings.bundle_outgoing_root.resolve() / f"{delivery_id}.htp-handoff.json"
         )
         if (
             build.archive_path.resolve() != expected_archive
@@ -568,9 +563,7 @@ class ExportOrchestrator:
 
     def _cleanup_published_delivery(self, delivery_id: str) -> None:
         archive, sidecar = self._delivery_paths(delivery_id)
-        handoff = self.settings.bundle_outgoing_root.resolve() / (
-            f"{delivery_id}.htp-handoff.json"
-        )
+        handoff = self.settings.bundle_outgoing_root.resolve() / (f"{delivery_id}.htp-handoff.json")
         handoff.unlink(missing_ok=True)
         sidecar.unlink(missing_ok=True)
         archive.unlink(missing_ok=True)

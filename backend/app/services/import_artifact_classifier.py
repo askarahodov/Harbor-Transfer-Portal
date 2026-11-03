@@ -59,9 +59,7 @@ class ImportArtifactClassifier:
                     result.append(await self._classify_image(index, artifact, client))
                 else:
                     result.append(
-                        await self._classify_chart(
-                            index, artifact, session, harbor_profile_id
-                        )
+                        await self._classify_chart(index, artifact, session, harbor_profile_id)
                     )
         return result
 
@@ -74,9 +72,7 @@ class ImportArtifactClassifier:
             return self.skopeo_factory(session)
         from app.services.harbor_profiles import HarborProfileService
 
-        profile = HarborProfileService(session, self.settings).operation_snapshot(
-            harbor_profile_id
-        )
+        profile = HarborProfileService(session, self.settings).operation_snapshot(harbor_profile_id)
         return create_registry_client(
             profile.registry_type, session, self.settings, profile_id=profile.id
         )
@@ -122,9 +118,7 @@ class ImportArtifactClassifier:
             helm = (
                 self.helm_factory(session)
                 if self.helm_factory is not None
-                else HelmOciService(
-                    session, self.settings, harbor_profile_id=harbor_profile_id
-                )
+                else HelmOciService(session, self.settings, harbor_profile_id=harbor_profile_id)
             )
             inspected = await helm.inspect_target(
                 HelmChartReference(artifact.repository, artifact.name, artifact.version),

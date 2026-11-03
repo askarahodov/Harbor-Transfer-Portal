@@ -1,34 +1,20 @@
 from __future__ import annotations
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
-from dataclasses import dataclass
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from app.services.harbor_profiles import HarborProfile
 from app.services.nexus_service import (
-    NexusService,
-    ImageReference,
-    ImageInspection,
-    ExportResult,
-    ImportResult,
-    TargetInspection,
-    TargetState,
-    NexusPhase,
-    NexusServiceError,
     HelmChartReference,
-    HelmChartPullResult,
-    HelmChartPushResult,
+    ImageReference,
+    NexusService,
 )
 from app.services.registry_client import (
-    RegistryClient,
-    create_registry_client,
-    RegistryClientFactory,
     _HarborClientWrapper,
-    _NexusServiceWrapper,
+    create_registry_client,
 )
-from app.services.harbor_profiles import HarborProfile
-from app.config import Settings
-from sqlalchemy.orm import Session
 
 
 class TestImageReference:
@@ -38,7 +24,10 @@ class TestImageReference:
         assert ref.reference == "latest"
 
     def test_valid_digest_reference(self):
-        ref = ImageReference(repository="myproject/myimage", reference="sha256:abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890")
+        ref = ImageReference(
+            repository="myproject/myimage",
+            reference="sha256:abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        )
         assert ref.repository == "myproject/myimage"
         assert ref.reference.startswith("sha256:")
 
@@ -92,9 +81,15 @@ class TestNexusService:
     def test_docker_transport_digest(self, nexus_service):
         nexus = MagicMock()
         nexus.url = "https://nexus.example.com"
-        image = ImageReference(repository="myproject/myimage", reference="sha256:abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890")
+        image = ImageReference(
+            repository="myproject/myimage",
+            reference="sha256:abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        )
         result = nexus_service._docker_transport(image, nexus)
-        assert result == "docker://nexus.example.com/myproject/myimage@sha256:abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        assert (
+            result
+            == "docker://nexus.example.com/myproject/myimage@sha256:abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        )
 
     def test_oci_transport(self, nexus_service):
         path = Path("/app/data/payload")
@@ -119,7 +114,9 @@ class TestNexusService:
             nexus_service._registry_host(nexus)
 
     def test_validate_digest(self):
-        NexusService._validate_digest("sha256:abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890")
+        NexusService._validate_digest(
+            "sha256:abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        )
         with pytest.raises(ValueError, match="sha256 digest"):
             NexusService._validate_digest("invalid")
 
@@ -165,7 +162,7 @@ class TestHarborClientWrapper:
         mock_settings = MagicMock()
         mock_settings.harbor_connect_timeout_seconds = 5.0
         mock_settings.harbor_read_timeout_seconds = 20.0
-        
+
         with patch("app.services.harbor_settings.HarborSettingsService") as mock_profile_class:
             mock_profile_service = MagicMock()
             mock_profile_class.return_value = mock_profile_service
@@ -177,21 +174,21 @@ class TestHarborClientWrapper:
             mock_resolved.verify_tls = True
             mock_resolved.ca_file = None
             mock_profile_service.resolve_profile.return_value = mock_resolved
-            
+
             wrapper = _HarborClientWrapper(mock_session, mock_settings, "profile-1")
             wrapper.client = AsyncMock()
-            
+
             mock_image = MagicMock()
             mock_image.repository = "test/repo"
             mock_image.reference = "latest"
-            
+
             wrapper.client.inspect_image.return_value = MagicMock(
                 digest="sha256:abc",
                 media_type="application/vnd.docker.distribution.manifest.v2+json",
                 architecture="amd64",
                 os="linux",
             )
-            
+
             result = await wrapper.inspect_image(
                 type("ImageReference", (), {"repository": "test/repo", "reference": "latest"})()
             )
@@ -200,7 +197,6 @@ class TestHarborClientWrapper:
 
 class TestHarborProfileRegistryType:
     def test_default_registry_type_harbor(self):
-        from app.services.harbor_profiles import HarborProfile
         profile = HarborProfile(
             id="test",
             name="test",
@@ -213,7 +209,6 @@ class TestHarborProfileRegistryType:
         assert profile.registry_type == "harbor"
 
     def test_explicit_nexus_registry_type(self):
-        from app.services.harbor_profiles import HarborProfile
         profile = HarborProfile(
             id="test",
             name="test",

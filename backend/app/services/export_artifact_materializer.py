@@ -20,8 +20,8 @@ from app.services.helm_oci_service import (
     HelmServiceError,
 )
 from app.services.operation_manager import OperationTaskFailure
-from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoServiceError
 from app.services.registry_client import RegistryClient, create_registry_client
+from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoServiceError
 
 
 class ExportArtifactMaterializer:
@@ -49,9 +49,7 @@ class ExportArtifactMaterializer:
             return self._skopeo_factory(session)
         from app.services.harbor_profiles import HarborProfileService
 
-        profile = HarborProfileService(session, self.settings).operation_snapshot(
-            harbor_profile_id
-        )
+        profile = HarborProfileService(session, self.settings).operation_snapshot(harbor_profile_id)
         return create_registry_client(
             profile.registry_type, session, self.settings, profile_id=profile.id
         )
@@ -112,9 +110,7 @@ class ExportArtifactMaterializer:
 
     def prepare_helm_root(self, operation_id: int) -> Path:
         workspace_root = self.settings.helm_workspace_root.resolve()
-        target = (
-            workspace_root / "export-operations" / f"operation-{operation_id}"
-        ).resolve()
+        target = (workspace_root / "export-operations" / f"operation-{operation_id}").resolve()
         try:
             target.relative_to(workspace_root)
         except ValueError as exc:

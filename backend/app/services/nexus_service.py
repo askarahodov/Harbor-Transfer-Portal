@@ -18,8 +18,8 @@ from urllib.parse import urlsplit
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.services.harbor_settings import EffectiveHarborSettings, HarborSettingsService
 from app.services.harbor_profiles import HarborProfileService
+from app.services.harbor_settings import EffectiveHarborSettings, HarborSettingsService
 
 _DIGEST_PATTERN = r"sha256:[a-f0-9]{64}"
 _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
@@ -53,9 +53,10 @@ class ImageReference:
     def __post_init__(self) -> None:
         if fullmatch(_REPOSITORY_PATTERN, self.repository) is None:
             raise ValueError("repository must be a normalized registry repository path")
-        if fullmatch(_TAG_PATTERN, self.reference) is None and fullmatch(
-            _DIGEST_PATTERN, self.reference
-        ) is None:
+        if (
+            fullmatch(_TAG_PATTERN, self.reference) is None
+            and fullmatch(_DIGEST_PATTERN, self.reference) is None
+        ):
             raise ValueError("reference must be an OCI tag or sha256 digest")
 
 
@@ -280,11 +281,13 @@ class NexusService:
             profile = HarborProfileService(self.session, self.settings).get(self.nexus_profile_id)
             if not profile.enabled or not profile.url:
                 raise NexusServiceError(
-                    "nexus_profile_disabled", "Выбранный Nexus profile отключён",
+                    "nexus_profile_disabled",
+                    "Выбранный Nexus profile отключён",
                 )
             if profile.registry_type != "nexus":
                 raise NexusServiceError(
-                    "nexus_profile_invalid_type", "Выбранный profile не является Nexus",
+                    "nexus_profile_invalid_type",
+                    "Выбранный profile не является Nexus",
                 )
             return HarborSettingsService(self.session, self.settings).resolve_profile(profile.id)
 
@@ -653,6 +656,7 @@ class NexusService:
     @staticmethod
     def _compute_sha256(path: Path) -> str:
         import hashlib
+
         digest = hashlib.sha256()
         with path.open("rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
@@ -662,9 +666,7 @@ class NexusService:
     @staticmethod
     def _validate_oci_layout(path: Path) -> None:
         required_files_exist = (
-            path.is_dir()
-            and (path / "oci-layout").is_file()
-            and (path / "index.json").is_file()
+            path.is_dir() and (path / "oci-layout").is_file() and (path / "index.json").is_file()
         )
         if not required_files_exist:
             raise NexusServiceError(
@@ -707,6 +709,7 @@ class NexusService:
     @staticmethod
     def _compute_sha256(path: Path) -> str:
         import hashlib
+
         digest = hashlib.sha256()
         with path.open("rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
@@ -760,8 +763,7 @@ class NexusService:
         ):
             code = "nexus_registry_connect_timeout"
             message = (
-                "Не удалось установить сетевое соединение с локальным Nexus: "
-                "истекло время ожидания"
+                "Не удалось установить сетевое соединение с локальным Nexus: истекло время ожидания"
             )
         elif any(
             marker in lowered

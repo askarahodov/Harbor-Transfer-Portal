@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.auth.security import check_and_refresh_token, decode_access_token
+from app.auth.security import check_and_refresh_token
 from app.db.models import User, UserRole
 from app.db.repositories import UserRepository
 
