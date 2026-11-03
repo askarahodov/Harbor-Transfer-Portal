@@ -4,11 +4,11 @@
 
 В инфраструктуре с **Nexus 3 до 3.94** необходимо различать:
 
-- **Docker hosted**: обычный Docker Registry HTTP API v2, доступный через отдельный connector (порт или отдельный виртуальный хост). Portal использует Skopeo для экспорта/импорта контейнерных образов. Этот сценарий проверен на настоящем **Nexus 3.70.1**, Docker schema2, в GitHub Actions.
+- **Docker hosted**: обычный Docker Registry HTTP API v2, доступный через отдельный connector (порт или отдельный виртуальный хост). Portal использует Skopeo для экспорта/импорта контейнерных образов. Этот сценарий проверен на **Nexus 3.69.0-02 OSS** и **Nexus 3.70.1**, Docker schema2, в изолированном GitHub Actions.
 - **Helm hosted**: классический Helm chart repository с HTTP-путём /repository/helm-hosted/index.yaml и пакетами .tgz. **Текущий Helm OCI transport Portal не реализует протокол legacy Helm hosted**. Не включайте передачу Helm через Nexus до разработки и проверки отдельного адаптера, если используется именно этот тип репозитория.
 - **OCI repository**: отдельный формат Nexus, появившийся в **3.94.0**. Не предполагается и не требуется для существующих старых Nexus. Применять helm push oci://... к legacy Helm hosted нельзя.
 
-Подтверждённая совместимость с Nexus **3.70.1** не доказывает поведение каждой версии Nexus, конкретных корпоративных сертификатов или reverse proxy.
+Подтверждённая совместимость с **Nexus 3.69.0-02 OSS** (точная версия регионального сервера) и тестовой 3.70.1 не доказывает соответствие корпоративным настройкам, сетевым правилам, сертификатам или reverse proxy.
 
 Официальные источники: [Sonatype — OCI Repositories](https://help.sonatype.com/en/oci-repositories.html), [Sonatype — Helm Repositories](https://help.sonatype.com/en/helm-repositories.html).
 
@@ -72,12 +72,14 @@ NEXUS_CA_FILE=/app/data/secrets/nexus-ca.pem
 
 Workflow: **Actions → Nexus legacy Docker v2 E2E**, файл [.github/workflows/nexus-legacy-e2e.yml](../.github/workflows/nexus-legacy-e2e.yml).
 
-Автоматический PR-тест запускает Nexus 3.70.1 с Docker hosted v2 и проверяет:
+Автоматический PR-тест запускает официальный образ **sonatype/nexus3:3.69.0** и дополнительно сверяет HTTP Server header с точной сборкой **Nexus/3.69.0-02 (OSS)**. Затем выполняет тесты Docker hosted v2:
 
 - реальный Skopeo export/import, digest и Docker schema2;
 - неправильные credentials, недоступный connector, несовпадение digest, path traversal;
 - отдельный именованный Nexus profile;
 - HTTPS через тестовый nginx reverse proxy: отказ с недоверенным CA и успешное соединение с CA выбранного профиля.
+
+Результат проверки Nexus **3.69.0-02 OSS**: [GitHub Actions #41617019630](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41617019630) — **10/10 passed** (Docker Registry v2, профиль Portal, TLS/CA, ошибки). Ранее Nexus 3.70.1 также прошёл этот набор проверок.
 
 Для проверки **конкретной версии** используйте **Run workflow** и параметр **nexus_version** — опубликованный тег Nexus **3.x до 3.94**. Если тег образа недоступен или эта версия использует другой REST API/настройки, workflow должен завершиться с ошибкой, а не пропускать тесты. Запуск не подключается к корпоративному Nexus: используется одноразовый контейнер на GitHub-hosted runner.
 
