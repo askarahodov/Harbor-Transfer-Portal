@@ -56,6 +56,14 @@ NEXUS_CA_FILE=/app/data/secrets/nexus-ca.pem
 
 Можно создать отдельный профиль с типом **nexus** через **Settings → Harbor Profiles**. У каждого профиля должны быть собственные URL, credentials и CA; глобальный Nexus-пароль не должен подменять пароль выбранного профиля.
 
+## SOURCE: проверка точного Docker reference (переходный этап)
+
+При выборе профиля `nexus` интерфейс SOURCE не вызывает Harbor projects/repositories/artifacts API. Поскольку `/v2/_catalog` в Nexus может быть закрыт для сервисного пользователя, оператор может указать точный `repository` и `tag` (или digest) и выполнить read-only inspection через `POST /api/registry/source/inspect`. Проверка использует привязанные к профилю credentials и Skopeo, возвращая digest и media type. Ей не нужны права администратора Nexus UI.
+
+**Важно:** это пока *только inspection*, а не готовый Nexus export. До реализации и проверки type-aware SOURCE preview/prepare (#430) портал не позволяет запускать экспорт Nexus из этого выбора. Успешное получение digest не подтверждает создание подписанного bundle.
+
+Нельзя подставлять URL Nexus UI или путь `/repository/docker-hosted` в Docker v2 профиль: используется корневой endpoint connector. Ошибки инспекции возвращаются без вывода команд Skopeo или секретов.
+
 ## Форматы артефактов
 
 | Операция | Nexus Docker hosted v2 | Nexus Helm hosted (legacy) |
