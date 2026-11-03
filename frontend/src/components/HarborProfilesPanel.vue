@@ -6,6 +6,7 @@ import { apiClient } from '@/api/client'
 
 type HarborProfile = {
   id: string
+  registry_type: 'harbor' | 'nexus'
   name: string
   url: string
   username: string | null
@@ -44,6 +45,7 @@ const name = ref('')
 const url = ref('')
 const username = ref('')
 const verifyTls = ref(true)
+const registryType = ref<'harbor' | 'nexus'>('harbor')
 const credential = ref('')
 const caPem = ref('')
 
@@ -129,7 +131,7 @@ function editProfile(profile: HarborProfile): void {
   credential.value = ''
   caPem.value = ''
   verifyTls.value = profile.verify_tls
-  registryType.value = profile.registry_type
+  registryType.value = profile.registry_type ?? 'harbor'
   error.value = ''
   message.value = ''
 }
