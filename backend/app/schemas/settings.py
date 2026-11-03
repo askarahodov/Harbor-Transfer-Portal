@@ -121,13 +121,6 @@ class HarborProfileCreate(BaseModel):
         normalized = value.strip()
         return normalized or None
 
-    @field_validator("registry_type")
-    @classmethod
-    def validate_registry_type(cls, value: str) -> str:
-        if value not in ("harbor", "nexus"):
-            raise ValueError("registry_type must be 'harbor' or 'nexus'")
-        return value
-
 
 class HarborProfilePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
