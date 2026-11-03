@@ -43,6 +43,7 @@
   - [Development](/docs/development.md)
   - [Testing и CI](/docs/testing.md)
   - [Release notes v1.0.0](/docs/release-notes-v1.0.0.md)
+  - [Nexus release candidate — статус и приёмка](/docs/nexus-release-readiness-2026-11-03.md)
   - [Docker Compose deployment](/deploy/README.md)
   - [Offline install kit](/deploy/offline/README.md)
 
