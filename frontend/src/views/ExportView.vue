@@ -338,12 +338,12 @@ onBeforeUnmount(() => {
 
       <HarborProfileSelector
         id="export-harbor-profile"
-        label="SOURCE Harbor profile"
+        label="SOURCE registry profile"
         :profiles="wizard.harborProfiles"
         :model-value="wizard.operation && !wizard.operation.harbor_profile_id ? null : wizard.selectedHarborProfileId"
         :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
         :locked="wizard.harborProfileLocked"
-        hint="Browse, preview и export будут закреплены за выбранным Harbor."
+        hint="Выбранный профиль закрепляется за операцией. Для Nexus Harbor API не используется."
         @update:model-value="wizard.selectHarborProfile"
       />
 
@@ -361,7 +361,15 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="compact-selector" aria-label="Выбор артефакта Harbor">
+        <div v-if="wizard.isNexus" class="notice notice--info" role="status">
+          <AlertTriangle :size="22" aria-hidden="true" />
+          <div>
+            <strong>Nexus Docker v2: каталог Harbor недоступен</strong>
+            <p>Для Nexus не вызывается Harbor API. Выбор точного repository:tag будет доступен после проверки digest через Docker v2; до этого экспорт Nexus заблокирован.</p>
+          </div>
+        </div>
+
+        <div v-else class="compact-selector" aria-label="Выбор артефакта Harbor">
           <SearchCombobox
             label="Проект Harbor"
             :model-value="wizard.selectedProject ?? ''"
