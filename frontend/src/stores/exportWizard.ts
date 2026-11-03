@@ -75,6 +75,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     loading: harborProfilesLoading,
     error: harborProfilesError,
   } = storeToRefs(harborProfilesStore)
+  const isNexus = computed(() => selectedHarborProfile.value?.registry_type === 'nexus')
   const step = ref<ExportWizardStep>(1)
   const connection = ref<HarborConnection | null>(null)
   const projects = ref<HarborProject[]>([])
@@ -199,7 +200,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
 
   async function loadConnection(): Promise<void> {
     const profileId = selectedHarborProfileId.value
-    if (!profileId) return
+    if (!profileId || isNexus.value) return
     try {
       connection.value = await getHarborConnection(profileId)
     } catch (requestError) {
@@ -211,6 +212,10 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadProjects(page = 1): Promise<void> {
+    if (isNexus.value) {
+      projects.value = []
+      return
+    }
     clearProjectSearchTimer()
     const requestGeneration = ++projectRequestGeneration
     const search = projectSearch.value
@@ -253,6 +258,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadRepositories(page = 1): Promise<void> {
+    if (isNexus.value) return
     const project = selectedProject.value
     if (!project) return
     clearRepositorySearchTimer()
@@ -304,6 +310,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadArtifacts(page = 1): Promise<void> {
+    if (isNexus.value) return
     const project = selectedProject.value
     const repository = selectedRepository.value
     if (!project || !repository) return
@@ -662,6 +669,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     harborProfiles,
     selectedHarborProfileId,
     selectedHarborProfile,
+    isNexus,
     harborProfilesLoading,
     harborProfileLocked,
     projects,
