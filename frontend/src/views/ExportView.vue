@@ -8,7 +8,7 @@ import {
   RefreshCw,
   XCircle,
 } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { apiClient } from '@/api/client'
 import {
@@ -47,15 +47,24 @@ async function inspectNexusReference(): Promise<void> {
   exactResult.value = null
   exactError.value = null
   try {
-    exactResult.value = await inspectExactNexusImage(
+    const inspected = await inspectExactNexusImage(
       profileId, exactRepository.value.trim(), exactReference.value.trim(),
     )
+    if (wizard.selectedHarborProfileId !== profileId) return
+    exactResult.value = inspected
   } catch (reason) {
-    exactError.value = apiErrorInfo(reason, 'Не удалось проверить точный Docker reference.').message
+    if (wizard.selectedHarborProfileId === profileId) {
+      exactError.value = apiErrorInfo(reason, 'Не удалось проверить точный Docker reference.').message
+    }
   } finally {
     exactBusy.value = false
   }
 }
+
+watch(() => wizard.selectedHarborProfileId, () => {
+  exactResult.value = null
+  exactError.value = null
+})
 
 const downloadError = ref<string | null>(null)
 const printHandoffBusy = ref(false)
