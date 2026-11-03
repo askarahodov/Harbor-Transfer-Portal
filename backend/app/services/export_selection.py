@@ -29,7 +29,7 @@ class ExportSelectionResolutionError(Exception):
 @dataclass(frozen=True, slots=True)
 class ResolvedExportArtifact:
     kind: ArtifactKind
-    project: str
+    project: str | None
     repository: str
     reference: str
     digest: str
@@ -37,6 +37,8 @@ class ResolvedExportArtifact:
 
     @property
     def full_repository(self) -> str:
+        if self.project is None:
+            return self.repository
         return f"{self.project}/{self.repository}"
 
 

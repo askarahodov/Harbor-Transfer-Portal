@@ -204,13 +204,13 @@ def preview_export(
         artifacts=[
             ExportResolvedArtifactResponse(
                 kind=item.kind,
-                project=item.project,
-                repository=item.repository,
+                project=selected.project,
+                repository=selected.repository,
                 reference=item.reference,
                 source_digest=item.digest,
                 size_bytes=item.size_bytes,
             )
-            for item in resolved
+            for selected, item in zip(payload.artifacts, resolved, strict=True)
         ],
         estimated_payload_bytes=sum(item.size_bytes or 0 for item in resolved),
     )

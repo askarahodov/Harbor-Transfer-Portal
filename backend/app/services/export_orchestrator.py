@@ -41,8 +41,8 @@ from app.services.operation_manager import (
     OperationManagerError,
     OperationTaskFailure,
 )
-from app.services.registry_client import RegistryClient
-from app.services.skopeo_service import SkopeoService, SkopeoServiceError
+from app.services.registry_client import RegistryClient, create_registry_client
+from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoServiceError
 
 
 @dataclass(slots=True)
@@ -117,13 +117,75 @@ class ExportOrchestrator:
         harbor_profile_id: str | None = None,
     ) -> tuple[ResolvedExportArtifact, ...]:
         self._require_source_contour()
-        client = self._build_harbor_client(harbor_profile_id)
+        profile = self._profile_snapshot(harbor_profile_id)
+        if profile.registry_type == "nexus":
+            if any(selection.kind is ArtifactKind.HELM_CHART for selection in selections):
+                raise ExportOrchestrationError(
+                    "nexus_legacy_helm_unsupported",
+                    "Nexus Docker v2 не поддерживает экспорт legacy Helm charts",
+                )
+            return self._preview_nexus(selections, profile)
+
+        client = self._build_harbor_client(profile.id)
         try:
             return tuple(resolve_export_selection(client, selection) for selection in selections)
         except ExportSelectionResolutionError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
         finally:
             client.close()
+
+    def _preview_nexus(
+        self,
+        selections: Sequence[ExportArtifactSelection],
+        profile: HarborProfile,
+    ) -> tuple[ResolvedExportArtifact, ...]:
+        """Inspect exact Docker references without invoking Harbor REST endpoints."""
+
+        async def inspect() -> tuple[ResolvedExportArtifact, ...]:
+            with self.session_factory() as session:
+                client = (
+                    self._registry_client_factory(session, profile.id)
+                    if self._registry_client_factory is not None
+                    else create_registry_client(
+                        "nexus", session, self.settings, profile_id=profile.id
+                    )
+                )
+                results: list[ResolvedExportArtifact] = []
+                for selection in selections:
+                    if selection.kind is not ArtifactKind.CONTAINER_IMAGE:
+                        raise ExportOrchestrationError(
+                            "nexus_legacy_helm_unsupported",
+                            "Nexus Docker v2 поддерживает только container images",
+                        )
+                    image = ImageReference(
+                        repository=f"{selection.project}/{selection.repository}",
+                        reference=selection.reference,
+                    )
+                    inspected = await client.inspect_image(image)
+                    if inspected.digest != selection.digest:
+                        raise ExportOrchestrationError(
+                            "export_source_changed",
+                            "SOURCE artifact digest изменился после выбора",
+                        )
+                    results.append(
+                        ResolvedExportArtifact(
+                            kind=ArtifactKind.CONTAINER_IMAGE,
+                            project=None,
+                            repository=image.repository,
+                            reference=selection.reference,
+                            digest=inspected.digest,
+                            size_bytes=None,
+                        )
+                    )
+                return tuple(results)
+
+        try:
+            return asyncio.run(inspect())
+        except (NexusServiceError, SkopeoServiceError) as exc:
+            raise ExportOrchestrationError(
+                "registry_inspection_failed",
+                "Не удалось проверить SOURCE Docker image в Nexus",
+            ) from exc
 
     async def start_export(
         self,
@@ -423,18 +485,12 @@ class ExportOrchestrator:
                 context.set_progress(current=index + 1, total=len(artifact_ids))
 
             context.transition(OperationStatus.PACKAGING)
-            source_profile = self._assert_operation_profile(
-                context.operation_id, harbor_profile_id
-            )
+            source_profile = self._assert_operation_profile(context.operation_id, harbor_profile_id)
             source = BundleSource(
                 contour="SOURCE",
                 harbor=source_profile.url if source_profile.registry_type == "harbor" else None,
-                registry_type=(
-                    "nexus" if source_profile.registry_type == "nexus" else None
-                ),
-                registry=(
-                    source_profile.url if source_profile.registry_type == "nexus" else None
-                ),
+                registry_type=("nexus" if source_profile.registry_type == "nexus" else None),
+                registry=(source_profile.url if source_profile.registry_type == "nexus" else None),
                 portal_version=self.settings.app_version,
             )
             try:
