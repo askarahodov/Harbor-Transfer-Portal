@@ -10,7 +10,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 import os
+import shutil
+import subprocess
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -85,6 +88,56 @@ def _terminal(
             return body
         assert time.monotonic() < deadline, body
         time.sleep(0.25)
+
+
+def _seed_conflicting_target(layout: Path, password: str) -> None:
+    """Publish a distinct test image to the same tag to exercise no-overwrite policy."""
+    index_path = layout / "index.json"
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    manifest_item = index["manifests"][0]
+    manifest_path = layout / "blobs" / "sha256" / manifest_item["digest"][7:]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    config_path = layout / "blobs" / "sha256" / manifest["config"]["digest"][7:]
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["created"] = "2026-11-03T00:00:00Z"
+
+    def write_blob(document: dict) -> tuple[str, int]:
+        raw = json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        digest = hashlib.sha256(raw).hexdigest()
+        (layout / "blobs" / "sha256" / digest).write_bytes(raw)
+        return "sha256:" + digest, len(raw)
+
+    config_digest, config_size = write_blob(config)
+    manifest["config"]["digest"] = config_digest
+    manifest["config"]["size"] = config_size
+    manifest_digest, manifest_size = write_blob(manifest)
+    manifest_item["digest"] = manifest_digest
+    manifest_item["size"] = manifest_size
+    index_path.write_text(
+        json.dumps(index, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    authfile = layout.parent / "conflict-auth.json"
+    authfile.write_text(
+        json.dumps({"auths": {
+            "127.0.0.1:8082": {
+                "auth": base64.b64encode(f"admin:{password}".encode()).decode("ascii")
+            }
+        }}),
+        encoding="utf-8",
+    )
+    authfile.chmod(0o600)
+    subprocess.run(
+        [
+            "skopeo", "copy", "--format", "v2s2",
+            "--dest-authfile", str(authfile), "--dest-tls-verify=false",
+            f"oci:{layout}",
+            "docker://127.0.0.1:8082/htp-e2e-target/source:1.0.0",
+        ],
+        capture_output=True,
+        check=True,
+        timeout=120,
+    )
 
 
 def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path: Path) -> None:
@@ -236,10 +289,62 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
         assert receipt2.json()["artifacts"][0]["status"] == "SKIPPED"
         assert receipt2.json()["artifacts"][0]["target_digest"] == digest
 
+        # A tag with different content must not be overwritten implicitly.
+        conflict_layout = target.skopeo_payload_root / "conflict-layout"
+        shutil.copytree(source.skopeo_payload_root / "seed", conflict_layout)
+        _seed_conflicting_target(conflict_layout, password)
+        competing = asyncio.run(
+            seed.inspect_image(ImageReference("htp-e2e-target/source", "1.0.0"))
+        ).digest
+        assert competing != digest
+        third = target_client.post(
+            f"/api/imports/upload?profile_id={target_profile}",
+            content=archive, headers={**headers, **browser_headers},
+        )
+        assert third.status_code == 202, third.text
+        conflict_id = third.json()["operation_id"]
+        assert _terminal(target_client, headers, conflict_id, ready=True)["status"] == "READY"
+        conflicting_plan = target_client.put(
+            f"/api/imports/{conflict_id}/destination-plan",
+            headers=headers,
+            json={
+                "harbor_profile_id": target_profile,
+                "container_image_project": "htp-e2e-target",
+            },
+        )
+        assert conflicting_plan.status_code == 200, conflicting_plan.text
+        assert conflicting_plan.json()["artifacts"][0]["classification"] == "CONFLICT"
+        plan_id = conflicting_plan.json()["plan_id"]
+        denied = target_client.post(
+            f"/api/imports/{conflict_id}/execute",
+            headers=headers,
+            json={"destination_plan_id": plan_id},
+        )
+        assert denied.status_code == 409, denied.text
+        assert denied.json()["error"]["code"] == "import_conflict_blocked"
+        assert asyncio.run(
+            seed.inspect_image(ImageReference("htp-e2e-target/source", "1.0.0"))
+        ).digest == competing
+        skip = target_client.post(
+            f"/api/imports/{conflict_id}/execute",
+            headers=headers,
+            json={"destination_plan_id": plan_id, "skip_conflicts": True},
+        )
+        assert skip.status_code == 202, skip.text
+        assert _terminal(target_client, headers, conflict_id)["status"] == "COMPLETED"
+        skipped = target_client.get(
+            f"/api/imports/{conflict_id}/receipt", headers=headers
+        )
+        assert skipped.status_code == 200, skipped.text
+        assert skipped.json()["artifacts"][0]["status"] == "SKIPPED"
+        assert skipped.json()["artifacts"][0]["error_code"] == "import_conflict_skipped"
+        assert skipped.json()["artifacts"][0]["target_digest"] == competing
+
     checked = asyncio.run(
         seed.inspect_target(
             ImageReference("htp-e2e-target/source", "1.0.0"),
             expected_digest=digest,
         )
     )
-    assert checked.state == TargetState.SAME_DIGEST
+    assert checked.state == TargetState.CONFLICTING_DIGEST
+    assert checked.digest != digest
