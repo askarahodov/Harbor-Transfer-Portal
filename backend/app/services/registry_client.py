@@ -8,7 +8,7 @@ from typing import Literal, Protocol
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.services.harbor_client import HarborClient
+from app.services.skopeo_service import SkopeoService
 from app.services.nexus_service import NexusService, TargetState
 
 RegistryClientFactory = Callable[[Session, str | None], "RegistryClient"]
@@ -89,28 +89,16 @@ def create_registry_client(
 
 
 class _HarborClientWrapper:
-    """Adapter to make HarborClient conform to RegistryClient protocol."""
+    """Adapter for Harbor OCI transfer operations via SkopeoService."""
 
     def __init__(self, session: Session, settings: Settings, profile_id: str | None = None):
-        from app.services.harbor_settings import HarborSettingsService
-
-        profile_service = HarborSettingsService(session, settings)
-        resolved = profile_service.resolve_profile(profile_id)
-        verify: bool | str = resolved.verify_tls
-        if resolved.verify_tls and resolved.ca_file is not None:
-            verify = str(resolved.ca_file)
-        password = resolved.password.get_secret_value() if resolved.password else None
-        self.client = HarborClient(
-            base_url=resolved.url,
-            username=resolved.username,
-            password=password,
-            verify=verify,
-            connect_timeout=settings.harbor_connect_timeout_seconds,
-            read_timeout=settings.harbor_read_timeout_seconds,
+        # Transfer operations use the OCI transport (Skopeo), not Harbor's HTTP API.
+        self.client = SkopeoService(
+            session, settings, harbor_profile_id=profile_id
         )
 
     async def inspect_image(self, image: ImageReference) -> ImageInspection:
-        result = await self.client.inspect_image(image.repository, image.reference)
+        result = await self.client.inspect_image(image)
         return ImageInspection(
             digest=result.digest,
             media_type=result.media_type,
