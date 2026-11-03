@@ -40,6 +40,24 @@ def _await_ready(password: str) -> None:
     raise RuntimeError("Disposable Nexus administration endpoint did not become ready")
 
 
+def _probe_docker_connector(password: str) -> None:
+    basic = base64.b64encode(f"admin:{password}".encode()).decode("ascii")
+    for mode, headers in (
+        ("unauthenticated", {}),
+        ("authenticated", {"Authorization": f"Basic {basic}"}),
+    ):
+        request = Request("http://nexus:5000/v2/", headers=headers)
+        try:
+            with urlopen(request, timeout=5) as response:
+                status = response.status
+                challenge = response.headers.get("WWW-Authenticate", "")
+        except HTTPError as exc:
+            status = exc.code
+            challenge = exc.headers.get("WWW-Authenticate", "")
+        # Do not print passwords or auth headers.
+        print(f"REAL NEXUS /v2/ probe ({mode}): HTTP {status}; challenge={challenge[:150]}")
+
+
 def main() -> None:
     password = os.environ.get("NEXUS_E2E_PASSWORD", "")
     if not password:
@@ -70,6 +88,11 @@ def main() -> None:
         },
     }
     _api("POST", "/repositories/docker/hosted", password, hosted_repository)
+    configured = json.loads(
+        _api("GET", "/repositories/docker/hosted/e2e-docker-hosted", password)
+    )
+    print(f"REAL NEXUS Docker forceBasicAuth={configured['docker']['forceBasicAuth']}")
+    _probe_docker_connector(password)
     print("REAL NEXUS: configured Docker hosted registry using the REST API")
 
 
