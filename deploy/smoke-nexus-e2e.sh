@@ -26,12 +26,12 @@ trap cleanup EXIT
 
 docker network create --internal "$network" >/dev/null
 docker volume create "$volume" >/dev/null
+# Last pre-Community-Edition OSS release: no new CE EULA acceptance needed.
+# Test baseline compatibility only; modern CE E2E requires separate EULA approval.
 docker run --detach --name "$container" \
   --network "$network" --network-alias nexus \
   --volume "$volume:/nexus-data" \
   --env 'INSTALL4J_ADD_VM_PARAMS=-Xms512m -Xmx2048m -XX:MaxDirectMemorySize=1024m -Djava.util.prefs.userRoot=/nexus-data/javaprefs' \
-  # Last pre-Community-Edition OSS release: no new CE EULA acceptance needed.
-  # Test baseline compatibility only; modern CE E2E requires separate EULA approval.
   sonatype/nexus3:3.76.1 >/dev/null
 
 # Build the exact application image being tested, with its pinned Helm/Skopeo tools.
