@@ -16,6 +16,8 @@ import {
   createExportDownloadTicket,
   downloadExportHandoff,
   getExportHandoffRecord,
+  inspectExactNexusImage,
+  type ExactNexusInspection,
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
@@ -32,6 +34,29 @@ import { useRuntimeStore } from '@/stores/runtime'
 const wizard = useExportWizardStore()
 const runtime = useRuntimeStore()
 const auth = useAuthStore()
+const exactRepository = ref('')
+const exactReference = ref('')
+const exactResult = ref<ExactNexusInspection | null>(null)
+const exactError = ref<string | null>(null)
+const exactBusy = ref(false)
+
+async function inspectNexusReference(): Promise<void> {
+  const profileId = wizard.selectedHarborProfileId
+  if (!wizard.isNexus || !profileId || exactBusy.value) return
+  exactBusy.value = true
+  exactResult.value = null
+  exactError.value = null
+  try {
+    exactResult.value = await inspectExactNexusImage(
+      profileId, exactRepository.value.trim(), exactReference.value.trim(),
+    )
+  } catch (reason) {
+    exactError.value = apiErrorInfo(reason, 'Не удалось проверить точный Docker reference.').message
+  } finally {
+    exactBusy.value = false
+  }
+}
+
 const downloadError = ref<string | null>(null)
 const printHandoffBusy = ref(false)
 const signingRecoveryBusy = ref(false)
@@ -365,7 +390,18 @@ onBeforeUnmount(() => {
           <AlertTriangle :size="22" aria-hidden="true" />
           <div>
             <strong>Nexus Docker v2: каталог Harbor недоступен</strong>
-            <p>Для Nexus не вызывается Harbor API. Выбор точного repository:tag будет доступен после проверки digest через Docker v2; до этого экспорт Nexus заблокирован.</p>
+            <p>Каталог Docker v2 может быть недоступен с ограниченными правами. Укажите точные repository и tag для проверки digest. Экспорт Nexus будет доступен после исправления SOURCE preview (#430).</p>
+            <form class="nexus-exact-form" @submit.prevent="inspectNexusReference">
+              <label>Repository
+                <input v-model="exactRepository" type="text" required maxlength="255" placeholder="team/application" autocomplete="off" />
+              </label>
+              <label>Tag или digest
+                <input v-model="exactReference" type="text" required maxlength="128" placeholder="1.0.0" autocomplete="off" />
+              </label>
+              <button class="secondary-button" type="submit" :disabled="exactBusy || !exactRepository.trim() || !exactReference.trim()">Проверить Docker image</button>
+            </form>
+            <p v-if="exactError" role="alert">{{ exactError }}</p>
+            <p v-if="exactResult" role="status">Найден {{ exactResult.repository }}:{{ exactResult.reference }} · digest <code>{{ exactResult.digest }}</code></p>
           </div>
         </div>
 
@@ -616,6 +652,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.nexus-exact-form { display: grid; gap: var(--space-3); margin-top: var(--space-3); }
+.nexus-exact-form label { display: grid; gap: var(--space-1); }
+.nexus-exact-form input { min-height: 42px; width: 100%; padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); }
+
 .export-page { display: grid; gap: var(--space-6); color: var(--color-text); }
 .page-heading, .section-heading, .artifact-panel__heading, .actions, .progress-label { display: flex; justify-content: space-between; gap: var(--space-4); align-items: flex-start; }
 h1, h2, h3, p { margin-top: 0; }
