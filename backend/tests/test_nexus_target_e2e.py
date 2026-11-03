@@ -76,7 +76,12 @@ def _terminal(
         response = client.get(f"/api/operations/{operation_id}", headers=headers)
         assert response.status_code == 200, response.text
         body = response.json()
-        if body["status"] in ({"READY"} if ready else {"COMPLETED"}) | {"REJECTED", "FAILED", "CANCELLED"}:
+        terminal = ({"READY"} if ready else {"COMPLETED"}) | {
+            "REJECTED",
+            "FAILED",
+            "CANCELLED",
+        }
+        if body["status"] in terminal:
             return body
         assert time.monotonic() < deadline, body
         time.sleep(0.25)
