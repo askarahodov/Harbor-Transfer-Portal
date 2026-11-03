@@ -140,9 +140,9 @@ def _manifest_digest(password: str, repository: str, version: str) -> str:
         parts = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
         endpoint = urlsplit(parts.get("realm", ""))
         if endpoint.scheme != "http" or endpoint.hostname != "nexus":
-            raise AssertionError("Token realm must remain inside disposable Nexus")
+            raise AssertionError("Token realm must remain inside disposable Nexus") from exc
         if endpoint.port not in (8081, 5000):
-            raise AssertionError("Unexpected Nexus token endpoint port")
+            raise AssertionError("Unexpected Nexus token endpoint port") from exc
         query = parse_qsl(endpoint.query, keep_blank_values=True)
         query.extend((key, parts[key]) for key in ("service", "scope") if key in parts)
         token_url = urlunsplit(
@@ -153,7 +153,7 @@ def _manifest_digest(password: str, repository: str, version: str) -> str:
             data = json.load(response)
         token = data.get("token") or data.get("access_token")
         if not isinstance(token, str) or not token:
-            raise AssertionError("Nexus returned no registry bearer token")
+            raise AssertionError("Nexus returned no registry bearer token") from exc
         digest = head(f"Bearer {token}")
 
     assert digest is not None and digest.startswith("sha256:"), digest
