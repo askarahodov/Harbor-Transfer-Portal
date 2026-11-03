@@ -423,9 +423,18 @@ class ExportOrchestrator:
                 context.set_progress(current=index + 1, total=len(artifact_ids))
 
             context.transition(OperationStatus.PACKAGING)
+            source_profile = self._assert_operation_profile(
+                context.operation_id, harbor_profile_id
+            )
             source = BundleSource(
                 contour="SOURCE",
-                harbor=self._effective_harbor_url(harbor_profile_id),
+                harbor=source_profile.url if source_profile.registry_type == "harbor" else None,
+                registry_type=(
+                    "nexus" if source_profile.registry_type == "nexus" else None
+                ),
+                registry=(
+                    source_profile.url if source_profile.registry_type == "nexus" else None
+                ),
                 portal_version=self.settings.app_version,
             )
             try:
