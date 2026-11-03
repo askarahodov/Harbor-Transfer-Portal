@@ -7,6 +7,7 @@ this does not prove corporate network isolation or TARGET RBAC.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import os
@@ -67,13 +68,15 @@ def _auth(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
-def _terminal(client: TestClient, headers: dict[str, str], operation_id: int) -> dict:
+def _terminal(
+    client: TestClient, headers: dict[str, str], operation_id: int, *, ready: bool = False
+) -> dict:
     deadline = time.monotonic() + 120
     while True:
         response = client.get(f"/api/operations/{operation_id}", headers=headers)
         assert response.status_code == 200, response.text
         body = response.json()
-        if body["status"] in {"READY", "REJECTED", "FAILED", "COMPLETED", "CANCELLED"}:
+        if body["status"] in ({"READY"} if ready else {"COMPLETED"}) | {"REJECTED", "FAILED", "CANCELLED"}:
             return body
         assert time.monotonic() < deadline, body
         time.sleep(0.25)
@@ -149,7 +152,7 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
         )
         assert upload.status_code == 202, upload.text
         operation_id = upload.json()["operation_id"]
-        inspected = _terminal(target_client, headers, operation_id)
+        inspected = _terminal(target_client, headers, operation_id, ready=True)
         assert inspected["status"] == "READY", inspected
         verified = target_client.get(
             f"/api/imports/{operation_id}/preview", headers=headers,
@@ -205,7 +208,7 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
         )
         assert again.status_code == 202, again.text
         again_id = again.json()["operation_id"]
-        assert _terminal(target_client, headers, again_id)["status"] == "READY"
+        assert _terminal(target_client, headers, again_id, ready=True)["status"] == "READY"
         replay = target_client.put(
             f"/api/imports/{again_id}/destination-plan",
             headers=headers,
@@ -228,7 +231,7 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
         assert receipt2.json()["artifacts"][0]["status"] == "SKIPPED"
         assert receipt2.json()["artifacts"][0]["target_digest"] == digest
 
-    checked = __import__("asyncio").run(
+    checked = asyncio.run(
         seed.inspect_target(ImageReference("htp-e2e-target/source", "1.0.0"), expected_digest=digest)
     )
     assert checked.state == TargetState.SAME_DIGEST
