@@ -6,6 +6,13 @@ on:
       - '.github/workflows/nexus-legacy-e2e.yml'
       - 'tools/nexus_e2e_setup.py'
       - 'backend/tests/test_nexus_legacy_e2e.py'
+      - 'backend/tests/test_nexus_source_e2e.py'
+      - 'backend/app/services/export_orchestrator.py'
+      - 'backend/app/services/export_artifact_materializer.py'
+      - 'backend/app/services/bundle_package_service.py'
+      - 'backend/app/domain/bundle.py'
+      - 'backend/app/api/exports.py'
+      - 'backend/app/api/registry_source.py'
       - 'backend/app/services/nexus_service.py'
       - 'backend/app/services/registry_client.py'
       - 'backend/requirements-dev.lock'
@@ -152,7 +159,7 @@ jobs:
         run: |
           set -euo pipefail
           cd backend
-          python -m pytest -v -x tests/test_nexus_legacy_e2e.py
+          python -m pytest -v -x tests/test_nexus_legacy_e2e.py tests/test_nexus_source_e2e.py
 
       - name: Stop and delete disposable Nexus
         if: ${{ always() }}
