@@ -17,7 +17,7 @@ from app.domain.artifacts import ArtifactKind
 from app.domain.bundle import ArtifactStatus, OperationStatus
 from app.schemas.exports import ExportArtifactSelection
 from app.services.bundle_package_service import BundlePackageError, BundlePackageService
-from app.services.export_orchestrator import ExportOrchestrator
+from app.services.export_orchestrator import ExportOrchestrationError, ExportOrchestrator
 from app.services.harbor_client import HarborArtifact
 from app.services.harbor_profile_runtime import harbor_profile_boundary
 from app.services.harbor_profiles import HarborProfileService
@@ -502,4 +502,122 @@ def test_profile_resolution_failure_during_export_keeps_actionable_error(
         "harbor_profile_disabled",
         "export_aborted",
     ]
+    assert _outgoing_is_empty(settings)
+
+
+def test_preflight_profile_failure_aborts_all_artifacts_without_partial_bundle(
+    tmp_path: Path,
+) -> None:
+    settings, manager, _harbor, _package_service, orchestrator = _environment(tmp_path)
+
+    def invalid_binding(_operation_id: int, _profile_id: str):  # type: ignore[no-untyped-def]
+        raise ExportOrchestrationError(
+            "harbor_profile_changed", "Выбранный профиль изменился после создания export"
+        )
+
+    orchestrator._assert_operation_profile = invalid_binding  # type: ignore[method-assign]
+
+    async def scenario() -> int:
+        await manager.startup()
+        started = await orchestrator.start_export(
+            _selections(),
+            actor_user_id=None,  # type: ignore[arg-type]
+            actor_username="operator",
+            comment=None,
+        )
+        await manager.wait(started.operation_id)
+        await manager.shutdown()
+        return started.operation_id
+
+    operation = manager.get_operation(asyncio.run(scenario()))
+    assert operation is not None
+    assert operation.status is OperationStatus.FAILED
+    assert operation.error_code == "harbor_profile_changed"
+    assert [artifact.error_code for artifact in operation.artifacts] == [
+        "export_aborted",
+        "export_aborted",
+    ]
+    assert all(artifact.status is ArtifactStatus.FAILED for artifact in operation.artifacts)
+    assert _outgoing_is_empty(settings)
+
+
+def test_packaging_failure_aborts_previously_materialized_artifacts(
+    tmp_path: Path,
+) -> None:
+    settings, manager, _harbor, package_service, _ = _environment(tmp_path)
+    orchestrator = ExportOrchestrator(
+        manager.session_factory,
+        settings,
+        manager,
+        harbor_client_factory=lambda: _harbor,
+        skopeo_factory=lambda _session: FakeSkopeoService(),
+        helm_factory=lambda _session: FakeHelmService(),
+        package_factory=lambda: PublishThenFailPackageService(package_service),
+    )
+
+    async def scenario() -> int:
+        await manager.startup()
+        started = await orchestrator.start_export(
+            _selections(),
+            actor_user_id=None,  # type: ignore[arg-type]
+            actor_username="operator",
+            comment=None,
+        )
+        await manager.wait(started.operation_id)
+        await manager.shutdown()
+        return started.operation_id
+
+    operation = manager.get_operation(asyncio.run(scenario()))
+    assert operation is not None
+    assert operation.status is OperationStatus.FAILED
+    assert operation.error_code == "bundle_post_publish_failure"
+    assert all(artifact.status is ArtifactStatus.FAILED for artifact in operation.artifacts)
+    assert all(artifact.error_code == "export_aborted" for artifact in operation.artifacts)
+    assert operation.bundle_filename is None
+    assert operation.handoff_filename is None
+    assert _outgoing_is_empty(settings)
+
+
+def test_unexpected_export_error_does_not_expose_secret_and_aborts_artifacts(
+    tmp_path: Path,
+) -> None:
+    class CrashingSkopeo(FakeSkopeoService):
+        async def export_image(
+            self, _image, destination: Path  # type: ignore[no-untyped-def]
+        ) -> ExportResult:
+            raise RuntimeError("private-token=must-not-leak")
+
+    settings, manager, harbor, package_service, _ = _environment(tmp_path)
+    orchestrator = ExportOrchestrator(
+        manager.session_factory,
+        settings,
+        manager,
+        harbor_client_factory=lambda: harbor,
+        skopeo_factory=lambda _session: CrashingSkopeo(),
+        helm_factory=lambda _session: FakeHelmService(),
+        package_factory=lambda: package_service,
+    )
+
+    async def scenario() -> int:
+        await manager.startup()
+        started = await orchestrator.start_export(
+            _selections(),
+            actor_user_id=None,  # type: ignore[arg-type]
+            actor_username="operator",
+            comment=None,
+        )
+        await manager.wait(started.operation_id)
+        await manager.shutdown()
+        return started.operation_id
+
+    operation = manager.get_operation(asyncio.run(scenario()))
+    assert operation is not None
+    assert operation.status is OperationStatus.FAILED
+    assert operation.error_code == "operation_worker_failed"
+    assert "private-token" not in (operation.error_message or "")
+    assert [artifact.error_code for artifact in operation.artifacts] == [
+        "export_aborted",
+        "export_aborted",
+    ]
+    assert all(artifact.status is ArtifactStatus.FAILED for artifact in operation.artifacts)
     assert _outgoing_is_empty(settings)
