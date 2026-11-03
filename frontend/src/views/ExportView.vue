@@ -399,7 +399,7 @@ onBeforeUnmount(() => {
           <AlertTriangle :size="22" aria-hidden="true" />
           <div>
             <strong>Nexus Docker v2: каталог Harbor недоступен</strong>
-            <p>Каталог Docker v2 может быть недоступен с ограниченными правами. Укажите точные repository и tag для проверки digest. Экспорт Nexus будет доступен после исправления SOURCE preview (#430).</p>
+            <p>Каталог Docker v2 может быть недоступен с ограниченными правами. Укажите точные repository и tag для проверки digest. Экспорт Nexus будет доступен после исправления SOURCE preview (задача 430).</p>
             <form class="nexus-exact-form" @submit.prevent="inspectNexusReference">
               <label>Repository
                 <input v-model="exactRepository" type="text" required maxlength="255" placeholder="team/application" autocomplete="off" />
