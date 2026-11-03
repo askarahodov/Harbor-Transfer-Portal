@@ -61,6 +61,11 @@ async function inspectNexusReference(): Promise<void> {
   }
 }
 
+watch([exactRepository, exactReference], () => {
+  exactResult.value = null
+  exactError.value = null
+})
+
 watch(() => wizard.selectedHarborProfileId, () => {
   exactResult.value = null
   exactError.value = null
@@ -410,7 +415,14 @@ onBeforeUnmount(() => {
               <button class="secondary-button" type="submit" :disabled="exactBusy || !exactRepository.trim() || !exactReference.trim()">Проверить Docker image</button>
             </form>
             <p v-if="exactError" role="alert">{{ exactError }}</p>
-            <p v-if="exactResult" role="status">Найден {{ exactResult.repository }}:{{ exactResult.reference }} · digest <code>{{ exactResult.digest }}</code></p>
+            <div v-if="exactResult" role="status">
+              <p>Найден {{ exactResult.repository }}:{{ exactResult.reference }} · digest <code>{{ exactResult.digest }}</code></p>
+              <button
+                type="button"
+                class="secondary-button"
+                @click="wizard.addExactNexusImage(exactResult.repository, exactResult.reference, exactResult.digest)"
+              >Добавить образ в выбор</button>
+            </div>
           </div>
         </div>
 
