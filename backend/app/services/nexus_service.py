@@ -522,6 +522,16 @@ class NexusService:
             )
         return f"oci:{payload_path}"
 
+    def _require_under_payload_root(self, path: Path) -> None:
+        """Reject OCI payload paths outside the configured data root."""
+        try:
+            path.relative_to(self.payload_root)
+        except ValueError as exc:
+            raise NexusServiceError(
+                "nexus_payload_path_outside_root",
+                "OCI payload должен находиться внутри разрешённого data root",
+            ) from exc
+
     def _validate_export_path(self, path: Path) -> Path:
         resolved = path.resolve()
         self._require_under_payload_root(resolved)
@@ -549,22 +559,27 @@ class NexusService:
         with self._security_context(nexus) as security:
             destination.mkdir(parents=True, exist_ok=True)
             registry = self._registry_host(nexus)
-            chart_ref = f"{registry}/{chart.repository}/{chart.name}:{chart.version}"
+            chart_ref = f"oci://{registry}/{chart.repository}/{chart.name}"
+            existing = set(destination.glob("*.tgz"))
             argv = (
                 self.settings.helm_binary,
                 "pull",
                 chart_ref,
+                "--version",
+                chart.version,
                 "--destination",
                 str(destination),
                 *self._helm_registry_flags(nexus, security),
             )
             await self._run_checked(argv, security)
-            chart_files = list(destination.glob("*.tgz"))
+            chart_files = list(set(destination.glob("*.tgz")) - existing)
             if not chart_files:
                 raise NexusServiceError(
                     "helm_pull_failed",
                     "Helm chart не был скачан в указанный каталог",
                 )
+            if len(chart_files) != 1:
+                raise NexusServiceError("helm_pull_ambiguous", "Helm создал несколько chart файлов")
             chart_path = chart_files[0]
             digest = self._compute_sha256(chart_path)
             self._emit(NexusPhase.EXPORTED, ImageReference(repository=chart.repository, reference=chart.version))
@@ -597,7 +612,12 @@ class NexusService:
         nexus = self._resolve_nexus()
         with self._security_context(nexus) as security:
             registry = self._registry_host(nexus)
-            chart_ref = f"{registry}/{chart.repository}/{chart.name}:{chart.version}"
+            if allow_existing:
+                raise NexusServiceError(
+                    "helm_overwrite_unsupported",
+                    "Helm OCI push не поддерживает принудительную перезапись chart",
+                )
+            chart_ref = f"oci://{registry}/{chart.repository}"
             argv = (
                 self.settings.helm_binary,
                 "push",
@@ -605,11 +625,15 @@ class NexusService:
                 chart_ref,
                 *self._helm_registry_flags(nexus, security),
             )
-            if allow_existing:
-                argv += ("--force",)
-            await self._run_checked(argv, security)
+            result = await self._run_checked(argv, security)
+            digest_match = re.search(r"(?im)^Digest:\\s*(sha256:[a-f0-9]{64})\\s*$", result.stdout + "\\n" + result.stderr)
+            if digest_match is None:
+                raise NexusServiceError(
+                    "helm_push_unverified",
+                    "Helm не вернул digest опубликованного OCI chart",
+                )
             self._emit(NexusPhase.VERIFIED, ImageReference(repository=chart.repository, reference=chart.version))
-            return HelmChartPushResult(target_digest=self._compute_sha256(chart_path))
+            return HelmChartPushResult(target_digest=digest_match.group(1))
 
     def _helm_registry_flags(
         self,
