@@ -119,3 +119,30 @@ async def test_push_refuses_force_overwrite(service: NexusService, tmp_path: Pat
             allow_existing=True,
         )
     service._run_checked.assert_not_awaited()
+
+@pytest.mark.parametrize(
+    ("url", "verify_tls", "expected"),
+    [
+        ("http://nexus.test:5000", False, ("--plain-http",)),
+        ("https://nexus.test:5000", False, ("--insecure-skip-tls-verify",)),
+        ("https://nexus.test:5000", True, ()),
+    ],
+)
+def test_helm_oci_transport_flags(
+    service: NexusService, tmp_path: Path, url: str, verify_tls: bool, expected: tuple[str, ...]
+) -> None:
+    registry = SimpleNamespace(url=url, verify_tls=verify_tls)
+    flags = service._helm_registry_flags(
+        registry, _SecurityContext(tmp_path, None, None, ())
+    )
+    assert flags == expected
+
+
+def test_helm_oci_tls_ca_and_registry_config(service: NexusService, tmp_path: Path) -> None:
+    registry = SimpleNamespace(url="https://nexus.test:5000", verify_tls=True)
+    cert_dir = tmp_path / "certs"
+    security = _SecurityContext(tmp_path, tmp_path / "auth.json", cert_dir, ())
+    assert service._helm_registry_flags(registry, security) == (
+        "--registry-config", str(tmp_path / "auth.json"),
+        "--ca-file", str(cert_dir / "ca.crt"),
+    )
