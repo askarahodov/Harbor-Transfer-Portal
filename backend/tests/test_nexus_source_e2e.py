@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
 from test_nexus_legacy_e2e import REGISTRY_URL, make_settings, seeded_schema2_image
 
-from app.auth.security import hash_password
+from app.auth.security import create_export_download_token, hash_password
 from app.config import PortalContour, Settings
 from app.db.base import Base
 from app.db.models import UserRole
@@ -27,7 +27,7 @@ from app.domain.bundle import OperationStatus
 from app.main import create_app
 from app.services.bundle_package_service import BundlePackageService
 from app.services.harbor_profiles import HarborProfileService
-from app.services.nexus_service import NexusService
+from app.services.nexus_service import NexusService, NexusServiceError
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("HTP_NEXUS_LEGACY_E2E") != "1",
@@ -78,7 +78,9 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-def test_real_source_api_signed_bundle_and_browser_ticket(tmp_path: Path) -> None:
+def test_real_source_api_signed_bundle_and_browser_ticket(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     password = Path(os.environ["HTP_NEXUS_E2E_PASSWORD_FILE"]).read_text(
         encoding="utf-8"
     ).strip()
@@ -135,6 +137,19 @@ def test_real_source_api_signed_bundle_and_browser_ticket(tmp_path: Path) -> Non
         assert preview.json()["artifacts"][0]["repository"] == "source"
         assert preview.json()["artifacts"][0]["size_bytes"] is None
 
+        # Nonexistent Nexus tag must fail closed before starting a worker or
+        # creating any downloadable output.
+        missing = {**selection, "artifacts": [{
+            **selection["artifacts"][0], "reference": "tag-does-not-exist-433",
+        }]}
+        missing_preview = client.post("/api/exports/preview", json=missing, headers=auth)
+        assert missing_preview.status_code in {404, 422}, missing_preview.text
+        assert missing_preview.json()["error"]["code"] == "nexus_not_found"
+        missing_start = client.post("/api/exports", json=missing, headers=auth)
+        assert missing_start.status_code in {404, 422}, missing_start.text
+        assert missing_start.json()["error"]["code"] == "nexus_not_found"
+        assert not list(settings.bundle_outgoing_root.glob("*.htp.tar.gz"))
+
         wrong = {**selection, "artifacts": [{
             **selection["artifacts"][0], "digest": "sha256:" + "f" * 64,
         }]}
@@ -182,6 +197,71 @@ def test_real_source_api_signed_bundle_and_browser_ticket(tmp_path: Path) -> Non
         assert digest == metadata["sha256"]
         assert downloaded.headers["x-checksum-sha256"] == digest
         assert metadata["archive_name"] in downloaded.headers["content-disposition"]
+
+        # Exercise real JWT expiry and operation binding, without sleeping.
+        client.cookies.clear()
+        expired = create_export_download_token(
+            user_id=actor_id,
+            operation_id=operation_id,
+            secret=settings.jwt_secret.get_secret_value(),
+            lifetime_seconds=-60,
+        )
+        denied_expired = client.get(
+            f"/api/exports/{operation_id}/download",
+            cookies={"htp_export_download": expired},
+        )
+        assert denied_expired.status_code == 401, denied_expired.text
+        assert denied_expired.json()["error"]["code"] == "download_auth_invalid"
+        wrong_operation = create_export_download_token(
+            user_id=actor_id,
+            operation_id=operation_id + 1,
+            secret=settings.jwt_secret.get_secret_value(),
+            lifetime_seconds=60,
+        )
+        denied_binding = client.get(
+            f"/api/exports/{operation_id}/download",
+            cookies={"htp_export_download": wrong_operation},
+        )
+        assert denied_binding.status_code == 401, denied_binding.text
+        assert denied_binding.json()["error"]["code"] == "download_auth_invalid"
+
+        # Force the real SOURCE operation worker to fail during Nexus copy,
+        # after a successful preview; it must never expose a partial delivery.
+        async def fail_copy(_service, _image, _destination):  # type: ignore[no-untyped-def]
+            raise NexusServiceError(
+                "nexus_registry_connection_failed",
+                "Nexus connection unavailable during materialization",
+            )
+
+        monkeypatch.setattr(NexusService, "export_image", fail_copy)
+        failed_start = client.post("/api/exports", json=selection, headers=auth)
+        assert failed_start.status_code == 202, failed_start.text
+        failed_id = failed_start.json()["operation_id"]
+        deadline = time.monotonic() + 60
+        while True:
+            failed_status = client.get(f"/api/operations/{failed_id}", headers=auth)
+            assert failed_status.status_code == 200, failed_status.text
+            failure = failed_status.json()
+            if failure["status"] in {"COMPLETED", "FAILED", "CANCELLED"}:
+                break
+            assert time.monotonic() < deadline, failure
+            time.sleep(0.25)
+        assert failure["status"] == "FAILED", failure
+        assert failure["error_code"] == "nexus_registry_connection_failed"
+        assert failure["bundle"] is None
+        assert all(item["status"] == "FAILED" for item in failure["artifacts"])
+        assert all(
+            item["error_code"] == "nexus_registry_connection_failed"
+            for item in failure["artifacts"]
+        )
+        failed_delivery = failed_start.json()["delivery_id"]
+        assert not list(settings.bundle_outgoing_root.glob(f"{failed_delivery}*"))
+        assert client.get(
+            f"/api/exports/{failed_id}/bundle", headers=auth
+        ).status_code == 409
+        assert client.post(
+            f"/api/exports/{failed_id}/download-ticket", headers=auth
+        ).status_code == 409
 
     archive = settings.bundle_outgoing_root / metadata["archive_name"]
     assert archive.read_bytes() == downloaded.content
