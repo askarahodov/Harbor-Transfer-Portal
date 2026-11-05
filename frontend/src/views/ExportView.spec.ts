@@ -441,6 +441,69 @@ describe('SOURCE export wizard view', () => {
     wrapper.unmount()
   })
 
+  it('browses a named Helm repository when inventory is forbidden; denied peer does not block it', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [{
+        id: 'nexus-profile',
+        name: 'Regional Nexus',
+        url: 'https://nexus.example.test',
+        registry_type: 'nexus',
+        is_default: false,
+      }],
+    })
+    vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: false, items: [], message: 'Нет прав на список репозиториев Nexus',
+    })
+    vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: false, items: [], message: 'Каталог Docker закрыт', truncated: false,
+    })
+    const helmCharts = vi.spyOn(exportsApi, 'listNexusHelmCharts')
+      .mockResolvedValueOnce({
+        available: false, items: [], code: 'helm_repository_denied',
+        message: 'Нет прав на чтение Helm repository',
+      })
+      .mockResolvedValueOnce({
+        available: true, code: null, message: null,
+        items: [{ name: 'team-chart', version: '2.0.0', digest: 'b'.repeat(64) }],
+      })
+    const harborProjects = vi.spyOn(exportsApi, 'listHarborProjects')
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Нет прав на список репозиториев Nexus')
+
+    const input = wrapper.get('#nexus-helm-repository')
+    const open = button(wrapper, 'Проверить Helm-репозиторий')
+    expect(open.attributes('disabled')).toBeDefined()
+    await input.setValue('../unsafe')
+    expect(open.attributes('disabled')).toBeDefined()
+    expect(helmCharts).not.toHaveBeenCalled()
+
+    await input.setValue('helm-private')
+    await wrapper.get('form.nexus-helm-manual').trigger('submit')
+    await flushPromises()
+    expect(helmCharts).toHaveBeenNthCalledWith(1, 'nexus-profile', 'helm-private')
+    expect(wrapper.text()).toContain('Нет прав на чтение Helm repository')
+    expect(wrapper.findAll('.nexus-helm-catalog li')).toHaveLength(0)
+
+    await input.setValue('helm-team')
+    await wrapper.get('form.nexus-helm-manual').trigger('submit')
+    await flushPromises()
+    expect(helmCharts).toHaveBeenNthCalledWith(2, 'nexus-profile', 'helm-team')
+    expect(wrapper.text()).not.toContain('Нет прав на чтение Helm repository')
+    expect(wrapper.text()).toContain('team-chart')
+    await button(wrapper, 'Добавить Helm chart').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 выбрано')
+    expect(harborProjects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('renders an actionable TARGET fallback and does not browse Harbor', async () => {
     const connection = vi.spyOn(exportsApi, 'getHarborConnection')
     const runtime = useRuntimeStore(pinia)

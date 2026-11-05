@@ -5,7 +5,7 @@
 В инфраструктуре с **Nexus 3 до 3.94** необходимо различать:
 
 - **Docker hosted**: обычный Docker Registry HTTP API v2, доступный через отдельный connector (порт или отдельный виртуальный хост). Portal использует Skopeo для экспорта/импорта контейнерных образов. Этот сценарий проверен на **Nexus 3.69.0-02 OSS** и **Nexus 3.70.1**, Docker schema2, в изолированном GitHub Actions.
-- **Helm hosted**: классический Helm chart repository с HTTP-путём /repository/helm-hosted/index.yaml и пакетами .tgz. **Текущий Helm OCI transport Portal не реализует протокол legacy Helm hosted**. Не включайте передачу Helm через Nexus до разработки и проверки отдельного адаптера, если используется именно этот тип репозитория.
+- **Helm hosted**: классический Helm chart repository с HTTP-путём `/repository/helm-hosted/index.yaml` и пакетами `.tgz`. В RC реализован отдельный `NexusHelmHttpService` (без OCI), сквозная проверка SOURCE → подписанный Offline Bundle → TARGET receipt пройдена на одноразовом Nexus 3.69. Для реальных серверов ещё необходима проверка ACL, TLS и совместимости версии.
 - **OCI repository**: отдельный формат Nexus, появившийся в **3.94.0**. Не предполагается и не требуется для существующих старых Nexus. Применять helm push oci://... к legacy Helm hosted нельзя.
 
 Подтверждённая совместимость с **Nexus 3.69.0-02 OSS** (точная версия регионального сервера) и тестовой 3.70.1 не доказывает соответствие корпоративным настройкам, сетевым правилам, сертификатам или reverse proxy.
@@ -93,9 +93,13 @@ image path и tag и подтвердить digest. Если Nexus UI API нед
 возвращает 401/403, UI показывает предупреждение, но не считает список
 полным/пустым по умолчанию. Репозитории, не возвращённые сервисному
 пользователю, не должны появляться на основе административной выборки.
-Helm отображается как видимый тип, но кнопка переноса Helm через Nexus
-пока недоступна: HTTP Helm upload/download и E2E должны быть реализованы
-отдельно; это не OCI.
+Для Helm доступны чтение `index.yaml`, выбор chart/version и добавление в
+подписанный SOURCE bundle. Если общий список репозиториев закрыт (401/403) или
+не поддерживается версией Nexus, **можно ввести точное имя Helm repository
+вручную**: Portal проверит только этот `/repository/<name>/index.yaml`
+с правами сервисного пользователя. Отказ для одного Helm repository не
+блокирует поиск в другом и не открывает чужой список. `available=false`
+отличается от подтверждённого пустого каталога. Это не OCI.
 
 Helm repositories входят в инвентаризацию. Для них реализуется отдельный
 HTTP transport (`index.yaml`, `.tgz`, Components API), а не OCI. Код SOURCE/TARGET
@@ -124,13 +128,13 @@ Helm repository; отсутствие доступа и пустой индек�
 должна запрещать конфликтные обновления.
 
 **Статус RC:** HTTP адаптер подключён к SOURCE preview/materialization и
-подписанному Offline Bundle, а также к TARGET preview, destination mapping и
-hosted upload с проверкой digest. Перезапись существующей chart/version запрещена.
-До E2E на реальном Helm hosted, повторного импорта, проверки отказных путей и
-региональной ACL/TLS приёмки перенос Helm **не считается release-ready**. Нельзя считать `#435` закрытой и нельзя применять
-Harbor Helm OCI к Nexus. `helm push oci://` для Nexus не используется.
-Перед выпуском проверить конкретные API/permissions/edition на каждом
-региональном Nexus и несовместимые версии отдельно.
+подписанному Offline Bundle, а также к TARGET preview, destination mapping,
+Helm hosted upload и receipt. Полный SOURCE → signed browser handoff → TARGET
+import → receipt с проверкой SHA-256, запретом overwrite и повторной передачей
+прошёл на одноразовом Nexus 3.69 в workflow #42001484075. Это подтверждает
+тестовый контур, **но не региональную ACL/TLS приёмку и не все версии Nexus**.
+Задача `#435` остаётся открытой до подтверждения совместимости реальных
+региональных репозиториев; `helm push oci://` для Nexus не используется.
 
 Источники: [Sonatype Helm CLI usage](https://help.sonatype.com/en/helm-cli-usage.html),
 [Sonatype Components API](https://help.sonatype.com/en/components-api.html).

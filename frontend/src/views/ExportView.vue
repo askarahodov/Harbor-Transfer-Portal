@@ -54,11 +54,22 @@ const nexusHelmSelection = ref<string | null>(null)
 const nexusHelmVersions = ref<NexusHelmChartVersion[]>([])
 const nexusHelmMessage = ref<string | null>(null)
 const nexusHelmBusy = ref(false)
+const nexusHelmManualRepository = ref('')
+const nexusHelmManualValid = computed(() =>
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(nexusHelmManualRepository.value.trim()),
+)
+
+function browseManualHelmRepository(): void {
+  if (!nexusHelmManualValid.value) return
+  void browseHelmRepository(nexusHelmManualRepository.value.trim())
+}
+
 let nexusHelmGeneration = 0
 
 async function browseHelmRepository(repository: string): Promise<void> {
   const profileId = wizard.selectedHarborProfileId
   if (!wizard.isNexus || !profileId) return
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(repository)) return
   const generation = ++nexusHelmGeneration
   nexusHelmSelection.value = repository
   nexusHelmVersions.value = []
@@ -67,12 +78,13 @@ async function browseHelmRepository(repository: string): Promise<void> {
   try {
     const result = await listNexusHelmCharts(profileId, repository)
     if (generation !== nexusHelmGeneration || wizard.selectedHarborProfileId !== profileId) return
-    nexusHelmVersions.value = result.items
+    nexusHelmVersions.value = result.available ? result.items : []
     nexusHelmMessage.value = result.available
       ? (result.items.length ? null : 'В доступном Helm index.yaml нет подходящих charts.')
       : (result.message ?? 'Нет доступа к Helm index.yaml.')
   } catch (reason) {
-    if (generation === nexusHelmGeneration) {
+    if (generation === nexusHelmGeneration && wizard.selectedHarborProfileId === profileId) {
+      nexusHelmVersions.value = []
       nexusHelmMessage.value = apiErrorInfo(reason, 'Не удалось прочитать Helm index.yaml.').message
     }
   } finally {
@@ -212,6 +224,7 @@ watch(() => wizard.selectedHarborProfileId, () => {
   nexusInventoryGeneration += 1
   nexusHelmGeneration += 1
   nexusHelmSelection.value = null
+  nexusHelmManualRepository.value = ''
   nexusHelmVersions.value = []
   nexusHelmMessage.value = null
   nexusInventory.value = []
@@ -602,6 +615,27 @@ onBeforeUnmount(() => {
                   >Показать charts</button>
                 </li>
               </ul>
+              <form class="nexus-helm-manual" @submit.prevent="browseManualHelmRepository">
+                <label for="nexus-helm-repository">Helm repository — точное имя
+                  <input
+                    id="nexus-helm-repository"
+                    v-model="nexusHelmManualRepository"
+                    type="text"
+                    maxlength="128"
+                    autocomplete="off"
+                    placeholder="helm-hosted"
+                    pattern="[A-Za-z0-9][A-Za-z0-9._-]*"
+                  />
+                </label>
+                <button type="submit" class="secondary-button" :disabled="nexusHelmBusy || !nexusHelmManualValid">
+                  Проверить Helm-репозиторий
+                </button>
+                <p class="muted">
+                  Если общий список Nexus недоступен из-за прав или версии API, укажите известное имя.
+                  Проверяется доступ именно к index.yaml выбранного репозитория.
+                  Отказ 401/403 для одного репозитория не блокирует другие.
+                </p>
+              </form>
               <div v-if="nexusHelmSelection" class="nexus-helm-catalog" role="region" aria-label="Helm charts и версии">
                 <strong>Helm: {{ nexusHelmSelection }} (только чтение)</strong>
                 <p v-if="nexusHelmMessage" role="status">{{ nexusHelmMessage }}</p>
@@ -920,6 +954,9 @@ onBeforeUnmount(() => {
 .nexus-inventory__heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .nexus-inventory__list { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-2); }
 .nexus-inventory__list li { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.nexus-helm-manual { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.nexus-helm-manual label { display: grid; gap: var(--space-1); }
+.nexus-helm-manual input { min-height: 42px; width: 100%; padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); }
 .nexus-exact-form { display: grid; gap: var(--space-3); margin-top: var(--space-3); }
 .nexus-suggestions { display: flex; flex-wrap: wrap; gap: var(--space-2); max-height: 180px; overflow-y: auto; }
 .nexus-suggestions button { max-width: 100%; overflow-wrap: anywhere; }

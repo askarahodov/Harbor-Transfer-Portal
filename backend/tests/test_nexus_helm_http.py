@@ -90,6 +90,48 @@ async def test_helm_index_and_download_with_checksum(client_service, tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_direct_helm_repository_acl_isolated_when_global_listing_is_forbidden(
+    client_service, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, state, _data, digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["calls"].append(request)
+        if request.url.path == "/repository/helm-private/index.yaml":
+            return httpx.Response(403)
+        if request.url.path == "/repository/helm-team/index.yaml":
+            return httpx.Response(200, text=yaml.safe_dump({
+                "entries": {"demo": [{
+                    "version": "1.2.3",
+                    "digest": digest,
+                    "urls": ["demo-1.2.3.tgz"],
+                }]}
+            }))
+        return httpx.Response(404)
+
+    def factory(**kwargs):
+        assert kwargs["follow_redirects"] is False
+        assert kwargs["trust_env"] is False
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    blocked = await service.list_charts("helm-private")
+    allowed = await service.list_charts("helm-team")
+    assert not blocked.available and blocked.code == "helm_repository_denied"
+    assert blocked.items == ()
+    assert "secret-not-for-logs" not in (blocked.message or "")
+    assert allowed.available and [(v.name, v.version) for v in allowed.items] == [
+        ("demo", "1.2.3"),
+    ]
+    assert [req.url.path for req in state["calls"]] == [
+        "/repository/helm-private/index.yaml",
+        "/repository/helm-team/index.yaml",
+    ]
+    assert all(req.url.host == "nexus.example.test" for req in state["calls"])
+
+
+@pytest.mark.asyncio
 async def test_helm_index_unauthorized_is_not_empty(client_service):
     service, state, _data, _digest = client_service
     state["status"] = 403
