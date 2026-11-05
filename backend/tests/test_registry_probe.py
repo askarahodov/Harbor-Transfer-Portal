@@ -35,7 +35,7 @@ async def test_empty_docker_registry_succeeds_without_artifact(monkeypatch):
 
     def handler(request):
         paths.append(request.url.path)
-        return httpx.Response(200)
+        return httpx.Response(200, headers={"Docker-Distribution-API-Version": "registry/2.0"})
 
     mock_client(monkeypatch, handler)
     result = await probe(profile())
@@ -53,7 +53,7 @@ async def test_bearer_challenge_verifies_credentials_without_repository(monkeypa
             assert request.headers["authorization"].startswith("Basic ")
             return httpx.Response(200, json={"token": "opaque-test-token"})
         if request.headers.get("authorization") == "Bearer opaque-test-token":
-            return httpx.Response(200)
+            return httpx.Response(200, headers={"Docker-Distribution-API-Version": "registry/2.0"})
         return httpx.Response(
             401,
             headers={
@@ -88,6 +88,13 @@ async def test_bad_password_returns_safe_failure(monkeypatch):
 @pytest.mark.asyncio
 async def test_wrong_endpoint_does_not_report_success(monkeypatch):
     mock_client(monkeypatch, lambda request: httpx.Response(404))
+    result = await probe(profile())
+    assert not result.ok and result.code == "registry_invalid_endpoint"
+
+
+@pytest.mark.asyncio
+async def test_html_ui_200_is_not_docker_registry(monkeypatch):
+    mock_client(monkeypatch, lambda request: httpx.Response(200, text="<html>Nexus UI</html>"))
     result = await probe(profile())
     assert not result.ok and result.code == "registry_invalid_endpoint"
 
