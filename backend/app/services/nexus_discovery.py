@@ -186,7 +186,9 @@ class NexusDiscoveryService:
                     if any(not isinstance(v, str) for v in values):
                         return DiscoveryResult(False, (), "Nexus вернул некорректный каталог")
                     valid = [value for value in values if pattern.fullmatch(value) is not None]
-                    matches.update(value for value in valid if search.casefold() in value.casefold())
+                    matches.update(
+                        value for value in valid if search.casefold() in value.casefold()
+                    )
                     if not valid:
                         if values:
                             return DiscoveryResult(
