@@ -107,9 +107,16 @@ class NexusHelmHttpService:
         url = self._base() + "/repository/" + quote(self._repository(repository)) + "/index.yaml"
         try:
             async with client.stream("GET", url) as response:
-                if response.status_code in (401, 403, 404):
-                    return HelmHttpResult(False, code="helm_repository_unavailable",
-                                          message="Helm repository недоступен для чтения")
+                if response.status_code in (401, 403):
+                    return HelmHttpResult(
+                        False, code="helm_repository_denied",
+                        message="Нет прав на чтение Helm repository",
+                    )
+                if response.status_code == 404:
+                    return HelmHttpResult(
+                        False, code="helm_index_missing",
+                        message="Helm index.yaml отсутствует",
+                    )
                 if response.status_code != 200:
                     return HelmHttpResult(False, code="helm_index_unavailable",
                                           message="Не удалось прочитать Helm index.yaml")
@@ -302,9 +309,11 @@ class NexusHelmHttpService:
                     "helm_repository_read_only", "Запись разрешена только в Helm hosted"
                 )
             current = await self._load_index(client, repository)
-            if not current.available:
-                raise NexusHelmHttpError(current.code or "helm_index_unavailable",
-                                         current.message or "Нет доступа к index.yaml")
+            if not current.available and current.code != "helm_index_missing":
+                raise NexusHelmHttpError(
+                    current.code or "helm_index_unavailable",
+                    current.message or "Нет доступа к index.yaml",
+                )
             if any(v.name == name and v.version == version for v in current.items):
                 raise NexusHelmHttpError("helm_target_exists", "Helm chart/version уже существует")
             try:
