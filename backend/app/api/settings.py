@@ -2,6 +2,7 @@ from collections.abc import Generator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import AnyHttpUrl
 
 from app.auth.dependencies import SessionDep, require_roles
 from app.db.models import User, UserRole
@@ -99,7 +100,7 @@ def _profile_response(
         is_default=profile.is_default,
         is_active=profile.id == service.active_profile_id(),
         registry_type=profile.registry_type,
-        nexus_search_url=profile.nexus_search_url,
+        nexus_search_url=(AnyHttpUrl(profile.nexus_search_url) if profile.nexus_search_url else None),
         nexus_search_repository=profile.nexus_search_repository,
     )
 
