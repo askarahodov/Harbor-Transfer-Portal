@@ -591,7 +591,7 @@ onBeforeUnmount(() => {
                   <strong>{{ item.name }}</strong>
                   <span>{{ item.format === 'docker' ? 'Docker' : 'Helm' }} · {{ item.kind }}</span>
                   <span class="muted">{{ item.format === 'helm'
-                    ? 'Helm HTTP (.tgz) — перенос пока не реализован'
+                    ? 'Helm HTTP (.tgz) — SOURCE export; TARGET hosted upload требует прав'
                     : 'Укажите Docker image path ниже и проверьте digest' }}</span>
                   <button
                     v-if="item.format === 'helm'"
