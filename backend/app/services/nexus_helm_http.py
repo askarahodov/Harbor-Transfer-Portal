@@ -64,7 +64,11 @@ class _UniqueKeysLoader(yaml.SafeLoader):
 
 
 def _load_unambiguous_yaml(data: bytes) -> object:
-    return yaml.load(data, Loader=_UniqueKeysLoader)
+    loader = _UniqueKeysLoader(data)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
 
 
 @dataclass(frozen=True)
