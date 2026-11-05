@@ -361,6 +361,15 @@ describe('SOURCE export wizard view', () => {
         },
       ],
     })
+    const inventory = vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: true,
+      message: null,
+      items: [
+        { name: 'docker-source', format: 'docker', kind: 'hosted' },
+        { name: 'docker-proxy', format: 'docker', kind: 'proxy' },
+        { name: 'helm-team', format: 'helm', kind: 'hosted' },
+      ],
+    })
     const listNexusRepositories = vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
       available: true, items: ['0702/centos7', 'jaegertracing/jaeger'],
       message: null, truncated: false,
@@ -389,6 +398,11 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
 
     expect(wrapper.get('#export-harbor-profile').text()).toContain('Nexus · Docker v2')
+    expect(inventory).toHaveBeenCalledWith('nexus-profile')
+    expect(wrapper.get('.nexus-inventory').text()).toContain('docker-source')
+    expect(wrapper.get('.nexus-inventory').text()).toContain('docker-proxy')
+    expect(wrapper.get('.nexus-inventory').text()).toContain('helm-team')
+    expect(wrapper.get('.nexus-inventory').text()).toContain('Helm HTTP (.tgz)')
     expect(wrapper.text()).toContain('Helm OCI не используются.')
     expect(wrapper.find('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(false)
     expect(connection).not.toHaveBeenCalled()
