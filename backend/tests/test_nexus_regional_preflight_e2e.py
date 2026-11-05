@@ -14,7 +14,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
 from test_nexus_helm_e2e import _service
 from test_nexus_helm_http import chart_bytes
 from test_nexus_legacy_e2e import make_settings, seeded_schema2_image
