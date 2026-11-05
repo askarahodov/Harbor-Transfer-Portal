@@ -117,19 +117,21 @@ class ImportArtifactClassifier:
         harbor_profile_id: str | None,
     ) -> ImportArtifactPreviewResponse:
         try:
-            helm = (
-                self.helm_factory(session)
-                if self.helm_factory is not None
-                else (
-                    NexusHelmAdapter(session, self.settings, harbor_profile_id)
-                    if harbor_profile_id is not None
-                    and HarborProfileService(session, self.settings)
-                    .operation_snapshot(harbor_profile_id).registry_type == "nexus"
-                    else HelmOciService(
-                        session, self.settings, harbor_profile_id=harbor_profile_id
-                    )
-                )
+            # A configured Harbor OCI factory must never override the selected
+            # Nexus profile. Resolve registry type before any injected factory.
+            is_nexus = (
+                harbor_profile_id is not None
+                and HarborProfileService(session, self.settings)
+                .operation_snapshot(harbor_profile_id).registry_type == "nexus"
             )
+            if is_nexus:
+                helm = NexusHelmAdapter(session, self.settings, harbor_profile_id)
+            elif self.helm_factory is not None:
+                helm = self.helm_factory(session)
+            else:
+                helm = HelmOciService(
+                    session, self.settings, harbor_profile_id=harbor_profile_id
+                )
             inspected = await helm.inspect_target(
                 HelmChartReference(artifact.repository, artifact.name, artifact.version),
                 expected_digest=artifact.source_digest,
