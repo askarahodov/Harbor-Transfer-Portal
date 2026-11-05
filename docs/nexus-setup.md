@@ -97,10 +97,10 @@ Helm отображается как видимый тип, но кнопка п
 пока недоступна: HTTP Helm upload/download и E2E должны быть реализованы
 отдельно; это не OCI.
 
-Helm repositories входят в инвентаризацию, но legacy Helm `index.yaml`
-и `.tgz` пока **не реализованы для переноса через Nexus**.
-Это предмет отдельного решения/реализации #435; Docker E2E не подтверждает
-Helm-поддержку.
+Helm repositories входят в инвентаризацию. Для них реализуется отдельный
+HTTP transport (`index.yaml`, `.tgz`, Components API), а не OCI. Код SOURCE/TARGET
+находится в draft PR #451; выпуск требует отдельного Helm hosted E2E и #435.
+Docker E2E не подтверждает Helm-поддержку.
 
 ## Обычный Helm HTTP (не OCI): SOURCE browse и транспортный адаптер
 
@@ -123,10 +123,11 @@ Helm repository; отсутствие доступа и пустой индек�
 или недоступном индексе upload запрещён; Nexus deployment policy также
 должна запрещать конфликтные обновления.
 
-**Статус ограничения:** HTTP адаптер и SOURCE просмотр charts — не полная
-интеграция Offline Bundle. Экспорт Helm `.tgz` через подписанный bundle,
-TARGET import mapping/receipt и E2E на реальном Helm hosted ещё необходимо
-подключить и проверить. Нельзя считать `#435` закрытой и нельзя применять
+**Статус RC:** HTTP адаптер подключён к SOURCE preview/materialization и
+подписанному Offline Bundle, а также к TARGET preview, destination mapping и
+hosted upload с проверкой digest. Перезапись существующей chart/version запрещена.
+До E2E на реальном Helm hosted, повторного импорта, проверки отказных путей и
+региональной ACL/TLS приёмки перенос Helm **не считается release-ready**. Нельзя считать `#435` закрытой и нельзя применять
 Harbor Helm OCI к Nexus. `helm push oci://` для Nexus не используется.
 Перед выпуском проверить конкретные API/permissions/edition на каждом
 региональном Nexus и несовместимые версии отдельно.
@@ -187,8 +188,8 @@ operation ID, таймштампы и редактированные логи б
 | --- | --- | --- |
 | Container image inspect | Поддерживается и тестируется | Не применяется |
 | Container image export/import через Skopeo | Поддерживается и тестируется | Не применяется |
-| Helm pull через index.yaml | Не применяется | **Пока не реализован в Portal** |
-| Helm upload .tgz через Components API | Не применяется | **Пока не реализован в Portal** |
+| Helm pull через index.yaml | Не применяется | Код в draft RC; E2E и приёмка необходимы |
+| Helm upload .tgz через Components API | Не применяется | Код в draft RC; только hosted, без overwrite |
 | Helm pull/push через OCI | Не считать поддерживаемым на старом Nexus | **Неприменимо** |
 
 Классический Helm hosted обычно предоставляет index.yaml и tarball через HTTP. Даже если Helm-чарты физически хранятся в Nexus, это не делает его OCI registry. Если Helm в ваших контурах не используется, подключать его к Nexus в Portal пока не нужно.
