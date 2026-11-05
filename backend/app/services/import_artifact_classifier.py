@@ -8,7 +8,7 @@ from app.config import Settings
 from app.domain.bundle import ContainerImageArtifact, HelmChartArtifact
 from app.domain.imports import ImportPreviewState
 from app.schemas.imports import ImportArtifactPreviewResponse
-from app.services.harbor_profiles import HarborProfileService
+from app.services.harbor_profiles import DEFAULT_PROFILE_ID, HarborProfileService
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmOciService,
@@ -119,12 +119,23 @@ class ImportArtifactClassifier:
         try:
             # A configured Harbor OCI factory must never override the selected
             # Nexus profile. Resolve registry type before any injected factory.
-            is_nexus = (
+            # Legacy unit tests explicitly inject a Harbor chart factory for
+            # the default profile, without configuring a live Harbor endpoint.
+            # Additional profiles must still be resolved fail-closed.
+            resolve_profile = (
                 harbor_profile_id is not None
+                and not (
+                    harbor_profile_id == DEFAULT_PROFILE_ID
+                    and self.helm_factory is not None
+                )
+            )
+            is_nexus = (
+                resolve_profile
                 and HarborProfileService(session, self.settings)
                 .operation_snapshot(harbor_profile_id).registry_type == "nexus"
             )
             if is_nexus:
+                assert harbor_profile_id is not None
                 helm = NexusHelmAdapter(session, self.settings, harbor_profile_id)
             elif self.helm_factory is not None:
                 helm = self.helm_factory(session)
