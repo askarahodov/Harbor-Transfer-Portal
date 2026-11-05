@@ -101,13 +101,48 @@ def configure(
                 raise TimeoutError("Harbor Core API not ready")
             time.sleep(3)
 
+        # /systeminfo may be publicly readable; it does not demonstrate
+        # successful Basic auth or system-admin authorization to create projects.
+        identity = client.get("/api/v2.0/users/current")
+        if identity.status_code != 200:
+            raise ValueError(
+                f"Harbor admin authentication probe HTTP {identity.status_code}"
+            )
+        caller = identity.json()
+        if (
+            not isinstance(caller, dict)
+            or caller.get("username") != "admin"
+            or caller.get("sysadmin_flag") is not True
+        ):
+            raise ValueError("Harbor admin account lacks expected system privileges")
+
         for name in (SOURCE_PROJECT, TARGET_PROJECT):
             response = client.post(
                 "/api/v2.0/projects",
                 json={"project_name": name, "public": False},
             )
             if response.status_code != 201:
-                raise ValueError(f"Harbor project {name} creation HTTP {response.status_code}")
+                # Include only a validated API error *code*, never response text
+                # (which may contain project names, usernames or auth details).
+                error_code = "unknown"
+                try:
+                    payload = response.json()
+                    errors = payload.get("errors", []) if isinstance(payload, dict) else []
+                    if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+                        candidate = errors[0].get("code")
+                        if (
+                            isinstance(candidate, str)
+                            and candidate.isascii()
+                            and candidate.replace("_", "").isalpha()
+                            and len(candidate) <= 48
+                        ):
+                            error_code = candidate
+                except ValueError:
+                    pass
+                raise ValueError(
+                    f"Harbor project {name} creation HTTP {response.status_code} "
+                    f"code={error_code}"
+                )
         read_access = [
             ("repository", "pull"),
             ("repository", "list"),
