@@ -390,6 +390,15 @@ class NexusHelmAdapter:
                 "helm_overwrite_unsupported",
                 "Nexus Helm HTTP overwrite запрещён: требуется отдельная approval-политика",
             )
+        from app.services.helm_oci_service import HelmServiceError
+
+        if source_digest is not None:
+            observed_source_digest = "sha256:" + hashlib.sha256(package.read_bytes()).hexdigest()
+            if observed_source_digest != source_digest:
+                raise HelmServiceError(
+                    "helm_payload_digest_mismatch",
+                    "Helm package не совпадает с подписанным SOURCE digest",
+                )
         try:
             digest = await self.client.upload_chart(
                 target.repository, target.name, target.version, package
