@@ -77,8 +77,12 @@ class HarborProfileResponse(BaseModel):
     is_default: bool = False
     is_active: bool = False
     registry_type: Literal["harbor", "nexus"] = "harbor"
-    nexus_search_url: AnyHttpUrl | None = None
-    nexus_search_repository: str | None = None
+    nexus_search_url: AnyHttpUrl | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    nexus_search_repository: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class HarborProfilesResponse(BaseModel):
