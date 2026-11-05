@@ -323,6 +323,12 @@ def test_signed_docker_bundle_interoperability_via_separate_registry_types(
         target_nexus_id if is_harbor_source
         else _harbor_profile(target_app, target, name="Harbor target fixture")
     )
+    # A SOURCE-only Harbor robot must not gain TARGET push rights merely
+    # because its credentials are accepted by the Harbor Core.
+    denied_profile = (
+        _harbor_profile(target_app, target, name="Harbor source denied fixture")
+        if REAL_HARBOR and not is_harbor_source else None
+    )
     handoff_headers = {
         "x-htp-bundle-filename": filename,
         "x-htp-sidecar-base64": base64.b64encode(sidecar).decode("ascii"),
@@ -338,6 +344,41 @@ def test_signed_docker_bundle_interoperability_via_separate_registry_types(
         )
         assert corrupt.status_code in {400, 409, 422}, corrupt.text
         assert not list(target.import_staging_root.rglob("*.htp.tar.gz"))
+
+        if denied_profile is not None:
+            denied_upload = client.post(
+                f"/api/imports/upload?profile_id={denied_profile}",
+                content=archive, headers={**headers, **handoff_headers},
+            )
+            assert denied_upload.status_code == 202, denied_upload.text
+            denied_id = denied_upload.json()["operation_id"]
+            assert _terminal(client, headers, denied_id, ready=True)["status"] == "READY"
+            # Real Harbor project-list and scoped robot identity are used here;
+            # no mocked Harbor REST, validator or token authorization.
+            denied_plan = client.put(
+                f"/api/imports/{denied_id}/destination-plan",
+                headers=headers, json={
+                    "harbor_profile_id": denied_profile,
+                    "container_image_project": "harbor-interop-target",
+                },
+            )
+            assert denied_plan.status_code == 200, denied_plan.text
+            denied_data = denied_plan.json()
+            assert denied_data["valid"] is False, denied_data
+            assert denied_data["artifacts"][0]["write_allowed"] is False
+            assert denied_data["artifacts"][0]["error_code"] in {
+                "import_destination_project_missing",
+                "import_destination_write_forbidden",
+                "import_destination_validation_failed",
+            }
+            refused = client.post(
+                f"/api/imports/{denied_id}/execute",
+                headers=headers, json={
+                    "destination_plan_id": denied_data["plan_id"],
+                    "overwrite_conflicts": False,
+                },
+            )
+            assert refused.status_code in {409, 422}, refused.text
 
         upload = client.post(
             f"/api/imports/upload?profile_id={target_profile}",
