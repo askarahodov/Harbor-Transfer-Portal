@@ -83,6 +83,10 @@ class NexusDiscoveryService:
         """
         if not self.search_url or not self.search_repository:
             return DiscoveryResult(False, (), "Nexus REST Search API не настроен")
+        if self.username and urlsplit(self.search_url).scheme != "https":
+            return DiscoveryResult(
+                False, (), "Nexus REST Search с учётными данными требует HTTPS"
+            )
         auth = (
             httpx.BasicAuth(self.username, self.password or "")
             if self.username else None
@@ -149,6 +153,10 @@ class NexusDiscoveryService:
         `last` cursor is read only from the validated result names; never
         follow an untrusted Link URL or redirect registry credentials.
         """
+        if self.username and urlsplit(self.url).scheme != "https":
+            return DiscoveryResult(
+                False, (), "Nexus Docker v2 browse с учётными данными требует HTTPS"
+            )
         auth = (
             httpx.BasicAuth(self.username, self.password or "")
             if self.username else None
