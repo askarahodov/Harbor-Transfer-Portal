@@ -270,11 +270,11 @@ jobs:
           set -euo pipefail
           docker pull sonatype/nexus3:3.69.0
           docker run --detach --name htp-nexus-real-harbor \
-            --memory 3g \
+            --memory 4g \
             -p 127.0.0.1:8081:8081 \
             -p 127.0.0.1:8082:8082 \
             -p 127.0.0.1:8083:8083 \
-            -e INSTALL4J_ADD_VM_PARAMS="-Xms256m -Xmx1200m -XX:MaxDirectMemorySize=512m" \
+            -e INSTALL4J_ADD_VM_PARAMS="-Xms512m -Xmx2g -XX:MaxDirectMemorySize=1g" \
             sonatype/nexus3:3.69.0
           python tools/nexus_e2e_setup.py --password-file "$HTP_NEXUS_E2E_PASSWORD_FILE"
 
