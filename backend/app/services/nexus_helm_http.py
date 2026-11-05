@@ -240,7 +240,10 @@ class NexusHelmHttpService:
         if destination.exists() or destination.is_symlink():
             raise NexusHelmHttpError("helm_destination_exists", "Файл назначения уже существует")
         async with self._client() as client:
-            inventory = await self._load_index(client, repository)
+            # SOURCE must never sign an ambiguously indexed chart. The
+            # exploratory catalog can filter malformed entries, but bundle
+            # materialization requires the same fail-closed rules as TARGET.
+            inventory = await self._load_index(client, repository, strict=True)
             if not inventory.available:
                 raise NexusHelmHttpError(inventory.code or "helm_index_unavailable",
                                          inventory.message or "Helm index недоступен")
