@@ -1,176 +1,233 @@
-# Региональная квалификация Nexus 3.69 OSS — единый протокол SOURCE → TARGET
+# Региональная приёмка Nexus Docker + обычного Helm HTTP — SOURCE → TARGET
 
-> **Статус: НЕ ВЫПОЛНЕНО / NO-GO.** Это инструкция и форма фиксации фактов,
-> а не отчёт об успешном тестировании регионального TARGET. Технический
-> кандидат находится в draft PR #451; **не** в основной ветке.
+> **Состояние: NO-GO / региональная приёмка не выполнена.**
+> Этот документ — исполняемый протокол и форма сбора доказательств, но **не**
+> свидетельство доступа к корпоративным системам. Изменения находятся в
+> [draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451),
+> не в production или \`main\`. Без подписанного разрешения владельца контуров
+> и фактических тестов в региональной сети статус не может стать GO.
 
-Связанные задачи: [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434),
+Область: [#429](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/429),
 [#435](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/435),
 [#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
-История CI и известные ограничения: [журнал Nexus RC](nexus-release-readiness-2026-11-03.md).
+Инцидент Harbor [#422](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422)
+остаётся независимым.
 
-## 1. Границы и разрешения
+## 1. Что действительно поддерживается и что требуется подтвердить
 
-- Точно согласовать с владельцем контуров **временное окно, тестовые registry
-  endpoints и namespaced test-репозитории**. Никаких запросов на изменение
-  существующих production tags, прав, realm или сертификатов.
-- Отдельные SOURCE и TARGET Portal, БД, файловое хранилище, private key и
-  сервисные аккаунты. SOURCE private key **не переносить на TARGET**:
-  переносится только **проверенный публичный ключ** доверенного подписанта.
-- Использовать только подписанный физический bundle/sidecar/handoff. Не
-  подключать SOURCE и TARGET через прямые сетевые копирования, общую БД или
-  общий registry credentials.
-- Ниже команды диагностики **только на чтение**, кроме отдельного
-  согласованного тестового push в выделенный namespace. Не отключать TLS,
-  не передавать пароль аргументом командной строки, не включать trace с
-  Authorization header, не прикладывать токены или .env в отчёт.
-- Условия остановки: неожиданный HTTP redirect, неверная hostname/SAN,
-  недоверенный CA, запрос чужой учётной записи, неподписанный архив,
-  отсутствие test namespace либо mismatch digest. Отметить FAIL, не
-  обходить проверку безопасности.
+- **Nexus разной версии/редакции** на каждом SOURCE и TARGET. Версия
+  \`3.69.0-02 OSS\` — один disposable CI baseline; **не** обязательная
+  версия корпоративного Nexus. Зафиксировать версию, build и edition из
+  фактического HTTP Server header / утверждённого паспорта сервера, а не
+  из внешнего вида UI. Непрозрачный proxy header = версия не доказана.
+- Только Nexus repositories с format **docker** и **helm**;
+  \`hosted\`/\`proxy\`/\`group\` и ACL проверяются индивидуально.
+  Список, доступный сервисной учётной записи, может не включать скрытые
+  репозитории. \`403\` одного не должен останавливать другие.
+- Для **Docker** подключение — корень HTTPS Docker v2 connector
+  (\`https://docker-connector.example.internal/v2/\`).
+  **Каждый Docker repository / connector имеет отдельный Portal-профиль**
+  с назначенными service credentials/CA. Nexus UI API и Docker connector
+  — не одно и то же; имена из inventory **не** создают URL автоматически.
+  Просмотр Docker \`proxy/group\` не гарантирует право записи.
+- **Helm — обычный HTTP Helm repository**, \`index.yaml\`, \`.tgz\`,
+  hosted upload через Nexus Components API только при разрешённых
+  правах. **Не используем OCI для Helm на Nexus.** Legacy Helm
+  \`proxy/group\` не объявлять writable.
+- CI на disposable Nexus уже подтверждал Docker/Helm signed Offline
+  Bundle от SOURCE до TARGET receipt, включая replay/tamper; но
+  **не** подтверждает корпоративные TLS/proxy/ACL и версионную матрицу
+  региональных Nexus.
 
-## 2. Паспорт двух реестров (оператор заполняет фактическими данными)
+## 2. Безопасность, согласование и остановка
 
-| Параметр | SOURCE | TARGET |
+До любого обращения к региональным Nexus оператор документирует
+change/approval ID, разрешённую сеть/хост, перечень SRC/TGT, **точные**
+Docker/Helm endpoints, test namespace, допустимые read/pull и отдельно
+допустимые write/cleanup, контакт владельца, дата/время и срок хранения
+sanitized evidence. Не использовать production tags для проверки push.
+
+**Обязательные запреты:** передавать пароль в CLI args, environment
+dump, выводить Authorization / \`Set-Cookie\` / bearer token, включать
+\`curl -k\`, \`--insecure\`, \`-L\` или редиректы с credentials; отключать
+TLS, использовать административный список как подтверждение прав
+сервисной учётной записи; запускать POST/PUT/DELETE без явного
+разрешения test namespace; копировать приватный SOURCE signing key
+на TARGET.
+
+**Стоп:** неверный TLS trust/SAN/chain, неожиданный redirect,
+несовпадающий \`source_digest\`/\`target_digest\`, непроверенный chart
+checksum, неверная подпись, отсутствие разрешённого test namespace,
+чужой репозиторий или неразрешённая операция записи. Отметить FAIL
+и не обходить проверку безопасности.
+
+## 3. Паспорт стендов (заполнить фактическими значениями)
+
+| Поле | SOURCE | TARGET |
 | --- | --- | --- |
-| Дата, оператор и change/approval ID | НЕ ЗАПОЛНЕНО | НЕ ЗАПОЛНЕНО |
-| Nexus version, edition | ожидается 3.69.0-02 OSS; проверить | ожидается 3.69.0-02 OSS; проверить |
-| Portal commit SHA + версия | `4881993` — только CI proof; регионально не установлен | `4881993` — только CI proof; регионально не установлен |
-| Docker v2 endpoint root (без `/repository`) | НЕ ЗАПОЛНЕНО | НЕ ЗАПОЛНЕНО |
-| UI/API endpoint Nexus (отдельно от Docker) | НЕ ЗАПОЛНЕНО | НЕ ЗАПОЛНЕНО |
-| Схема HTTPS, сертификат, chain/SAN | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
-| Docker realm, Basic/Bearer challenge, proxy redirect | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
-| Выделенный test repository/namespace, очищаемый после теста | НЕ СОГЛАСОВАНО | НЕ СОГЛАСОВАНО |
-| Учётная запись и минимальный scope (без самих секретов) | read + browse/inspect | read + add/edit тестового namespace |
-| Путь для evidence/receipt и владелец хранения | НЕ ЗАПОЛНЕНО | НЕ ЗАПОЛНЕНО |
+| Регион, дата, оператор, change ID | НЕ ЗАПОЛНЕНО | НЕ ЗАПОЛНЕНО |
+| Nexus version/build/edition, способ подтверждения | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
+| Portal commit SHA и deployed build | НЕ УСТАНОВЛЕН | НЕ УСТАНОВЛЕН |
+| URL Nexus UI/API (HTTPS, отдельно от connectors) | НЕ ЗАПОЛНЕНО | НЕ ЗАПОЛНЕНО |
+| Docker v2 connector URLs по repository | НЕ ЗАПОЛНЕНО | НЕ ЗАПОЛНЕНО |
+| Helm HTTP repository paths / index.yaml | НЕ ЗАПОЛНЕНО | НЕ ЗАПОЛНЕНО |
+| DNS, reverse proxy, Host/X-Forwarded-Proto, CA, SAN/chain | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
+| Docker Token Realm / Force Basic Auth / bearer challenge | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
+| Уникальные service identity / отдельные права | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
+| Разрешённый test namespace и writability | НЕ СОГЛАСОВАНО | НЕ СОГЛАСОВАНО |
+| Bundle, sidecar, handoff, receipt paths и retention | НЕ ЗАПОЛНЕНО | НЕ ЗАПОЛНЕНО |
 
-Для Docker Registry v2 требуется **корень Docker connector**, например
-`https://registry.example.internal`. Nexus UI `https://nexus:8081` и
-`/repository/helm-hosted` не являются взаимозаменяемыми адресами.
+По каждому Nexus репозиторию заполнить **отдельную** строку
+с \`source|target, name, format, hosted|proxy|group, connector/UI HTTPS origin,
+service identity ID (без секрета), browse, read, pull, write, status 401/403,
+image digest или Helm chart/version/SHA-256, test policy\`. Несколько
+репозиториев и разные ACL обязательны в матрице; не считать пустой
+список/отказ инвентаря отсутствием репозиториев.
 
-## 3. Безопасная, невносящая изменений проверка каждого endpoint
+## 4. Автоматизированный READ-ONLY preflight из разрешённой сети
 
-На хосте соответствующего контура из **разрешённой сети**, с доверенным
-корневым CA и БЕЗ credentials, проверить:
+В ветке PR есть:
+
+- \`backend/integration/nexus_regional_preflight.py\` —
+  **исключительно GET/HEAD**, HTTPS+trust CA, без redirect, без
+  переменных HTTP_PROXY окружения, с ограничением ответа и
+  изолированным результатом для каждого Docker/Helm repository.
+- \`docs/nexus-regional-preflight.example.json\` — пример заполнения.
+- \`backend/tests/test_nexus_regional_preflight.py\` — регрессии
+  denied/allowed, malicious redirect, некорректных URL и запрета
+  передачи credentials чужому host.
+
+Оператор **из разрешённой сети**, после утверждения окна:
 
 ~~~bash
-# Переменные задаются локально администратором; URL должен быть HTTPS.
-REGISTRY_URL="https://your-approved-docker-v2-endpoint"
-CA_FILE="/path/to/approved-ca.pem"
-
-curl --silent --show-error --max-time 15 --max-redirs 0 \
-  --cacert "$CA_FILE" \
-  --output /dev/null --dump-header /dev/stderr \
-  "$REGISTRY_URL/v2/"
+# В активированном Python 3.12 venv с зависимостями backend:
+# pip install -r backend/requirements-dev.lock
+# Не записывайте реальные пароли в JSON: password_file — отдельный файл mode 0600.
+cp docs/nexus-regional-preflight.example.json /secure/region-preflight.json
+# Отредактируйте внутри защищённого контура: approved URLs, CA file,
+# identity, region, change ID, реальный 40-char Git commit SHA,
+# разрешённые repository/image:tag и chart:version.
+cd backend
+python -m integration.nexus_regional_preflight \
+  --config /secure/region-preflight.json \
+  --output /secure/nexus-preflight-evidence.json
 ~~~
 
-Ожидается `200 OK` для публичного connector или `401 Unauthorized` с
-`WWW-Authenticate: Basic/Bearer` для закрытого. **Не считать 401
-успешной проверкой credentials.** Запретить `-k`, `--insecure`,
-`-L` и вывод Authorization. Не сохранять заголовки `Set-Cookie` или
-иные чувствительные данные в общий лог; записать только status,
-схему challenge, наличие `Docker-Distribution-API-Version: registry/2.0`,
-отсутствие редиректа, доверие CA и проверенную SAN.
+\`--output\` создаётся однократно с правами \`0600\` и **не**
+перезаписывается. Конфигурация может содержать несколько независимых
+проверок \`probes\` — SOURCE/TARGET и Docker/Helm; URL допускается
+**только корневой HTTPS origin**. Для Docker выполняется \`GET /v2/\`,
+проверяется \`200/401\` и схема Basic/Bearer, затем read-only
+\`HEAD /v2/<image>/manifests/<tag>\` с \`Docker-Content-Digest\`.
+Для Helm \`GET /repository/<repository>/index.yaml\`, чтение
+конкретного chart/version и \`.tgz\` **только с настроенного Nexus
+origin**, проверка SHA-256. Никакого Nexus Helm OCI и никакой записи.
 
-Затем через Portal выбрать **Nexus · Docker v2** и запустить
-`Проверить Docker Registry v2` для фактического профиля. Записать
-санитизированный `code` ответа. Для SOURCE account дополнительно
-сделать inspect **одного разрешённого тестового** `repository:tag` и
-сверить `sha256`. Не использовать произвольный `library/busybox:latest`
-как обязательный probe. Для TARGET account **не утверждать write scope**
-по одному успешному GET `/v2/`: право push доказывает только
-согласованный тестовый импорт и post-inspection.
+**Важно:** статусы \`UNVERIFIED\`/ \`FAIL\` сохраняются раздельно.
+Если Docker Token Realm требует Bearer exchange, прямой HTTP Basic
+HEAD может дать \`401\` — это \`UNVERIFIED\`, **не** proof неверного
+пароля и не PASS; выполните отдельный \`Проверить Docker Registry v2\`
+и **inspect** с тем же Portal-профилем, запишите код и digest.
+\`200\` для \`/v2/\` **не доказывает** права push.
+\`available=false\` у глобального Nexus repositories API **не**
+доказывает отсутствия доступных Docker/Helm repos.
 
-## 4. Единый сквозной сценарий — только на тестовом образе
+В отчёте есть только утверждённые ID, репозиторий, тип,
+контур, код исхода и HTTP status без токенов, паролей и сырых ошибок
+транспорта. Хранить отчёт в защищённом месте. Даже если
+\`preflight_status=PASS\`, \`release_verdict=NO-GO\` по определению:
+инструмент **не выполняет** write, физический handoff или утверждение
+релиза. Результаты самостоятельного запуска вне разрешённой сети
+не являются evidence регионального контура.
 
-1. Подтвердить физическую изоляцию сетей и невозможность прямого
-   SOURCE→TARGET API, отдельные credentials, независимые paths и
-   доверенный SOURCE **public** key на TARGET. Записать, кто и как
-   транспортирует физический носитель.
-2. SOURCE: exact `repository:tag`, preview digest, operation ID,
-   export `COMPLETED`. Скачать через browser download-ticket ровно три
-   файла: `*.htp.tar.gz`, `*.sha256`, `*.htp-handoff.json`.
-   Зафиксировать размер/sha256, signer fingerprint, schema 1.1,
-   `source.registry_type=nexus`, **не публикуя приватных ключей**.
-3. Передать файлы согласно утверждённой процедуре, без сетевого канала
-   Portal↔Portal. TARGET: browser upload/discovery, проверка доверенного
-   подписанта, handoff, checksum и preview `READY`.
-4. TARGET: составить destination plan в выделенный тестовый namespace.
-   До `execute` убедиться, что `NEW` и `target_repository` точен;
-   импортировать с `overwrite_conflicts=false`. Записать operation ID,
-   receipt и фактический **target digest**; он обязан совпадать с
-   SOURCE digest. Сравнить физический receipt и API.
-5. Повторить тот же bundle: `SAME`, `SKIPPED`, digest не меняется.
-   Проверить `CONFLICT` на тестовом теге с другим digest: без approval
-   mutation блокируется, явный `skip_conflicts` не меняет target digest.
-   Явный overwrite проверять **только** по дополнительному разрешению
-   владельца тестового namespace; в production не запускать.
-6. На **отдельных тестовых** bundle проверить отказ на повреждённом
-   checksum, handoff и архиве; не допускаются импортные операции/
-   частичная публикация. Проверить отказ при недоступном TARGET,
-   запрещённом write scope и неверном CA без вывода пароля. После этого
-   повторить удачный импорт и проверить отсутствие побочных изменений.
-7. Воспроизвести отмену/сбой на выделенной тестовой операции, повторный
-   запуск backend по утверждённой процедуре и проверку очистки
-   незавершённых публикаций без удаления завершённых bundles.
-8. В UI проверить, что профиль Nexus **не** вызывает Harbor browse API,
-   отображается как `Nexus · Docker v2`, Helm OCI не предлагается.
-   Отдельно выполнить Harbor регрессию, включая Helm OCI на Harbor, если
-   таковой используется.
+## 5. Отдельные пер-репозиторные матрицы ACL
 
-## 5. Матрица подтверждения (не считать CI региональным evidence)
-
-| Gate | CI на одном SHA | Региональная среда |
+| Проверка для каждого repository | SOURCE | TARGET |
 | --- | --- | --- |
-| SOURCE exact tag / signed bundle / download и контроль целостности | [PASS #41978495693](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41978495693) | SOURCE ранее проходил на другой ревизии; текущий RC **НЕ ПРОВЕРЕН** |
-| Nexus → Nexus TARGET NEW/SAME/CONFLICT, digest/receipt | [PASS #41978495693](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41978495693) | **НЕ ПРОВЕРЕН** |
-| Отказные SOURCE/ TARGET paths, signed trust | CI на disposable Docker connectors; обновление #451 требует отдельного зелёного SHA | **НЕ ПРОВЕРЕНО** |
-| TLS/CA, proxy, DNS, реальные read/write RBAC | CI использует test CA и временные аккаунты | **НЕ ПРОВЕРЕНО** |
-| Harbor↔Nexus смешанные направления | **НЕ ДОКАЗАНО** отдельным реальным E2E | **НЕ ПРОВЕРЕНО** |
-| Отсутствие несанкционированной сетевой связи и secret leakage | Сценарий имитирует offline handoff; не доказывает corporate isolation | **НЕ ПРОВЕРЕНО** |
-| Браузерная приёмка, operators, audit/receipt retention | Vue/API тесты, не физический браузер | **НЕ ПРОВЕРЕНО** |
+| Docker v2 GET challenge и TLS/CA | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
+| Docker read-only manifest HEAD/inspect digest | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
+| Nexus REST Search/inventory с тем же service account | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
+| Отказ 401/403 по неразрешённому repository (без утечки names) | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
+| Helm index.yaml + конкретный chart/version/tgz sha256 | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
+| Docker hosted write test под отдельным разрешением | НЕ ПРИМЕНЯЕТСЯ | НЕ ПРОВЕРЕНО |
+| Helm hosted Components upload test под отдельным разрешением | НЕ ПРИМЕНЯЕТСЯ | НЕ ПРОВЕРЕНО |
+| proxy/group попытки записи не предлагаются | НЕ ПРОВЕРЕНО | НЕ ПРОВЕРЕНО |
 
-## 6. Решение по legacy Helm для Nexus 3.69 OSS (#435)
+Записывать точный HTTP status, profile ID, repository, approval,
+hash/digest, время, URL origin по разрешённой политике redaction.
+Для несовпадающих ACL: разрешённый repository продолжает работать
+даже если другой возвращает 403. Не проверять denied запись POST —
+достаточно зафиксировать отсутствие привилегии через согласованное
+проверенное правило/RBAC или безопасную целевую валидацию.
 
-**Текущая техническая граница — строго Docker-only, без Helm OCI и без
-legacy Helm hosted адаптера. Это НЕ является подтверждением владельца
-контура, что Helm не требуется.** Пока решение `needed/not needed` не
-получено, status = **UNKNOWN**.
+## 6. Контролируемый полный SOURCE → физическая передача → TARGET
 
-| Репозиторий/формат | SOURCE экспорт | TARGET импорт | Статус |
-| --- | --- | --- | --- |
-| Nexus Docker hosted / Docker v2 | Docker image / exact tag | Docker push + digest | поддерживается в CI |
-| Nexus Helm hosted / `index.yaml` + `.tgz` | нет | нет | unsupported |
-| Nexus raw с `.tgz` | нет | нет | unsupported |
-| Nexus OCI repository на 3.69 OSS | не предполагать | не предполагать | unsupported |
-| Harbor OCI Helm chart | через Harbor | через Harbor | отдельно поддерживается; regression CI |
+**Только после согласования выделенных тестовых namespaces и write-политик.**
 
-Требуется решение владельца: `needed` / `not needed`, реальный тип
-хранилища (Helm hosted/proxy/group, raw, внешний chartmuseum, отсутствует),
-SOURCE и TARGET потребности отдельно, approver + дата. При `needed`
-следует **сначала** согласовать HTTP каталог/download/права на
-`index.yaml` и `.tgz`, подписи/checksum, overwrite policy и модель
-публикации, затем создавать задачи реализации. Нельзя подменять
-legacy Helm через `helm push oci://`.
+1. SOURCE Portal: выбрать нужный Nexus профиль/connector по имени
+   repository, проверить доступный Docker \`repository:tag\` и digest.
+   Для обычного Helm выбрать \`helm repository\`, chart/version и SHA-256
+   \`.tgz\`, без OCI. Зафиксировать действительный profile ID для каждой
+   операции. **Не смешивать разные Docker connectors в одном профиле**.
+2. Preview → подписанный Export \`COMPLETED\`; получить через browser
+   download ticket \`*.htp.tar.gz\`, \`*.sha256\`,
+   \`*.htp-handoff.json\`; записать operation ID, SHA-256, fingerprint,
+   schema и \`source.registry_type=nexus\`.
+3. Передать физически/утверждённым носителем без связи
+   SOURCE↔TARGET. TARGET хранит только проверенный SOURCE **public**
+   signing key, не private key. Проверить SHA-256/подпись/handoff и
+   статус \`READY\`.
+4. TARGET: destination plan только на заранее согласованный Docker
+   hosted connector или Helm hosted repository. Проверить \`NEW\`,
+   \`target_repository\` и source digest; выполнить
+   \`overwrite_conflicts=false\`, сверить target digest и immutable
+   receipt с исходным SHA-256. Не записывать в proxy/group.
+5. Повторный handoff того же bundle: \`SAME\`/\`SKIPPED\`, без
+   перепубликации. \`CONFLICT\` с другим digest не переписывать без
+   явного дополнительного разрешения; default fail/skip.
+6. Негативные сценарии: нарушенный bundle checksum, недоверенный
+   signer, неверный/отсутствующий CA, запрещённая TARGET запись,
+   смена source tag во время export, потеря соединения. Никаких
+   side effects на чужих репозиториях; проверьте повторную удачную
+   операцию в разрешённом тестовом пространстве.
+7. Проверить журнал audit, срок хранения receipt, отмену и recovery,
+   остановку/рестарт по утверждённой процедуре. Проверить Harbor
+   регрессии отдельно и не выдавать тесты Nexus за решение #422.
 
-## 7. Финальный протокол и критерий GO/NO-GO
+## 7. Evidence и точные release gates
 
-| Поле | Значение |
+| Gate | CI / disposable Nexus | Региональный SOURCE/TARGET |
+| --- | --- | --- |
+| Docker multi-connector profile isolation, digest | PASS — [#42005739752](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42005739752) | **НЕ ПРОВЕРЕНО** |
+| Helm index/tgz, signed bundle, TARGET receipt | PASS — [#42005739752](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42005739752) | **НЕ ПРОВЕРЕНО** |
+| Backend/frontend/integration/security/protocol/docs | PASS — [CI #42005739662](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42005739662) | **НЕ УСТАНОВЛЕН В РЕГИОНЕ** |
+| Per-repository ACL + TLS/CA + reverse proxy | Самоподписанный тестовый CA; **не** корпоративный | **НЕ ПРОВЕРЕНО** |
+| Версии/редакции Nexus и HTTP Helm совместимость | CI baseline 3.69 OSS, не матрица регионов | **НЕ ПРОВЕРЕНО** |
+| Физический handoff, approval, browser и operator receipt | Изолированные Portal API в тестах | **НЕ ПРОВЕРЕНО** |
+| TARGET write policy, conflict/replay/recovery | Disposable E2E | **НЕ ПРОВЕРЕНО** |
+
+Ссылки CI относятся к предыдущему уже зелёному SHA
+\`c55fc355823306ada9b5f9536fca4508ff675f2d\` и **не**
+подменяют повторную проверку HEAD PR после изменения этого runbook.
+
+## 8. Финальное заключение (оператор/approver заполняют)
+
+| Поле | Факт |
 | --- | --- |
-| Время и дата испытания | НЕ ЗАПОЛНЕНО |
-| Оператор / reviewer / владелец контуров | НЕ ЗАПОЛНЕНО |
-| Точное имя и SHA релизного кандидата | `integration/nexus-oss-release-candidate-451`; CI SHA `4881993`, регионально не установлен |
-| SOURCE и TARGET endpoints (без секретов) | НЕ ЗАПОЛНЕНО |
-| Внешние ссылки на change approval и evidence | НЕ ПРЕДОСТАВЛЕНО |
-| SHA-256 bundle, signer fingerprint, operation IDs, receipt | НЕ ПРЕДОСТАВЛЕНО |
-| Итоги каждого gate и список известных ограничений | НЕ ПРОВЕРЕНО |
-| Отдельное решение владельца по Helm | UNKNOWN |
-| Открытый Harbor incident #422 | Независимое расследование; не выдавать за решённый |
-| Вердикт | **NO-GO** |
-| Подпись уполномоченного approver | НЕ ПРЕДОСТАВЛЕНА |
+| Регион, дата, change approval | **НЕ ПРЕДОСТАВЛЕНО** |
+| Оператор, reviewer, security/owner | **НЕ ПРЕДОСТАВЛЕНО** |
+| SHA развернутой ревизии Portal + версии Nexus | **НЕ УСТАНОВЛЕНО** |
+| Sanitized preflight report / подпись оператора | **НЕ ПРЕДОСТАВЛЕНО** |
+| Пер-репозиторные ACL/CA/proxy evidence | **НЕ ПРЕДОСТАВЛЕНО** |
+| Реальные signed archive / sidecar / handoff / receipt / SHA | **НЕ ПРЕДОСТАВЛЕНО** |
+| Browser download + physical handoff + replay/conflict | **НЕ ПРОВЕРЕНО** |
+| Открытый независимый Harbor incident #422 | **Не входит в решение по Nexus** |
+| Релизный вердикт | **NO-GO** |
+| Подпись ответственного approver | **НЕ ПРЕДОСТАВЛЕНА** |
 
-**GO** допустим только при успешном текущем CI на одном
-релизном SHA, зелёной региональной сквозной приёмке SOURCE→TARGET,
-подтверждённых TLS/proxy/RBAC, отсутствии открытых P0 и формальной
-авторизации релиза. Ошибка, отсутствие доказательств или неутверждённый
-scope означает **NO-GO**; устные заверения не заменяют evidence.
+**GO** возможен только после успешных текущих CI/E2E на **одном SHA**,
+закрытия критических дефектов, проверки разных реально используемых
+Nexus formats/types/versions и полномочий сервисного пользователя,
+завершённой приёмки физического SOURCE→TARGET на разрешённом стенде
+и **явного подписанного разрешения владельца**. Во всех остальных
+случаях **NO-GO**.
