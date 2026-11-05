@@ -177,6 +177,9 @@ class NexusHelmHttpService:
                     or parsed_url.username or parsed_url.password
                     or "\\" in advertised
                     or (parsed_url.scheme and parsed_url.scheme not in {"http", "https"})
+                    or (parsed_url.netloc and parsed_url.path != (
+                        f"/repository/{repository}/{filename}"
+                    ))
                 ):
                     continue
                 found.append(HelmChartVersion(name, version, filename, digest.lower()))
@@ -345,9 +348,13 @@ class NexusHelmHttpService:
             match = next(
                 (v for v in observed.items if v.name == name and v.version == version), None
             )
-            if match is None or match.digest != digest:
+            if match is None:
                 raise NexusHelmHttpError(
-                    "helm_postcheck_failed", "Helm upload checksum не подтверждён"
+                    "helm_postcheck_failed", "Helm chart/version отсутствует в index после upload"
+                )
+            if match.digest != digest:
+                raise NexusHelmHttpError(
+                    "helm_postcheck_failed", "Helm index содержит другой checksum после upload"
                 )
         return digest
 
