@@ -562,3 +562,51 @@ def test_duplicate_tar_member_rejected_before_nexus_write(duplicate_name):
             archive_buffer.getvalue(), "demo", "1.2.3"
         )
     assert error.value.code == "helm_package_invalid"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_entries", [
+    [
+        {"version": "1.2.3", "digest": "a" * 64,
+         "urls": ["demo-1.2.3.tgz"]},
+        {"version": "1.2.3", "digest": "f" * 64,
+         "urls": ["demo-1.2.3.tgz"]},
+    ],
+    [
+        {"version": "1.2.3", "digest": "not-a-digest",
+         "urls": ["demo-1.2.3.tgz"]},
+    ],
+    [
+        {"version": "1.2.3", "digest": "a" * 64,
+         "urls": ["https://foreign.invalid/untrusted-chart.tgz"]},
+    ],
+])
+async def test_source_download_refuses_ambiguous_index_before_package_request(
+    client_service, tmp_path: Path, monkeypatch, invalid_entries,
+):
+    service, state, _data, _digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request):
+        state["calls"].append(request)
+        if request.url.path == "/repository/helm-a/index.yaml":
+            return httpx.Response(200, text=yaml.safe_dump({
+                "entries": {"demo": invalid_entries},
+            }))
+        raise AssertionError("SOURCE must not download ambiguous chart or make writes")
+
+    def factory(**kwargs):
+        assert kwargs["follow_redirects"] is False
+        assert kwargs["trust_env"] is False
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    destination = tmp_path / "demo-1.2.3.tgz"
+    with pytest.raises(NexusHelmHttpError) as error:
+        await service.download_chart("helm-a", "demo", "1.2.3", destination)
+    assert error.value.code == "helm_index_invalid"
+    assert not destination.exists()
+    assert [req.url.path for req in state["calls"]] == [
+        "/repository/helm-a/index.yaml",
+    ]
+    assert "secret-not-for-logs" not in str(error.value)
