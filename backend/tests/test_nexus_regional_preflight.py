@@ -545,3 +545,81 @@ def test_preflight_evidence_publish_failure_cleans_staged_file(tmp_path, monkeyp
         _publish_report(output, "never published")
     assert not output.exists()
     assert not list(tmp_path.glob(".nexus-preflight-*.tmp"))
+
+
+@pytest.mark.parametrize("invalid_secret", [
+    "symlink", "directory", "world_readable", "oversize", "invalid_utf8", "empty",
+])
+def test_regional_service_secret_is_bounded_and_never_followed_or_reported(
+    tmp_path, invalid_secret,
+):
+    path = tmp_path / "service-password"
+    if invalid_secret == "symlink":
+        real = tmp_path / "actual-secret"
+        real.write_text("private-password-leak", encoding="utf-8")
+        real.chmod(0o600)
+        path.symlink_to(real)
+    elif invalid_secret == "directory":
+        path.mkdir(mode=0o700)
+    elif invalid_secret == "world_readable":
+        path.write_text("private-password-leak", encoding="utf-8")
+        path.chmod(0o644)
+    elif invalid_secret == "oversize":
+        path.write_bytes(b"x" * (16 * 1024 + 1))
+        path.chmod(0o600)
+    elif invalid_secret == "invalid_utf8":
+        path.write_bytes(bytes([255, 254]))
+        path.chmod(0o600)
+    else:
+        path.write_bytes(b"  ")
+        path.chmod(0o600)
+
+    seen = []
+
+    def factory(**kwargs):
+        seen.append(kwargs)
+        raise AssertionError("invalid secret must not start any HTTP requests")
+
+    entry = _docker("docker-source")
+    entry["password_file"] = str(path)
+    result = _probe(entry, client_factory=factory)
+    expected = (
+        "password_file_too_large" if invalid_secret == "oversize"
+        else "password_file_empty" if invalid_secret == "empty"
+        else "password_file_permissions_invalid"
+    )
+    assert result["checks"][0]["code"] == expected
+    assert result["checks"][0]["status"] == "FAIL"
+    assert "private-password-leak" not in json.dumps(result)
+    assert str(tmp_path) not in json.dumps(result)
+    assert not seen
+
+
+@pytest.mark.parametrize("unsafe_url", [
+    "https://[malformed", "https://nexus.example.test:not-a-port",
+])
+def test_preflight_endpoint_parse_errors_are_redacted_and_block_network(unsafe_url):
+    calls = []
+
+    def factory(**kwargs):
+        calls.append(kwargs)
+        raise AssertionError("invalid endpoint must not open client")
+
+    entry = _anonymous_docker("docker-source")
+    entry["endpoint"] = unsafe_url
+    result = _probe(entry, client_factory=factory)
+    assert result["checks"][0]["code"] == "endpoint_invalid"
+    assert unsafe_url not in json.dumps(result)
+    assert not calls
+
+
+def test_preflight_never_emits_untrusted_parser_exception_text(monkeypatch):
+    from integration import nexus_regional_preflight
+
+    def malicious_parser(_url):
+        raise ValueError("password=private-secret-in-exception")
+
+    monkeypatch.setattr(nexus_regional_preflight, "urlsplit", malicious_parser)
+    result = _probe(_anonymous_docker("docker-source"))
+    assert result["checks"][0]["code"] == "endpoint_invalid"
+    assert "private-secret-in-exception" not in json.dumps(result)
