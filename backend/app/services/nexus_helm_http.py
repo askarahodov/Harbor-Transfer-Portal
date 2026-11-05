@@ -231,7 +231,11 @@ class NexusHelmHttpService:
                     if not isinstance(advertised, str):
                         unsafe = True
                         break
-                    parsed_url = urlsplit(advertised)
+                    try:
+                        parsed_url = urlsplit(advertised)
+                    except ValueError:
+                        unsafe = True
+                        break
                     if (
                         parsed_url.path not in allowed_paths
                         or parsed_url.query or parsed_url.fragment
