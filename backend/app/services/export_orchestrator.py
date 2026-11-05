@@ -32,6 +32,7 @@ from app.services.harbor_profile_runtime import harbor_profile_boundary
 from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
 from app.services.helm_oci_service import HelmOciService, HelmServiceError
+from app.services.nexus_helm_http import NexusHelmAdapter
 from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
@@ -119,11 +120,6 @@ class ExportOrchestrator:
         self._require_source_contour()
         profile = self._profile_snapshot(harbor_profile_id)
         if profile.registry_type == "nexus":
-            if any(selection.kind is ArtifactKind.HELM_CHART for selection in selections):
-                raise ExportOrchestrationError(
-                    "nexus_legacy_helm_unsupported",
-                    "Nexus Docker v2 не поддерживает экспорт legacy Helm charts",
-                )
             return self._preview_nexus(selections, profile)
 
         client = self._build_harbor_client(profile.id)
@@ -152,10 +148,42 @@ class ExportOrchestrator:
                 )
                 results: list[ResolvedExportArtifact] = []
                 for selection in selections:
+                    if selection.kind is ArtifactKind.HELM_CHART:
+                        helm = NexusHelmAdapter(session, self.settings, profile.id)
+                        catalog = await helm.client.list_charts(selection.project)
+                        if not catalog.available:
+                            raise ExportOrchestrationError(
+                                catalog.code or "helm_index_unavailable",
+                                catalog.message or "Helm index.yaml недоступен",
+                            )
+                        match = next(
+                            (
+                                v for v in catalog.items
+                                if v.name == selection.repository
+                                and v.version == selection.reference
+                            ),
+                            None,
+                        )
+                        if match is None:
+                            raise ExportOrchestrationError(
+                                "export_source_not_found", "Helm chart/version не найден",
+                            )
+                        if "sha256:" + match.digest != selection.digest:
+                            raise ExportOrchestrationError(
+                                "export_source_changed", "SOURCE Helm digest изменился",
+                            )
+                        results.append(ResolvedExportArtifact(
+                            kind=ArtifactKind.HELM_CHART,
+                            project=selection.project,
+                            repository=selection.repository,
+                            reference=selection.reference,
+                            digest=selection.digest,
+                            size_bytes=None,
+                        ))
+                        continue
                     if selection.kind is not ArtifactKind.CONTAINER_IMAGE:
                         raise ExportOrchestrationError(
-                            "nexus_legacy_helm_unsupported",
-                            "Nexus Docker v2 поддерживает только container images",
+                            "export_artifact_unsupported", "Неподдерживаемый SOURCE artifact",
                         )
                     image = ImageReference(
                         repository=f"{selection.project}/{selection.repository}",
@@ -181,6 +209,8 @@ class ExportOrchestrator:
 
         try:
             return asyncio.run(inspect())
+        except HelmServiceError as exc:
+            raise ExportOrchestrationError(exc.code, exc.message) from exc
         except NexusServiceError as exc:
             # NexusService emits sanitized, stable codes; preserve missing-tag diagnostics.
             raise ExportOrchestrationError(exc.code, exc.message) from exc
