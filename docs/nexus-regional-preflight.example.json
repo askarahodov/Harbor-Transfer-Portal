@@ -1,0 +1,35 @@
+{
+  "environment": "REGION-NAME (operator fills in)",
+  "operator": "APPROVED-OPERATOR",
+  "change_id": "APPROVED-CHANGE-ID",
+  "commit_sha": "c55fc355823306ada9b5f9536fca4508ff675f2d",
+  "probes": [
+    {
+      "id": "source-docker-hosted",
+      "contour": "SOURCE",
+      "format": "docker",
+      "kind": "hosted",
+      "repository": "docker-hosted",
+      "endpoint": "https://approved-docker-connector.example.internal",
+      "username": "service-reader",
+      "password_file": "/secure/path/source-service-password",
+      "ca_file": "/secure/path/region-ca.pem",
+      "image": "approved-test/image",
+      "tag": "1.0.0",
+      "expected_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "source-helm-hosted",
+      "contour": "SOURCE",
+      "format": "helm",
+      "kind": "hosted",
+      "repository": "helm-hosted",
+      "endpoint": "https://approved-nexus-ui.example.internal",
+      "username": "service-reader",
+      "password_file": "/secure/path/source-service-password",
+      "ca_file": "/secure/path/region-ca.pem",
+      "chart": "approved-chart",
+      "version": "1.0.0"
+    }
+  ]
+}
