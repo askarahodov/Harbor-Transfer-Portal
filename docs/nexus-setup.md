@@ -86,6 +86,17 @@ Read-only `GET /api/registry/source/nexus/inventory?profile_id=...`
 repositories в один Docker connector и не считайте одинаковые имена образов
 в разных Nexus repositories одним артефактом.
 
+В SOURCE UI при выборе Nexus инвентаризация показана отдельным списком
+`Docker / Helm` с именем Nexus repository и типом `hosted/proxy/group`.
+Это **не** список Docker images: для Docker ниже нужно указать точный
+image path и tag и подтвердить digest. Если Nexus UI API недоступен или
+возвращает 401/403, UI показывает предупреждение, но не считает список
+полным/пустым по умолчанию. Репозитории, не возвращённые сервисному
+пользователю, не должны появляться на основе административной выборки.
+Helm отображается как видимый тип, но кнопка переноса Helm через Nexus
+пока недоступна: HTTP Helm upload/download и E2E должны быть реализованы
+отдельно; это не OCI.
+
 Helm repositories входят в инвентаризацию, но legacy Helm `index.yaml`
 и `.tgz` пока **не реализованы для переноса через Nexus**.
 Это предмет отдельного решения/реализации #435; Docker E2E не подтверждает
