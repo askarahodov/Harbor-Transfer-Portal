@@ -94,14 +94,14 @@ async function browseHelmRepository(repository: string): Promise<void> {
 }
 
 function dockerConnectorProfile(repository: string): HarborProfileOption | null {
-  const origin = wizard.selectedHarborProfile?.nexus_search_url?.replace(/\\/$/, '')
+  const origin = wizard.selectedHarborProfile?.nexus_search_url?.replace(/[/]$/, '')
   if (!origin) return null
   // A Docker v2 connector belongs to an explicitly configured profile.
   // Never derive a connector URL from Nexus UI inventory or user-supplied names.
   return wizard.harborProfiles.find((profile) =>
     profile.registry_type === 'nexus'
     && profile.nexus_search_repository === repository
-    && profile.nexus_search_url?.replace(/\\/$/, '') === origin
+    && profile.nexus_search_url?.replace(/[/]$/, '') === origin
   ) ?? null
 }
 
