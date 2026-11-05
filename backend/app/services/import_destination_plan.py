@@ -56,6 +56,7 @@ from app.services.helm_oci_service import (
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
 from app.services.nexus_destination_validator import NexusDestinationValidator
+from app.services.nexus_helm_http import NexusHelmAdapter
 from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
     OperationContext,
@@ -182,13 +183,6 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             raise ImportOrchestrationError(exc.code, exc.message) from exc
 
         preview = ImportPreviewResponse.model_validate_json(operation.import_preview_json)
-        if profile.registry_type == "nexus" and any(
-            artifact.artifact_type == "helm-chart" for artifact in preview.artifacts
-        ):
-            raise ImportOrchestrationError(
-                "nexus_legacy_helm_unsupported",
-                "Nexus Docker v2 не поддерживает Helm OCI import",
-            )
         planner_username = actor_username or operation.actor_username
         if not planner_username:
             raise ImportOrchestrationError(
@@ -232,7 +226,11 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 skopeo = create_registry_client(
                     profile.registry_type, session, self.settings, profile_id=profile.id
                 )
-            helm = self.helm_factory(session)
+            helm = (
+                NexusHelmAdapter(session, self.settings, profile.id)
+                if profile.registry_type == "nexus"
+                else self.helm_factory(session)
+            )
             if isinstance(skopeo, SkopeoService):
                 skopeo.harbor_profile_id = profile.id
             if isinstance(helm, HelmOciService):
@@ -462,19 +460,26 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             target = HelmChartReference(target_repository, name, version)
         except ValueError as exc:
             return self._invalid_reference(base, target_project, target_repository, str(exc))
-        final_reference = (
-            f"oci://{validator.registry_host}/{target.harbor_repository}:{target.version}"
-        )
-        capability = await validator.validate(target_project, target.harbor_repository)
-        denied = self._capability_error(
-            base,
-            target_project,
-            target_repository,
-            final_reference,
-            capability,
-        )
-        if denied is not None:
-            return denied
+        if isinstance(helm, NexusHelmAdapter):
+            # Helm hosted uses Nexus HTTP and an index, never OCI/Docker v2.
+            final_reference = (
+                f"{helm.client._base()}/repository/{target.repository}/"
+                f"{target.name}-{target.version}.tgz"
+            )
+        else:
+            final_reference = (
+                f"oci://{validator.registry_host}/{target.harbor_repository}:{target.version}"
+            )
+            capability = await validator.validate(target_project, target.harbor_repository)
+            denied = self._capability_error(
+                base,
+                target_project,
+                target_repository,
+                final_reference,
+                capability,
+            )
+            if denied is not None:
+                return denied
         try:
             inspected = await helm.inspect_target(target, expected_digest=expected_digest)
             classification = {
