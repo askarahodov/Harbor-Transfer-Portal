@@ -269,7 +269,7 @@ jobs:
         run: |
           set -euo pipefail
           docker pull sonatype/nexus3:3.69.0
-          docker run --detach --name htp-nexus-real-harbor \
+          docker run --detach --name htp-nexus-e2e \
             --memory 4g \
             -p 127.0.0.1:8081:8081 \
             -p 127.0.0.1:8082:8082 \
@@ -370,6 +370,6 @@ jobs:
             cd /tmp/htp-real-harbor/harbor
             docker compose down --remove-orphans >/dev/null 2>&1
           fi
-          docker rm -f htp-nexus-real-harbor >/dev/null 2>&1
+          docker rm -f htp-nexus-e2e >/dev/null 2>&1
           rm -f "$HTP_NEXUS_E2E_PASSWORD_FILE"
           rm -rf /tmp/htp-real-harbor
