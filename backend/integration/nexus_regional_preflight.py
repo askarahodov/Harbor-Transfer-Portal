@@ -22,6 +22,8 @@ import httpx
 import yaml
 
 _REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_CHART = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\\Z")
+_HELM_VERSION = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\\Z")
 _IMAGE = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*\Z")
 _TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}\Z")
 _DIGEST = re.compile(r"(?:sha256:)?[a-f0-9]{64}\Z")
@@ -54,7 +56,7 @@ class _UniqueKeysLoader(yaml.SafeLoader):
         return mapping
 
 
-def _unambiguous_index(payload: bytes) -> dict:
+def _unambiguous_index(payload: bytes, repository: str) -> dict:
     loader = _UniqueKeysLoader(payload)
     try:
         document = loader.get_single_data()
@@ -65,7 +67,7 @@ def _unambiguous_index(payload: bytes) -> dict:
     seen: set[tuple[str, str]] = set()
     total = 0
     for chart, records in document["entries"].items():
-        if not isinstance(chart, str) or not _REPOSITORY.fullmatch(chart):
+        if not isinstance(chart, str) or not _CHART.fullmatch(chart):
             raise ValueError("index_invalid")
         if not isinstance(records, list) or len(records) > _MAX_VERSIONS:
             raise ValueError("index_invalid")
@@ -79,10 +81,28 @@ def _unambiguous_index(payload: bytes) -> dict:
             digest = record.get("digest")
             urls = record.get("urls")
             if (
-                not isinstance(version, str) or not _TAG.fullmatch(version)
+                not isinstance(version, str) or not _HELM_VERSION.fullmatch(version)
                 or not isinstance(digest, str) or not _DIGEST.fullmatch(digest)
                 or not isinstance(urls, list) or not urls
                 or not isinstance(urls[0], str)
+            ):
+                raise ValueError("index_invalid")
+            filename = f"{chart}-{version}.tgz"
+            advertised = urls[0]
+            parsed_url = urlsplit(advertised)
+            if (
+                parsed_url.path not in {
+                    filename, "/" + filename,
+                    f"/repository/{repository}/{filename}",
+                }
+                or parsed_url.query or parsed_url.fragment
+                or parsed_url.username is not None
+                or parsed_url.password is not None
+                or "\\\\" in advertised
+                or (parsed_url.scheme and parsed_url.scheme not in {"http", "https"})
+                or (parsed_url.netloc and parsed_url.path != (
+                    f"/repository/{repository}/{filename}"
+                ))
             ):
                 raise ValueError("index_invalid")
             identity = (chart, version)
@@ -165,7 +185,7 @@ def _read_helm(client: httpx.Client, base: str, entry: dict[str, Any], checks: l
         checks.append(_check("helm_index", "FAIL", "index_unavailable", status))
         return
     try:
-        doc = _unambiguous_index(payload)
+        doc = _unambiguous_index(payload, repository)
     except (yaml.YAMLError, UnicodeError, ValueError):
         checks.append(_check("helm_index", "FAIL", "index_invalid"))
         return
@@ -175,8 +195,8 @@ def _read_helm(client: httpx.Client, base: str, entry: dict[str, Any], checks: l
     if chart is None and version is None:
         checks.append(_check("helm_chart", "UNVERIFIED", "chart_not_selected"))
         return
-    chart = _name(chart, _REPOSITORY, "chart_invalid")
-    version = _name(version, _TAG, "version_invalid")
+    chart = _name(chart, _CHART, "chart_invalid")
+    version = _name(version, _HELM_VERSION, "version_invalid")
     versions = doc["entries"].get(chart)
     record = next(
         (item for item in versions if item["version"] == version),
