@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from test_export_orchestrator import IMAGE_DIGEST, _environment
@@ -12,6 +12,7 @@ from app.domain.artifacts import ArtifactKind
 from app.schemas.exports import ExportArtifactSelection
 from app.services.export_orchestrator import ExportOrchestrationError, ExportOrchestrator
 from app.services.harbor_profiles import HarborProfileService
+from app.services.nexus_helm_http import HelmChartVersion, HelmHttpResult
 from app.services.registry_client import ImageInspection
 
 
@@ -69,20 +70,30 @@ def test_nexus_changed_digest_rejected_before_operation(tmp_path: Path) -> None:
     assert harbor.calls == {}
 
 
-def test_nexus_helm_rejected_before_client_creation(tmp_path: Path) -> None:
+def test_nexus_helm_preview_uses_plain_http_catalog_without_harbor_api(tmp_path: Path) -> None:
     orchestrator, profile_id, harbor, client = _nexus_orchestrator(tmp_path)
     chart = ExportArtifactSelection(
         kind=ArtifactKind.HELM_CHART,
-        project="team",
-        repository="charts/sample",
+        project="helm-hosted",
+        repository="sample",
         reference="1.2.3",
         digest=IMAGE_DIGEST,
     )
-    with pytest.raises(ExportOrchestrationError) as error:
-        orchestrator.preview((chart,), harbor_profile_id=profile_id)
-    assert error.value.code == "nexus_legacy_helm_unsupported"
+    adapter = MagicMock()
+    adapter.client.list_charts = AsyncMock(return_value=HelmHttpResult(
+        available=True,
+        items=(HelmChartVersion("sample", "1.2.3", "sample-1.2.3.tgz", "a" * 64),),
+    ))
+    with patch("app.services.export_orchestrator.NexusHelmAdapter", return_value=adapter):
+        result = orchestrator.preview((chart,), harbor_profile_id=profile_id)
+    assert len(result) == 1
+    assert result[0].kind is ArtifactKind.HELM_CHART
+    assert result[0].full_repository == "helm-hosted/sample"
+    assert result[0].digest == IMAGE_DIGEST
+    adapter.client.list_charts.assert_awaited_once_with("helm-hosted")
     client.inspect_image.assert_not_awaited()
     assert harbor.calls == {}
+
 
 
 def test_nexus_prepare_reinspects_before_persisting(tmp_path: Path) -> None:
