@@ -32,7 +32,7 @@ from app.services.harbor_profile_runtime import harbor_profile_boundary
 from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
 from app.services.helm_oci_service import HelmOciService, HelmServiceError
-from app.services.nexus_helm_http import NexusHelmAdapter
+from app.services.nexus_helm_http import NexusHelmAdapter, NexusHelmHttpError
 from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
@@ -209,6 +209,8 @@ class ExportOrchestrator:
 
         try:
             return asyncio.run(inspect())
+        except NexusHelmHttpError as exc:
+            raise ExportOrchestrationError(exc.code, exc.message) from exc
         except HelmServiceError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
         except NexusServiceError as exc:
