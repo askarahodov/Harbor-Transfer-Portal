@@ -106,11 +106,13 @@ class NexusDiscoveryService:
                     if response.status_code != 200:
                         return DiscoveryResult(
                             False, (),
-                            "REST Search API недоступен или аккаунту запрещён browse; используйте repository:tag",
+                            "REST Search недоступен; проверьте права или введите repository:tag",
                         )
                     data = response.json()
                     if not isinstance(data, dict) or not isinstance(data.get("items"), list):
-                        return DiscoveryResult(False, (), "Некорректный ответ Nexus REST Search API")
+                        return DiscoveryResult(
+                            False, (), "Некорректный ответ Nexus REST Search API"
+                        )
                     for item in data["items"]:
                         if not isinstance(item, dict):
                             continue
