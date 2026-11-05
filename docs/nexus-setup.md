@@ -44,6 +44,12 @@ server {
 
 Проверьте, что Docker token/auth challenge совместим с внешним HTTPS-адресом и сертификат доверен стороне Portal. Для внутреннего CA используйте NEXUS_CA_FILE либо установите CA в профиль Nexus. **Не отключайте** TLS verification в production.
 
+**Безопасность credentials:** проверки подключения, SOURCE Docker v2 browse и TARGET preflight
+не отправляют Basic Auth по HTTP. Для сервисных учётных записей используйте HTTPS
+на внешнем адресе Docker connector (при необходимости с TLS termination на reverse proxy),
+а Nexus REST Search API также настройте через HTTPS. Внутренний HTTP connector,
+закрытый reverse proxy, не означает, что Portal должен подключаться к нему по HTTP.
+
 Пример настроек Portal:
 
 ~~~dotenv
