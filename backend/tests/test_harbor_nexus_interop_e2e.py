@@ -18,8 +18,8 @@ import os
 import subprocess
 import tarfile
 from pathlib import Path
-from urllib.parse import urlsplit
 from unittest.mock import MagicMock
+from urllib.parse import urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
