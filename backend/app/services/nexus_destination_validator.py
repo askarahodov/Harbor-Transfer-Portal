@@ -8,6 +8,7 @@ the operator must verify write permissions on their target namespace.
 
 from __future__ import annotations
 
+from ipaddress import ip_address
 from urllib.parse import urlsplit
 
 import httpx
@@ -64,8 +65,14 @@ class NexusDestinationValidator:
         return self._registry_host
 
     async def validate(self, project: str, repository: str) -> DestinationCapability:
-        # Basic Auth over HTTP would expose TARGET service credentials.
-        if urlsplit(self._url).scheme != "https" and self._username:
+        # Local disposable Nexus E2E uses a loopback connector; never send
+        # credentials over unencrypted connections to a non-loopback host.
+        parsed = urlsplit(self._url)
+        try:
+            loopback = ip_address(parsed.hostname or "").is_loopback
+        except ValueError:
+            loopback = False
+        if parsed.scheme != "https" and self._username and not loopback:
             return DestinationCapability(
                 False, False, "nexus_insecure_transport",
                 "Передача учётных данных TARGET Nexus требует HTTPS",
