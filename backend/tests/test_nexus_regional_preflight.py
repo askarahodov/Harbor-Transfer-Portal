@@ -217,3 +217,67 @@ def test_no_secrets_reported_on_transport_failure():
     assert report["preflight_status"] == "FAIL"
     assert "must-never-leak" not in json.dumps(report)
     assert report["entries"][0]["checks"][0]["code"] == "connection_or_ca_failed"
+
+
+@pytest.mark.parametrize("bad_index", [
+    # Earlier chart/version gets erased by default PyYAML mapping behavior.
+    "entries:\n  demo:\n    - version: 1.0.0\n      digest: "
+    + "a" * 64 + "\n      urls: [demo-1.0.0.tgz]\n  demo: []\n",
+    # A duplicate checksum conceals a conflicting signed artifact.
+    "entries:\n  demo:\n    - version: 1.0.0\n      digest: "
+    + "a" * 64 + "\n      digest: " + "b" * 64
+    + "\n      urls: [demo-1.0.0.tgz]\n",
+    # Duplicate versions are valid YAML but ambiguous as Helm inventory.
+    yaml.safe_dump({"entries": {"demo": [
+        {"version": "1.0.0", "digest": "a" * 64,
+         "urls": ["demo-1.0.0.tgz"]},
+        {"version": "1.0.0", "digest": "b" * 64,
+         "urls": ["demo-1.0.0.tgz"]},
+    ]}}),
+    # Malformed versions must not be silently ignored.
+    yaml.safe_dump({"entries": {"demo": [
+        {"version": "1.0.0", "digest": "invalid",
+         "urls": ["demo-1.0.0.tgz"]},
+    ]}}),
+])
+def test_preflight_helm_invalid_index_fails_without_chart_download_and_isolated(
+    bad_index,
+):
+    calls: list[str] = []
+    good_payload = b"good-chart"
+    good_digest = hashlib.sha256(good_payload).hexdigest()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if request.url.path == "/repository/helm-bad/index.yaml":
+            return httpx.Response(200, text=bad_index)
+        if request.url.path == "/repository/helm-good/index.yaml":
+            return httpx.Response(200, text=yaml.safe_dump({"entries": {"demo": [{
+                "version": "1.0.0", "digest": good_digest,
+                "urls": ["demo-1.0.0.tgz"],
+            }]}}))
+        if request.url.path == "/repository/helm-good/demo-1.0.0.tgz":
+            return httpx.Response(200, content=good_payload)
+        raise AssertionError("bad repository must not trigger a chart download")
+
+    def factory(**kwargs):
+        assert kwargs["follow_redirects"] is False
+        assert kwargs["trust_env"] is False
+        return httpx.Client(transport=httpx.MockTransport(handler), **kwargs)
+
+    base = {
+        "contour": "SOURCE", "format": "helm", "kind": "hosted",
+        "endpoint": "https://nexus.example.test", "chart": "demo",
+        "version": "1.0.0",
+    }
+    report = run_document(_document([
+        {**base, "id": "bad", "repository": "helm-bad"},
+        {**base, "id": "good", "repository": "helm-good",
+         "expected_sha256": good_digest},
+    ]), client_factory=factory)
+    assert report["preflight_status"] == "FAIL"
+    assert report["release_verdict"] == "NO-GO"
+    assert report["entries"][0]["checks"][-1]["code"] == "index_invalid"
+    assert report["entries"][1]["checks"][-1]["code"] == "package_sha256_verified"
+    assert len(calls) == 3
+    assert all("helm-bad/demo" not in url for url in calls)
