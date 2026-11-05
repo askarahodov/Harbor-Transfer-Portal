@@ -48,6 +48,8 @@ class NexusDiscoveryService:
         ):
             raise HarborSettingsError("nexus_url_invalid", "Нужен корневой URL Docker v2 connector")
         self.url = url.rstrip("/")
+        self.search_url = profile.nexus_search_url
+        self.search_repository = profile.nexus_search_repository
         self.username = effective.username
         self.password = effective.password
         self.verify: bool | str = (
@@ -61,13 +63,80 @@ class NexusDiscoveryService:
         )
 
     async def catalog(self, search: str = "") -> DiscoveryResult:
+        if self.search_url and self.search_repository:
+            return await self._search_rest(None, search)
         return await self._get("/v2/_catalog", "repositories", search, _REPOSITORY)
 
     async def tags(self, repository: str, search: str = "") -> DiscoveryResult:
         if _REPOSITORY.fullmatch(repository) is None:
             raise ValueError("invalid Docker repository")
+        if self.search_url and self.search_repository:
+            return await self._search_rest(repository, search)
         escaped = "/".join(quote(piece, safe="") for piece in repository.split("/"))
         return await self._get(f"/v2/{escaped}/tags/list", "tags", search, _TAG)
+
+    async def _search_rest(self, repository: str | None, search: str) -> DiscoveryResult:
+        """Read Nexus UI Search API for one configured Docker hosted repository.
+
+        REST search endpoints are not the Docker connector. This opt-in admin
+        configuration keeps credentials off arbitrary user-supplied URLs.
+        """
+        if not self.search_url or not self.search_repository:
+            return DiscoveryResult(False, (), "Nexus REST Search API не настроен")
+        auth = (
+            httpx.BasicAuth(self.username, self.password or "")
+            if self.username else None
+        )
+        found: set[str] = set()
+        token: str | None = None
+        truncated = False
+        try:
+            async with httpx.AsyncClient(
+                verify=self.verify, timeout=self.timeout,
+                follow_redirects=False, trust_env=False,
+            ) as client:
+                for page in range(5):
+                    params = {"repository": self.search_repository, "format": "docker"}
+                    if token:
+                        params["continuationToken"] = token
+                    response = await client.get(
+                        self.search_url.rstrip("/") + "/service/rest/v1/search",
+                        params=params, auth=auth,
+                    )
+                    if response.status_code != 200:
+                        return DiscoveryResult(
+                            False, (),
+                            "REST Search API недоступен или аккаунту запрещён browse; используйте repository:tag",
+                        )
+                    data = response.json()
+                    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+                        return DiscoveryResult(False, (), "Некорректный ответ Nexus REST Search API")
+                    for item in data["items"]:
+                        if not isinstance(item, dict):
+                            continue
+                        name = item.get("name")
+                        version = item.get("version")
+                        if not isinstance(name, str) or _REPOSITORY.fullmatch(name) is None:
+                            continue
+                        if repository is None:
+                            if search.casefold() in name.casefold():
+                                found.add(name)
+                        elif name == repository and isinstance(version, str):
+                            if _TAG.fullmatch(version) and search.casefold() in version.casefold():
+                                found.add(version)
+                    next_token = data.get("continuationToken")
+                    if not isinstance(next_token, str) or not next_token:
+                        break
+                    token = next_token
+                    if page == 4:
+                        truncated = True
+        except (httpx.HTTPError, ValueError, TypeError):
+            return DiscoveryResult(
+                False, (), "Не удалось получить Nexus REST Search; точный repository:tag доступен"
+            )
+        return DiscoveryResult(
+            True, tuple(sorted(found)[:100]), truncated=truncated or len(found) > 100
+        )
 
     async def _get(
         self, path: str, field: str, search: str, pattern: re.Pattern[str]
