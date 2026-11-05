@@ -6,6 +6,7 @@ are never used for Helm. All outgoing URLs are derived from a trusted Nexus UI o
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import re
@@ -342,19 +343,31 @@ class NexusHelmHttpService:
                 raise NexusHelmHttpError("helm_upload_failed", "Helm upload недоступен") from exc
             if response.status_code not in (200, 201, 204):
                 raise NexusHelmHttpError("helm_upload_failed", "Helm repository отклонил upload")
-            observed = await self._load_index(client, repository)
-            if not observed.available:
-                raise NexusHelmHttpError("helm_postcheck_failed", "Helm upload не подтверждён")
-            match = next(
-                (v for v in observed.items if v.name == name and v.version == version), None
-            )
-            if match is None:
+            # Nexus updates Helm index.yaml asynchronously after a successful
+            # Components upload. Never resend the POST: only retry read-only
+            # postchecks and fail closed if the version is not published.
+            for attempt in range(20):
+                observed = await self._load_index(client, repository)
+                match = next(
+                    (v for v in observed.items if v.name == name and v.version == version),
+                    None,
+                ) if observed.available else None
+                if match is not None:
+                    if match.digest != digest:
+                        raise NexusHelmHttpError(
+                            "helm_postcheck_failed",
+                            "Helm index содержит другой checksum после upload",
+                        )
+                    break
+                if not observed.available and observed.code not in {"helm_index_missing"}:
+                    raise NexusHelmHttpError(
+                        "helm_postcheck_failed", "Helm index недоступен после upload"
+                    )
+                if attempt < 19:
+                    await asyncio.sleep(0.5)
+            else:
                 raise NexusHelmHttpError(
                     "helm_postcheck_failed", "Helm chart/version отсутствует в index после upload"
-                )
-            if match.digest != digest:
-                raise NexusHelmHttpError(
-                    "helm_postcheck_failed", "Helm index содержит другой checksum после upload"
                 )
         return digest
 
