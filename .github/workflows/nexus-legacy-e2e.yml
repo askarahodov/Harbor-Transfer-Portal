@@ -8,6 +8,7 @@ on:
       - 'backend/tests/test_nexus_legacy_e2e.py'
       - 'backend/tests/test_nexus_source_e2e.py'
       - 'backend/tests/test_nexus_target_e2e.py'
+      - 'backend/tests/test_harbor_nexus_interop_e2e.py'
       - 'backend/tests/test_nexus_helm_e2e.py'
       - 'backend/tests/test_nexus_helm_bundle_e2e.py'
       - 'backend/tests/test_nexus_regional_preflight_e2e.py'
@@ -51,6 +52,7 @@ jobs:
     timeout-minutes: 35
     env:
       HTP_NEXUS_LEGACY_E2E: '1'
+      HTP_HARBOR_COMPAT_E2E: '1'
       HTP_NEXUS_E2E_PASSWORD_FILE: /tmp/htp-nexus-admin-password
       HTP_NEXUS_TLS_CA_FILE: /tmp/htp-nexus-e2e-tls/server.crt
       HTP_NEXUS_HELM_HTTPS_URL: https://127.0.0.1:8444
@@ -181,12 +183,32 @@ jobs:
             sleep 1
           done
 
+      - name: Start isolated Harbor-compatible Docker Registry v2 fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name htp-harbor-docker-fixture \
+            -p 127.0.0.1:5005:5000 \
+            --tmpfs /var/lib/registry \
+            registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          for i in $(seq 1 30); do
+            status=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:5005/v2/ || true)
+            if [[ "${status}" == "200" ]]; then
+              break
+            fi
+            if (( i == 30 )); then
+              echo "Docker distribution fixture not ready" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
       - name: Real Nexus Docker v2 E2E tests (never OCI/Helm)
         shell: bash
         run: |
           set -euo pipefail
           cd backend
-          python -m pytest -v -x tests/test_nexus_legacy_e2e.py tests/test_nexus_source_e2e.py tests/test_nexus_target_e2e.py
+          python -m pytest -v -x tests/test_nexus_legacy_e2e.py tests/test_nexus_source_e2e.py tests/test_nexus_target_e2e.py tests/test_harbor_nexus_interop_e2e.py
 
       - name: Real classic Helm HTTP SOURCE/TARGET transport E2E (no OCI)
         shell: bash
@@ -200,6 +222,7 @@ jobs:
         shell: bash
         run: |
           docker rm -f htp-nexus-tls-proxy 2>/dev/null || true
+          docker rm -f htp-harbor-docker-fixture 2>/dev/null || true
           docker stop --time=120 htp-nexus-e2e 2>/dev/null || true
           docker rm -f htp-nexus-e2e 2>/dev/null || true
           rm -f "${HTP_NEXUS_E2E_PASSWORD_FILE}"
