@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 import httpx
 import pytest
 import yaml
 
-from integration.nexus_regional_preflight import _probe, run_document
+from integration.nexus_regional_preflight import (
+    _load_config, _probe, _publish_report, main, run_document,
+)
 
 HEAD = "c55fc355823306ada9b5f9536fca4508ff675f2d"
 DIGEST = "sha256:" + "a" * 64
@@ -466,3 +469,75 @@ def test_preflight_valid_approval_identifiers_remain_in_evidence():
     assert report["environment"] == "REGION-WEST_2"
     assert report["operator"] == "svc-acceptance"
     assert report["change_id"] == "CHG.2026-11-05"
+
+
+@pytest.mark.parametrize("unsafe", ["symlink", "directory", "oversize", "invalid_utf8"])
+def test_preflight_cli_rejects_untrusted_config_before_report(
+    tmp_path, monkeypatch, capsys, unsafe,
+):
+    import sys
+    config = tmp_path / "preflight.json"
+    if unsafe == "symlink":
+        actual = tmp_path / "private.json"
+        actual.write_text('{"secret":"not-for-logs"}', encoding="utf-8")
+        config.symlink_to(actual)
+    elif unsafe == "directory":
+        config.mkdir()
+    elif unsafe == "oversize":
+        config.write_bytes(b" " * (1024 * 1024 + 1))
+    else:
+        config.write_bytes(b"\\xff\\xfe")
+        # Actual invalid UTF-8 bytes rather than ASCII escape text.
+        config.write_bytes(bytes([255, 254]))
+    output = tmp_path / "evidence.json"
+    monkeypatch.setattr(sys, "argv", [
+        "nexus_regional_preflight", "--config", str(config),
+        "--output", str(output),
+    ])
+    assert main() == 2
+    assert not output.exists()
+    assert "not-for-logs" not in capsys.readouterr().err
+    assert list(tmp_path.glob(".nexus-preflight-*.tmp")) == []
+
+
+def test_preflight_config_small_regular_file_loads(tmp_path):
+    path = tmp_path / "minimal.json"
+    path.write_text('{"environment":"REGION-WEST"}', encoding="utf-8")
+    assert _load_config(path) == {"environment": "REGION-WEST"}
+
+
+def test_preflight_evidence_private_atomic_no_overwrite(tmp_path):
+    path = tmp_path / "evidence.json"
+    _publish_report(path, '{"release_verdict":"NO-GO"}\\n')
+    assert path.read_text(encoding="utf-8") == '{"release_verdict":"NO-GO"}\\n'
+    assert os.stat(path).st_mode & 0o077 == 0
+    with pytest.raises(FileExistsError):
+        _publish_report(path, '{"release_verdict":"GO"}\\n')
+    assert '"NO-GO"' in path.read_text(encoding="utf-8")
+    assert not list(tmp_path.glob(".nexus-preflight-*.tmp"))
+
+
+def test_preflight_evidence_does_not_replace_symlink_or_leave_stage(tmp_path):
+    target = tmp_path / "protected.json"
+    target.write_text("original", encoding="utf-8")
+    output = tmp_path / "evidence.json"
+    output.symlink_to(target)
+    with pytest.raises(FileExistsError):
+        _publish_report(output, "tampered")
+    assert target.read_text(encoding="utf-8") == "original"
+    assert output.is_symlink()
+    assert not list(tmp_path.glob(".nexus-preflight-*.tmp"))
+
+
+def test_preflight_evidence_publish_failure_cleans_staged_file(tmp_path, monkeypatch):
+    from integration import nexus_regional_preflight
+
+    def deny_link(*_args, **_kwargs):
+        raise OSError("simulated destination filesystem error")
+
+    monkeypatch.setattr(nexus_regional_preflight.os, "link", deny_link)
+    output = tmp_path / "evidence.json"
+    with pytest.raises(OSError):
+        _publish_report(output, "never published")
+    assert not output.exists()
+    assert not list(tmp_path.glob(".nexus-preflight-*.tmp"))
