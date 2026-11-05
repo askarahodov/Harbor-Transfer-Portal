@@ -349,6 +349,56 @@ describe('SOURCE export wizard view', () => {
     wrapper.unmount()
   })
 
+  it('routes Nexus exact-reference inspection without calling Harbor browse APIs', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [
+        {
+          id: 'nexus-profile',
+          name: 'Regional Nexus',
+          url: 'https://nexus.example.test',
+          registry_type: 'nexus',
+          is_default: false,
+        },
+      ],
+    })
+    const connection = vi.spyOn(exportsApi, 'getHarborConnection')
+    const projects = vi.spyOn(exportsApi, 'listHarborProjects')
+    const repositories = vi.spyOn(exportsApi, 'listHarborRepositories')
+    const artifacts = vi.spyOn(exportsApi, 'listHarborArtifacts')
+    const inspect = vi.spyOn(exportsApi, 'inspectExactNexusImage').mockResolvedValue({
+      repository: '0702/centos7',
+      reference: '7.9.2009',
+      digest: DIGEST,
+    })
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('#export-harbor-profile').text()).toContain('Nexus · Docker v2')
+    expect(wrapper.text()).toContain('Helm OCI здесь не поддерживается')
+    expect(wrapper.find('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(false)
+    expect(connection).not.toHaveBeenCalled()
+    expect(projects).not.toHaveBeenCalled()
+    expect(repositories).not.toHaveBeenCalled()
+    expect(artifacts).not.toHaveBeenCalled()
+
+    await wrapper.get('input[placeholder="team/application"]').setValue('0702/centos7')
+    await wrapper.get('input[placeholder="1.0.0"]').setValue('7.9.2009')
+    await wrapper.get('form.nexus-exact-form').trigger('submit')
+    await flushPromises()
+    expect(inspect).toHaveBeenCalledWith('nexus-profile', '0702/centos7', '7.9.2009')
+    await button(wrapper, 'Добавить образ в выбор').trigger('click')
+    expect(wrapper.text()).toContain('1 выбрано')
+    expect(projects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('renders an actionable TARGET fallback and does not browse Harbor', async () => {
     const connection = vi.spyOn(exportsApi, 'getHarborConnection')
     const runtime = useRuntimeStore(pinia)
