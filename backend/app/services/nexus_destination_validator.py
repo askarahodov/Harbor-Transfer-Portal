@@ -41,6 +41,10 @@ class NexusDestinationValidator:
             parsed.scheme not in {"http", "https"}
             or not parsed.netloc
             or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
         ):
             raise HarborSettingsError(
                 "nexus_url_invalid", "Ожидается корневой URL Docker Registry v2"
@@ -73,6 +77,7 @@ class NexusDestinationValidator:
                 auth=auth,
                 verify=self._verify,
                 follow_redirects=False,
+                trust_env=False,
                 timeout=httpx.Timeout(
                     self.settings.harbor_read_timeout_seconds,
                     connect=self.settings.harbor_connect_timeout_seconds,
