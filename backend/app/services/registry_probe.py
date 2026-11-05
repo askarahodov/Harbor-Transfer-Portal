@@ -180,11 +180,25 @@ async def probe_docker_v2(
     except httpx.TimeoutException:
         return _result("registry_unavailable", "Реестр не ответил вовремя")
     except httpx.ConnectError as exc:
-        cause = exc.__cause__
-        while cause is not None:
+        # httpcore may flatten the original SSL failure into the ConnectError
+        # message or retain it through __context__ rather than __cause__.
+        # Only classify; never expose raw error text or internal endpoints.
+        pending = [exc]
+        visited: set[int] = set()
+        while pending:
+            cause = pending.pop()
+            if id(cause) in visited:
+                continue
+            visited.add(id(cause))
             if isinstance(cause, ssl.SSLError):
                 return _result("registry_tls_failed", "Не удалось проверить TLS-сертификат реестра")
-            cause = cause.__cause__
+            if cause.__cause__ is not None:
+                pending.append(cause.__cause__)
+            if cause.__context__ is not None:
+                pending.append(cause.__context__)
+        diagnostic = str(exc).lower()
+        if "certificate verify failed" in diagnostic or "certificate_verify_failed" in diagnostic:
+            return _result("registry_tls_failed", "Не удалось проверить TLS-сертификат реестра")
         return _result("registry_unavailable", "Не удалось подключиться к реестру")
     except httpx.NetworkError:
         return _result("registry_unavailable", "Не удалось подключиться к реестру")
