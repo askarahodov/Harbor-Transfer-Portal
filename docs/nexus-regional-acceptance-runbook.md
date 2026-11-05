@@ -194,6 +194,18 @@ hash/digest, время, URL origin по разрешённой политике
    остановку/рестарт по утверждённой процедуре. Проверить Harbor
    регрессии отдельно и не выдавать тесты Nexus за решение #422.
 
+### Все Helm download URL должны быть безопасными
+
+Helm `index.yaml` может содержать несколько ссылок `urls` на один
+chart/version. Безопасность нельзя определять только по первой ссылке:
+SOURCE, TARGET и региональный preflight проверяют **каждую** запись
+`urls` на допустимый путь ровно того же chart в том же Helm repository,
+отсутствие query/fragment, обхода каталогов и credentials. Даже если
+первая ссылка корректна, опасная последующая ссылка приводит к
+`helm_index_invalid` в Portal или `index_invalid` в preflight
+**до запроса .tgz** или Components upload. Сам Portal скачивает файл
+только с доверенного HTTPS origin из профиля, игнорируя адрес из индекса.
+
 ### Региональный read-only preflight и полнота Helm index
 
 `backend/integration/nexus_regional_preflight.py` проверяет целостность
