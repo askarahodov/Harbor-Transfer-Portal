@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from integration.nexus_regional_preflight import run_document
-from test_nexus_helm_e2e import _helm_service
+from test_nexus_helm_e2e import _service
 from test_nexus_helm_http import chart_bytes
 from test_nexus_legacy_e2e import make_settings, seeded_schema2_image
 
@@ -44,7 +44,7 @@ def test_regional_read_only_preflight_on_two_formats_and_two_connectors(
     package = tmp_path / "region-preflight-1.0.0.tgz"
     package.write_bytes(chart_bytes("region-preflight", "1.0.0"))
     chart_digest = hashlib.sha256(package.read_bytes()).hexdigest()
-    assert asyncio.run(_helm_service(password).upload_chart(
+    assert asyncio.run(_service(password).upload_chart(
         "htp-helm-source", "region-preflight", "1.0.0", package,
     )) == chart_digest
 
