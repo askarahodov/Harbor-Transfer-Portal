@@ -180,6 +180,48 @@ async def test_first_helm_hosted_upload_accepts_missing_index_after_type_check(
 
 
 @pytest.mark.asyncio
+async def test_helm_upload_polls_delayed_index_without_repeating_post(
+    client_service, tmp_path: Path, monkeypatch,
+):
+    service, state, data, digest = client_service
+    state["present"] = False
+    seen_after = {"count": 0}
+    client = REAL_ASYNC_CLIENT
+
+    def handler(request):
+        state["calls"].append(request)
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+        if request.url.path == "/service/rest/v1/components":
+            state["upload"] = True
+            return httpx.Response(204)
+        if request.url.path == "/repository/helm-a/index.yaml":
+            if state["upload"]:
+                seen_after["count"] += 1
+            visible = state["upload"] and seen_after["count"] >= 3
+            entries = [{"version": "1.2.3", "digest": digest,
+                        "urls": ["demo-1.2.3.tgz"]}] if visible else []
+            return httpx.Response(200, text=yaml.safe_dump({
+                "entries": {"demo": entries},
+            }))
+        return httpx.Response(404)
+
+    def factory(**kwargs):
+        return client(transport=httpx.MockTransport(handler), **kwargs)
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    monkeypatch.setattr("app.services.nexus_helm_http.asyncio.sleep", no_sleep)
+    file = tmp_path / "demo-1.2.3.tgz"
+    file.write_bytes(data)
+    assert await service.upload_chart("helm-a", "demo", "1.2.3", file) == digest
+    assert seen_after["count"] == 3
+    assert sum(req.method == "POST" for req in state["calls"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_helm_proxy_upload_rejected_before_write(client_service, tmp_path: Path):
     service, state, data, _digest = client_service
     state["kind"] = "proxy"
