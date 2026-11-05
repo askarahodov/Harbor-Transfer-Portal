@@ -64,6 +64,33 @@ NEXUS_CA_FILE=/app/data/secrets/nexus-ca.pem
 
 Можно создать отдельный профиль с типом **nexus** через **Settings → Harbor Profiles**. У каждого профиля должны быть собственные URL, credentials и CA; глобальный Nexus-пароль не должен подменять пароль выбранного профиля.
 
+## Несколько репозиториев Nexus и права сервисного аккаунта
+
+На одном Nexus может быть множество репозиториев разных форматов. Для Portal
+интерес представляют **только Docker и Helm**, однако это **разные Nexus
+repositories**, а не Docker image names. Различаются `name`, `format`
+(`docker` / `helm`) и `type` (`hosted` / `proxy` / `group`).
+
+Read-only `GET /api/registry/source/nexus/inventory?profile_id=...`
+использует настроенный Nexus UI HTTPS URL и сервисную учётную запись
+профиля для `GET /service/rest/v1/repositories`. Он возвращает только
+видимые Docker/Helm репозитории, отсекая Maven, npm, RAW и прочие форматы.
+`available=false` означает отсутствие настроенного URL, запрет доступа
+или ошибку запроса, **не** отсутствие репозиториев. Даже `available=true`
+не доказывает полноту инвентаря, потому что Nexus RBAC может скрывать записи.
+
+**Видимость ≠ права на операции.** Перед экспортом проверяется конкретный
+`repository:tag` и digest через Docker v2, перед импортом — права на
+тестовый push и повторный inspect. У каждого Docker hosted/group connector
+может быть отдельный vhost/порт: не объединяйте записи разных Docker
+repositories в один Docker connector и не считайте одинаковые имена образов
+в разных Nexus repositories одним артефактом.
+
+Helm repositories входят в инвентаризацию, но legacy Helm `index.yaml`
+и `.tgz` пока **не реализованы для переноса через Nexus**.
+Это предмет отдельного решения/реализации #435; Docker E2E не подтверждает
+Helm-поддержку.
+
 ## Интерактивный поиск Docker образов и тегов
 
 Для **Nexus OSS 3.69** Harbor Browse API не используется. В экспортном
