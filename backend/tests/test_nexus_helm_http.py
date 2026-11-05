@@ -792,3 +792,78 @@ async def test_helm_upload_refuses_symlink_without_network(
         await service.upload_chart("helm-a", "demo", "1.2.3", link)
     assert error.value.code == "helm_package_invalid"
     assert not state["calls"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("secondary_url", [
+    "https://malicious.invalid/collect.tgz",
+    "../demo-1.2.3.tgz",
+    "demo-1.2.3.tgz?token=secret",
+    42,
+])
+async def test_helm_secondary_index_url_blocks_source_and_target_before_network(
+    client_service, tmp_path: Path, monkeypatch, secondary_url,
+):
+    service, state, data, digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["calls"].append(request)
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+        if request.url.path == "/repository/helm-a/index.yaml":
+            return httpx.Response(200, text=yaml.safe_dump({
+                "entries": {"demo": [{
+                    "version": "1.2.3", "digest": digest,
+                    "urls": ["demo-1.2.3.tgz", secondary_url],
+                }]},
+            }))
+        raise AssertionError("ambiguous Helm index must not download or write")
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    chart = HelmChartReference("helm-a", "demo", "1.2.3")
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    destination = tmp_path / "source.tgz"
+    with pytest.raises(NexusHelmHttpError) as source_error:
+        await service.download_chart("helm-a", "demo", "1.2.3", destination)
+    assert source_error.value.code == "helm_index_invalid"
+    assert not destination.exists()
+    with pytest.raises(HelmServiceError) as target_error:
+        await bridge.inspect_target(chart, expected_digest="sha256:" + digest)
+    assert target_error.value.code == "helm_index_invalid"
+    package = tmp_path / "demo-1.2.3.tgz"
+    package.write_bytes(data)
+    with pytest.raises(NexusHelmHttpError) as upload_error:
+        await service.upload_chart("helm-a", "demo", "1.2.3", package)
+    assert upload_error.value.code == "helm_index_invalid"
+    assert all(request.method == "GET" for request in state["calls"])
+
+
+@pytest.mark.asyncio
+async def test_helm_valid_secondary_same_repository_url_is_permitted(client_service):
+    service, state, _data, digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request):
+        state["calls"].append(request)
+        return httpx.Response(200, text=yaml.safe_dump({
+            "entries": {"demo": [{
+                "version": "1.2.3", "digest": digest,
+                "urls": [
+                    "demo-1.2.3.tgz",
+                    "https://nexus.example.test/repository/helm-a/demo-1.2.3.tgz",
+                ],
+            }]},
+        }))
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    from unittest.mock import patch
+    with patch("app.services.nexus_helm_http.httpx.AsyncClient", factory):
+        listed = await service.list_charts("helm-a")
+    assert listed.available and len(listed.items) == 1
