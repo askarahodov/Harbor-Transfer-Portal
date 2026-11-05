@@ -339,7 +339,24 @@ jobs:
           set -euo pipefail
           cd /tmp/htp-real-harbor/harbor
           ./install.sh >/tmp/htp-real-harbor/installation.log 2>&1 || {
-            echo "Harbor installer failed; private install log not uploaded" >&2
+            echo "Harbor installer failed; reporting filtered diagnostics only" >&2
+            python - <<'PY'
+          import pathlib
+          import re
+
+          log = pathlib.Path("/tmp/htp-real-harbor/installation.log")
+          lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+          for line in lines[-160:]:
+              if not re.search(r"(?i)error|fail|cannot|denied|unhealthy|invalid|missing", line):
+                  continue
+              if re.search(
+                  r"(?i)password|secret|token|credential|auth|private|key|env|https?://",
+                  line,
+              ):
+                  print("Harbor installer diagnostic: [filtered sensitive line]")
+                  continue
+              print("Harbor installer diagnostic:", line[:180])
+          PY
             exit 1
           }
 
@@ -372,4 +389,4 @@ jobs:
           fi
           docker rm -f htp-nexus-e2e >/dev/null 2>&1
           rm -f "$HTP_NEXUS_E2E_PASSWORD_FILE"
-          rm -rf /tmp/htp-real-harbor
+          sudo rm -rf /tmp/htp-real-harbor
