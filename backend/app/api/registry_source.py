@@ -1,12 +1,13 @@
 """Read-only exact Nexus Docker reference inspection without Harbor browse."""
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.services.harbor_profiles import HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
 from app.services.nexus_service import ImageReference, NexusService, NexusServiceError
+from app.services.nexus_discovery import NexusDiscoveryService
 
 router = APIRouter(prefix="/registry/source", tags=["registry"])
 
@@ -78,4 +79,63 @@ async def inspect_exact_source(
         reference=image.reference,
         digest=inspected.digest,
         media_type=inspected.media_type,
+    )
+
+
+class NexusSuggestionResponse(BaseModel):
+    available: bool
+    items: list[str]
+    message: str | None = None
+    truncated: bool = False
+
+
+@router.get("/nexus/repositories", response_model=NexusSuggestionResponse)
+async def nexus_repository_suggestions(
+    request: Request,
+    _user: CurrentUserDep,
+    session: SessionDep,
+    profile_id: str = Query(min_length=1, max_length=64),
+    search: str = Query(default="", max_length=128),
+) -> NexusSuggestionResponse:
+    try:
+        result = await NexusDiscoveryService(
+            session, request.app.state.settings, profile_id
+        ).catalog(search.strip())
+    except HarborSettingsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": "Выбранный Nexus profile недоступен"},
+        ) from exc
+    return NexusSuggestionResponse(
+        available=result.available, items=list(result.items),
+        message=result.message, truncated=result.truncated,
+    )
+
+
+@router.get("/nexus/tags", response_model=NexusSuggestionResponse)
+async def nexus_tag_suggestions(
+    request: Request,
+    _user: CurrentUserDep,
+    session: SessionDep,
+    profile_id: str = Query(min_length=1, max_length=64),
+    repository: str = Query(min_length=1, max_length=255),
+    search: str = Query(default="", max_length=128),
+) -> NexusSuggestionResponse:
+    try:
+        result = await NexusDiscoveryService(
+            session, request.app.state.settings, profile_id
+        ).tags(repository, search.strip())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "registry_reference_invalid", "message": "Неверный Docker repository"},
+        ) from exc
+    except HarborSettingsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": "Выбранный Nexus profile недоступен"},
+        ) from exc
+    return NexusSuggestionResponse(
+        available=result.available, items=list(result.items),
+        message=result.message, truncated=result.truncated,
     )
