@@ -64,6 +64,12 @@ class NexusDestinationValidator:
         return self._registry_host
 
     async def validate(self, project: str, repository: str) -> DestinationCapability:
+        # Basic Auth over HTTP would expose TARGET service credentials.
+        if urlsplit(self._url).scheme != "https" and self._username:
+            return DestinationCapability(
+                False, False, "nexus_insecure_transport",
+                "Передача учётных данных TARGET Nexus требует HTTPS",
+            )
         # Only one read-only connector probe: Nexus has no Harbor project API.
         # A successful GET does not claim that registry push is permitted.
         auth = (
