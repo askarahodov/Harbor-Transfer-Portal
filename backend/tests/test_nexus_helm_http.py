@@ -736,3 +736,59 @@ def test_helm_archive_accepts_metadata_after_regular_members():
         chart.size = len(metadata)
         archive.addfile(chart, io.BytesIO(metadata))
     NexusHelmHttpService._validate_package(buffer.getvalue(), "demo", "1.2.3")
+
+
+@pytest.mark.asyncio
+async def test_helm_signed_source_digest_is_verified_on_exact_upload_bytes(
+    client_service, tmp_path: Path,
+):
+    service, state, data, digest = client_service
+    package = tmp_path / "demo-1.2.3.tgz"
+    package.write_bytes(data)
+    # Caller supplies an old digest even though path now points at a valid
+    # replacement package. The actual HTTP upload must never happen.
+    with pytest.raises(NexusHelmHttpError) as mismatch:
+        await service.upload_chart(
+            "helm-a", "demo", "1.2.3", package,
+            expected_digest="sha256:" + "0" * 64,
+        )
+    assert mismatch.value.code == "helm_payload_digest_mismatch"
+    assert not state["calls"]
+    state["present"] = False
+    actual = await service.upload_chart(
+        "helm-a", "demo", "1.2.3", package,
+        expected_digest="sha256:" + digest,
+    )
+    assert actual == digest
+    assert state["upload"]
+
+
+@pytest.mark.asyncio
+async def test_helm_upload_bounded_file_reader_rejects_oversize_before_network(
+    client_service, tmp_path: Path, monkeypatch,
+):
+    from app.services import nexus_helm_http
+
+    service, state, data, _digest = client_service
+    package = tmp_path / "demo-1.2.3.tgz"
+    package.write_bytes(data)
+    monkeypatch.setattr(nexus_helm_http, "_MAX_CHART", len(data) - 1)
+    with pytest.raises(NexusHelmHttpError) as error:
+        await service.upload_chart("helm-a", "demo", "1.2.3", package)
+    assert error.value.code == "helm_chart_too_large"
+    assert not state["calls"]
+
+
+@pytest.mark.asyncio
+async def test_helm_upload_refuses_symlink_without_network(
+    client_service, tmp_path: Path,
+):
+    service, state, data, _digest = client_service
+    real_package = tmp_path / "real-chart.tgz"
+    real_package.write_bytes(data)
+    link = tmp_path / "demo-1.2.3.tgz"
+    link.symlink_to(real_package)
+    with pytest.raises(NexusHelmHttpError) as error:
+        await service.upload_chart("helm-a", "demo", "1.2.3", link)
+    assert error.value.code == "helm_package_invalid"
+    assert not state["calls"]
