@@ -9,6 +9,7 @@ on:
       - 'backend/tests/test_nexus_source_e2e.py'
       - 'backend/tests/test_nexus_target_e2e.py'
       - 'backend/tests/test_nexus_helm_e2e.py'
+      - 'backend/tests/test_nexus_helm_bundle_e2e.py'
       - 'backend/app/services/nexus_helm_http.py'
       - 'backend/app/services/nexus_destination_validator.py'
       - 'backend/app/services/import_destination_plan.py'
@@ -186,7 +187,7 @@ jobs:
         run: |
           set -euo pipefail
           cd backend
-          python -m pytest -v -x tests/test_nexus_helm_e2e.py
+          python -m pytest -v -x tests/test_nexus_helm_e2e.py tests/test_nexus_helm_bundle_e2e.py
 
       - name: Stop and delete disposable Nexus
         if: ${{ always() }}
