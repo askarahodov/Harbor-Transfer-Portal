@@ -8,6 +8,8 @@ on:
       - 'backend/tests/test_nexus_legacy_e2e.py'
       - 'backend/tests/test_nexus_source_e2e.py'
       - 'backend/tests/test_nexus_target_e2e.py'
+      - 'backend/tests/test_nexus_helm_e2e.py'
+      - 'backend/app/services/nexus_helm_http.py'
       - 'backend/app/services/nexus_destination_validator.py'
       - 'backend/app/services/import_destination_plan.py'
       - 'backend/app/services/export_orchestrator.py'
@@ -44,6 +46,7 @@ jobs:
       HTP_NEXUS_LEGACY_E2E: '1'
       HTP_NEXUS_E2E_PASSWORD_FILE: /tmp/htp-nexus-admin-password
       HTP_NEXUS_TLS_CA_FILE: /tmp/htp-nexus-e2e-tls/server.crt
+      HTP_NEXUS_HELM_HTTPS_URL: https://127.0.0.1:8444
       HTP_NEXUS_VERSION: ${{ inputs.nexus_version || '3.69.0' }}
     steps:
       - name: Checkout
@@ -138,6 +141,19 @@ jobs:
               proxy_set_header X-Forwarded-Host $http_host;
             }
           }
+          server {
+            listen 8444 ssl;
+            server_name localhost;
+            ssl_certificate /certs/server.crt;
+            ssl_certificate_key /certs/server.key;
+            location / {
+              proxy_pass http://127.0.0.1:8081;
+              proxy_http_version 1.1;
+              proxy_set_header Host $http_host;
+              proxy_set_header X-Forwarded-Proto https;
+              proxy_set_header X-Forwarded-Host $http_host;
+            }
+          }
           NGINX
           docker run --detach --name htp-nexus-tls-proxy --network host \
             -v "${tls_dir}/default.conf:/etc/nginx/conf.d/default.conf:ro" \
@@ -164,6 +180,13 @@ jobs:
           set -euo pipefail
           cd backend
           python -m pytest -v -x tests/test_nexus_legacy_e2e.py tests/test_nexus_source_e2e.py tests/test_nexus_target_e2e.py
+
+      - name: Real classic Helm HTTP SOURCE/TARGET transport E2E (no OCI)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd backend
+          python -m pytest -v -x tests/test_nexus_helm_e2e.py
 
       - name: Stop and delete disposable Nexus
         if: ${{ always() }}
