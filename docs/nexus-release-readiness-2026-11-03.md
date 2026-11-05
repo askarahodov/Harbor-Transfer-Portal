@@ -279,6 +279,34 @@ SOURCE/TARGET, TLS/CA, RBAC и браузера. Release verdict — **NO-GO**.
 
 Для полного регионального прохода #434–#436 подготовлен [единый runbook с матрицей Helm, SOURCE/TARGET и формой evidence](nexus-regional-acceptance-runbook.md). Региональное исполнение и подпись владельца **НЕ ПОЛУЧЕНЫ**; этот документ не заменяет акт.
 
+## 4b. Полная техническая квалификация и границы evidence (05.11.2026)
+
+На кодовом commit `283c1c82a4ebec5d664774e395c5d73731bf077a`
+интеграционный [draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451)
+прошёл [общий CI #41980751399](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41980751399)
+(**SUCCESS**, backend/frontend, security, protocol, integration и Quality Gate)
+и [реальный Nexus 3.69 OSS E2E #41980751398](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41980751398)
+(**SUCCESS: 12 passed**).
+
+Текущий TARGET E2E дополнительно отказывается принимать три типа
+повреждённого физического handoff: архив, `.sha256` sidecar и signed
+`htp-handoff.json`, **до создания import operation**. Проверка
+TARGET registry URL отвергает встроенные credentials/query/fragment,
+не переходит по HTTP redirect и не использует автоматические proxy
+настройки окружения. Добавлены unit-тесты 200/401/403/302/404, отсутствия
+Docker v2 header и отсутствия вывода секрета.
+
+**Незакрытые внешние gates:** настоящий корпоративный TARGET, реальные
+DNS/TLS/CA/proxy/RBAC, физическое отсутствие канала между контурами,
+региональная браузерная приёмка, отдельный Harbor↔Nexus interop.
+Для legacy Helm на Nexus решение владельца `needed/not needed`
+**не получено**; текущий код **строго Docker-only**, `helm push oci://`
+на Nexus 3.69 OSS не поддерживается. Подробный [единый runbook
+региональной приёмки](nexus-regional-acceptance-runbook.md) подготовлен
+как форма проверки и записи evidence, **не как доказательство исполнения**.
+
+**Вердикт остаётся NO-GO, PR #451 — draft, `main` не менялась.**
+
 ## 5. Ссылки и владельцы источников истины
 
 - [PR #438](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/438),
