@@ -281,3 +281,69 @@ def test_preflight_helm_invalid_index_fails_without_chart_download_and_isolated(
     assert report["entries"][1]["checks"][-1]["code"] == "package_sha256_verified"
     assert len(calls) == 3
     assert all("helm-bad/demo" not in url for url in calls)
+
+
+@pytest.mark.parametrize("invalid_url", [
+    "https://external.invalid/stolen.tgz",
+    "https://example.invalid/repository/another/chart-2.0.0.tgz",
+    "../chart-2.0.0.tgz",
+    "chart-2.0.0.tgz?key=secret",
+])
+def test_preflight_rejects_unsafe_url_in_unselected_chart(invalid_url):
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path == "/repository/helm-team/index.yaml":
+            return httpx.Response(200, text=yaml.safe_dump({
+                "entries": {
+                    "demo": [{"version": "1.0.0", "digest": "a" * 64,
+                              "urls": ["demo-1.0.0.tgz"]}],
+                    "chart": [{"version": "2.0.0", "digest": "b" * 64,
+                               "urls": [invalid_url]}],
+                },
+            }))
+        raise AssertionError("invalid catalog must not trigger .tgz download")
+
+    def factory(**kwargs):
+        return httpx.Client(transport=httpx.MockTransport(handler), **kwargs)
+
+    report = run_document(_document([{
+        "id": "helm-team", "contour": "SOURCE", "format": "helm",
+        "kind": "hosted", "repository": "helm-team",
+        "endpoint": "https://nexus.example.test",
+        "chart": "demo", "version": "1.0.0",
+    }]), client_factory=factory)
+    assert report["preflight_status"] == "FAIL"
+    assert report["entries"][0]["checks"][-1]["code"] == "index_invalid"
+    assert seen == ["/repository/helm-team/index.yaml"]
+
+
+def test_preflight_accepts_valid_helm_build_metadata_version():
+    body = b"chart bytes"
+    digest = hashlib.sha256(body).hexdigest()
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path.endswith("/index.yaml"):
+            return httpx.Response(200, text=yaml.safe_dump({
+                "entries": {"demo": [{
+                    "version": "1.2.3+build.4", "digest": digest,
+                    "urls": ["demo-1.2.3+build.4.tgz"],
+                }]},
+            }))
+        return httpx.Response(200, content=body)
+
+    def factory(**kwargs):
+        return httpx.Client(transport=httpx.MockTransport(handler), **kwargs)
+
+    report = run_document(_document([{
+        "id": "helm-team", "contour": "SOURCE", "format": "helm",
+        "kind": "hosted", "repository": "helm-team",
+        "endpoint": "https://nexus.example.test", "chart": "demo",
+        "version": "1.2.3+build.4", "expected_sha256": digest,
+    }]), client_factory=factory)
+    assert report["preflight_status"] == "PASS"
+    assert report["entries"][0]["checks"][-1]["code"] == "package_sha256_verified"
+    assert len(seen) == 2
