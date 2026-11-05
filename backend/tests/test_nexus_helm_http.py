@@ -451,3 +451,47 @@ async def test_helm_index_rejects_foreign_repository_path(client_service):
     with patch("app.services.nexus_helm_http.httpx.AsyncClient", factory):
         result = await service.list_charts("helm-a")
     assert result.available and result.items == ()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_record", [
+    {"version": "1.2.3", "digest": "not-sha256", "urls": ["demo-1.2.3.tgz"]},
+    {"version": "1.2.3", "digest": "a" * 64,
+     "urls": ["https://foreign.invalid/other-package.tgz"]},
+    {"version": "1.2.3", "digest": "a" * 64, "urls": []},
+])
+async def test_malformed_target_index_never_allows_upload_or_absent_plan(
+    client_service, tmp_path: Path, monkeypatch, bad_record,
+):
+    service, state, data, _digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request):
+        state["calls"].append(request)
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+        if request.url.path == "/repository/helm-a/index.yaml":
+            return httpx.Response(200, text=yaml.safe_dump({
+                "entries": {"demo": [bad_record]},
+            }))
+        raise AssertionError("POST or chart download must not occur")
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    target = HelmChartReference("helm-a", "demo", "1.2.3")
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    with pytest.raises(HelmServiceError) as error:
+        await bridge.inspect_target(target)
+    assert error.value.code == "helm_index_invalid"
+
+    package = tmp_path / "demo-1.2.3.tgz"
+    package.write_bytes(data)
+    with pytest.raises(NexusHelmHttpError) as error:
+        await service.upload_chart("helm-a", "demo", "1.2.3", package)
+    assert error.value.code == "helm_index_invalid"
+    assert not state["upload"]
+    assert not any(request.method == "POST" for request in state["calls"])
+    assert all(request.url.host == "nexus.example.test" for request in state["calls"])
