@@ -9,6 +9,7 @@ on:
       - 'backend/tests/test_nexus_source_e2e.py'
       - 'backend/tests/test_nexus_target_e2e.py'
       - 'backend/tests/test_harbor_nexus_interop_e2e.py'
+      - 'tools/harbor_e2e_setup.py'
       - 'backend/tests/test_nexus_helm_e2e.py'
       - 'backend/tests/test_nexus_helm_bundle_e2e.py'
       - 'backend/tests/test_nexus_regional_preflight_e2e.py'
@@ -227,3 +228,149 @@ jobs:
           docker rm -f htp-nexus-e2e 2>/dev/null || true
           rm -f "${HTP_NEXUS_E2E_PASSWORD_FILE}"
           rm -rf /tmp/htp-nexus-e2e-tls
+
+  real-harbor-core-nexus:
+    name: Harbor 2.14.6 Core + robots ↔ Nexus 3.69.0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      HTP_NEXUS_LEGACY_E2E: '1'
+      HTP_REAL_HARBOR_E2E: '1'
+      HTP_REAL_HARBOR_URL: https://htp-harbor.test:9443
+      HTP_REAL_HARBOR_CA_FILE: /tmp/htp-real-harbor/certs/server.crt
+      HTP_REAL_HARBOR_SKOPEO_CERT_DIR: /tmp/htp-real-harbor/certs/skopeo
+      HTP_HARBOR_ADMIN_PASSWORD_FILE: /tmp/htp-real-harbor/admin.password
+      HTP_HARBOR_SOURCE_ROBOT_FILE: /tmp/htp-real-harbor/source-robot.json
+      HTP_HARBOR_TARGET_ROBOT_FILE: /tmp/htp-real-harbor/target-robot.json
+      HTP_NEXUS_E2E_PASSWORD_FILE: /tmp/htp-nexus-admin-password
+      NO_PROXY: 127.0.0.1,localhost,htp-harbor.test
+      no_proxy: 127.0.0.1,localhost,htp-harbor.test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Python 3.12
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned backend dependencies and Skopeo
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y skopeo
+          python -m pip install -r backend/requirements-dev.lock
+          python -m pip install --no-deps --no-build-isolation ./backend
+          docker compose version
+
+      - name: Start isolated Nexus 3.69.0 Docker hosted connectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull sonatype/nexus3:3.69.0
+          docker run --detach --name htp-nexus-real-harbor \
+            --memory 3g \
+            -p 127.0.0.1:8081:8081 \
+            -p 127.0.0.1:8082:8082 \
+            -p 127.0.0.1:8083:8083 \
+            -e INSTALL4J_ADD_VM_PARAMS="-Xms256m -Xmx1200m -XX:MaxDirectMemorySize=512m" \
+            sonatype/nexus3:3.69.0
+          python tools/nexus_e2e_setup.py --password-file "$HTP_NEXUS_E2E_PASSWORD_FILE"
+
+      - name: Download SHA256-pinned official Harbor 2.14.6 online installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p /tmp/htp-real-harbor
+          cd /tmp/htp-real-harbor
+          curl --fail --silent --show-error --location --retry 3 \
+            --output harbor-online-installer-v2.14.6.tgz \
+            https://github.com/goharbor/harbor/releases/download/v2.14.6/harbor-online-installer-v2.14.6.tgz
+          echo "64b22fe32364a34345fa9edd30e5acfddcb59a8ff56603fc8ef23293deacbed9  harbor-online-installer-v2.14.6.tgz" \
+            | sha256sum -c -
+          tar -xz --no-same-owner -f harbor-online-installer-v2.14.6.tgz
+
+      - name: Configure Harbor HTTPS and ephemeral credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          sudo sh -c 'echo "127.0.0.1 htp-harbor.test" >> /etc/hosts'
+          mkdir -p /tmp/htp-real-harbor/certs/skopeo
+          openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 \
+            -subj /CN=htp-harbor.test \
+            -addext "subjectAltName=DNS:htp-harbor.test,IP:127.0.0.1" \
+            -keyout /tmp/htp-real-harbor/certs/server.key \
+            -out /tmp/htp-real-harbor/certs/server.crt
+          cp /tmp/htp-real-harbor/certs/server.crt \
+            /tmp/htp-real-harbor/certs/skopeo/ca.crt
+          chmod 600 /tmp/htp-real-harbor/certs/server.key
+          openssl rand -hex 24 > "$HTP_HARBOR_ADMIN_PASSWORD_FILE"
+          chmod 600 "$HTP_HARBOR_ADMIN_PASSWORD_FILE"
+          echo "::add-mask::$(cat "$HTP_HARBOR_ADMIN_PASSWORD_FILE")"
+          python - <<'PY'
+          import pathlib
+          import secrets
+          import yaml
+
+          root = pathlib.Path("/tmp/htp-real-harbor")
+          config = yaml.safe_load((root / "harbor/harbor.yml.tmpl").read_text())
+          config["hostname"] = "htp-harbor.test"
+          config["http"]["port"] = 8088
+          config["https"] = {
+              "port": 9443,
+              "certificate": str(root / "certs/server.crt"),
+              "private_key": str(root / "certs/server.key"),
+          }
+          config["external_url"] = "https://htp-harbor.test:9443"
+          config["harbor_admin_password"] = (root / "admin.password").read_text().strip()
+          config["database"]["password"] = secrets.token_hex(20)
+          config["data_volume"] = str(root / "data")
+          config["log"]["location"] = str(root / "logs")
+          (root / "harbor/harbor.yml").write_text(yaml.safe_dump(config))
+          (root / "harbor/harbor.yml").chmod(0o600)
+          PY
+
+      - name: Install real Harbor Core, registry and token service without Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/htp-real-harbor/harbor
+          ./install.sh >/tmp/htp-real-harbor/installation.log 2>&1 || {
+            echo "Harbor installer failed; private install log not uploaded" >&2
+            exit 1
+          }
+
+      - name: Create private Harbor projects and independent scoped robots
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/harbor_e2e_setup.py \
+            --url "$HTP_REAL_HARBOR_URL" \
+            --ca-file "$HTP_REAL_HARBOR_CA_FILE" \
+            --admin-password-file "$HTP_HARBOR_ADMIN_PASSWORD_FILE" \
+            --source-robot-file "$HTP_HARBOR_SOURCE_ROBOT_FILE" \
+            --target-robot-file "$HTP_HARBOR_TARGET_ROBOT_FILE"
+
+      - name: Harbor REST and robot ACL ↔ Nexus signed API handoff E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd backend
+          python -m pytest -v -x tests/test_harbor_nexus_interop_e2e.py
+
+      - name: Remove disposable Harbor and Nexus without exposing secrets
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          if test -f /tmp/htp-real-harbor/harbor/docker-compose.yml; then
+            cd /tmp/htp-real-harbor/harbor
+            docker compose down --remove-orphans >/dev/null 2>&1
+          fi
+          docker rm -f htp-nexus-real-harbor >/dev/null 2>&1
+          rm -f "$HTP_NEXUS_E2E_PASSWORD_FILE"
+          rm -rf /tmp/htp-real-harbor
