@@ -59,3 +59,29 @@ async def test_docker_target_preflight_is_read_only_and_fail_closed(
     assert result.write_allowed is (expected is None)
     assert result.error_code == expected
     assert "sensitive-password-not-for-logs" not in (result.message or "")
+
+
+@pytest.mark.asyncio
+async def test_target_credentials_never_sent_over_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden_client(**kwargs):  # type: ignore[no-untyped-def]
+        pytest.fail("HTTP Basic Auth must be rejected before creating an HTTP client")
+
+    monkeypatch.setattr(
+        "app.services.nexus_destination_validator.httpx.AsyncClient",
+        forbidden_client,
+    )
+    validator = NexusDestinationValidator.__new__(NexusDestinationValidator)
+    validator.settings = Settings(_env_file=None)
+    validator._url = "http://target.example.invalid"
+    validator._registry_host = "target.example.invalid"
+    validator._username = "operator"
+    validator._password = "sensitive-password-not-for-logs"
+    validator._verify = False
+
+    result = await validator.validate("test-project", "test-project/image")
+    assert not result.project_exists
+    assert not result.write_allowed
+    assert result.error_code == "nexus_insecure_transport"
+    assert "sensitive-password-not-for-logs" not in (result.message or "")
