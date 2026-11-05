@@ -7,6 +7,8 @@ import pytest
 
 from app.services.nexus_discovery import NexusDiscoveryService
 
+REAL_ASYNC_CLIENT = httpx.AsyncClient
+
 
 @pytest.fixture
 def discovery(monkeypatch: pytest.MonkeyPatch):
@@ -20,7 +22,7 @@ def discovery(monkeypatch: pytest.MonkeyPatch):
     service.timeout = httpx.Timeout(2.0)
     seen: list[httpx.Request] = []
     response = {"status": 200, "json": {"repositories": ["team/jaeger", "other/app"]}}
-    original = httpx.AsyncClient
+    original = REAL_ASYNC_CLIENT
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
@@ -93,7 +95,7 @@ async def test_nexus_rest_search_uses_configured_repository_and_pagination(
     service.search_url = "https://nexus-ui.example.test"
     service.search_repository = "docker-all"
     seen: list[httpx.Request] = []
-    original = httpx.AsyncClient
+    original = REAL_ASYNC_CLIENT
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
@@ -135,7 +137,7 @@ async def test_nexus_rest_browse_access_denied_falls_back_to_manual(
     service, _seen, _response = discovery
     service.search_url = "https://nexus-ui.example.test"
     service.search_repository = "docker-all"
-    original = httpx.AsyncClient
+    original = REAL_ASYNC_CLIENT
 
     def factory(**kwargs):  # type: ignore[no-untyped-def]
         return original(
