@@ -13,6 +13,8 @@ import yaml
 
 from app.services.nexus_helm_http import NexusHelmHttpError, NexusHelmHttpService
 
+REAL_ASYNC_CLIENT = httpx.AsyncClient
+
 
 def chart_bytes(name: str = "demo", version: str = "1.2.3") -> bytes:
     out = io.BytesIO()
@@ -35,7 +37,7 @@ def client_service(monkeypatch):
     data = chart_bytes()
     digest = hashlib.sha256(data).hexdigest()
     state = {"calls": [], "upload": False, "status": 200, "kind": "hosted"}
-    original = httpx.AsyncClient
+    original = REAL_ASYNC_CLIENT
 
     def handler(request: httpx.Request) -> httpx.Response:
         state["calls"].append(request)
@@ -95,7 +97,7 @@ async def test_helm_index_unauthorized_is_not_empty(client_service):
 @pytest.mark.asyncio
 async def test_helm_index_rejects_foreign_and_traversal_urls(client_service):
     service, state, _data, _digest = client_service
-    original = httpx.AsyncClient
+    original = REAL_ASYNC_CLIENT
 
     def handler(request):
         return httpx.Response(200, text=yaml.safe_dump({"entries": {
