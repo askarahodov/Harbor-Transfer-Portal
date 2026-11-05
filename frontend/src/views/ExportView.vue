@@ -17,9 +17,11 @@ import {
   downloadExportHandoff,
   getExportHandoffRecord,
   inspectExactNexusImage,
+  getNexusInventory,
   listNexusRepositories,
   listNexusTags,
   type ExactNexusInspection,
+  type NexusRepository,
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
@@ -42,6 +44,37 @@ const exactResult = ref<ExactNexusInspection | null>(null)
 const exactError = ref<string | null>(null)
 const exactBusy = ref(false)
 const nexusRepositories = ref<string[]>([])
+const nexusInventory = ref<NexusRepository[]>([])
+const nexusInventoryAvailable = ref(false)
+const nexusInventoryMessage = ref<string | null>(null)
+const nexusInventoryBusy = ref(false)
+let nexusInventoryGeneration = 0
+
+async function loadNexusInventory(): Promise<void> {
+  const profileId = wizard.selectedHarborProfileId
+  if (!wizard.isNexus || !profileId) return
+  const generation = ++nexusInventoryGeneration
+  nexusInventoryBusy.value = true
+  nexusInventoryAvailable.value = false
+  nexusInventory.value = []
+  nexusInventoryMessage.value = null
+  try {
+    const result = await getNexusInventory(profileId)
+    if (generation !== nexusInventoryGeneration || wizard.selectedHarborProfileId !== profileId) return
+    nexusInventory.value = result.items
+    nexusInventoryAvailable.value = result.available
+    nexusInventoryMessage.value = result.message ?? (result.available
+      ? (result.items.length ? null : 'Доступных Docker/Helm репозиториев не обнаружено. Список может быть ограничен правами.')
+      : 'Список Nexus недоступен. Уточните URL Nexus UI и права сервисной учётной записи.')
+  } catch (reason) {
+    if (generation === nexusInventoryGeneration && wizard.selectedHarborProfileId === profileId) {
+      nexusInventoryMessage.value = apiErrorInfo(reason, 'Не удалось получить список репозиториев Nexus.').message
+    }
+  } finally {
+    if (generation === nexusInventoryGeneration) nexusInventoryBusy.value = false
+  }
+}
+
 const nexusTags = ref<string[]>([])
 const nexusCatalogMessage = ref<string | null>(null)
 const nexusTagsMessage = ref<string | null>(null)
@@ -144,11 +177,18 @@ watch(() => wizard.selectedHarborProfileId, () => {
   exactError.value = null
   nexusGeneration += 1
   nexusTagsGeneration += 1
+  nexusInventoryGeneration += 1
+  nexusInventory.value = []
+  nexusInventoryAvailable.value = false
+  nexusInventoryMessage.value = null
   nexusRepositories.value = []
   nexusTags.value = []
   nexusCatalogMessage.value = null
   nexusTagsMessage.value = null
-  if (wizard.isNexus) void searchNexusRepositories()
+  if (wizard.isNexus) {
+    void loadNexusInventory()
+    void searchNexusRepositories()
+  }
 })
 
 const downloadError = ref<string | null>(null)
@@ -498,6 +538,25 @@ onBeforeUnmount(() => {
           <div>
             <strong>Nexus · Docker Registry v2</strong>
             <p>Поиск доступен, если ваш Nexus разрешает Docker v2 catalog/tags. Если каталог закрыт, укажите точный repository:tag. Harbor API и Helm OCI не используются.</p>
+            <div class="nexus-inventory" aria-label="Репозитории Nexus по сервисной учётной записи">
+              <div class="nexus-inventory__heading">
+                <strong>Репозитории Nexus: Docker и Helm</strong>
+                <button type="button" class="secondary-button" :disabled="nexusInventoryBusy" @click="loadNexusInventory">
+                  {{ nexusInventoryBusy ? 'Загрузка…' : 'Обновить список' }}
+                </button>
+              </div>
+              <p class="muted">Список получен с правами сервисного пользователя. Видимость не означает право чтения или записи. Репозитории другого формата не показываются.</p>
+              <p v-if="nexusInventoryMessage" role="status" class="muted">{{ nexusInventoryMessage }}</p>
+              <ul v-if="nexusInventoryAvailable && nexusInventory.length" class="nexus-inventory__list">
+                <li v-for="item in nexusInventory" :key="item.format + ':' + item.name">
+                  <strong>{{ item.name }}</strong>
+                  <span>{{ item.format === 'docker' ? 'Docker' : 'Helm' }} · {{ item.kind }}</span>
+                  <span class="muted">{{ item.format === 'helm'
+                    ? 'Helm HTTP (.tgz) — перенос пока не реализован'
+                    : 'Укажите Docker image path ниже и проверьте digest' }}</span>
+                </li>
+              </ul>
+            </div>
             <form class="nexus-exact-form" @submit.prevent="inspectNexusReference">
               <label>Repository
                 <input v-model="exactRepository" type="text" required maxlength="255" placeholder="team/application" autocomplete="off" list="nexus-repositories" />
@@ -794,6 +853,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.nexus-inventory { margin-top: var(--space-3); display: grid; gap: var(--space-2); }
+.nexus-inventory__heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.nexus-inventory__list { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-2); }
+.nexus-inventory__list li { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .nexus-exact-form { display: grid; gap: var(--space-3); margin-top: var(--space-3); }
 .nexus-suggestions { display: flex; flex-wrap: wrap; gap: var(--space-2); max-height: 180px; overflow-y: auto; }
 .nexus-suggestions button { max-width: 100%; overflow-wrap: anywhere; }
