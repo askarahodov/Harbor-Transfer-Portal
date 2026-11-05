@@ -231,3 +231,25 @@ Nexus formats/types/versions и полномочий сервисного пол
 завершённой приёмки физического SOURCE→TARGET на разрешённом стенде
 и **явного подписанного разрешения владельца**. Во всех остальных
 случаях **NO-GO**.
+
+
+## 9. Harbor ↔ Nexus — граница тестовых доказательств
+
+В рамках draft PR #451 есть E2E с **Harbor-профилем** в обе стороны:
+Harbor-тип SOURCE → Nexus TARGET и Nexus SOURCE → Harbor-тип TARGET.
+Содержимое Docker v2 переносится настоящими Skopeo/Portal-адаптерами,
+подписанным Offline Bundle и TARGET receipt. Используется отдельный
+одноразовый Docker Distribution registry как совместимый OCI-транспорт
+Harbor. **Harbor REST metadata** и **проверка RBAC/project** заменены
+строго ограниченными тестовыми заглушками, потому что в Nexus runner
+**не развёрнут настоящий Harbor core/token service**. Проверки
+подтверждают маршрутизацию типов, проверку подписи/digest, replay и
+отказ при CONFLICT без overwrite, но **не доказывают** совместимость с
+фактической версией Harbor, его token/robot-account ACL или CA/proxy.
+
+До закрытия #434 оператор должен отдельно представить evidence
+**реального Harbor**: версию и проект/robot permissions, результаты
+Harbor REST browse, scoped token pull/push, Docker v2 digest,
+работоспособный Harbor→Nexus и Nexus→Harbor подписанный handoff
+в разрешённых тестовых namespaces. Это независимая часть общего
+GO/NO-GO, нельзя выдавать подменённый REST/RBAC тест за живой Harbor.

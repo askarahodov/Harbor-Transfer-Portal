@@ -83,6 +83,49 @@ def _harbor_fixture_image(tmp_path: Path) -> str:
     return "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
+def _overwrite_disposable_harbor_tag_with_conflict(layout: Path) -> str:
+    """Replace test-only Harbor-shaped registry tag with a new Docker v2 digest."""
+    _write_oci_image_fixture(layout)
+    index = json.loads((layout / "index.json").read_text(encoding="utf-8"))
+    manifest_entry = index["manifests"][0]
+    root = layout / "blobs" / "sha256"
+    manifest_path = root / manifest_entry["digest"].removeprefix("sha256:")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    configuration = root / manifest["config"]["digest"].removeprefix("sha256:")
+    changed = json.loads(configuration.read_text(encoding="utf-8"))
+    changed["created"] = "2026-11-05T19:00:00Z"
+
+    def save_blob(document: dict) -> tuple[str, int]:
+        data = json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        digest = hashlib.sha256(data).hexdigest()
+        (root / digest).write_bytes(data)
+        return f"sha256:{digest}", len(data)
+
+    config_digest, config_size = save_blob(changed)
+    manifest["config"]["digest"] = config_digest
+    manifest["config"]["size"] = config_size
+    manifest_digest, manifest_size = save_blob(manifest)
+    manifest_entry["digest"] = manifest_digest
+    manifest_entry["size"] = manifest_size
+    (layout / "index.json").write_text(json.dumps(index), encoding="utf-8")
+    subprocess.run(
+        [
+            "skopeo", "copy", "--format", "v2s2", "--dest-tls-verify=false",
+            f"oci:{layout}",
+            "docker://127.0.0.1:5005/harbor-interop-target/source:1.0.0",
+        ],
+        capture_output=True, check=True, timeout=120,
+    )
+    raw = subprocess.run(
+        [
+            "skopeo", "inspect", "--raw", "--tls-verify=false",
+            "docker://127.0.0.1:5005/harbor-interop-target/source:1.0.0",
+        ],
+        capture_output=True, check=True, timeout=60,
+    ).stdout
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
 @pytest.mark.parametrize("direction", ["harbor-to-nexus", "nexus-to-harbor"])
 def test_signed_docker_bundle_interoperability_via_separate_registry_types(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, direction: str,
@@ -223,6 +266,7 @@ def test_signed_docker_bundle_interoperability_via_separate_registry_types(
         "x-htp-sidecar-base64": base64.b64encode(sidecar).decode("ascii"),
         "x-htp-handoff-base64": base64.b64encode(handoff).decode("ascii"),
     }
+    competing_digest: str | None = None
     with TestClient(target_app) as client:
         headers = _auth(client)
         corrupt = client.post(
@@ -301,6 +345,51 @@ def test_signed_docker_bundle_interoperability_via_separate_registry_types(
         assert replay_receipt.json()["artifacts"][0]["status"] == "SKIPPED"
         assert replay_receipt.json()["artifacts"][0]["target_digest"] == image_digest
 
+        if not is_harbor_source:
+            # Harbor TARGET fixture conflict must never silently overwrite
+            # the existing Docker tag, even after a valid signed handoff.
+            competing_digest = _overwrite_disposable_harbor_tag_with_conflict(
+                tmp_path / "harbor-conflict-layout",
+            )
+            assert competing_digest != image_digest
+            third = client.post(
+                f"/api/imports/upload?profile_id={target_profile}",
+                content=archive, headers={**headers, **handoff_headers},
+            )
+            assert third.status_code == 202, third.text
+            conflict_id = third.json()["operation_id"]
+            assert _terminal(client, headers, conflict_id, ready=True)["status"] == "READY"
+            conflict_plan = client.put(
+                f"/api/imports/{conflict_id}/destination-plan",
+                headers=headers, json=mapping,
+            )
+            assert conflict_plan.status_code == 200, conflict_plan.text
+            assert conflict_plan.json()["artifacts"][0]["classification"] == "CONFLICT"
+            denied = client.post(
+                f"/api/imports/{conflict_id}/execute", headers=headers,
+                json={"destination_plan_id": conflict_plan.json()["plan_id"]},
+            )
+            assert denied.status_code == 409, denied.text
+            assert denied.json()["error"]["code"] == "import_conflict_blocked"
+            skipped = client.post(
+                f"/api/imports/{conflict_id}/execute", headers=headers,
+                json={
+                    "destination_plan_id": conflict_plan.json()["plan_id"],
+                    "skip_conflicts": True, "overwrite_conflicts": False,
+                },
+            )
+            assert skipped.status_code == 202, skipped.text
+            assert _terminal(client, headers, conflict_id)["status"] == "COMPLETED"
+            skipped_receipt = client.get(
+                f"/api/imports/{conflict_id}/receipt", headers=headers
+            )
+            assert skipped_receipt.status_code == 200, skipped_receipt.text
+            assert skipped_receipt.json()["artifacts"][0]["status"] == "SKIPPED"
+            assert (
+                skipped_receipt.json()["artifacts"][0]["target_digest"]
+                == competing_digest
+            )
+
     assert rest_calls == (
         [("harbor-e2e", "source", "1.0.0")] * 3 if is_harbor_source else []
     )
@@ -324,4 +413,4 @@ def test_signed_docker_bundle_interoperability_via_separate_registry_types(
             ],
             capture_output=True, check=True, timeout=60,
         ).stdout
-        assert "sha256:" + hashlib.sha256(observed).hexdigest() == image_digest
+        assert "sha256:" + hashlib.sha256(observed).hexdigest() == competing_digest
