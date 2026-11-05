@@ -243,8 +243,6 @@ jobs:
       HTP_HARBOR_SOURCE_ROBOT_FILE: /tmp/htp-real-harbor/source-robot.json
       HTP_HARBOR_TARGET_ROBOT_FILE: /tmp/htp-real-harbor/target-robot.json
       HTP_NEXUS_E2E_PASSWORD_FILE: /tmp/htp-nexus-admin-password
-      NO_PROXY: 127.0.0.1,localhost,htp-harbor.test
-      no_proxy: 127.0.0.1,localhost,htp-harbor.test
 
     steps:
       - name: Run minimal smoke
