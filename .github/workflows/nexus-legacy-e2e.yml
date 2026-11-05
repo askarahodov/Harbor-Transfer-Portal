@@ -324,7 +324,10 @@ jobs:
         run: |
           set -euo pipefail
           cd /tmp/htp-real-harbor/harbor
-          ./install.sh >/tmp/htp-real-harbor/installation.log 2>&1 || {
+          # Official Harbor Compose installer requires root to create bind-mounted
+          # common/config files (jobservice/env, core/env, etc.). The installer
+          # tarball SHA-256 is pinned above; credentials remain mode 0600.
+          sudo ./install.sh >/tmp/htp-real-harbor/installation.log 2>&1 || {
             echo "Harbor installer failed; reporting filtered diagnostics only" >&2
             python - <<'PY'
           import pathlib
