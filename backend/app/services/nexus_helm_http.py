@@ -317,11 +317,17 @@ class NexusHelmHttpService:
         """Reject malformed archives, unsafe members and mismatched Chart.yaml."""
         try:
             with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
-                members = archive.getmembers()
-                if len(members) > 1000 or sum(m.size for m in members) > _MAX_CHART:
-                    raise ValueError("archive limits")
+                # Parse one header at a time: getmembers() would first cache
+                # the entire untrusted tar directory before applying limits.
                 seen_members: set[str] = set()
-                for member in members:
+                total_size = 0
+                chart_metadata_seen = False
+                for member in archive:
+                    if len(seen_members) >= 1000:
+                        raise ValueError("archive member limit")
+                    total_size += member.size
+                    if total_size > _MAX_CHART:
+                        raise ValueError("archive size limit")
                     normalized_name = member.name.rstrip("/")
                     if normalized_name in seen_members:
                         raise ValueError("duplicate archive member")
@@ -329,30 +335,30 @@ class NexusHelmHttpService:
                     if (
                         member.issym() or member.islnk() or member.isdev()
                         or member.name.startswith("/")
-                        or not member.name.rstrip("/")
+                        or not normalized_name
                         or any(
                             p in ("", ".", "..")
-                            for p in member.name.rstrip("/").split("/")
+                            for p in normalized_name.split("/")
                         )
                         or not (member.isfile() or member.isdir())
                     ):
                         raise ValueError("unsafe archive member")
-                metadata = next(
-                    (m for m in members if m.name == f"{name}/Chart.yaml" and m.isfile()),
-                    None,
-                )
-                if metadata is None or metadata.size > 64 * 1024:
+                    if member.name == f"{name}/Chart.yaml":
+                        if not member.isfile() or member.size > 64 * 1024:
+                            raise ValueError("Chart.yaml invalid")
+                        stream = archive.extractfile(member)
+                        if stream is None:
+                            raise ValueError("Chart.yaml unreadable")
+                        manifest = _load_unambiguous_yaml(stream.read(64 * 1024 + 1))
+                        if (
+                            not isinstance(manifest, dict)
+                            or manifest.get("name") != name
+                            or manifest.get("version") != version
+                        ):
+                            raise ValueError("Chart.yaml identity mismatch")
+                        chart_metadata_seen = True
+                if not chart_metadata_seen:
                     raise ValueError("Chart.yaml missing")
-                stream = archive.extractfile(metadata)
-                if stream is None:
-                    raise ValueError("Chart.yaml unreadable")
-                manifest = _load_unambiguous_yaml(stream.read())
-                if (
-                    not isinstance(manifest, dict)
-                    or manifest.get("name") != name
-                    or manifest.get("version") != version
-                ):
-                    raise ValueError("Chart.yaml identity mismatch")
         except (tarfile.TarError, yaml.YAMLError, OSError, ValueError) as exc:
             raise NexusHelmHttpError(
                 "helm_package_invalid", "Некорректный или небезопасный Helm package"
