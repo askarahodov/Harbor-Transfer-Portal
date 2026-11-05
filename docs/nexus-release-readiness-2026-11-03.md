@@ -275,6 +275,10 @@ SOURCE/TARGET, TLS/CA, RBAC и браузера. Release verdict — **NO-GO**.
    утвердил, целевые версии SOURCE/TARGET, дату/результат smoke test,
    известные ограничения и ссылку на release evidence.
 
+## 4a. Операторская приёмка
+
+Для полного регионального прохода #434–#436 подготовлен [единый runbook с матрицей Helm, SOURCE/TARGET и формой evidence](nexus-regional-acceptance-runbook.md). Региональное исполнение и подпись владельца **НЕ ПОЛУЧЕНЫ**; этот документ не заменяет акт.
+
 ## 5. Ссылки и владельцы источников истины
 
 - [PR #438](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/438),
