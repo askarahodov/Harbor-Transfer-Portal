@@ -245,7 +245,8 @@ class HarborProfileService:
         registry_type: Literal["harbor", "nexus"] | None = None,
         nexus_search_url: str | None = None,
         nexus_search_repository: str | None = None,
-        nexus_search_set: bool = False,
+        nexus_search_url_set: bool = False,
+        nexus_search_repository_set: bool = False,
     ) -> HarborProfile:
         if profile_id == DEFAULT_PROFILE_ID:
             raise HarborSettingsError(
@@ -291,11 +292,11 @@ class HarborProfileService:
             enabled=next_enabled,
             registry_type=next_registry_type,
             nexus_search_url=(
-                self._search_url(nexus_search_url) if nexus_search_set
+                self._search_url(nexus_search_url) if nexus_search_url_set
                 else current.nexus_search_url
             ),
             nexus_search_repository=(
-                self._search_repository(nexus_search_repository) if nexus_search_set
+                self._search_repository(nexus_search_repository) if nexus_search_repository_set
                 else current.nexus_search_repository
             ),
         )
