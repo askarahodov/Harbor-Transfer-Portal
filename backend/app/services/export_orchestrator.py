@@ -230,10 +230,23 @@ class ExportOrchestrator:
                     comment=comment,
                     harbor_profile_id=bound_profile_id,
                 )
-            except (ExportOrchestrationError, HarborSettingsError, NexusServiceError) as exc:
-                # Profile/configuration errors can also occur before the artifact loop.
-                # They are operational failures, not unexpected worker crashes.
+            except (
+                ExportOrchestrationError,
+                HarborSettingsError,
+                NexusServiceError,
+                OperationTaskFailure,
+            ) as exc:
+                self._abort_unfinished_artifacts(context, artifact_ids)
+                self._clear_bundle_metadata(context.operation_id)
+                self._cleanup_published_delivery(delivery_id)
                 raise OperationTaskFailure(exc.code, exc.message) from exc
+            except Exception:
+                # Unexpected exception text may contain a secret: OperationManager
+                # writes sanitized public failure information and logs traceback.
+                self._abort_unfinished_artifacts(context, artifact_ids)
+                self._clear_bundle_metadata(context.operation_id)
+                self._cleanup_published_delivery(delivery_id)
+                raise
 
         try:
             self.operation_manager.submit(operation_id, worker)
@@ -790,6 +803,28 @@ class ExportOrchestrator:
     def _cleanup_helm_root(self, path: Path) -> None:
         """Compatibility hook; workspace ownership lives in the materializer."""
         self.artifact_materializer.cleanup_helm_root(path)
+
+    def _abort_unfinished_artifacts(
+        self, context: OperationContext, artifact_ids: Sequence[int]
+    ) -> None:
+        """Mark remaining artifacts, preserving the primary typed failure."""
+        operation = self.operation_manager.get_operation(context.operation_id)
+        if operation is None:
+            return
+        by_id = {artifact.id: artifact for artifact in operation.artifacts}
+        for artifact_id in artifact_ids:
+            artifact = by_id.get(artifact_id)
+            if artifact is None or artifact.status not in (
+                ArtifactStatus.PENDING,
+                ArtifactStatus.RUNNING,
+            ):
+                continue
+            context.set_artifact_status(
+                artifact_id,
+                ArtifactStatus.FAILED,
+                error_code="export_aborted",
+                error_message="Export bundle прерван; артефакт не опубликован",
+            )
 
     @staticmethod
     def _fail_artifacts(
