@@ -141,6 +141,7 @@ class NexusHelmHttpService:
             return HelmHttpResult(False, code="helm_index_invalid",
                                   message="Некорректный Helm index.yaml")
         found: list[HelmChartVersion] = []
+        seen_versions: set[tuple[str, str]] = set()
         for name, versions in data["entries"].items():
             if not isinstance(name, str) or _CHART.fullmatch(name) is None:
                 if strict:
@@ -210,6 +211,13 @@ class NexusHelmHttpService:
                             message="Helm index содержит небезопасный URL пакета",
                         )
                     continue
+                identity = (name, version)
+                if strict and identity in seen_versions:
+                    return HelmHttpResult(
+                        False, code="helm_index_invalid",
+                        message="Helm index содержит повторяющуюся chart/version",
+                    )
+                seen_versions.add(identity)
                 found.append(HelmChartVersion(name, version, filename, digest.lower()))
                 if len(found) > 500:
                     return HelmHttpResult(
@@ -277,7 +285,12 @@ class NexusHelmHttpService:
                 members = archive.getmembers()
                 if len(members) > 1000 or sum(m.size for m in members) > _MAX_CHART:
                     raise ValueError("archive limits")
+                seen_members: set[str] = set()
                 for member in members:
+                    normalized_name = member.name.rstrip("/")
+                    if normalized_name in seen_members:
+                        raise ValueError("duplicate archive member")
+                    seen_members.add(normalized_name)
                     if (
                         member.issym() or member.islnk() or member.isdev()
                         or member.name.startswith("/")
