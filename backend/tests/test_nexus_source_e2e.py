@@ -4,12 +4,14 @@ Runs only with the disposable Nexus 3.69 OSS service in the dedicated workflow.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
 import tarfile
 import time
 from pathlib import Path
+from threading import Event
 from unittest.mock import MagicMock
 
 import pytest
@@ -28,6 +30,7 @@ from app.main import create_app
 from app.services.bundle_package_service import BundlePackageService
 from app.services.harbor_profiles import HarborProfileService
 from app.services.nexus_service import NexusService, NexusServiceError
+from app.services.operation_manager import OperationTaskFailure
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("HTP_NEXUS_LEGACY_E2E") != "1",
@@ -157,6 +160,20 @@ def test_real_source_api_signed_bundle_and_browser_ticket(
         assert changed.status_code == 409
         assert changed.json()["error"]["code"] == "export_source_changed"
 
+        # An exhausted disk reserve must reject creation before any delivery is
+        # allocated, even though the SOURCE Nexus preview has already succeeded.
+        with monkeypatch.context() as disk_patch:
+            def no_disk(_required_bytes: int = 0) -> None:
+                raise OperationTaskFailure(
+                    "operation_insufficient_disk", "Insufficient test disk reserve"
+                )
+
+            disk_patch.setattr(app.state.operation_manager, "require_disk", no_disk)
+            no_space = client.post("/api/exports", json=selection, headers=auth)
+            assert no_space.status_code == 507, no_space.text
+            assert no_space.json()["error"]["code"] == "operation_insufficient_disk"
+            assert not list(settings.bundle_outgoing_root.glob("*.htp.tar.gz"))
+
         start = client.post("/api/exports", json=selection, headers=auth)
         assert start.status_code == 202, start.text
         operation_id = start.json()["operation_id"]
@@ -261,6 +278,32 @@ def test_real_source_api_signed_bundle_and_browser_ticket(
         ).status_code == 409
         assert client.post(
             f"/api/exports/{failed_id}/download-ticket", headers=auth
+        ).status_code == 409
+
+        # Cancellation while a Nexus copy is running must be terminal and
+        # must not publish a bundle, even if the worker was already claimed.
+        entered = Event()
+
+        async def blocked_copy(_service, _image, _destination):  # type: ignore[no-untyped-def]
+            entered.set()
+            while True:
+                await asyncio.sleep(0.05)
+
+        monkeypatch.setattr(NexusService, "export_image", blocked_copy)
+        cancelled_start = client.post("/api/exports", json=selection, headers=auth)
+        assert cancelled_start.status_code == 202, cancelled_start.text
+        assert entered.wait(timeout=10), "Nexus materialization did not start"
+        cancelled_id = cancelled_start.json()["operation_id"]
+        cancelled = client.post(f"/api/operations/{cancelled_id}/cancel", headers=auth)
+        assert cancelled.status_code == 200, cancelled.text
+        assert cancelled.json()["status"] == "CANCELLED"
+        assert cancelled.json()["error_code"] == "operation_cancelled"
+        assert cancelled.json()["bundle"] is None
+        assert not list(settings.bundle_outgoing_root.glob(
+            f"{cancelled_start.json()['delivery_id']}*"
+        ))
+        assert client.post(
+            f"/api/exports/{cancelled_id}/download-ticket", headers=auth
         ).status_code == 409
 
     archive = settings.bundle_outgoing_root / metadata["archive_name"]
