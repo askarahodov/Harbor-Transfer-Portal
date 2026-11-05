@@ -102,6 +102,38 @@ Helm repositories входят в инвентаризацию, но legacy Helm
 Это предмет отдельного решения/реализации #435; Docker E2E не подтверждает
 Helm-поддержку.
 
+## Обычный Helm HTTP (не OCI): SOURCE browse и транспортный адаптер
+
+В Nexus используются обычные Helm repositories разных версий/редакций.
+Для профиля Nexus необходимо отдельно настроить `nexus_search_url` как
+**HTTPS origin Nexus UI/API**, не Docker connector. Read-only endpoint
+`GET /api/registry/source/nexus/helm/charts?profile_id=...&repository=...`
+чтёт `GET /repository/<name>/index.yaml` с учётными данными профиля.
+SOURCE UI показывает chart/version/digest только после выбора доступного
+Helm repository; отсутствие доступа и пустой индекс различаются.
+
+Новый серверный `NexusHelmHttpService` реализует ограниченный HTTP
+транспорт: чтение `index.yaml`, проверку SHA-256 скачанного `.tgz`,
+проверку Chart.yaml и безопасных членов tar, а также метод загрузки
+`helm.asset` в **Helm hosted** через
+`POST /service/rest/v1/components?repository=<name>`. Перед upload
+проверяется `format=helm,type=hosted`, отсутствие версии в index,
+после upload — опубликованный digest. Нет редиректов, HTTP credentials,
+внешних download URLs, symlink или overwrite без проверки. При неполном
+или недоступном индексе upload запрещён; Nexus deployment policy также
+должна запрещать конфликтные обновления.
+
+**Статус ограничения:** HTTP адаптер и SOURCE просмотр charts — не полная
+интеграция Offline Bundle. Экспорт Helm `.tgz` через подписанный bundle,
+TARGET import mapping/receipt и E2E на реальном Helm hosted ещё необходимо
+подключить и проверить. Нельзя считать `#435` закрытой и нельзя применять
+Harbor Helm OCI к Nexus. `helm push oci://` для Nexus не используется.
+Перед выпуском проверить конкретные API/permissions/edition на каждом
+региональном Nexus и несовместимые версии отдельно.
+
+Источники: [Sonatype Helm CLI usage](https://help.sonatype.com/en/helm-cli-usage.html),
+[Sonatype Components API](https://help.sonatype.com/en/components-api.html).
+
 ## Интерактивный поиск Docker образов и тегов
 
 Для **Nexus OSS 3.69** Harbor Browse API не используется. В экспортном
