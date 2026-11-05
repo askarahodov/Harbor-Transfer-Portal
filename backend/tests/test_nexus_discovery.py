@@ -152,3 +152,64 @@ async def test_nexus_rest_browse_access_denied_falls_back_to_manual(
     assert not result.available
     assert result.items == ()
     assert "repository:tag" in (result.message or "")
+
+@pytest.mark.asyncio
+async def test_catalog_search_reads_later_pages_not_only_first_hundred(
+    discovery, monkeypatch
+) -> None:
+    service, _seen, _response = discovery
+    original = httpx.AsyncClient
+    seen: list[httpx.Request] = []
+    first = [f"other/image-{i:03d}" for i in range(100)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.params.get("last"):
+            assert request.url.params["last"] == first[-1]
+            return httpx.Response(
+                200, json={"repositories": ["softrust/internal-app", "softrust/worker"]}
+            )
+        return httpx.Response(
+            200,
+            json={"repositories": first},
+            headers={"Link": '</v2/_catalog?n=100&last=other/image-099>; rel="next"'},
+        )
+
+    def factory(**kwargs):  # type: ignore[no-untyped-def]
+        assert kwargs["trust_env"] is False
+        assert kwargs["follow_redirects"] is False
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_discovery.httpx.AsyncClient", factory)
+    result = await service.catalog("softrust")
+    assert result.available
+    assert result.items == ("softrust/internal-app", "softrust/worker")
+    assert result.truncated is False
+    assert len(seen) == 2
+    assert seen[0].url.params["n"] == "100"
+    assert seen[1].url.params["last"] == first[-1]
+    assert all(request.method == "GET" for request in seen)
+
+
+@pytest.mark.asyncio
+async def test_catalog_caps_unsupported_infinite_pagination(discovery, monkeypatch) -> None:
+    service, _seen, _response = discovery
+    original = httpx.AsyncClient
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"repositories": ["other/stuck"]},
+            headers={"Link": '</v2/_catalog?n=100&last=other/stuck>; rel="next"'},
+        )
+
+    def factory(**kwargs):  # type: ignore[no-untyped-def]
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_discovery.httpx.AsyncClient", factory)
+    result = await service.catalog("softrust")
+    assert not result.available
+    assert result.items == ()
+    assert len(requests) == 2
