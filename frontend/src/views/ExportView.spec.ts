@@ -504,6 +504,71 @@ describe('SOURCE export wizard view', () => {
     wrapper.unmount()
   })
 
+  it('switches only to the configured Docker connector for each Nexus repository', async () => {
+    const profiles = [
+      {
+        id: 'docker-a', name: 'Docker hosted', url: 'https://hosted.example.test',
+        registry_type: 'nexus' as const, is_default: false,
+        nexus_search_url: 'https://nexus-ui.example.test',
+        nexus_search_repository: 'docker-hosted',
+      },
+      {
+        id: 'docker-b', name: 'Docker group', url: 'https://group.example.test',
+        registry_type: 'nexus' as const, is_default: false,
+        nexus_search_url: 'https://nexus-ui.example.test',
+        nexus_search_repository: 'docker-group',
+      },
+      {
+        id: 'unrelated', name: 'Unrelated Nexus', url: 'https://other.example.test',
+        registry_type: 'nexus' as const, is_default: false,
+        nexus_search_url: 'https://other-ui.example.test',
+        nexus_search_repository: 'docker-unmapped',
+      },
+    ]
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({ items: profiles })
+    const inventory = vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: true, message: null, items: [
+        { name: 'docker-hosted', format: 'docker', kind: 'hosted' },
+        { name: 'docker-group', format: 'docker', kind: 'group' },
+        { name: 'docker-unmapped', format: 'docker', kind: 'proxy' },
+        { name: 'helm-team', format: 'helm', kind: 'hosted' },
+      ],
+    })
+    vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: false, items: [], message: '403', truncated: false,
+    })
+    const inspect = vi.spyOn(exportsApi, 'inspectExactNexusImage').mockResolvedValue({
+      repository: 'team/app', reference: 'v1', digest: DIGEST,
+    })
+    const harborProjects = vi.spyOn(exportsApi, 'listHarborProjects')
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.get('#export-harbor-profile').element).toHaveProperty('value', 'docker-a')
+    expect(wrapper.text()).toContain('Для этого Docker repository отдельный connector-профиль ещё не настроен')
+    const switchButton = button(wrapper, 'Выбрать Docker connector')
+    await switchButton.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('#export-harbor-profile').element).toHaveProperty('value', 'docker-b')
+    expect(inventory).toHaveBeenCalledWith('docker-b')
+    expect(wrapper.text()).toContain('Docker connector выбран')
+    await wrapper.get('input[placeholder="team/application"]').setValue('team/app')
+    await wrapper.get('input[placeholder="1.0.0"]').setValue('v1')
+    await wrapper.get('form.nexus-exact-form').trigger('submit')
+    await flushPromises()
+    expect(inspect).toHaveBeenCalledWith('docker-b', 'team/app', 'v1')
+    await button(wrapper, 'Добавить образ в выбор').trigger('click')
+    expect(wrapper.text()).toContain('1 выбрано')
+    expect(button(wrapper, 'Выбрать Docker connector').attributes('disabled')).toBeDefined()
+    expect(harborProjects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('renders an actionable TARGET fallback and does not browse Harbor', async () => {
     const connection = vi.spyOn(exportsApi, 'getHarborConnection')
     const runtime = useRuntimeStore(pinia)

@@ -134,6 +134,52 @@ async def test_nexus_rest_search_uses_configured_repository_and_pagination(
 
 
 @pytest.mark.asyncio
+async def test_rest_search_scopes_acl_per_configured_docker_repository(
+    discovery, monkeypatch,
+) -> None:
+    service, seen, _response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        repository = request.url.params.get("repository")
+        if repository == "docker-denied":
+            return httpx.Response(403)
+        contents = {
+            "docker-hosted": [{"name": "team/app", "version": "v1"}],
+            "docker-group": [{"name": "team/worker", "version": "v2"}],
+        }
+        return httpx.Response(200, json={
+            "items": contents.get(repository, []),
+            "continuationToken": None,
+        })
+
+    def factory(**kwargs):  # type: ignore[no-untyped-def]
+        assert kwargs["trust_env"] is False
+        assert kwargs["follow_redirects"] is False
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_discovery.httpx.AsyncClient", factory)
+
+    service.search_repository = "docker-hosted"
+    first = await service.catalog()
+    service.search_repository = "docker-denied"
+    forbidden = await service.catalog()
+    service.search_repository = "docker-group"
+    last = await service.catalog()
+    assert first.available and first.items == ("team/app",)
+    assert not forbidden.available and forbidden.items == ()
+    assert "sensitive-do-not-expose" not in (forbidden.message or "")
+    assert last.available and last.items == ("team/worker",)
+    assert [r.url.params["repository"] for r in seen] == [
+        "docker-hosted", "docker-denied", "docker-group",
+    ]
+    assert all(r.url.host == "nexus-ui.example.test" for r in seen)
+    assert all(r.method == "GET" for r in seen)
+
+
+@pytest.mark.asyncio
 async def test_nexus_rest_browse_access_denied_falls_back_to_manual(
     discovery, monkeypatch
 ) -> None:

@@ -245,6 +245,13 @@ def selectable_profiles(
                 name=profile.name,
                 url=profile.url,
                 is_default=profile.is_default,
+                nexus_search_url=(
+                    profile.nexus_search_url if profile.registry_type == "nexus" else None
+                ),
+                nexus_search_repository=(
+                    profile.nexus_search_repository
+                    if profile.registry_type == "nexus" else None
+                ),
             )
             for profile in service.selectable_profiles()
         ]

@@ -80,6 +80,8 @@ export type HarborProfileOption = {
   name: string
   url: string
   is_default: boolean
+  nexus_search_url?: string | null
+  nexus_search_repository?: string | null
 }
 
 export type HarborProfileOptions = {

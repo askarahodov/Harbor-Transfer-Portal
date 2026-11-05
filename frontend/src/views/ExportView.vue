@@ -24,6 +24,7 @@ import {
   type ExactNexusInspection,
   type NexusRepository,
   type NexusHelmChartVersion,
+  type HarborProfileOption,
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
@@ -90,6 +91,24 @@ async function browseHelmRepository(repository: string): Promise<void> {
   } finally {
     if (generation === nexusHelmGeneration) nexusHelmBusy.value = false
   }
+}
+
+function dockerConnectorProfile(repository: string): HarborProfileOption | null {
+  const origin = wizard.selectedHarborProfile?.nexus_search_url?.replace(/\\/$/, '')
+  if (!origin) return null
+  // A Docker v2 connector belongs to an explicitly configured profile.
+  // Never derive a connector URL from Nexus UI inventory or user-supplied names.
+  return wizard.harborProfiles.find((profile) =>
+    profile.registry_type === 'nexus'
+    && profile.nexus_search_repository === repository
+    && profile.nexus_search_url?.replace(/\\/$/, '') === origin
+  ) ?? null
+}
+
+function selectDockerConnector(repository: string): void {
+  const profile = dockerConnectorProfile(repository)
+  if (!profile || wizard.harborProfileLocked || wizard.selectedCount > 0) return
+  void wizard.selectHarborProfile(profile.id)
 }
 
 let nexusInventoryGeneration = 0
@@ -217,6 +236,8 @@ watch(exactReference, () => {
 })
 
 watch(() => wizard.selectedHarborProfileId, () => {
+  exactRepository.value = ''
+  exactReference.value = ''
   exactResult.value = null
   exactError.value = null
   nexusGeneration += 1
@@ -597,7 +618,7 @@ onBeforeUnmount(() => {
                   {{ nexusInventoryBusy ? 'Загрузка…' : 'Обновить список' }}
                 </button>
               </div>
-              <p class="muted">Список получен с правами сервисного пользователя. Видимость не означает право чтения или записи. Репозитории другого формата не показываются.</p>
+              <p class="muted">Список получен с правами сервисного пользователя. Видимость не означает право чтения или записи. Для каждого Docker repository нужен собственный профиль с его Docker v2 connector URL; другие форматы не показываются. При переключении профиля текущий выбор сбрасывается.</p>
               <p v-if="nexusInventoryMessage" role="status" class="muted">{{ nexusInventoryMessage }}</p>
               <ul v-if="nexusInventoryAvailable && nexusInventory.length" class="nexus-inventory__list">
                 <li v-for="item in nexusInventory" :key="item.format + ':' + item.name">
@@ -605,7 +626,22 @@ onBeforeUnmount(() => {
                   <span>{{ item.format === 'docker' ? 'Docker' : 'Helm' }} · {{ item.kind }}</span>
                   <span class="muted">{{ item.format === 'helm'
                     ? 'Helm HTTP (.tgz) — SOURCE export; TARGET hosted upload требует прав'
-                    : 'Укажите Docker image path ниже и проверьте digest' }}</span>
+                    : 'Docker connector выбирается из привязанных профилей, image/tag проверяются ниже' }}</span>
+                  <template v-if="item.format === 'docker'">
+                    <span v-if="!dockerConnectorProfile(item.name)" class="muted">
+                      Для этого Docker repository отдельный connector-профиль ещё не настроен.
+                    </span>
+                    <span v-else-if="dockerConnectorProfile(item.name)?.id === wizard.selectedHarborProfileId">
+                      Docker connector выбран · требуется проверка image digest
+                    </span>
+                    <button
+                      v-else
+                      type="button"
+                      class="secondary-button"
+                      :disabled="wizard.harborProfileLocked || wizard.selectedCount > 0"
+                      @click="selectDockerConnector(item.name)"
+                    >Выбрать Docker connector</button>
+                  </template>
                   <button
                     v-if="item.format === 'helm'"
                     type="button"

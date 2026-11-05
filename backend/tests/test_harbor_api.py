@@ -224,12 +224,51 @@ def test_authenticated_selector_exposes_only_safe_enabled_profile_metadata(
                 "url": "https://harbor-a.local",
                 "is_default": False,
                 "registry_type": "harbor",
+                "nexus_search_url": None,
+                "nexus_search_repository": None,
             }
         ]
     }
     assert "username" not in response.text
     assert "credential" not in response.text
     assert "verify_tls" not in response.text
+
+
+def test_selectable_nexus_profiles_expose_distinct_connector_bindings_without_secrets(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        HarborProfileService,
+        "selectable_profiles",
+        lambda _self: [
+            HarborProfile(
+                id="nexus-a", name="Nexus docker-hosted",
+                url="https://docker-hosted.example.test",
+                username="hidden-service-identity", verify_tls=True,
+                enabled=True, registry_type="nexus",
+                nexus_search_url="https://nexus-ui.example.test",
+                nexus_search_repository="docker-hosted",
+            ),
+            HarborProfile(
+                id="nexus-b", name="Nexus docker-group",
+                url="https://docker-group.example.test",
+                username="another-secret-account", verify_tls=True,
+                enabled=True, registry_type="nexus",
+                nexus_search_url="https://nexus-ui.example.test",
+                nexus_search_repository="docker-group",
+            ),
+        ],
+    )
+    client, token = _client(tmp_path, configured=True)
+    response = client.get("/api/harbor/profiles", headers=_auth(token))
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [(p["id"], p["nexus_search_repository"]) for p in items] == [
+        ("nexus-a", "docker-hosted"), ("nexus-b", "docker-group"),
+    ]
+    assert all(p["nexus_search_url"] == "https://nexus-ui.example.test" for p in items)
+    assert "hidden-service-identity" not in response.text
+    assert "another-secret-account" not in response.text
 
 
 def test_browse_passes_explicit_profile_id_to_harbor_client(

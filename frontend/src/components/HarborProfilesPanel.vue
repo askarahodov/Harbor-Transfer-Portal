@@ -181,8 +181,8 @@ async function saveProfile(): Promise<void> {
     return
   }
   if (registryType.value === 'nexus' && (nexusSearchUrl.value || nexusSearchRepository.value)) {
-    if (!nexusSearchUrl.value.trim() || !nexusSearchRepository.value.trim()) {
-      error.value = 'Для поиска Nexus укажите и HTTPS URL Nexus UI, и имя Docker hosted repository.'
+    if (nexusSearchRepository.value.trim() && !nexusSearchUrl.value.trim()) {
+      error.value = 'Для привязки Docker repository требуется Nexus UI HTTPS URL.'
       return
     }
     if (!nexusSearchUrl.value.startsWith('https://') ||
@@ -515,13 +515,13 @@ onMounted(() => void load())
               <option value="nexus">Sonatype Nexus</option>
             </select>
           </label>
-          <p v-if="registryType === 'nexus'" class="profile-hint">Nexus 3.69 OSS: Docker v2 для переноса образов. Для удобного поиска настройте отдельный REST Search API Nexus UI; это не URL Docker connector. Helm OCI недоступен.</p>
+          <p v-if="registryType === 'nexus'" class="profile-hint">Nexus разных версий: для каждого Docker repository (hosted / proxy / group) создайте отдельный профиль с его Docker v2 connector URL. Nexus UI HTTPS URL нужен для просмотра Docker/Helm репозиториев и Helm index.yaml; при закрытом списке Helm можно выбрать по точному имени. OCI в Nexus не используем. Отсутствие права чтения/записи одного репозитория не блокирует другие.</p>
           <label v-if="registryType === 'nexus'">
             Nexus UI HTTPS URL (необязательно)
             <input v-model="nexusSearchUrl" type="url" placeholder="https://nexus-ui.example.internal" />
           </label>
           <label v-if="registryType === 'nexus'">
-            Имя Docker repository в Nexus UI (необязательно)
+            Имя Docker repository, обслуживаемого этим connector (необязательно)
             <input v-model="nexusSearchRepository" type="text" maxlength="128" placeholder="docker-hosted" />
           </label>
           <label>
