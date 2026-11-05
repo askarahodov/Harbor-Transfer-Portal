@@ -436,7 +436,7 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
     expect(inspect).toHaveBeenCalledWith('nexus-profile', '0702/centos7', '7.9.2009')
     await button(wrapper, 'Добавить образ в выбор').trigger('click')
-    expect(wrapper.text()).toContain('1 выбрано')
+    expect(wrapper.text()).toContain('2 выбрано')
     expect(projects).not.toHaveBeenCalled()
     wrapper.unmount()
   })
