@@ -39,7 +39,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: nexus-legacy-${{ github.ref }}
+  group: nexus-legacy-real-harbor-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
