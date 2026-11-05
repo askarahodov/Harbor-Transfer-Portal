@@ -352,6 +352,7 @@ def test_preflight_accepts_valid_helm_build_metadata_version():
 
 @pytest.mark.parametrize("secondary_url", [
     "https://malicious.invalid/repository/elsewhere/demo-1.0.0.tgz",
+    "https://[invalid",
     "demo-1.0.0.tgz?secret=leak",
     99,
 ])
