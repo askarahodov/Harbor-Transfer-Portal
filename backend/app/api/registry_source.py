@@ -7,6 +7,7 @@ from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.services.harbor_profiles import HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
 from app.services.nexus_discovery import NexusDiscoveryService
+from app.services.nexus_helm_http import NexusHelmHttpError, NexusHelmHttpService
 from app.services.nexus_service import ImageReference, NexusService, NexusServiceError
 
 router = APIRouter(prefix="/registry/source", tags=["registry"])
@@ -176,4 +177,53 @@ async def nexus_tag_suggestions(
     return NexusSuggestionResponse(
         available=result.available, items=list(result.items),
         message=result.message, truncated=result.truncated,
+    )
+
+
+class NexusHelmChartVersionResponse(BaseModel):
+    name: str
+    version: str
+    digest: str
+
+
+class NexusHelmCatalogResponse(BaseModel):
+    available: bool
+    items: list[NexusHelmChartVersionResponse]
+    code: str | None = None
+    message: str | None = None
+
+
+@router.get("/nexus/helm/charts", response_model=NexusHelmCatalogResponse)
+async def nexus_helm_catalog(
+    request: Request,
+    _user: CurrentUserDep,
+    session: SessionDep,
+    profile_id: str = Query(min_length=1, max_length=64),
+    repository: str = Query(min_length=1, max_length=128),
+) -> NexusHelmCatalogResponse:
+    """Read a selected classic Helm repository via index.yaml, never OCI."""
+    try:
+        result = await NexusHelmHttpService(
+            session, request.app.state.settings, profile_id
+        ).list_charts(repository)
+    except NexusHelmHttpError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    except HarborSettingsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": "Выбранный Nexus profile недоступен"},
+        ) from exc
+    return NexusHelmCatalogResponse(
+        available=result.available,
+        items=[
+            NexusHelmChartVersionResponse(
+                name=item.name, version=item.version, digest=item.digest
+            )
+            for item in result.items
+        ],
+        code=result.code,
+        message=result.message,
     )
