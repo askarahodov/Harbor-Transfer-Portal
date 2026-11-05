@@ -379,6 +379,12 @@ def run_document(document: dict[str, Any], *, client_factory: Any = httpx.Client
         for key in ("environment", "operator", "change_id", "commit_sha")
     ):
         raise ValueError("approval_and_commit_required")
+    # Evidence header fields are echoed into a durable report. Restrict them
+    # to short neutral identifiers rather than arbitrary strings containing
+    # credentials, URLs, paths or multiline secret material.
+    for key in ("environment", "operator", "change_id"):
+        if _REPOSITORY.fullmatch(document[key]) is None:
+            raise ValueError("evidence_identifier_invalid")
     if _DIGEST.fullmatch(document["commit_sha"]) is not None:
         # SHA-256 is not a commit identifier; exact 40-char Git SHA expected.
         raise ValueError("commit_sha_invalid")
