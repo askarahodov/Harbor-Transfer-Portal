@@ -286,6 +286,25 @@ export async function listHarborArtifacts(
   return response.data
 }
 
+export type NexusRepository = {
+  name: string
+  format: 'docker' | 'helm'
+  kind: 'hosted' | 'proxy' | 'group'
+}
+
+export type NexusInventory = {
+  available: boolean
+  items: NexusRepository[]
+  message: string | null
+}
+
+export async function getNexusInventory(profileId: string): Promise<NexusInventory> {
+  const response = await apiClient.get<NexusInventory>('/registry/source/nexus/inventory', {
+    params: { profile_id: profileId },
+  })
+  return response.data
+}
+
 export type NexusSuggestions = {
   available: boolean
   items: string[]
