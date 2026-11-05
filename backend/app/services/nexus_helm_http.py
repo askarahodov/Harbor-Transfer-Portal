@@ -356,6 +356,24 @@ class NexusHelmAdapter:
             result = await self.client.list_charts(chart.repository)
         except NexusHelmHttpError as exc:
             raise self._error(exc) from exc
+        if not result.available and result.code == "helm_index_missing":
+            # Empty hosted repos may not have an index until first chart upload.
+            # Never infer ABSENT from 404 without confirming repository identity.
+            try:
+                async with self.client._client() as http:
+                    meta = await http.get(
+                        self.client._base() + "/service/rest/v1/repositories/"
+                        + quote(self.client._repository(chart.repository))
+                    )
+                    details = meta.json() if meta.status_code == 200 else None
+            except (httpx.HTTPError, ValueError):
+                details = None
+            if (
+                isinstance(details, dict)
+                and details.get("format") == "helm"
+                and details.get("type") == "hosted"
+            ):
+                return HelmTargetInspection(HelmTargetState.ABSENT, None)
         if not result.available:
             raise HelmServiceError(
                 result.code or "helm_index_unavailable",
