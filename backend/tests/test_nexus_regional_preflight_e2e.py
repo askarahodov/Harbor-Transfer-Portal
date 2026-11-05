@@ -15,12 +15,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from integration.nexus_regional_preflight import run_document
 from test_nexus_helm_e2e import _service
 from test_nexus_helm_http import chart_bytes
 from test_nexus_legacy_e2e import make_settings, seeded_schema2_image
 
 from app.services.nexus_service import NexusService
+from integration.nexus_regional_preflight import run_document
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("HTP_NEXUS_LEGACY_E2E") != "1",
