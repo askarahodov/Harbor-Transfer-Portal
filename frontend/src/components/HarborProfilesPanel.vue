@@ -201,8 +201,16 @@ async function saveProfile(): Promise<void> {
       username: username.value.trim() || null,
       verify_tls: verifyTls.value,
       registry_type: registryType.value,
-      nexus_search_url: registryType.value === 'nexus' ? nexusSearchUrl.value.trim() || null : null,
-      nexus_search_repository: registryType.value === 'nexus' ? nexusSearchRepository.value.trim() || null : null,
+      ...((
+        nexusSearchUrl.value.trim() ||
+        nexusSearchRepository.value.trim() ||
+        (editingId.value && profiles.value.some((profile) =>
+          profile.id === editingId.value && (profile.nexus_search_url || profile.nexus_search_repository)
+        ))
+      ) ? {
+        nexus_search_url: registryType.value === 'nexus' ? nexusSearchUrl.value.trim() || null : null,
+        nexus_search_repository: registryType.value === 'nexus' ? nexusSearchRepository.value.trim() || null : null,
+      } : {}),
     }
     const response = editingId.value
       ? await apiClient.patch<HarborProfile>(
