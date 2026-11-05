@@ -151,3 +151,43 @@ async def test_foreign_token_realm_is_rejected_without_forwarding_credentials(mo
 async def test_nexus_ui_url_is_rejected_without_request(monkeypatch):
     result = await probe(profile(url="https://nexus.example.test/#browse"))
     assert not result.ok and result.code == "registry_invalid_endpoint"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("url", [
+    "https://[invalid",
+    "https://nexus.example.test:not-a-port",
+    "https://nexus.example.test:0",
+])
+async def test_invalid_registry_origin_is_rejected_without_network(monkeypatch, url):
+    def forbidden_client(**_kwargs):
+        raise AssertionError("malformed origin should not reach HTTP")
+
+    monkeypatch.setattr("app.services.registry_probe.httpx.AsyncClient", forbidden_client)
+    result = await probe(profile(url=url))
+    assert not result.ok
+    assert result.code == "registry_invalid_endpoint"
+    assert url not in result.message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("realm", [
+    "https://[invalid",
+    "https://nexus.example.test:not-a-port/token",
+    "https://nexus.example.test:0/token",
+])
+async def test_invalid_bearer_realm_never_receives_credentials(monkeypatch, realm):
+    paths = []
+
+    def handler(request):
+        paths.append(request.url.path)
+        return httpx.Response(
+            401, headers={"WWW-Authenticate": f'Bearer realm="{realm}"'},
+        )
+
+    mock_client(monkeypatch, handler)
+    result = await probe(profile(password="secret-not-for-errors"))
+    assert not result.ok
+    assert result.code == "registry_auth_unsupported"
+    assert "secret-not-for-errors" not in result.message
+    assert paths == ["/v2/"]
