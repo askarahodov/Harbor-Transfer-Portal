@@ -285,3 +285,31 @@ async def test_helm_bridge_never_performs_overwrite(client_service, tmp_path: Pa
         )
     assert error.value.code == "helm_overwrite_unsupported"
     assert not state["calls"]
+
+
+@pytest.mark.asyncio
+async def test_helm_bridge_empty_hosted_404_is_safe_new(client_service):
+    service, state, _data, _digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request):
+        state["calls"].append(request)
+        if request.url.path == "/repository/helm-a/index.yaml":
+            return httpx.Response(404)
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+        return httpx.Response(404)
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    from unittest.mock import patch
+    with patch("app.services.nexus_helm_http.httpx.AsyncClient", factory):
+        result = await bridge.inspect_target(HelmChartReference("helm-a", "demo", "1.2.3"))
+    assert result.state == HelmTargetState.ABSENT
+    assert [req.url.path for req in state["calls"]] == [
+        "/repository/helm-a/index.yaml",
+        "/service/rest/v1/repositories/helm-a",
+    ]
