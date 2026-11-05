@@ -195,7 +195,8 @@ def test_malformed_helm_index_and_foreign_chart_url_fail_without_download():
         "kind": "hosted", "endpoint": "https://nexus.example.test",
         "repository": "helm-team", "chart": "demo", "version": "1.0.0",
     }]), client_factory=factory)
-    assert report["entries"][0]["checks"][-1]["code"] == "unsafe_chart_url"
+    # The whole index is now validated before selecting a chart or .tgz URL.
+    assert report["entries"][0]["checks"][-1]["code"] == "index_invalid"
     assert seen == ["/repository/helm-team/index.yaml"]
 
 
