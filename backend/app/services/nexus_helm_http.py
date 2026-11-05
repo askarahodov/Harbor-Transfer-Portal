@@ -19,6 +19,15 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.services.helm_oci_service import (
+    HelmChartReference,
+    HelmPackageMetadata,
+    HelmPullResult,
+    HelmPushResult,
+    HelmServiceError,
+    HelmTargetInspection,
+    HelmTargetState,
+)
 from app.services.nexus_discovery import NexusDiscoveryService
 
 _REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
@@ -328,21 +337,17 @@ class NexusHelmAdapter:
         self.client = NexusHelmHttpService(session, settings, profile_id)
 
     @staticmethod
-    def _error(exc: NexusHelmHttpError):
-        from app.services.helm_oci_service import HelmServiceError
-
+    def _error(exc: NexusHelmHttpError) -> HelmServiceError:
         return HelmServiceError(exc.code, exc.message)
 
-    async def inspect_target(self, chart, *, expected_digest: str | None = None):
-        from app.services.helm_oci_service import HelmTargetInspection, HelmTargetState
-
+    async def inspect_target(
+        self, chart: HelmChartReference, *, expected_digest: str | None = None
+    ) -> HelmTargetInspection:
         try:
             result = await self.client.list_charts(chart.repository)
         except NexusHelmHttpError as exc:
             raise self._error(exc) from exc
         if not result.available:
-            from app.services.helm_oci_service import HelmServiceError
-
             raise HelmServiceError(
                 result.code or "helm_index_unavailable",
                 result.message or "Helm index.yaml недоступен",
@@ -363,9 +368,9 @@ class NexusHelmAdapter:
         )
         return HelmTargetInspection(state, digest)
 
-    async def pull_chart(self, chart, destination: Path):
-        from app.services.helm_oci_service import HelmPackageMetadata, HelmPullResult
-
+    async def pull_chart(
+        self, chart: HelmChartReference, destination: Path
+    ) -> HelmPullResult:
         destination.mkdir(parents=True, exist_ok=True, mode=0o700)
         output = destination / f"{chart.name}-{chart.version}.tgz"
         try:
@@ -378,20 +383,14 @@ class NexusHelmAdapter:
         return HelmPullResult("sha256:" + item.digest, package)
 
     async def push_chart(
-        self, package: Path, target, *, source_digest: str | None = None,
-        allow_existing: bool = False,
-    ):
-        from app.services.helm_oci_service import HelmPackageMetadata, HelmPushResult
-
+        self, package: Path, target: HelmChartReference, *,
+        source_digest: str | None = None, allow_existing: bool = False,
+    ) -> HelmPushResult:
         if allow_existing:
-            from app.services.helm_oci_service import HelmServiceError
-
             raise HelmServiceError(
                 "helm_overwrite_unsupported",
                 "Nexus Helm HTTP overwrite запрещён: требуется отдельная approval-политика",
             )
-        from app.services.helm_oci_service import HelmServiceError
-
         if source_digest is not None:
             observed_source_digest = "sha256:" + hashlib.sha256(package.read_bytes()).hexdigest()
             if observed_source_digest != source_digest:
@@ -407,8 +406,6 @@ class NexusHelmAdapter:
             raise self._error(exc) from exc
         target_digest = "sha256:" + digest
         if source_digest is not None and source_digest != target_digest:
-            from app.services.helm_oci_service import HelmServiceError
-
             raise HelmServiceError(
                 "helm_payload_digest_mismatch",
                 "Helm HTTP payload не совпадает с подписанным SOURCE digest",
