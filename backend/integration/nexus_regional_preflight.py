@@ -12,7 +12,9 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -29,6 +31,7 @@ _TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}\Z")
 _DIGEST = re.compile(r"(?:sha256:)?[a-f0-9]{64}\Z")
 _MAX_INDEX = 4 * 1024 * 1024
 _MAX_CHART = 100 * 1024 * 1024
+_MAX_CONFIG = 1024 * 1024
 _MAX_VERSIONS = 500
 
 
@@ -415,20 +418,49 @@ def run_document(document: dict[str, Any], *, client_factory: Any = httpx.Client
     }
 
 
+def _load_config(path: Path) -> dict:
+    """Read only a bounded, regular JSON file without following symlinks."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise ValueError("config_not_regular")
+        content = handle.read(_MAX_CONFIG + 1)
+    if len(content) > _MAX_CONFIG:
+        raise ValueError("config_too_large")
+    return json.loads(content.decode("utf-8"))
+
+
+def _publish_report(path: Path, content: str) -> None:
+    """Create private evidence atomically, without overwriting any existing path."""
+    staged_path: Path | None = None
+    try:
+        # Stage in the same directory, so the final hard-link is atomic.
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", prefix=".nexus-preflight-",
+            suffix=".tmp", dir=path.parent, delete=False,
+        ) as staged:
+            staged_path = Path(staged.name)
+            os.chmod(staged.name, 0o600)
+            staged.write(content)
+            staged.flush()
+            os.fsync(staged.fileno())
+        os.link(staged_path, path, follow_symlinks=False)
+    finally:
+        if staged_path is not None:
+            staged_path.unlink(missing_ok=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only Nexus regional preflight")
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
-        document = json.loads(args.config.read_text(encoding="utf-8"))
+        document = _load_config(args.config)
         result = run_document(document)
         output = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
-        # O_EXCL prevents overwriting operator evidence or following symlinks.
-        fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(output)
-    except (ValueError, OSError):
+        _publish_report(args.output, output)
+    except (ValueError, OSError, UnicodeError):
         print(
             "Preflight validation or report creation failed (details suppressed)",
             file=sys.stderr,
