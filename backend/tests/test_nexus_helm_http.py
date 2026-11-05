@@ -681,3 +681,58 @@ def test_duplicate_chart_yaml_name_or_version_rejected():
                 archive_buffer.getvalue(), "demo", "1.2.3"
             )
         assert error.value.code == "helm_package_invalid"
+
+
+def test_helm_archive_rejects_member_flood_before_materialization():
+    """More than 1000 headers must fail without caching an unbounded tar index."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        metadata = b"apiVersion: v2\nname: demo\nversion: 1.2.3\n"
+        chart = tarfile.TarInfo("demo/Chart.yaml")
+        chart.size = len(metadata)
+        archive.addfile(chart, io.BytesIO(metadata))
+        for i in range(1000):
+            directory = tarfile.TarInfo(f"demo/dir-{i}/")
+            directory.type = tarfile.DIRTYPE
+            archive.addfile(directory)
+    with pytest.raises(NexusHelmHttpError) as error:
+        NexusHelmHttpService._validate_package(
+            buffer.getvalue(), "demo", "1.2.3"
+        )
+    assert error.value.code == "helm_package_invalid"
+
+
+def test_helm_archive_rejects_expanded_size_while_scanning(monkeypatch):
+    from app.services import nexus_helm_http
+
+    # Keep test archives small; the production cap is 100 MiB expanded.
+    monkeypatch.setattr(nexus_helm_http, "_MAX_CHART", 1024)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        metadata = b"apiVersion: v2\nname: demo\nversion: 1.2.3\n"
+        chart = tarfile.TarInfo("demo/Chart.yaml")
+        chart.size = len(metadata)
+        archive.addfile(chart, io.BytesIO(metadata))
+        payload = tarfile.TarInfo("demo/templates/oversize.yaml")
+        payload.size = 1100
+        archive.addfile(payload, io.BytesIO(b"x" * 1100))
+    with pytest.raises(NexusHelmHttpError) as error:
+        NexusHelmHttpService._validate_package(
+            buffer.getvalue(), "demo", "1.2.3"
+        )
+    assert error.value.code == "helm_package_invalid"
+
+
+def test_helm_archive_accepts_metadata_after_regular_members():
+    """Streaming validation must not assume Chart.yaml is the first tar entry."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        config = b"kind: ConfigMap\n"
+        entry = tarfile.TarInfo("demo/templates/config.yaml")
+        entry.size = len(config)
+        archive.addfile(entry, io.BytesIO(config))
+        metadata = b"apiVersion: v2\nname: demo\nversion: 1.2.3\n"
+        chart = tarfile.TarInfo("demo/Chart.yaml")
+        chart.size = len(metadata)
+        archive.addfile(chart, io.BytesIO(metadata))
+    NexusHelmHttpService._validate_package(buffer.getvalue(), "demo", "1.2.3")
