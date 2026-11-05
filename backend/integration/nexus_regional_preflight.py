@@ -55,7 +55,11 @@ class _UniqueKeysLoader(yaml.SafeLoader):
 
 
 def _unambiguous_index(payload: bytes) -> dict:
-    document = yaml.load(payload, Loader=_UniqueKeysLoader)
+    loader = _UniqueKeysLoader(payload)
+    try:
+        document = loader.get_single_data()
+    finally:
+        loader.dispose()
     if not isinstance(document, dict) or not isinstance(document.get("entries"), dict):
         raise ValueError("index_invalid")
     seen: set[tuple[str, str]] = set()
