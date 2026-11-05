@@ -18,6 +18,7 @@ import os
 import subprocess
 import tarfile
 from pathlib import Path
+from urllib.parse import urlsplit
 from unittest.mock import MagicMock
 
 import pytest
@@ -42,23 +43,66 @@ from integration.registry_smoke import _write_oci_image_fixture
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("HTP_NEXUS_LEGACY_E2E") != "1"
-    or os.environ.get("HTP_HARBOR_COMPAT_E2E") != "1",
-    reason="Requires disposable Nexus plus a distinct Docker v2 fixture",
+    or (
+        os.environ.get("HTP_HARBOR_COMPAT_E2E") != "1"
+        and os.environ.get("HTP_REAL_HARBOR_E2E") != "1"
+    ),
+    reason="Requires disposable Nexus and Harbor-shaped or real Harbor transport",
 )
 
-HARBOR_DOCKER_URL = "http://127.0.0.1:5005"
+REAL_HARBOR = os.environ.get("HTP_REAL_HARBOR_E2E") == "1"
+HARBOR_DOCKER_URL = os.environ.get(
+    "HTP_REAL_HARBOR_URL", "http://127.0.0.1:5005"
+)
 SCHEMA2 = "application/vnd.docker.distribution.manifest.v2+json"
 
 
+def _robot_credentials(*, source: bool) -> tuple[str, str]:
+    filename = (
+        "HTP_HARBOR_SOURCE_ROBOT_FILE" if source else "HTP_HARBOR_TARGET_ROBOT_FILE"
+    )
+    payload = json.loads(Path(os.environ[filename]).read_text(encoding="utf-8"))
+    return payload["username"], payload["password"]
+
+
 def _harbor_profile(app, settings, *, name: str) -> str:
+    username, password = (
+        _robot_credentials(source="source" in name.lower())
+        if REAL_HARBOR else (None, None)
+    )
     with app.state.session_factory() as session:
         profiles = HarborProfileService(session, settings)
         profile = profiles.create(
-            name=name, url=HARBOR_DOCKER_URL, username=None,
-            verify_tls=False, enabled=True, registry_type="harbor",
+            name=name, url=HARBOR_DOCKER_URL, username=username,
+            verify_tls=REAL_HARBOR, enabled=True, registry_type="harbor",
         )
+        if REAL_HARBOR:
+            assert password is not None
+            profiles.rotate_credential(profile.id, password)
+            ca = Path(os.environ["HTP_REAL_HARBOR_CA_FILE"]).read_text(encoding="utf-8")
+            profiles.install_ca(profile.id, ca)
         session.commit()
         return profile.id
+
+
+def _harbor_cli_flags(tmp_path: Path, *, destination: bool) -> list[str]:
+    if not REAL_HARBOR:
+        return ["--dest-tls-verify=false"] if destination else ["--tls-verify=false"]
+    host = urlsplit(HARBOR_DOCKER_URL).netloc
+    secret = Path(os.environ["HTP_HARBOR_ADMIN_PASSWORD_FILE"]).read_text().strip()
+    auth_file = tmp_path / "harbor-admin-auth.json"
+    auth_file.write_text(json.dumps({
+        "auths": {host: {
+            "auth": base64.b64encode(f"admin:{secret}".encode()).decode("ascii")
+        }}
+    }), encoding="utf-8")
+    auth_file.chmod(0o600)
+    cert_dir = os.environ["HTP_REAL_HARBOR_SKOPEO_CERT_DIR"]
+    return (
+        ["--dest-authfile", str(auth_file), "--dest-cert-dir", cert_dir]
+        if destination
+        else ["--authfile", str(auth_file), "--cert-dir", cert_dir]
+    )
 
 
 def _harbor_fixture_image(tmp_path: Path) -> str:
@@ -68,15 +112,17 @@ def _harbor_fixture_image(tmp_path: Path) -> str:
     subprocess.run(
         [
             "skopeo", "copy", "--format", "v2s2",
-            "--dest-tls-verify=false", f"oci:{layout}",
-            "docker://127.0.0.1:5005/harbor-e2e/source:1.0.0",
+            *_harbor_cli_flags(tmp_path, destination=True),
+            f"oci:{layout}",
+            f"docker://{urlsplit(HARBOR_DOCKER_URL).netloc}/harbor-e2e/source:1.0.0",
         ],
         capture_output=True, check=True, timeout=120,
     )
     raw = subprocess.run(
         [
-            "skopeo", "inspect", "--raw", "--tls-verify=false",
-            "docker://127.0.0.1:5005/harbor-e2e/source:1.0.0",
+            "skopeo", "inspect", "--raw",
+            *_harbor_cli_flags(tmp_path, destination=False),
+            f"docker://{urlsplit(HARBOR_DOCKER_URL).netloc}/harbor-e2e/source:1.0.0",
         ],
         capture_output=True, check=True, timeout=60,
     ).stdout
@@ -110,16 +156,20 @@ def _overwrite_disposable_harbor_tag_with_conflict(layout: Path) -> str:
     (layout / "index.json").write_text(json.dumps(index), encoding="utf-8")
     subprocess.run(
         [
-            "skopeo", "copy", "--format", "v2s2", "--dest-tls-verify=false",
+            "skopeo", "copy", "--format", "v2s2",
+            *_harbor_cli_flags(layout.parent, destination=True),
             f"oci:{layout}",
-            "docker://127.0.0.1:5005/harbor-interop-target/source:1.0.0",
+            f"docker://{urlsplit(HARBOR_DOCKER_URL).netloc}"
+            "/harbor-interop-target/source:1.0.0",
         ],
         capture_output=True, check=True, timeout=120,
     )
     raw = subprocess.run(
         [
-            "skopeo", "inspect", "--raw", "--tls-verify=false",
-            "docker://127.0.0.1:5005/harbor-interop-target/source:1.0.0",
+            "skopeo", "inspect", "--raw",
+            *_harbor_cli_flags(layout.parent, destination=False),
+            f"docker://{urlsplit(HARBOR_DOCKER_URL).netloc}"
+            "/harbor-interop-target/source:1.0.0",
         ],
         capture_output=True, check=True, timeout=60,
     ).stdout
@@ -159,7 +209,18 @@ def test_signed_docker_bundle_interoperability_via_separate_registry_types(
             digest=harbor_digest, type="IMAGE", media_type=SCHEMA2, size=0,
         )
 
-    monkeypatch.setattr(HarborClient, "get_artifact", artifact_lookup)
+    if not REAL_HARBOR:
+        monkeypatch.setattr(HarborClient, "get_artifact", artifact_lookup)
+    else:
+        username, robot_secret = _robot_credentials(source=True)
+        with HarborClient(
+            base_url=HARBOR_DOCKER_URL,
+            username=username,
+            password=robot_secret,
+            verify=os.environ["HTP_REAL_HARBOR_CA_FILE"],
+        ) as harbor:
+            observed = harbor.get_artifact("harbor-e2e", "source", "1.0.0")
+            assert observed.digest == harbor_digest
 
     # The fake registry lacks Harbor's management API; the narrowly stubbed
     # validator only allows the known disposable project and repository.
@@ -174,7 +235,8 @@ def test_signed_docker_bundle_interoperability_via_separate_registry_types(
             )
         return DestinationCapability(True, True)
 
-    monkeypatch.setattr(HarborDestinationValidator, "validate", validate_fixture)
+    if not REAL_HARBOR:
+        monkeypatch.setattr(HarborDestinationValidator, "validate", validate_fixture)
 
     source = portal_settings(tmp_path / "source")
     source_app, source_nexus_id = _app(source, password, url=REGISTRY_URL)
@@ -390,10 +452,14 @@ def test_signed_docker_bundle_interoperability_via_separate_registry_types(
                 == competing_digest
             )
 
-    assert rest_calls == (
-        [("harbor-e2e", "source", "1.0.0")] * 3 if is_harbor_source else []
-    )
-    assert allowed if not is_harbor_source else not allowed
+    if not REAL_HARBOR:
+        assert rest_calls == (
+            [("harbor-e2e", "source", "1.0.0")] * 3 if is_harbor_source else []
+        )
+        assert allowed if not is_harbor_source else not allowed
+    else:
+        assert not rest_calls
+        assert not allowed
     if is_harbor_source:
         target_client = NexusService(
             MagicMock(),
@@ -408,8 +474,9 @@ def test_signed_docker_bundle_interoperability_via_separate_registry_types(
     else:
         observed = subprocess.run(
             [
-                "skopeo", "inspect", "--raw", "--tls-verify=false",
-                f"docker://127.0.0.1:5005/{target_repo}:1.0.0",
+                "skopeo", "inspect", "--raw",
+                *_harbor_cli_flags(tmp_path, destination=False),
+                f"docker://{urlsplit(HARBOR_DOCKER_URL).netloc}/{target_repo}:1.0.0",
             ],
             capture_output=True, check=True, timeout=60,
         ).stdout
