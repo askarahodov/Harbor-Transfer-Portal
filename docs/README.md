@@ -73,6 +73,7 @@ Root [README](../README.md) — пользовательская входная 
 | [../deploy/offline/README.md](../deploy/offline/README.md) | versioned offline kit install/backup/restore/upgrade/uninstall | актуальный release/install guide |
 | [../deploy/README.md](../deploy/README.md) | development/runtime Compose deployment | актуальный development/runtime guide |
 | [release-notes-v1.0.0.md](release-notes-v1.0.0.md) | release identity, scope и ограничения v1.0.0 | актуальный release artifact |
+| [nexus-release-readiness-2026-11-03.md](nexus-release-readiness-2026-11-03.md) | журнал доработок Nexus, CI evidence, blockers и форма региональной приёмки | кандидат; **не выпущен**, NO-GO |
 
 ## Архитектура, protocol и component docs
 
