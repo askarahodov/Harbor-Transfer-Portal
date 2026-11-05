@@ -198,6 +198,14 @@ const elapsed = computed(() => {
   return minutes > 0 ? `${minutes} мин ${rest} с` : `${rest} с`
 })
 
+const longRunning = computed(() => {
+  const operation = wizard.operation
+  if (!operation?.started_at || !['CREATED', 'VALIDATING', 'RUNNING', 'PACKAGING', 'VERIFYING'].includes(operation.status)) {
+    return false
+  }
+  return now.value - new Date(operation.started_at).getTime() > 5 * 60_000
+})
+
 const progressPercent = computed(() => {
   const progress = wizard.operation?.progress
   if (!progress || progress.progress_total <= 0) return null
@@ -721,6 +729,14 @@ onBeforeUnmount(() => {
           <progress :value="wizard.operation.progress.progress_current" :max="wizard.operation.progress.progress_total">
             {{ progressPercent }}%
           </progress>
+        </div>
+
+        <div v-if="longRunning && wizard.operation" class="notice notice--info" role="status">
+          <AlertTriangle :size="22" aria-hidden="true" />
+          <div>
+            <strong>Экспорт выполняется дольше обычного.</strong>
+            <p>0% здесь означает 0 завершённых артефактов, а не отсутствие переданных байтов. Проверьте Skopeo/Nexus и свободное место на SOURCE. Если операция не меняет статус, сохраните ID {{ wizard.operation.id }} и серверные логи перед отменой; повторный экспорт не запускайте параллельно.</p>
+          </div>
         </div>
 
         <div v-if="wizard.operation" class="operation-artifacts">
