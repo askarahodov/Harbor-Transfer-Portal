@@ -418,6 +418,27 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     preview.value = null
   }
 
+  function addExactNexusHelmChart(
+    helmRepository: string | null, name: string, version: string, sha256: string,
+  ): boolean {
+    if (!isNexus.value || !selectedHarborProfileId.value || !helmRepository) return false
+    const repoPattern = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/
+    const versionPattern = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}$/
+    if (!repoPattern.test(helmRepository) || !repoPattern.test(name)) return false
+    if (!versionPattern.test(version) || !/^[a-f0-9]{64}$/.test(sha256)) return false
+    const selection: SelectedExportArtifact = {
+      kind: 'helm-chart',
+      project: helmRepository,
+      repository: name,
+      reference: version,
+      digest: `sha256:${sha256}`,
+      size_bytes: null,
+    }
+    selected.value = { ...selected.value, [selectedKey(selection)]: selection }
+    preview.value = null
+    return true
+  }
+
   function addExactNexusImage(
     repositoryPath: string,
     reference: string,
@@ -750,6 +771,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     isSelected,
     toggleArtifact,
     addArtifact,
+    addExactNexusHelmChart,
     addExactNexusImage,
     preparePreview,
     backToSelection,
