@@ -200,3 +200,24 @@ async def test_catalog_caps_unsupported_infinite_pagination(discovery) -> None:
     assert not result.available
     assert result.items == ()
     assert len(seen) == 2
+
+
+@pytest.mark.asyncio
+async def test_catalog_never_sends_credentials_over_http(discovery) -> None:
+    service, seen, _response = discovery
+    service.url = "http://nexus.example.test"
+    result = await service.catalog()
+    assert not result.available
+    assert seen == []
+    assert "HTTPS" in (result.message or "")
+
+
+@pytest.mark.asyncio
+async def test_rest_search_never_sends_credentials_over_http(discovery) -> None:
+    service, seen, _response = discovery
+    service.search_url = "http://nexus-ui.example.test"
+    service.search_repository = "docker-all"
+    result = await service.catalog()
+    assert not result.available
+    assert seen == []
+    assert "HTTPS" in (result.message or "")
