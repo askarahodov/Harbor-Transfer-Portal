@@ -313,3 +313,57 @@ async def test_helm_bridge_empty_hosted_404_is_safe_new(client_service):
         "/repository/helm-a/index.yaml",
         "/service/rest/v1/repositories/helm-a",
     ]
+
+
+@pytest.mark.asyncio
+async def test_helm_index_normalizes_absolute_url_without_following_it(client_service):
+    service, state, _data, digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request):
+        state["calls"].append(request)
+        return httpx.Response(200, text=yaml.safe_dump({
+            "entries": {"demo": [{
+                "version": "1.2.3", "digest": digest,
+                "urls": [
+                    "http://internal-nexus:8081/repository/helm-a/demo-1.2.3.tgz"
+                ],
+            }]}
+        }))
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    from unittest.mock import patch
+    with patch("app.services.nexus_helm_http.httpx.AsyncClient", factory):
+        result = await service.list_charts("helm-a")
+    assert result.available and len(result.items) == 1
+    assert result.items[0].path == "demo-1.2.3.tgz"
+    assert [str(req.url) for req in state["calls"]] == [
+        "https://nexus.example.test/repository/helm-a/index.yaml"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_helm_index_rejects_foreign_repository_path(client_service):
+    service, state, _data, digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request):
+        state["calls"].append(request)
+        return httpx.Response(200, text=yaml.safe_dump({
+            "entries": {"demo": [{
+                "version": "1.2.3", "digest": digest,
+                "urls": [
+                    "https://example.invalid/repository/other/demo-1.2.3.tgz"
+                ],
+            }]}
+        }))
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    from unittest.mock import patch
+    with patch("app.services.nexus_helm_http.httpx.AsyncClient", factory):
+        result = await service.list_charts("helm-a")
+    assert result.available and result.items == ()
