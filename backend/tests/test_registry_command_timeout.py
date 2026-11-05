@@ -7,14 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from app.services.nexus_service import (
-    AsyncioCommandRunner as NexusRunner,
-    NexusServiceError,
-)
-from app.services.skopeo_service import (
-    AsyncioCommandRunner as SkopeoRunner,
-    SkopeoServiceError,
-)
+from app.services.nexus_service import AsyncioCommandRunner as NexusRunner
+from app.services.nexus_service import NexusServiceError
+from app.services.skopeo_service import AsyncioCommandRunner as SkopeoRunner
+from app.services.skopeo_service import SkopeoServiceError
 
 
 @pytest.mark.asyncio
