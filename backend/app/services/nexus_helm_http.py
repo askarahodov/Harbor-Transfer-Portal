@@ -221,7 +221,11 @@ class NexusHelmHttpService:
                     if (
                         member.issym() or member.islnk() or member.isdev()
                         or member.name.startswith("/")
-                        or any(p in ("", ".", "..") for p in member.name.split("/"))
+                        or not member.name.rstrip("/")
+                        or any(
+                            p in ("", ".", "..")
+                            for p in member.name.rstrip("/").split("/")
+                        )
                         or not (member.isfile() or member.isdir())
                     ):
                         raise ValueError("unsafe archive member")
