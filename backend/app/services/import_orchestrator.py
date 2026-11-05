@@ -707,7 +707,7 @@ class ImportOrchestrator:
         self,
         descriptor: ContainerImageArtifact | HelmChartArtifact,
         skopeo: SkopeoService | RegistryClient,
-        helm: HelmOciService,
+        helm: HelmOciService | NexusHelmAdapter,
     ) -> tuple[ImportPreviewState, str | None]:
         if isinstance(descriptor, ContainerImageArtifact):
             inspected = await skopeo.inspect_target(
