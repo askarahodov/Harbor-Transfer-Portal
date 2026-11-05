@@ -354,7 +354,14 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 message="TARGET Harbor project имеет недопустимое имя",
             )
 
-        target_repository = target_project + (f"/{suffix}" if suffix else "")
+        # Nexus Helm hosted repositories are not OCI namespace/chart paths:
+        # the configured destination is the repository, while chart name is
+        # carried separately in the signed Helm artifact descriptor.
+        target_repository = (
+            target_project
+            if item.artifact_type == "helm-chart" and isinstance(helm, NexusHelmAdapter)
+            else target_project + (f"/{suffix}" if suffix else "")
+        )
         if item.artifact_type == "container-image":
             return await self._plan_image(
                 base,
