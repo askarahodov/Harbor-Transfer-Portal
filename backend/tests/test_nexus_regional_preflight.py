@@ -348,3 +348,38 @@ def test_preflight_accepts_valid_helm_build_metadata_version():
     assert report["preflight_status"] == "PASS"
     assert report["entries"][0]["checks"][-1]["code"] == "package_sha256_verified"
     assert len(seen) == 2
+
+
+@pytest.mark.parametrize("secondary_url", [
+    "https://malicious.invalid/repository/elsewhere/demo-1.0.0.tgz",
+    "demo-1.0.0.tgz?secret=leak",
+    99,
+])
+def test_preflight_rejects_untrusted_secondary_chart_urls(secondary_url):
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        assert request.url.path == "/repository/helm-team/index.yaml"
+        return httpx.Response(200, text=yaml.safe_dump({
+            "entries": {"demo": [{
+                "version": "1.0.0", "digest": "a" * 64,
+                "urls": ["demo-1.0.0.tgz", secondary_url],
+            }]},
+        }))
+
+    def factory(**kwargs):
+        assert kwargs["follow_redirects"] is False
+        assert kwargs["trust_env"] is False
+        return httpx.Client(transport=httpx.MockTransport(handler), **kwargs)
+
+    report = run_document(_document([{
+        "id": "helm-team", "contour": "SOURCE", "format": "helm",
+        "kind": "hosted", "endpoint": "https://nexus.example.test",
+        "repository": "helm-team", "chart": "demo", "version": "1.0.0",
+    }]), client_factory=factory)
+    assert report["preflight_status"] == "FAIL"
+    assert report["release_verdict"] == "NO-GO"
+    assert report["entries"][0]["checks"][-1]["code"] == "index_invalid"
+    assert len(requests) == 1
+    assert "malicious.invalid" not in requests[0]
