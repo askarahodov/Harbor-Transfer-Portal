@@ -148,6 +148,12 @@ async def probe_docker_v2(
                 headers={"Authorization": "Bearer " + token},
             )
             if verified.status_code == 200:
+                version = verified.headers.get("Docker-Distribution-API-Version", "")
+                if version.lower() != "registry/2.0":
+                    return _result(
+                        "registry_invalid_endpoint",
+                        "Endpoint не подтвердил Docker Registry v2",
+                    )
                 return _result(
                     "registry_connection_ok",
                     "Docker Registry v2 доступен, авторизация подтверждена",
