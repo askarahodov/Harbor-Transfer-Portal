@@ -286,6 +286,29 @@ export async function listHarborArtifacts(
   return response.data
 }
 
+export type NexusSuggestions = {
+  available: boolean
+  items: string[]
+  message: string | null
+  truncated: boolean
+}
+
+export async function listNexusRepositories(profileId: string, search = ''): Promise<NexusSuggestions> {
+  const response = await apiClient.get<NexusSuggestions>('/registry/source/nexus/repositories', {
+    params: { profile_id: profileId, search },
+  })
+  return response.data
+}
+
+export async function listNexusTags(
+  profileId: string, repository: string, search = '',
+): Promise<NexusSuggestions> {
+  const response = await apiClient.get<NexusSuggestions>('/registry/source/nexus/tags', {
+    params: { profile_id: profileId, repository, search },
+  })
+  return response.data
+}
+
 export type ExactNexusInspection = {
   repository: string
   reference: string
