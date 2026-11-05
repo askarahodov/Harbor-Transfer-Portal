@@ -8,6 +8,8 @@ from app.config import Settings
 from app.domain.bundle import ContainerImageArtifact, HelmChartArtifact
 from app.domain.imports import ImportPreviewState
 from app.schemas.imports import ImportArtifactPreviewResponse
+from app.services.harbor_profiles import HarborProfileService
+from app.services.nexus_helm_http import NexusHelmAdapter
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmOciService,
@@ -118,7 +120,15 @@ class ImportArtifactClassifier:
             helm = (
                 self.helm_factory(session)
                 if self.helm_factory is not None
-                else HelmOciService(session, self.settings, harbor_profile_id=harbor_profile_id)
+                else (
+                    NexusHelmAdapter(session, self.settings, harbor_profile_id)
+                    if harbor_profile_id is not None
+                    and HarborProfileService(session, self.settings)
+                    .operation_snapshot(harbor_profile_id).registry_type == "nexus"
+                    else HelmOciService(
+                        session, self.settings, harbor_profile_id=harbor_profile_id
+                    )
+                )
             )
             inspected = await helm.inspect_target(
                 HelmChartReference(artifact.repository, artifact.name, artifact.version),
