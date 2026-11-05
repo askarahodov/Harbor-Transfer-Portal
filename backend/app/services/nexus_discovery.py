@@ -31,6 +31,20 @@ class DiscoveryResult:
     truncated: bool = False
 
 
+@dataclass(frozen=True)
+class NexusRepositoryInfo:
+    name: str
+    format: str
+    kind: str
+
+
+@dataclass(frozen=True)
+class NexusRepositoryInventory:
+    available: bool
+    items: tuple[NexusRepositoryInfo, ...]
+    message: str | None = None
+
+
 class NexusDiscoveryService:
     def __init__(self, session: Session, settings: Settings, profile_id: str) -> None:
         profile = HarborProfileService(session, settings).operation_snapshot(profile_id)
@@ -60,6 +74,67 @@ class NexusDiscoveryService:
         self.timeout = httpx.Timeout(
             settings.nexus_read_timeout_seconds,
             connect=settings.nexus_connect_timeout_seconds,
+        )
+
+    async def inventory(self) -> NexusRepositoryInventory:
+        """List only Docker/Helm repositories visible to the service identity.
+
+        Visibility does not establish read, pull, push or upload permissions.
+        Nexus may hide repositories from this API based on RBAC.
+        """
+        if not self.search_url:
+            return NexusRepositoryInventory(
+                False, (), "Для списка репозиториев нужен Nexus UI HTTPS URL"
+            )
+        parsed = urlsplit(self.search_url)
+        if (
+            parsed.scheme != "https" or not parsed.hostname
+            or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or parsed.path not in {"", "/"}
+        ):
+            return NexusRepositoryInventory(False, (), "Нужен корневой Nexus UI HTTPS URL")
+        auth = (
+            httpx.BasicAuth(self.username, self.password or "")
+            if self.username else None
+        )
+        try:
+            async with httpx.AsyncClient(
+                verify=self.verify, timeout=self.timeout,
+                follow_redirects=False, trust_env=False,
+            ) as client:
+                response = await client.get(
+                    self.search_url.rstrip("/") + "/service/rest/v1/repositories",
+                    auth=auth,
+                )
+                if response.status_code in {401, 403}:
+                    return NexusRepositoryInventory(
+                        False, (), "Нет прав на список репозиториев Nexus"
+                    )
+                if response.status_code != 200:
+                    return NexusRepositoryInventory(
+                        False, (), "Не удалось получить список репозиториев Nexus"
+                    )
+                payload = response.json()
+        except (httpx.HTTPError, ValueError, TypeError):
+            return NexusRepositoryInventory(False, (), "Список репозиториев Nexus недоступен")
+        if not isinstance(payload, list):
+            return NexusRepositoryInventory(False, (), "Некорректный ответ Nexus repositories API")
+        found: dict[str, NexusRepositoryInfo] = {}
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            name, fmt, kind = (entry.get(key) for key in ("name", "format", "type"))
+            if (
+                not isinstance(name, str) or not name or len(name) > 128
+                or not isinstance(fmt, str) or fmt not in {"docker", "helm"}
+                or not isinstance(kind, str) or kind not in {"hosted", "proxy", "group"}
+            ):
+                continue
+            found[name] = NexusRepositoryInfo(name, fmt, kind)
+        items = tuple(sorted(found.values(), key=lambda item: (item.format, item.name)))
+        return NexusRepositoryInventory(
+            True, items[:200],
+            "Список ограничен 200 записями" if len(items) > 200 else None,
         )
 
     async def catalog(self, search: str = "") -> DiscoveryResult:
