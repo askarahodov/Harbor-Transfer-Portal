@@ -95,7 +95,7 @@ async def test_helm_index_unauthorized_is_not_empty(client_service):
     state["status"] = 403
     result = await service.list_charts("helm-a")
     assert not result.available and not result.items
-    assert result.code == "helm_repository_unavailable"
+    assert result.code == "helm_repository_denied"
     assert "secret-not-for-logs" not in (result.message or "")
 
 
@@ -142,6 +142,41 @@ async def test_helm_hosted_upload_rechecks_index_and_digest(client_service, tmp_
     assert observed == digest
     assert state["upload"]
     assert any(x.url.path == "/service/rest/v1/components" for x in state["calls"])
+
+
+@pytest.mark.asyncio
+async def test_first_helm_hosted_upload_accepts_missing_index_after_type_check(
+    client_service, tmp_path: Path,
+):
+    service, state, data, digest = client_service
+    state["present"] = False
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request):
+        state["calls"].append(request)
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+        if request.url.path == "/service/rest/v1/components":
+            state["upload"] = True
+            return httpx.Response(204)
+        if request.url.path.endswith("/index.yaml") and not state["upload"]:
+            return httpx.Response(404)
+        return httpx.Response(200, text=yaml.safe_dump({
+            "entries": {"demo": [{
+                "version": "1.2.3", "digest": digest,
+                "urls": ["demo-1.2.3.tgz"]
+            }]}
+        }))
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    package = tmp_path / "demo-1.2.3.tgz"
+    package.write_bytes(data)
+    from unittest.mock import patch
+    with patch("app.services.nexus_helm_http.httpx.AsyncClient", factory):
+        observed = await service.upload_chart("helm-a", "demo", "1.2.3", package)
+    assert observed == digest and state["upload"]
 
 
 @pytest.mark.asyncio
