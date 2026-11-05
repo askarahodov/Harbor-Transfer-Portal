@@ -22,8 +22,8 @@ import httpx
 import yaml
 
 _REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
-_CHART = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\\Z")
-_HELM_VERSION = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\\Z")
+_CHART = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\Z")
+_HELM_VERSION = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
 _IMAGE = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*\Z")
 _TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}\Z")
 _DIGEST = re.compile(r"(?:sha256:)?[a-f0-9]{64}\Z")
@@ -98,7 +98,7 @@ def _unambiguous_index(payload: bytes, repository: str) -> dict:
                 or parsed_url.query or parsed_url.fragment
                 or parsed_url.username is not None
                 or parsed_url.password is not None
-                or "\\\\" in advertised
+                or "\\" in advertised
                 or (parsed_url.scheme and parsed_url.scheme not in {"http", "https"})
                 or (parsed_url.netloc and parsed_url.path != (
                     f"/repository/{repository}/{filename}"
