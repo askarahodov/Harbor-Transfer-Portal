@@ -27,6 +27,65 @@ _TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}\Z")
 _DIGEST = re.compile(r"(?:sha256:)?[a-f0-9]{64}\Z")
 _MAX_INDEX = 4 * 1024 * 1024
 _MAX_CHART = 100 * 1024 * 1024
+_MAX_VERSIONS = 500
+
+
+class _UniqueKeysLoader(yaml.SafeLoader):
+    """Refuse ambiguous Helm YAML rather than selecting the last mapping key."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict:
+        self.flatten_mapping(node)
+        mapping: dict = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            try:
+                duplicate = key in mapping
+            except TypeError as exc:
+                raise yaml.constructor.ConstructorError(
+                    "while reading Helm YAML", node.start_mark,
+                    "unhashable mapping key", key_node.start_mark,
+                ) from exc
+            if duplicate:
+                raise yaml.constructor.ConstructorError(
+                    "while reading Helm YAML", node.start_mark,
+                    "duplicate mapping key", key_node.start_mark,
+                )
+            mapping[key] = self.construct_object(value_node, deep=deep)
+        return mapping
+
+
+def _unambiguous_index(payload: bytes) -> dict:
+    document = yaml.load(payload, Loader=_UniqueKeysLoader)
+    if not isinstance(document, dict) or not isinstance(document.get("entries"), dict):
+        raise ValueError("index_invalid")
+    seen: set[tuple[str, str]] = set()
+    total = 0
+    for chart, records in document["entries"].items():
+        if not isinstance(chart, str) or not _REPOSITORY.fullmatch(chart):
+            raise ValueError("index_invalid")
+        if not isinstance(records, list) or len(records) > _MAX_VERSIONS:
+            raise ValueError("index_invalid")
+        for record in records:
+            total += 1
+            if total > _MAX_VERSIONS:
+                raise ValueError("index_invalid")
+            if not isinstance(record, dict):
+                raise ValueError("index_invalid")
+            version = record.get("version")
+            digest = record.get("digest")
+            urls = record.get("urls")
+            if (
+                not isinstance(version, str) or not _TAG.fullmatch(version)
+                or not isinstance(digest, str) or not _DIGEST.fullmatch(digest)
+                or not isinstance(urls, list) or not urls
+                or not isinstance(urls[0], str)
+            ):
+                raise ValueError("index_invalid")
+            identity = (chart, version)
+            if identity in seen:
+                raise ValueError("index_invalid")
+            seen.add(identity)
+    return document
 _ACCEPT_MANIFEST = ", ".join((
     "application/vnd.docker.distribution.manifest.v2+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -102,11 +161,8 @@ def _read_helm(client: httpx.Client, base: str, entry: dict[str, Any], checks: l
         checks.append(_check("helm_index", "FAIL", "index_unavailable", status))
         return
     try:
-        doc = yaml.safe_load(payload)
+        doc = _unambiguous_index(payload)
     except (yaml.YAMLError, UnicodeError, ValueError):
-        checks.append(_check("helm_index", "FAIL", "index_invalid"))
-        return
-    if not isinstance(doc, dict) or not isinstance(doc.get("entries"), dict):
         checks.append(_check("helm_index", "FAIL", "index_invalid"))
         return
     checks.append(_check("helm_index", "PASS", "index_readable", 200))
@@ -119,7 +175,7 @@ def _read_helm(client: httpx.Client, base: str, entry: dict[str, Any], checks: l
     version = _name(version, _TAG, "version_invalid")
     versions = doc["entries"].get(chart)
     record = next(
-        (item for item in versions if isinstance(item, dict) and item.get("version") == version),
+        (item for item in versions if item["version"] == version),
         None,
     ) if isinstance(versions, list) else None
     if record is None or not isinstance(record.get("digest"), str) or not _DIGEST.fullmatch(
