@@ -608,9 +608,16 @@ onBeforeUnmount(() => {
                 <ul v-if="nexusHelmVersions.length">
                   <li v-for="entry in nexusHelmVersions" :key="entry.name + ':' + entry.version">
                     {{ entry.name }} · {{ entry.version }} · sha256:{{ entry.digest.slice(0, 12) }}
+                    <button
+                      type="button"
+                      class="secondary-button"
+                      @click="wizard.addExactNexusHelmChart(
+                        nexusHelmSelection, entry.name, entry.version, entry.digest
+                      )"
+                    >Добавить Helm chart</button>
                   </li>
                 </ul>
-                <p class="muted">Helm HTTP chart export/import в подписанный bundle ещё не реализован.</p>
+                <p class="muted">Helm HTTP: chart можно добавить в подписанный SOURCE bundle. TARGET требует отдельной проверки прав записи в hosted repository; overwrite запрещён.</p>
               </div>
             </div>
             <form class="nexus-exact-form" @submit.prevent="inspectNexusReference">
