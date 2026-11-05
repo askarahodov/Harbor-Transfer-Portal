@@ -104,7 +104,9 @@ class NexusHelmHttpService:
             follow_redirects=False, trust_env=False,
         )
 
-    async def _load_index(self, client: httpx.AsyncClient, repository: str) -> HelmHttpResult:
+    async def _load_index(
+        self, client: httpx.AsyncClient, repository: str, *, strict: bool = False
+    ) -> HelmHttpResult:
         url = self._base() + "/repository/" + quote(self._repository(repository)) + "/index.yaml"
         try:
             async with client.stream("GET", url) as response:
@@ -159,6 +161,11 @@ class NexusHelmHttpService:
                     or not isinstance(urls, list) or not urls
                     or not isinstance(urls[0], str)
                 ):
+                    if strict:
+                        return HelmHttpResult(
+                            False, code="helm_index_invalid",
+                            message="Helm index содержит непроверяемую версию",
+                        )
                     continue
                 advertised = urls[0]
                 filename = f"{name}-{version}.tgz"
@@ -182,6 +189,11 @@ class NexusHelmHttpService:
                         f"/repository/{repository}/{filename}"
                     ))
                 ):
+                    if strict:
+                        return HelmHttpResult(
+                            False, code="helm_index_invalid",
+                            message="Helm index содержит небезопасный URL пакета",
+                        )
                     continue
                 found.append(HelmChartVersion(name, version, filename, digest.lower()))
                 if len(found) > 500:
@@ -325,7 +337,9 @@ class NexusHelmHttpService:
                 raise NexusHelmHttpError(
                     "helm_repository_read_only", "Запись разрешена только в Helm hosted"
                 )
-            current = await self._load_index(client, repository)
+            # A malformed entry must never be interpreted as an absent version
+            # during pre-write conflict detection.
+            current = await self._load_index(client, repository, strict=True)
             if not current.available and current.code != "helm_index_missing":
                 raise NexusHelmHttpError(
                     current.code or "helm_index_unavailable",
@@ -347,7 +361,7 @@ class NexusHelmHttpService:
             # Components upload. Never resend the POST: only retry read-only
             # postchecks and fail closed if the version is not published.
             for attempt in range(20):
-                observed = await self._load_index(client, repository)
+                observed = await self._load_index(client, repository, strict=True)
                 match = next(
                     (v for v in observed.items if v.name == name and v.version == version),
                     None,
@@ -386,7 +400,8 @@ class NexusHelmAdapter:
         self, chart: HelmChartReference, *, expected_digest: str | None = None
     ) -> HelmTargetInspection:
         try:
-            result = await self.client.list_charts(chart.repository)
+            async with self.client._client() as http:
+                result = await self.client._load_index(http, chart.repository, strict=True)
         except NexusHelmHttpError as exc:
             raise self._error(exc) from exc
         if not result.available and result.code == "helm_index_missing":
