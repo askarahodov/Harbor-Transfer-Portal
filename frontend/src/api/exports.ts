@@ -305,6 +305,28 @@ export async function getNexusInventory(profileId: string): Promise<NexusInvento
   return response.data
 }
 
+export type NexusHelmChartVersion = {
+  name: string
+  version: string
+  digest: string
+}
+
+export type NexusHelmCatalog = {
+  available: boolean
+  items: NexusHelmChartVersion[]
+  code: string | null
+  message: string | null
+}
+
+export async function listNexusHelmCharts(
+  profileId: string, repository: string,
+): Promise<NexusHelmCatalog> {
+  const response = await apiClient.get<NexusHelmCatalog>('/registry/source/nexus/helm/charts', {
+    params: { profile_id: profileId, repository },
+  })
+  return response.data
+}
+
 export type NexusSuggestions = {
   available: boolean
   items: string[]
