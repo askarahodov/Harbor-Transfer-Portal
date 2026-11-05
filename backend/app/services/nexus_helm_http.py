@@ -176,21 +176,29 @@ class NexusHelmHttpService:
             if not inventory.available:
                 raise NexusHelmHttpError(inventory.code or "helm_index_unavailable",
                                          inventory.message or "Helm index недоступен")
-            entry = next((v for v in inventory.items if v.name == name and v.version == version), None)
+            entry = next(
+                (v for v in inventory.items if v.name == name and v.version == version), None
+            )
             if entry is None:
                 raise NexusHelmHttpError("helm_chart_not_found", "Helm chart/version не найден")
             url = self._base() + "/repository/" + quote(repository) + "/" + quote(entry.path)
             try:
                 async with client.stream("GET", url) as response:
                     if response.status_code != 200:
-                        raise NexusHelmHttpError("helm_chart_unavailable", "Helm package недоступен")
+                        raise NexusHelmHttpError(
+                            "helm_chart_unavailable", "Helm package недоступен"
+                        )
                     chunks = bytearray()
                     async for chunk in response.aiter_bytes():
                         chunks.extend(chunk)
                         if len(chunks) > _MAX_CHART:
-                            raise NexusHelmHttpError("helm_chart_too_large", "Helm package превышает лимит")
+                            raise NexusHelmHttpError(
+                                "helm_chart_too_large", "Helm package превышает лимит"
+                            )
             except httpx.HTTPError as exc:
-                raise NexusHelmHttpError("helm_chart_unavailable", "Helm package недоступен") from exc
+                raise NexusHelmHttpError(
+                    "helm_chart_unavailable", "Helm package недоступен"
+                ) from exc
         if hashlib.sha256(chunks).hexdigest() != entry.digest:
             raise NexusHelmHttpError("helm_digest_mismatch", "Checksum Helm package не совпадает")
         self._validate_package(bytes(chunks), name, version)
@@ -259,15 +267,27 @@ class NexusHelmHttpService:
             try:
                 meta = await client.get(meta_url)
             except httpx.HTTPError as exc:
-                raise NexusHelmHttpError("helm_repository_unavailable", "Нет доступа к Helm repository") from exc
+                raise NexusHelmHttpError(
+                    "helm_repository_unavailable", "Нет доступа к Helm repository"
+                ) from exc
             if meta.status_code != 200:
-                raise NexusHelmHttpError("helm_repository_unavailable", "Нет доступа к Helm repository")
+                raise NexusHelmHttpError(
+                    "helm_repository_unavailable", "Нет доступа к Helm repository"
+                )
             try:
                 details = meta.json()
             except ValueError as exc:
-                raise NexusHelmHttpError("helm_repository_invalid", "Некорректный ответ Nexus") from exc
-            if not isinstance(details, dict) or details.get("format") != "helm" or details.get("type") != "hosted":
-                raise NexusHelmHttpError("helm_repository_read_only", "Запись разрешена только в Helm hosted")
+                raise NexusHelmHttpError(
+                    "helm_repository_invalid", "Некорректный ответ Nexus"
+                ) from exc
+            if (
+                not isinstance(details, dict)
+                or details.get("format") != "helm"
+                or details.get("type") != "hosted"
+            ):
+                raise NexusHelmHttpError(
+                    "helm_repository_read_only", "Запись разрешена только в Helm hosted"
+                )
             current = await self._load_index(client, repository)
             if not current.available:
                 raise NexusHelmHttpError(current.code or "helm_index_unavailable",
@@ -287,7 +307,11 @@ class NexusHelmHttpService:
             observed = await self._load_index(client, repository)
             if not observed.available:
                 raise NexusHelmHttpError("helm_postcheck_failed", "Helm upload не подтверждён")
-            match = next((v for v in observed.items if v.name == name and v.version == version), None)
+            match = next(
+                (v for v in observed.items if v.name == name and v.version == version), None
+            )
             if match is None or match.digest != digest:
-                raise NexusHelmHttpError("helm_postcheck_failed", "Helm upload checksum не подтверждён")
+                raise NexusHelmHttpError(
+                    "helm_postcheck_failed", "Helm upload checksum не подтверждён"
+                )
         return digest
