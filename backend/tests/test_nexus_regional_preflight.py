@@ -11,7 +11,11 @@ import pytest
 import yaml
 
 from integration.nexus_regional_preflight import (
-    _load_config, _probe, _publish_report, main, run_document,
+    _load_config,
+    _probe,
+    _publish_report,
+    main,
+    run_document,
 )
 
 HEAD = "c55fc355823306ada9b5f9536fca4508ff675f2d"
