@@ -113,6 +113,70 @@ async def test_docker_schema2_round_trip(admin_password: str, tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_two_named_docker_connector_profiles_are_isolated(
+    admin_password: str, tmp_path: Path,
+) -> None:
+    """Two Nexus hosted repos on separate connectors; no global auth fallback.
+
+    The same account can be scoped to more than one repository. Portal must
+    preserve the connector URL and registry identity of each selected profile.
+    """
+    settings = make_settings(tmp_path, "intentionally-wrong-global-password")
+    seed = NexusService(
+        MagicMock(), make_settings(tmp_path / "seed", admin_password),
+    )
+    expected = await asyncio.to_thread(
+        seeded_schema2_image,
+        seed,
+        settings.skopeo_payload_root / "multi-seed",
+        admin_password,
+    )
+    engine = create_db_engine(settings.database_url)
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        profiles = HarborProfileService(session, settings)
+        first = profiles.create(
+            name="Docker hosted source", url="http://127.0.0.1:8082",
+            username="admin", enabled=True, verify_tls=False,
+            registry_type="nexus",
+            nexus_search_url="https://127.0.0.1:8444",
+            nexus_search_repository="htp-e2e",
+        )
+        second = profiles.create(
+            name="Docker hosted target", url="http://127.0.0.1:8083",
+            username="admin", enabled=True, verify_tls=False,
+            registry_type="nexus",
+            nexus_search_url="https://127.0.0.1:8444",
+            nexus_search_repository="htp-e2e-target",
+        )
+        profiles.rotate_credential(first.id, admin_password)
+        profiles.rotate_credential(second.id, admin_password)
+        session.commit()
+        assert profiles.get(first.id).nexus_search_repository == "htp-e2e"
+        assert profiles.get(second.id).nexus_search_repository == "htp-e2e-target"
+
+        source = NexusService(session, settings, nexus_profile_id=first.id)
+        target = NexusService(session, settings, nexus_profile_id=second.id)
+        image = ImageReference("htp-e2e/source", "1.0.0")
+        assert (await source.inspect_image(image)).digest == expected
+        assert (await target.inspect_target(
+            image, expected_digest=expected,
+        )).state == TargetState.ABSENT
+
+        exported = await source.export_image(
+            image, settings.skopeo_payload_root / "multi-exported",
+        )
+        assert exported.source_digest == expected
+        imported = await target.import_image(
+            exported.payload_path, image, expected_digest=expected,
+        )
+        assert imported.verified
+        assert imported.target_digest == expected
+        assert (await target.inspect_image(image)).digest == expected
+
+
+@pytest.mark.asyncio
 async def test_wrong_credentials_are_rejected(admin_password: str, tmp_path: Path) -> None:
     settings = make_settings(tmp_path, "deliberately-wrong-password")
     service = NexusService(MagicMock(), settings)
