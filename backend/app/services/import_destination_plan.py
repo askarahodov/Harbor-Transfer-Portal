@@ -56,7 +56,7 @@ from app.services.helm_oci_service import (
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
 from app.services.nexus_destination_validator import NexusDestinationValidator
-from app.services.nexus_helm_http import NexusHelmAdapter
+from app.services.nexus_helm_http import NexusHelmAdapter, NexusHelmHttpError
 from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
     OperationContext,
@@ -462,8 +462,14 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             return self._invalid_reference(base, target_project, target_repository, str(exc))
         if isinstance(helm, NexusHelmAdapter):
             # Helm hosted uses Nexus HTTP and an index, never OCI/Docker v2.
+            try:
+                helm_root = helm.client._base()
+            except NexusHelmHttpError as exc:
+                return self._invalid_reference(
+                    base, target_project, target_repository, exc.message
+                )
             final_reference = (
-                f"{helm.client._base()}/repository/{target.repository}/"
+                f"{helm_root}/repository/{target.repository}/"
                 f"{target.name}-{target.version}.tgz"
             )
         else:
