@@ -257,6 +257,33 @@ head `98b2f0a` PR #450.
 Эти тесты не заменяют проверку физически независимых корпоративных
 SOURCE/TARGET, TLS/CA, RBAC и браузера. Release verdict — **NO-GO**.
 
+## 3f. Единый технический интеграционный кандидат (05.11.2026)
+
+**Draft [PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451)** — интеграция
+на ветке `integration/nexus-oss-release-candidate-451`, исходный base
+`main` **без merge в main**. В единый commit
+`48819932630e23f2a1103b64ef09874494e420ed` объединены области
+[#438–#442, #445–#450](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451)
+и актуальная релизная документация #444. Конфликты кода #445/#449
+(обработка ошибок и Nexus preview) и #448/#442 (Harbor API fixture)
+сведены вручную без потери специфического `nexus_not_found`.
+
+**Единые проверки на этом commit SHA:**
+
+- [Общий CI #41978495550](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41978495550) —
+  **SUCCESS**: frontend, backend Ruff/Mypy/pytest, security, protocol,
+  documentation, integration, Quality Gate.
+- [Nexus 3.69 OSS E2E #41978495693](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41978495693) —
+  **SUCCESS, 12 passed**: Docker hosted SOURCE (8082) → подписанный bundle
+  → отдельный hosted TARGET (8083) и receipt, а также отказные сценарии.
+
+**Релизный статус: NO-GO.** Доказана совместимость собранного кода в
+одноразовой CI-среде, но **не** физическая изоляция промышленного SOURCE/TARGET,
+корпоративный DNS/TLS/CA/proxy, права namespace RBAC, браузерная приёмка,
+пограничные комбинации Harbor/Nexus, решение по Helm legacy (#435) и
+формальный review/merge/release. PR #451 остаётся draft; `main` и
+производственные контуры не изменялись.
+
 ## 4. Перед выпуском и после выпуска
 
 1. Завершить/согласовать зависимые PR #438–#442, затем обязательные #431,
