@@ -17,6 +17,8 @@ import {
   downloadExportHandoff,
   getExportHandoffRecord,
   inspectExactNexusImage,
+  listNexusRepositories,
+  listNexusTags,
   type ExactNexusInspection,
   type ArtifactStatus,
   type OperationStatus,
@@ -39,6 +41,62 @@ const exactReference = ref('')
 const exactResult = ref<ExactNexusInspection | null>(null)
 const exactError = ref<string | null>(null)
 const exactBusy = ref(false)
+const nexusRepositories = ref<string[]>([])
+const nexusTags = ref<string[]>([])
+const nexusCatalogMessage = ref<string | null>(null)
+const nexusTagsMessage = ref<string | null>(null)
+const nexusBrowseBusy = ref(false)
+const nexusTagsBusy = ref(false)
+let nexusRepoTimer: ReturnType<typeof setTimeout> | null = null
+let nexusTagTimer: ReturnType<typeof setTimeout> | null = null
+let nexusGeneration = 0
+
+async function searchNexusRepositories(): Promise<void> {
+  const profileId = wizard.selectedHarborProfileId
+  if (!wizard.isNexus || !profileId) return
+  const generation = ++nexusGeneration
+  nexusBrowseBusy.value = true
+  try {
+    const result = await listNexusRepositories(profileId, exactRepository.value.trim())
+    if (generation !== nexusGeneration || wizard.selectedHarborProfileId !== profileId) return
+    nexusRepositories.value = result.items
+    nexusCatalogMessage.value = result.available
+      ? result.truncated ? 'Показана первая страница; уточните название для поиска.' : null
+      : (result.message ?? 'Перечисление Nexus недоступно; введите точный repository.')
+  } catch (reason) {
+    if (generation === nexusGeneration) {
+      nexusCatalogMessage.value = apiErrorInfo(reason, 'Не удалось получить каталог Nexus.').message
+      nexusRepositories.value = []
+    }
+  } finally {
+    if (generation === nexusGeneration) nexusBrowseBusy.value = false
+  }
+}
+
+let nexusTagsGeneration = 0
+async function searchNexusTags(): Promise<void> {
+  const profileId = wizard.selectedHarborProfileId
+  const repository = exactRepository.value.trim()
+  if (!wizard.isNexus || !profileId || !repository) return
+  const generation = ++nexusTagsGeneration
+  nexusTagsBusy.value = true
+  try {
+    const result = await listNexusTags(profileId, repository, exactReference.value.trim())
+    if (generation !== nexusTagsGeneration || wizard.selectedHarborProfileId !== profileId) return
+    nexusTags.value = result.items
+    nexusTagsMessage.value = result.available
+      ? result.truncated ? 'Показана первая страница тегов; уточните поиск.' : null
+      : (result.message ?? 'Теги недоступны; введите точный tag.')
+  } catch (reason) {
+    if (generation === nexusTagsGeneration) {
+      nexusTagsMessage.value = apiErrorInfo(reason, 'Не удалось получить теги Nexus.').message
+      nexusTags.value = []
+    }
+  } finally {
+    if (generation === nexusTagsGeneration) nexusTagsBusy.value = false
+  }
+}
+
 
 async function inspectNexusReference(): Promise<void> {
   const profileId = wizard.selectedHarborProfileId
@@ -65,10 +123,28 @@ watch([exactRepository, exactReference], () => {
   exactResult.value = null
   exactError.value = null
 })
+watch(exactRepository, () => {
+  nexusTags.value = []
+  nexusTagsMessage.value = null
+  if (nexusRepoTimer !== null) clearTimeout(nexusRepoTimer)
+  if (nexusTagTimer !== null) clearTimeout(nexusTagTimer)
+  nexusRepoTimer = setTimeout(() => { void searchNexusRepositories() }, 400)
+})
+watch(exactReference, () => {
+  if (nexusTagTimer !== null) clearTimeout(nexusTagTimer)
+  nexusTagTimer = setTimeout(() => { void searchNexusTags() }, 400)
+})
 
 watch(() => wizard.selectedHarborProfileId, () => {
   exactResult.value = null
   exactError.value = null
+  nexusGeneration += 1
+  nexusTagsGeneration += 1
+  nexusRepositories.value = []
+  nexusTags.value = []
+  nexusCatalogMessage.value = null
+  nexusTagsMessage.value = null
+  if (wizard.isNexus) void searchNexusRepositories()
 })
 
 const downloadError = ref<string | null>(null)
@@ -313,6 +389,7 @@ onMounted(async () => {
   }
   if (runtime.contour === 'SOURCE') {
     await wizard.initialize()
+    if (wizard.isNexus) void searchNexusRepositories()
   }
   clock = setInterval(() => {
     now.value = Date.now()
@@ -321,6 +398,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   wizard.stopPolling()
+  nexusGeneration += 1
+  nexusTagsGeneration += 1
+  if (nexusRepoTimer !== null) clearTimeout(nexusRepoTimer)
+  if (nexusTagTimer !== null) clearTimeout(nexusTagTimer)
   if (clock !== null) clearInterval(clock)
 })
 </script>
@@ -403,15 +484,35 @@ onBeforeUnmount(() => {
         <div v-if="wizard.isNexus" class="notice notice--info" role="status">
           <AlertTriangle :size="22" aria-hidden="true" />
           <div>
-            <strong>Nexus Docker v2: каталог Harbor недоступен</strong>
-            <p>Nexus 3.69 OSS использует Docker Registry v2, а не Harbor API. Укажите точный Docker repository и tag для проверки digest. Helm OCI здесь не поддерживается.</p>
+            <strong>Nexus · Docker Registry v2</strong>
+            <p>Поиск доступен, если ваш Nexus разрешает Docker v2 catalog/tags. Если каталог закрыт, укажите точный repository:tag. Harbor API и Helm OCI не используются.</p>
             <form class="nexus-exact-form" @submit.prevent="inspectNexusReference">
               <label>Repository
-                <input v-model="exactRepository" type="text" required maxlength="255" placeholder="team/application" autocomplete="off" />
+                <input v-model="exactRepository" type="text" required maxlength="255" placeholder="team/application" autocomplete="off" list="nexus-repositories" />
+                <datalist id="nexus-repositories">
+                  <option v-for="name in nexusRepositories" :key="name" :value="name" />
+                </datalist>
               </label>
+              <button class="secondary-button" type="button" :disabled="nexusBrowseBusy" @click="searchNexusRepositories">
+                {{ nexusBrowseBusy ? 'Поиск репозиториев…' : 'Найти репозитории' }}
+              </button>
+              <p v-if="nexusCatalogMessage" class="muted" role="status">{{ nexusCatalogMessage }}</p>
+              <div v-if="nexusRepositories.length" class="nexus-suggestions" aria-label="Найденные Nexus репозитории">
+                <button v-for="name in nexusRepositories" :key="name" type="button" class="secondary-button" @click="exactRepository = name; exactReference = ''; searchNexusTags()">{{ name }}</button>
+              </div>
               <label>Tag или digest
-                <input v-model="exactReference" type="text" required maxlength="128" placeholder="1.0.0" autocomplete="off" />
+                <input v-model="exactReference" type="text" required maxlength="128" placeholder="1.0.0" autocomplete="off" list="nexus-tags" />
+                <datalist id="nexus-tags">
+                  <option v-for="tag in nexusTags" :key="tag" :value="tag" />
+                </datalist>
               </label>
+              <button type="button" class="secondary-button" :disabled="!exactRepository.trim() || nexusTagsBusy" @click="searchNexusTags">
+                {{ nexusTagsBusy ? 'Поиск тегов…' : 'Найти теги' }}
+              </button>
+              <p v-if="nexusTagsMessage" class="muted" role="status">{{ nexusTagsMessage }}</p>
+              <div v-if="nexusTags.length" class="nexus-suggestions" aria-label="Найденные Nexus теги">
+                <button v-for="tag in nexusTags" :key="tag" type="button" class="secondary-button" @click="exactReference = tag">{{ tag }}</button>
+              </div>
               <button class="secondary-button" type="submit" :disabled="exactBusy || !exactRepository.trim() || !exactReference.trim()">Проверить Docker image</button>
             </form>
             <p v-if="exactError" role="alert">{{ exactError }}</p>
@@ -674,6 +775,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .nexus-exact-form { display: grid; gap: var(--space-3); margin-top: var(--space-3); }
+.nexus-suggestions { display: flex; flex-wrap: wrap; gap: var(--space-2); max-height: 180px; overflow-y: auto; }
+.nexus-suggestions button { max-width: 100%; overflow-wrap: anywhere; }
 .nexus-exact-form label { display: grid; gap: var(--space-1); }
 .nexus-exact-form input { min-height: 42px; width: 100%; padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); }
 
