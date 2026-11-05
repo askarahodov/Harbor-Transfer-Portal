@@ -4,8 +4,8 @@ import asyncio
 import base64
 import json
 import os
-import signal
 import shutil
+import signal
 import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
