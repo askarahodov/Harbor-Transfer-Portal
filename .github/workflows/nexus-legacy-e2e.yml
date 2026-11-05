@@ -10,6 +10,8 @@ on:
       - 'backend/tests/test_nexus_target_e2e.py'
       - 'backend/tests/test_nexus_helm_e2e.py'
       - 'backend/tests/test_nexus_helm_bundle_e2e.py'
+      - 'backend/tests/test_nexus_regional_preflight_e2e.py'
+      - 'backend/integration/nexus_regional_preflight.py'
       - 'backend/app/services/nexus_helm_http.py'
       - 'backend/app/services/nexus_destination_validator.py'
       - 'backend/app/services/import_destination_plan.py'
@@ -40,15 +42,19 @@ concurrency:
 
 jobs:
   legacy-docker-v2:
-    name: Nexus ${{ inputs.nexus_version || '3.69.0' }} — Docker v2 transport
+    name: Nexus ${{ matrix.nexus_version }} — Docker v2 + Helm HTTP transport
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        nexus_version: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.nexus_version) || '["3.69.0","3.70.1"]') }}
     timeout-minutes: 35
     env:
       HTP_NEXUS_LEGACY_E2E: '1'
       HTP_NEXUS_E2E_PASSWORD_FILE: /tmp/htp-nexus-admin-password
       HTP_NEXUS_TLS_CA_FILE: /tmp/htp-nexus-e2e-tls/server.crt
       HTP_NEXUS_HELM_HTTPS_URL: https://127.0.0.1:8444
-      HTP_NEXUS_VERSION: ${{ inputs.nexus_version || '3.69.0' }}
+      HTP_NEXUS_VERSION: ${{ matrix.nexus_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -187,7 +193,7 @@ jobs:
         run: |
           set -euo pipefail
           cd backend
-          python -m pytest -v -x tests/test_nexus_helm_e2e.py tests/test_nexus_helm_bundle_e2e.py
+          python -m pytest -v -x tests/test_nexus_helm_e2e.py tests/test_nexus_helm_bundle_e2e.py tests/test_nexus_regional_preflight_e2e.py
 
       - name: Stop and delete disposable Nexus
         if: ${{ always() }}
