@@ -1,5 +1,5 @@
 {
-  "environment": "REGION-NAME (operator fills in)",
+  "environment": "REGION-NAME",
   "operator": "APPROVED-OPERATOR",
   "change_id": "APPROVED-CHANGE-ID",
   "commit_sha": "c55fc355823306ada9b5f9536fca4508ff675f2d",
