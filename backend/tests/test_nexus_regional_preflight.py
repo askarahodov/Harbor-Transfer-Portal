@@ -384,3 +384,38 @@ def test_preflight_rejects_untrusted_secondary_chart_urls(secondary_url):
     assert report["entries"][0]["checks"][-1]["code"] == "index_invalid"
     assert len(requests) == 1
     assert "malicious.invalid" not in requests[0]
+
+
+@pytest.mark.parametrize("invalid_probe,expected_code", [
+    ({"id": "svc-token=secret-do-not-echo", "contour": "SOURCE",
+      "format": "helm", "kind": "hosted", "repository": "helm-team"},
+     "id_invalid"),
+    ({"id": "helm-team", "contour": "SOURCE",
+      "format": "helm", "kind": "hosted",
+      "repository": "secret/repository?access_token=sensitive"},
+     "repository_invalid"),
+    ({"id": "helm-team", "contour": "SOURCE",
+      "format": {"secret": "secret-do-not-echo"}, "kind": "hosted",
+      "repository": "helm-team"},
+     "format_invalid"),
+    (["secret-do-not-echo"], "probe_invalid"),
+])
+def test_preflight_never_echoes_invalid_config_in_evidence(
+    invalid_probe, expected_code,
+):
+    network_calls = []
+
+    def factory(**kwargs):
+        network_calls.append(kwargs)
+        raise AssertionError("invalid probe must not open a client")
+
+    report = run_document(
+        _document([invalid_probe]), client_factory=factory,
+    )
+    entry = report["entries"][0]
+    assert report["preflight_status"] == "FAIL"
+    assert report["release_verdict"] == "NO-GO"
+    assert entry["checks"][0]["code"] == expected_code
+    assert "secret-do-not-echo" not in json.dumps(report)
+    assert "sensitive" not in json.dumps(report)
+    assert not network_calls
