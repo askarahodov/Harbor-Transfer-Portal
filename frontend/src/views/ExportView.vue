@@ -441,7 +441,10 @@ onMounted(async () => {
   }
   if (runtime.contour === 'SOURCE') {
     await wizard.initialize()
-    if (wizard.isNexus) void searchNexusRepositories()
+    if (wizard.isNexus) {
+      void loadNexusInventory()
+      void searchNexusRepositories()
+    }
   }
   clock = setInterval(() => {
     now.value = Date.now()
