@@ -127,7 +127,12 @@ class NexusHelmHttpService:
                 continue
             if not isinstance(versions, list):
                 continue
-            for item in versions[:1000]:
+            if len(versions) > 500:
+                return HelmHttpResult(
+                    False, code="helm_index_too_large",
+                    message="Helm index.yaml содержит слишком много версий",
+                )
+            for item in versions:
                 if not isinstance(item, dict):
                     continue
                 version, digest, urls = item.get("version"), item.get("digest"), item.get("urls")
@@ -146,8 +151,11 @@ class NexusHelmHttpService:
                 ):
                     continue
                 found.append(HelmChartVersion(name, version, path, digest.lower()))
-                if len(found) >= 500:
-                    return HelmHttpResult(True, tuple(found))
+                if len(found) > 500:
+                    return HelmHttpResult(
+                        False, code="helm_index_too_large",
+                        message="Helm index.yaml содержит слишком много charts",
+                    )
         return HelmHttpResult(True, tuple(found))
 
     async def list_charts(self, repository: str) -> HelmHttpResult:
@@ -185,6 +193,7 @@ class NexusHelmHttpService:
                 raise NexusHelmHttpError("helm_chart_unavailable", "Helm package недоступен") from exc
         if hashlib.sha256(chunks).hexdigest() != entry.digest:
             raise NexusHelmHttpError("helm_digest_mismatch", "Checksum Helm package не совпадает")
+        self._validate_package(bytes(chunks), name, version)
         # O_EXCL prevents overwriting an existing chart. Caller owns cleanup.
         import os
         fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
