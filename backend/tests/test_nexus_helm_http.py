@@ -797,6 +797,7 @@ async def test_helm_upload_refuses_symlink_without_network(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("secondary_url", [
     "https://malicious.invalid/collect.tgz",
+    "https://[invalid",
     "../demo-1.2.3.tgz",
     "demo-1.2.3.tgz?token=secret",
     42,
