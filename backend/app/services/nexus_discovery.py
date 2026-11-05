@@ -143,12 +143,22 @@ class NexusDiscoveryService:
     async def _get(
         self, path: str, field: str, search: str, pattern: re.Pattern[str]
     ) -> DiscoveryResult:
-        # A bounded read-only query. If Nexus does not expose a catalog or the
-        # account lacks list privileges, do not pretend the repository is empty.
+        """Scan bounded Docker v2 pagination rather than filtering page one.
+
+        The Docker registry catalog has no server-side substring search. The
+        `last` cursor is read only from the validated result names; never
+        follow an untrusted Link URL or redirect registry credentials.
+        """
         auth = (
             httpx.BasicAuth(self.username, self.password or "")
             if self.username else None
         )
+        matches: set[str] = set()
+        last: str | None = None
+        # Cap fan-out and response data: browsing is optional and must not
+        # consume unbounded registry resources, especially through a group.
+        max_pages = 20
+        page_size = 100
         try:
             async with httpx.AsyncClient(
                 verify=self.verify,
@@ -156,35 +166,57 @@ class NexusDiscoveryService:
                 follow_redirects=False,
                 trust_env=False,
             ) as client:
-                response = await client.get(
-                    self.url + path, params={"n": 100}, auth=auth
-                )
+                for page in range(max_pages):
+                    params: dict[str, str | int] = {"n": page_size}
+                    if last is not None:
+                        params["last"] = last
+                    response = await client.get(self.url + path, params=params, auth=auth)
+                    if response.status_code != 200:
+                        return DiscoveryResult(
+                            False, (),
+                            "Nexus не разрешает перечисление; используйте точный repository:tag",
+                        )
+                    try:
+                        data = response.json()
+                    except ValueError:
+                        return DiscoveryResult(False, (), "Nexus вернул некорректный каталог")
+                    if not isinstance(data, dict) or not isinstance(data.get(field), list):
+                        return DiscoveryResult(False, (), "Nexus вернул некорректный каталог")
+                    values = data[field]
+                    if any(not isinstance(v, str) for v in values):
+                        return DiscoveryResult(False, (), "Nexus вернул некорректный каталог")
+                    valid = [value for value in values if pattern.fullmatch(value) is not None]
+                    matches.update(value for value in valid if search.casefold() in value.casefold())
+                    if not valid:
+                        if values:
+                            return DiscoveryResult(
+                                False, (), "Nexus вернул некорректные имена в каталоге"
+                            )
+                        return DiscoveryResult(True, tuple(sorted(matches)[:100]))
+
+                    # RFC pagination is optional; 'last' is defined by the final
+                    # returned entry, not by an arbitrary URL from the server.
+                    next_last = values[-1]
+                    has_more = "link" in response.headers or len(values) >= page_size
+                    if not has_more:
+                        return DiscoveryResult(
+                            True, tuple(sorted(matches)[:100]),
+                            truncated=len(matches) > 100,
+                        )
+                    if last is not None and next_last <= last:
+                        return DiscoveryResult(
+                            False, (), "Nexus вернул некорректную пагинацию каталога"
+                        )
+                    if page == max_pages - 1 or len(matches) >= 100:
+                        return DiscoveryResult(
+                            True, tuple(sorted(matches)[:100]),
+                            message="Поиск ограничен первыми 2000 записями Docker v2; "
+                            "для полного каталога настройте Nexus REST Search API",
+                            truncated=True,
+                        )
+                    last = next_last
         except (httpx.TransportError, httpx.InvalidURL, ValueError):
             return DiscoveryResult(
                 False, (), "Каталог Nexus недоступен; используйте точный repository:tag"
             )
-        if response.status_code != 200:
-            return DiscoveryResult(
-                False, (),
-                "Nexus не разрешает перечисление образов/тегов; точный repository:tag доступен",
-            )
-        try:
-            data = response.json()
-        except ValueError:
-            return DiscoveryResult(False, (), "Nexus вернул некорректный каталог")
-        if not isinstance(data, dict) or not isinstance(data.get(field), list):
-            return DiscoveryResult(False, (), "Nexus вернул некорректный каталог")
-        values = data[field]
-        if any(not isinstance(v, str) for v in values):
-            return DiscoveryResult(False, (), "Nexus вернул некорректный каталог")
-        filtered = tuple(sorted({
-            value for value in values
-            if pattern.fullmatch(value) is not None
-            and search.casefold() in value.casefold()
-        }))
-        # Nexus may paginate the catalog with a Link header; this first-page
-        # result is suggestions, not an authoritative complete inventory.
-        return DiscoveryResult(
-            True, filtered[:100],
-            truncated="link" in response.headers or len(values) >= 100,
-        )
+        return DiscoveryResult(True, tuple(sorted(matches)[:100]), truncated=True)
