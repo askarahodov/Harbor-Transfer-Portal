@@ -8,6 +8,8 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.api.registry_source import ExactSourceInspectionRequest, inspect_exact_source
+from app.api.registry_source import nexus_helm_catalog
+from app.services.nexus_helm_http import HelmChartVersion, HelmHttpResult
 from app.services.nexus_service import ImageInspection
 
 
@@ -85,3 +87,37 @@ async def test_exact_inspection_rejects_harbor_profile(context):
             )
         assert error.value.status_code == 409
         nexus.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_nexus_helm_catalog_returns_typed_chart_versions(context):
+    request, session = context
+    service = MagicMock()
+    service.list_charts = AsyncMock(return_value=HelmHttpResult(
+        available=True,
+        items=(HelmChartVersion("demo", "1.2.3", "demo-1.2.3.tgz", "a" * 64),),
+    ))
+    with patch("app.api.registry_source.NexusHelmHttpService", return_value=service):
+        result = await nexus_helm_catalog(
+            request, MagicMock(), session, "profile-a", "helm-hosted"
+        )
+    assert result.available
+    assert [(x.name, x.version) for x in result.items] == [("demo", "1.2.3")]
+    service.list_charts.assert_awaited_once_with("helm-hosted")
+
+
+@pytest.mark.asyncio
+async def test_nexus_helm_catalog_denied_is_not_misreported_as_empty(context):
+    request, session = context
+    service = MagicMock()
+    service.list_charts = AsyncMock(return_value=HelmHttpResult(
+        available=False, code="helm_repository_unavailable",
+        message="Helm repository недоступен для чтения",
+    ))
+    with patch("app.api.registry_source.NexusHelmHttpService", return_value=service):
+        result = await nexus_helm_catalog(
+            request, MagicMock(), session, "profile-a", "helm-restricted"
+        )
+    assert not result.available
+    assert result.items == []
+    assert result.code == "helm_repository_unavailable"
