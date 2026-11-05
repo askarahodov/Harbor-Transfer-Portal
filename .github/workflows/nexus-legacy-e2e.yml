@@ -264,20 +264,6 @@ jobs:
           python -m pip install --no-deps --no-build-isolation ./backend
           docker compose version
 
-      - name: Start isolated Nexus 3.69.0 Docker hosted connectors
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker pull sonatype/nexus3:3.69.0
-          docker run --detach --name htp-nexus-e2e \
-            --memory 4g \
-            -p 127.0.0.1:8081:8081 \
-            -p 127.0.0.1:8082:8082 \
-            -p 127.0.0.1:8083:8083 \
-            -e INSTALL4J_ADD_VM_PARAMS="-Xms512m -Xmx2g -XX:MaxDirectMemorySize=1g" \
-            sonatype/nexus3:3.69.0
-          python tools/nexus_e2e_setup.py --password-file "$HTP_NEXUS_E2E_PASSWORD_FILE"
-
       - name: Download SHA256-pinned official Harbor 2.14.6 online installer
         shell: bash
         run: |
@@ -343,22 +329,53 @@ jobs:
             python - <<'PY'
           import pathlib
           import re
+          import yaml
 
-          log = pathlib.Path("/tmp/htp-real-harbor/installation.log")
-          lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+          root = pathlib.Path("/tmp/htp-real-harbor")
+          lines = (root / "installation.log").read_text(
+              encoding="utf-8", errors="replace"
+          ).splitlines()
+          conf = yaml.safe_load((root / "harbor/harbor.yml").read_text())
+          secrets = [
+              (root / "admin.password").read_text().strip(),
+              str(conf["database"]["password"]),
+              str(conf["harbor_admin_password"]),
+          ]
           for line in lines[-160:]:
-              if not re.search(r"(?i)error|fail|cannot|denied|unhealthy|invalid|missing", line):
-                  continue
-              if re.search(
-                  r"(?i)password|secret|token|credential|auth|private|key|env|https?://",
+              if not re.search(
+                  r"(?i)error|fail|cannot|denied|unhealthy|invalid|missing|exception",
                   line,
               ):
-                  print("Harbor installer diagnostic: [filtered sensitive line]")
                   continue
-              print("Harbor installer diagnostic:", line[:180])
+              for value in secrets:
+                  if value:
+                      line = line.replace(value, "[REDACTED]")
+              line = re.sub(r"https?://[^\\s\\\"']+", "[REDACTED_URL]", line)
+              line = re.sub(
+                  r"(?i)(password|token|secret|credential|private_key)"
+                  r"(\\s*[:=]\\s*)\\S+",
+                  r"\\1\\2[REDACTED]",
+                  line,
+              )
+              line = re.sub(r"[\\x00-\\x1f\\x7f]", " ", line)
+              print("Harbor installer diagnostic:", line[:240])
           PY
             exit 1
           }
+
+      - name: Start isolated Nexus 3.69.0 Docker hosted connectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull sonatype/nexus3:3.69.0
+          docker run --detach --name htp-nexus-e2e \
+            --memory 4g \
+            -p 127.0.0.1:8081:8081 \
+            -p 127.0.0.1:8082:8082 \
+            -p 127.0.0.1:8083:8083 \
+            -e INSTALL4J_ADD_VM_PARAMS="-Xms512m -Xmx2g -XX:MaxDirectMemorySize=1g" \
+            sonatype/nexus3:3.69.0
+          python tools/nexus_e2e_setup.py --password-file "$HTP_NEXUS_E2E_PASSWORD_FILE"
 
       - name: Create private Harbor projects and independent scoped robots
         shell: bash
