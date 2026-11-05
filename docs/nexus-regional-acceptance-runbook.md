@@ -233,23 +233,36 @@ Nexus formats/types/versions и полномочий сервисного пол
 случаях **NO-GO**.
 
 
-## 9. Harbor ↔ Nexus — граница тестовых доказательств
+## 9. Harbor ↔ Nexus — real Core/robot test and external limits
 
-В рамках draft PR #451 есть E2E с **Harbor-профилем** в обе стороны:
-Harbor-тип SOURCE → Nexus TARGET и Nexus SOURCE → Harbor-тип TARGET.
-Содержимое Docker v2 переносится настоящими Skopeo/Portal-адаптерами,
-подписанным Offline Bundle и TARGET receipt. Используется отдельный
-одноразовый Docker Distribution registry как совместимый OCI-транспорт
-Harbor. **Harbor REST metadata** и **проверка RBAC/project** заменены
-строго ограниченными тестовыми заглушками, потому что в Nexus runner
-**не развёрнут настоящий Harbor core/token service**. Проверки
-подтверждают маршрутизацию типов, проверку подписи/digest, replay и
-отказ при CONFLICT без overwrite, но **не доказывают** совместимость с
-фактической версией Harbor, его token/robot-account ACL или CA/proxy.
+В draft PR #451 обязательный E2E включает два разных тестовых режима:
 
-До закрытия #434 оператор должен отдельно представить evidence
-**реального Harbor**: версию и проект/robot permissions, результаты
-Harbor REST browse, scoped token pull/push, Docker v2 digest,
-работоспособный Harbor→Nexus и Nexus→Harbor подписанный handoff
-в разрешённых тестовых namespaces. Это независимая часть общего
-GO/NO-GO, нельзя выдавать подменённый REST/RBAC тест за живой Harbor.
+- **Независимый Docker Distribution 2.8.3** с Harbor-профилем,
+  стабилизированными REST metadata и project/RBAC — проверка транспорта,
+  подписанных бандлов, `NEW/SAME/CONFLICT/SKIPPED`, отказа overwrite.
+  Это не фактический Harbor Core.
+- **Настоящий одноразовый Harbor Core 2.14.6** со своими registry,
+  token service и двумя приватными проектами, HTTPS с тестовым CA,
+  отдельно настроенными project-scoped robots для SOURCE-read и
+  TARGET-write. Используются **настоящие** Harbor REST metadata, проверка
+  отрицательных ACL (каждый robot не видит чужой private project),
+  Docker v2 через Skopeo и подписанный SOURCE→TARGET handoff в обоих
+  направлениях, вместе с Nexus 3.69.0 OSS. В test fixture нет
+  административного обхода scoped credentials; `GET /users/current`
+  подтверждает admin только при первоначальном создании тестовых
+  проектов и роботов. Для API-bootstrap Basic Auth запрещено
+  смешивать с cookie-based session/CSRF без специального токена.
+  Выполнены **2 пройденных E2E** на реальном Harbor в
+  [Actions #42022465235](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42022465235)
+  при коммите `a3dcb80b2e3966c0afb4cd7f71a7d8933885ca05`.
+
+**Это всё ещё disposable GitHub Actions, а не региональный Harbor.**
+Операционная приёмка #434/#436 требует реальную корпоративную версию
+Harbor, настройку project/robot ACL сервисной учётной записи, DNS,
+TLS/certificate SAN, reverse proxy и firewall; утверждённые namespaces
+и физический air-gap handoff с операторским receipt, digest и подписями.
+Подтверждение CI нельзя использовать как разрешение production push,
+как доказательство ролей реальной сервисной учётной записи или как
+полномочие merge. При отсутствии таких доказательств релиз остаётся
+**NO-GO**, а PR — Draft.
+

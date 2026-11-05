@@ -207,11 +207,11 @@ operation ID, таймштампы и редактированные логи б
 | --- | --- | --- |
 | Container image inspect | Поддерживается и тестируется | Не применяется |
 | Container image export/import через Skopeo | Поддерживается и тестируется | Не применяется |
-| Helm pull через index.yaml | Не применяется | Код в draft RC; E2E и приёмка необходимы |
-| Helm upload .tgz через Components API | Не применяется | Код в draft RC; только hosted, без overwrite |
+| Helm pull через index.yaml | Не применяется | Реализован в draft RC, пройден disposable E2E на 3.69/3.70; нужна региональная приёмка |
+| Helm upload .tgz через Components API | Не применяется | Реализован и проверен в disposable E2E, только hosted без overwrite; реальные ACL требуют приёмки |
 | Helm pull/push через OCI | Не считать поддерживаемым на старом Nexus | **Неприменимо** |
 
-Классический Helm hosted обычно предоставляет index.yaml и tarball через HTTP. Даже если Helm-чарты физически хранятся в Nexus, это не делает его OCI registry. Если Helm в ваших контурах не используется, подключать его к Nexus в Portal пока не нужно.
+Классический Helm hosted обычно предоставляет index.yaml и tarball через HTTP. Даже если Helm-чарты физически хранятся в Nexus, это не делает его OCI registry. Если в Nexus настроено несколько Docker и обычных Helm репозиториев, их доступность проверяется отдельно для каждой сервисной учётной записи. Разрешение на список репозиториев не эквивалентно разрешению читать chart/image или публиковать на TARGET.
 
 ## Проверка совместимости в GitHub Actions
 
@@ -232,7 +232,7 @@ Workflow: **Actions → Nexus legacy Docker v2 E2E**, файл [.github/workflow
 
 - Версию, конфигурацию и права доступа реальных корпоративных Nexus, которые не предоставлены.
 - Доверие к корпоративному CA, особенности внутреннего reverse proxy, DNS/Firewall.
-- Совместимость с **legacy Helm hosted**, пока не разработан отдельный сервис и сквозные тесты.
+- Реальные права и настройки **обычного Helm HTTP repository**: disposable E2E на версиях 3.69/3.70 есть, но региональные роли/CA/proxy ещё не проверены.
 - Готовность к production release без проверки на выделенном стенде соответствующего контура.
 
 ## Диагностика
@@ -243,3 +243,9 @@ Workflow: **Actions → Nexus legacy Docker v2 E2E**, файл [.github/workflow
 - **nexus_registry_connection_failed**: проверьте порт Docker connector, DNS, маршрутизацию и Firewall.
 - **skopeo_digest_mismatch**: проверьте source и target registry, сохранность схемы Docker manifest и ограничения на перепаковку.
 - Ошибки Helm OCI при работе с legacy Helm hosted — **несовместимость протоколов**, а не повод отключать проверку TLS.
+
+### Проверенные сценарии текущего release candidate
+
+На одноразовых тестовых установках GitHub Actions проверены Nexus **3.69.0 и 3.70.1**: Docker v2, обычный Helm HTTP `index.yaml`/ `.tgz`, подписанный mixed Docker+Helm Offline Bundle, TARGET receipt, повторный импорт и конфликт без неявной перезаписи. Отдельный workflow развернул **настоящий Harbor 2.14.6 Core** с приватными проектами и раздельными scoped robots; проверены оба направления Harbor↔Nexus через подписанный handoff с фактическими Harbor REST metadata, token service и Docker v2. Доказательство: [E2E #42022465235](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42022465235) на SHA `a3dcb80b2e3966c0afb4cd7f71a7d8933885ca05`. Это доказательство для **тестовых** версий, не для реальных корпоративных контуров.
+
+Для реальной приёмки использовать [региональный runbook](nexus-regional-acceptance-runbook.md): версия/редакция Nexus в каждом регионе может отличаться, docker connectors и Helm HTTP repositories могут иметь различные права; требуются фактические service-account read/write ACL, TLS/CA и подписанный физический handoff. В Nexus **не** используется Helm OCI. Без этих проверок сохраняется **NO-GO**.
