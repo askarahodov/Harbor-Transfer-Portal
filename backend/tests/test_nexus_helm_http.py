@@ -495,3 +495,70 @@ async def test_malformed_target_index_never_allows_upload_or_absent_plan(
     assert not state["upload"]
     assert not any(request.method == "POST" for request in state["calls"])
     assert all(request.url.host == "nexus.example.test" for request in state["calls"])
+
+
+@pytest.mark.asyncio
+async def test_duplicate_chart_version_fails_closed_before_target_upload(
+    client_service, tmp_path: Path, monkeypatch,
+):
+    service, state, data, digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request):
+        state["calls"].append(request)
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+        if request.url.path == "/repository/helm-a/index.yaml":
+            return httpx.Response(200, text=yaml.safe_dump({
+                "entries": {"demo": [
+                    {"version": "1.2.3", "digest": digest, "urls": ["demo-1.2.3.tgz"]},
+                    {"version": "1.2.3", "digest": "f" * 64,
+                     "urls": ["demo-1.2.3.tgz"]},
+                ]},
+            }))
+        raise AssertionError("unexpected write or download")
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    with pytest.raises(HelmServiceError) as error:
+        await bridge.inspect_target(
+            HelmChartReference("helm-a", "demo", "1.2.3"),
+            expected_digest="sha256:" + digest,
+        )
+    assert error.value.code == "helm_index_invalid"
+    package = tmp_path / "demo-1.2.3.tgz"
+    package.write_bytes(data)
+    with pytest.raises(NexusHelmHttpError) as error:
+        await service.upload_chart("helm-a", "demo", "1.2.3", package)
+    assert error.value.code == "helm_index_invalid"
+    assert all(request.method == "GET" for request in state["calls"])
+
+
+@pytest.mark.parametrize("duplicate_name", [
+    "demo/Chart.yaml", "demo/templates/config.yaml",
+])
+def test_duplicate_tar_member_rejected_before_nexus_write(duplicate_name):
+    archive_buffer = io.BytesIO()
+    metadata = yaml.safe_dump({
+        "apiVersion": "v2", "name": "demo", "version": "1.2.3",
+    }).encode()
+    with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
+        entry = tarfile.TarInfo("demo/Chart.yaml")
+        entry.size = len(metadata)
+        archive.addfile(entry, io.BytesIO(metadata))
+        if duplicate_name != "demo/Chart.yaml":
+            entry = tarfile.TarInfo(duplicate_name)
+            entry.size = 1
+            archive.addfile(entry, io.BytesIO(b"a"))
+        entry = tarfile.TarInfo(duplicate_name)
+        entry.size = 1
+        archive.addfile(entry, io.BytesIO(b"b"))
+    with pytest.raises(NexusHelmHttpError) as error:
+        NexusHelmHttpService._validate_package(
+            archive_buffer.getvalue(), "demo", "1.2.3"
+        )
+    assert error.value.code == "helm_package_invalid"
