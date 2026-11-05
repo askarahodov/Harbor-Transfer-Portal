@@ -159,14 +159,27 @@ class NexusHelmHttpService:
                     or not isinstance(urls[0], str)
                 ):
                     continue
-                path = urls[0]
-                # No cross-origin URL or traversal: only Nexus-root chart filenames.
+                advertised = urls[0]
+                filename = f"{name}-{version}.tgz"
+                # Nexus may advertise an absolute download URL, including one
+                # synthesized from reverse-proxy headers. Never request it.
+                # Accept only the expected same-repository path shape and
+                # construct downloads from the configured trusted HTTPS origin.
+                parsed_url = urlsplit(advertised)
+                allowed_paths = {
+                    filename,
+                    f"/{filename}",
+                    f"/repository/{repository}/{filename}",
+                }
                 if (
-                    path != f"{name}-{version}.tgz"
-                    or "/" in path or "\\" in path or "?" in path or "#" in path
+                    parsed_url.path not in allowed_paths
+                    or parsed_url.query or parsed_url.fragment
+                    or parsed_url.username or parsed_url.password
+                    or "\\" in advertised
+                    or (parsed_url.scheme and parsed_url.scheme not in {"http", "https"})
                 ):
                     continue
-                found.append(HelmChartVersion(name, version, path, digest.lower()))
+                found.append(HelmChartVersion(name, version, filename, digest.lower()))
                 if len(found) > 500:
                     return HelmHttpResult(
                         False, code="helm_index_too_large",
