@@ -92,6 +92,25 @@ def provision(password: str) -> None:
             },
         },
     )
+    request(
+        "POST", "/repositories/docker/hosted", password,
+        {
+            "name": "htp-e2e-target",
+            "online": True,
+            "storage": {
+                "blobStoreName": "default",
+                "strictContentTypeValidation": True,
+                "writePolicy": "allow",
+            },
+            "cleanup": {"policyNames": []},
+            "component": {"proprietaryComponents": True},
+            "docker": {
+                "v1Enabled": False,
+                "forceBasicAuth": True,
+                "httpPort": 8083,
+            },
+        },
+    )
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         try:
@@ -107,6 +126,22 @@ def provision(password: str) -> None:
         time.sleep(2)
     else:
         raise TimeoutError("Nexus Docker connector on port 8082 did not become ready")
+
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        try:
+            req = Request("http://127.0.0.1:8083/v2/", method="GET")
+            with urlopen(req, timeout=4) as response:
+                if response.status == 200:
+                    break
+        except HTTPError as exc:
+            if exc.code == 401:
+                break
+        except (URLError, OSError, TimeoutError):
+            pass
+        time.sleep(2)
+    else:
+        raise TimeoutError("Nexus TARGET Docker connector on port 8083 did not become ready")
 
 
 def main() -> int:
