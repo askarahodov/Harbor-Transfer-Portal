@@ -89,6 +89,44 @@ class NexusSuggestionResponse(BaseModel):
     truncated: bool = False
 
 
+class NexusRepositoryItemResponse(BaseModel):
+    name: str
+    format: str
+    kind: str
+
+
+class NexusInventoryResponse(BaseModel):
+    available: bool
+    items: list[NexusRepositoryItemResponse]
+    message: str | None = None
+
+
+@router.get("/nexus/inventory", response_model=NexusInventoryResponse)
+async def nexus_repository_inventory(
+    request: Request,
+    _user: CurrentUserDep,
+    session: SessionDep,
+    profile_id: str = Query(min_length=1, max_length=64),
+) -> NexusInventoryResponse:
+    try:
+        result = await NexusDiscoveryService(
+            session, request.app.state.settings, profile_id
+        ).inventory()
+    except HarborSettingsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": "Выбранный Nexus profile недоступен"},
+        ) from exc
+    return NexusInventoryResponse(
+        available=result.available,
+        items=[
+            NexusRepositoryItemResponse(name=item.name, format=item.format, kind=item.kind)
+            for item in result.items
+        ],
+        message=result.message,
+    )
+
+
 @router.get("/nexus/repositories", response_model=NexusSuggestionResponse)
 async def nexus_repository_suggestions(
     request: Request,
