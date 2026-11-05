@@ -147,6 +147,19 @@ class AsyncioCommandRunner:
         self.temp_root = temp_root.resolve() if temp_root is not None else None
 
     @staticmethod
+    def _terminate_process_group(process: asyncio.subprocess.Process) -> None:
+        pid = getattr(process, "pid", None)
+        if pid is not None:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+                return
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                pass
+        process.kill()
+
+    @staticmethod
     def _environment(root: Path) -> dict[str, str]:
         home = root / "home"
         config_home = root / "xdg-config"
@@ -211,7 +224,7 @@ class AsyncioCommandRunner:
                 # Skopeo/Nexus may spawn helpers that inherit stderr pipes.
                 # Kill the whole process group so pipe readers do not remain
                 # blocked forever after the parent process exits.
-                os.killpg(process.pid, signal.SIGKILL)
+                self._terminate_process_group(process)
                 await process.wait()
                 try:
                     await asyncio.wait_for(
@@ -228,7 +241,7 @@ class AsyncioCommandRunner:
                 # Skopeo/Nexus may spawn helpers that inherit stderr pipes.
                 # Kill the whole process group so pipe readers do not remain
                 # blocked forever after the parent process exits.
-                os.killpg(process.pid, signal.SIGKILL)
+                self._terminate_process_group(process)
                 await process.wait()
                 try:
                     await asyncio.wait_for(
