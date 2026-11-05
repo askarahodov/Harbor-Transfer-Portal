@@ -208,6 +208,35 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
     }
     with TestClient(target_app) as target_client:
         headers = _auth(target_client)
+        # The physical handoff must be authenticated before persisting an
+        # import operation or allowing any TARGET registry mutation.
+        rejected_payloads = (
+            (archive[:-1] + bytes([archive[-1] ^ 1]), browser_headers),
+            (archive, {
+                **browser_headers,
+                "x-htp-sidecar-base64": base64.b64encode(
+                    b"0" * 64 + sidecar[64:]
+                ).decode("ascii"),
+            }),
+            (archive, {
+                **browser_headers,
+                "x-htp-handoff-base64": base64.b64encode(
+                    handoff[:-1] + bytes([handoff[-1] ^ 1])
+                ).decode("ascii"),
+            }),
+        )
+        for corrupted_archive, corrupted_headers in rejected_payloads:
+            rejected = target_client.post(
+                f"/api/imports/upload?profile_id={target_profile}",
+                content=corrupted_archive,
+                headers={**headers, **corrupted_headers},
+            )
+            assert rejected.status_code in {400, 409, 422}, rejected.text
+            assert rejected.json()["error"]["code"].startswith("handoff_")
+        before_import = target_client.get("/api/operations?type=IMPORT", headers=headers)
+        assert before_import.status_code == 200, before_import.text
+        assert before_import.json()["total"] == 0
+        assert not list(target.import_staging_root.rglob("*.htp.tar.gz"))
         upload = target_client.post(
             f"/api/imports/upload?profile_id={target_profile}",
             content=archive,
