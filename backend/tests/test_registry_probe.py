@@ -191,3 +191,33 @@ async def test_invalid_bearer_realm_never_receives_credentials(monkeypatch, real
     assert result.code == "registry_auth_unsupported"
     assert "secret-not-for-errors" not in result.message
     assert paths == ["/v2/"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message", [
+    "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate",
+    "ConnectError: certificate verify failed",
+])
+async def test_tls_cert_failure_with_flattened_httpcore_error_is_not_network_failure(
+    monkeypatch, message,
+):
+    def handler(request):
+        raise httpx.ConnectError(message, request=request)
+
+    mock_client(monkeypatch, handler)
+    observed = await probe(profile())
+    assert not observed.ok
+    assert observed.code == "registry_tls_failed"
+    assert "self-signed" not in observed.message
+    assert "nexus.example.test" not in observed.message
+
+
+@pytest.mark.asyncio
+async def test_generic_connect_error_remains_unavailable(monkeypatch):
+    def handler(request):
+        raise httpx.ConnectError("connection refused", request=request)
+
+    mock_client(monkeypatch, handler)
+    result = await probe(profile())
+    assert not result.ok
+    assert result.code == "registry_unavailable"
