@@ -18,10 +18,12 @@ import {
   getExportHandoffRecord,
   inspectExactNexusImage,
   getNexusInventory,
+  listNexusHelmCharts,
   listNexusRepositories,
   listNexusTags,
   type ExactNexusInspection,
   type NexusRepository,
+  type NexusHelmChartVersion,
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
@@ -48,6 +50,36 @@ const nexusInventory = ref<NexusRepository[]>([])
 const nexusInventoryAvailable = ref(false)
 const nexusInventoryMessage = ref<string | null>(null)
 const nexusInventoryBusy = ref(false)
+const nexusHelmSelection = ref<string | null>(null)
+const nexusHelmVersions = ref<NexusHelmChartVersion[]>([])
+const nexusHelmMessage = ref<string | null>(null)
+const nexusHelmBusy = ref(false)
+let nexusHelmGeneration = 0
+
+async function browseHelmRepository(repository: string): Promise<void> {
+  const profileId = wizard.selectedHarborProfileId
+  if (!wizard.isNexus || !profileId) return
+  const generation = ++nexusHelmGeneration
+  nexusHelmSelection.value = repository
+  nexusHelmVersions.value = []
+  nexusHelmMessage.value = null
+  nexusHelmBusy.value = true
+  try {
+    const result = await listNexusHelmCharts(profileId, repository)
+    if (generation !== nexusHelmGeneration || wizard.selectedHarborProfileId !== profileId) return
+    nexusHelmVersions.value = result.items
+    nexusHelmMessage.value = result.available
+      ? (result.items.length ? null : 'В доступном Helm index.yaml нет подходящих charts.')
+      : (result.message ?? 'Нет доступа к Helm index.yaml.')
+  } catch (reason) {
+    if (generation === nexusHelmGeneration) {
+      nexusHelmMessage.value = apiErrorInfo(reason, 'Не удалось прочитать Helm index.yaml.').message
+    }
+  } finally {
+    if (generation === nexusHelmGeneration) nexusHelmBusy.value = false
+  }
+}
+
 let nexusInventoryGeneration = 0
 
 async function loadNexusInventory(): Promise<void> {
@@ -178,6 +210,10 @@ watch(() => wizard.selectedHarborProfileId, () => {
   nexusGeneration += 1
   nexusTagsGeneration += 1
   nexusInventoryGeneration += 1
+  nexusHelmGeneration += 1
+  nexusHelmSelection.value = null
+  nexusHelmVersions.value = []
+  nexusHelmMessage.value = null
   nexusInventory.value = []
   nexusInventoryAvailable.value = false
   nexusInventoryMessage.value = null
@@ -557,8 +593,25 @@ onBeforeUnmount(() => {
                   <span class="muted">{{ item.format === 'helm'
                     ? 'Helm HTTP (.tgz) — перенос пока не реализован'
                     : 'Укажите Docker image path ниже и проверьте digest' }}</span>
+                  <button
+                    v-if="item.format === 'helm'"
+                    type="button"
+                    class="secondary-button"
+                    :disabled="nexusHelmBusy"
+                    @click="browseHelmRepository(item.name)"
+                  >Показать charts</button>
                 </li>
               </ul>
+              <div v-if="nexusHelmSelection" class="nexus-helm-catalog" role="region" aria-label="Helm charts и версии">
+                <strong>Helm: {{ nexusHelmSelection }} (только чтение)</strong>
+                <p v-if="nexusHelmMessage" role="status">{{ nexusHelmMessage }}</p>
+                <ul v-if="nexusHelmVersions.length">
+                  <li v-for="entry in nexusHelmVersions" :key="entry.name + ':' + entry.version">
+                    {{ entry.name }} · {{ entry.version }} · sha256:{{ entry.digest.slice(0, 12) }}
+                  </li>
+                </ul>
+                <p class="muted">Helm HTTP chart export/import в подписанный bundle ещё не реализован.</p>
+              </div>
             </div>
             <form class="nexus-exact-form" @submit.prevent="inspectNexusReference">
               <label>Repository
