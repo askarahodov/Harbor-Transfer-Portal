@@ -143,8 +143,18 @@ class NexusHelmHttpService:
         found: list[HelmChartVersion] = []
         for name, versions in data["entries"].items():
             if not isinstance(name, str) or _CHART.fullmatch(name) is None:
+                if strict:
+                    return HelmHttpResult(
+                        False, code="helm_index_invalid",
+                        message="Helm index содержит некорректное имя chart",
+                    )
                 continue
             if not isinstance(versions, list):
+                if strict:
+                    return HelmHttpResult(
+                        False, code="helm_index_invalid",
+                        message="Helm index содержит некорректный список версий",
+                    )
                 continue
             if len(versions) > 500:
                 return HelmHttpResult(
@@ -153,6 +163,11 @@ class NexusHelmHttpService:
                 )
             for item in versions:
                 if not isinstance(item, dict):
+                    if strict:
+                        return HelmHttpResult(
+                            False, code="helm_index_invalid",
+                            message="Helm index содержит некорректную запись версии",
+                        )
                     continue
                 version, digest, urls = item.get("version"), item.get("digest"), item.get("urls")
                 if (
