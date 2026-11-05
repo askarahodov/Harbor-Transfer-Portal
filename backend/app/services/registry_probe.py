@@ -43,10 +43,17 @@ async def probe_docker_v2(
     """
     if not profile.url:
         return _result("registry_invalid_endpoint", "Не настроен Docker Registry v2 endpoint")
-    parsed = urlsplit(profile.url)
+    try:
+        parsed = urlsplit(profile.url)
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
+        return _result(
+            "registry_invalid_endpoint", "Укажите корректный адрес Docker Registry v2"
+        )
     if (
         parsed.scheme not in {"https", "http"}
-        or not parsed.hostname
+        or not host
+        or (port is not None and port <= 0)
         or parsed.path not in {"", "/"}
         or parsed.query
         or parsed.fragment
@@ -109,10 +116,18 @@ async def probe_docker_v2(
                 return _result(
                     "registry_auth_unsupported", "Неизвестный способ авторизации Docker Registry v2"
                 )
-            realm = urlsplit(parameters["realm"])
+            try:
+                realm = urlsplit(parameters["realm"])
+                realm_host, realm_port = realm.hostname, realm.port
+            except ValueError:
+                return _result(
+                    "registry_auth_unsupported", "Некорректный Docker Registry auth realm"
+                )
             if (
                 realm.scheme != parsed.scheme
                 or realm.netloc != parsed.netloc
+                or not realm_host
+                or (realm_port is not None and realm_port <= 0)
                 or realm.username
                 or realm.password
                 or not realm.path.startswith("/")
