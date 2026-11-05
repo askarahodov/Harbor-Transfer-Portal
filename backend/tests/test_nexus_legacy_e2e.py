@@ -25,7 +25,9 @@ from app.services.nexus_service import (
     NexusServiceError,
     TargetState,
 )
+from app.services.harbor_settings import EffectiveHarborSettings
 from app.services.registry_client import _NexusServiceWrapper, create_registry_client
+from app.services.registry_probe import probe_docker_v2
 from integration.registry_smoke import _write_oci_image_fixture
 
 pytestmark = pytest.mark.skipif(
@@ -83,6 +85,55 @@ def seeded_schema2_image(service: NexusService, layout: Path, password: str) -> 
     )
     source = ImageReference("htp-e2e/source", "1.0.0")
     return asyncio.run(service.inspect_image(source)).digest
+
+
+@pytest.mark.asyncio
+async def test_real_empty_hosted_docker_v2_connection_requires_no_image(
+    admin_password: str, tls_certificate: Path,
+) -> None:
+    """A fresh Nexus hosted connector must pass without busybox or any tag.
+
+    The disposable setup starts the HTTPS Docker source connector on 8443;
+    this test runs before schema2 fixture publication in this module.
+    """
+    profile = EffectiveHarborSettings(
+        url="https://127.0.0.1:8443",
+        username="admin",
+        password=admin_password,
+        verify_tls=True,
+        ca_file=tls_certificate,
+    )
+    result = await probe_docker_v2(
+        profile, connect_timeout=10, read_timeout=20,
+    )
+    assert result.ok, result.code
+    assert result.code == "registry_connection_ok"
+
+    rejected = EffectiveHarborSettings(
+        url=profile.url,
+        username="admin",
+        password="deliberately-wrong-password",
+        verify_tls=True,
+        ca_file=tls_certificate,
+    )
+    wrong = await probe_docker_v2(
+        rejected, connect_timeout=10, read_timeout=20,
+    )
+    assert not wrong.ok
+    assert wrong.code == "registry_auth_failed"
+    assert "deliberately-wrong-password" not in wrong.message
+
+    unknown_ca = EffectiveHarborSettings(
+        url=profile.url,
+        username="admin",
+        password=admin_password,
+        verify_tls=True,
+        ca_file=None,
+    )
+    tls = await probe_docker_v2(
+        unknown_ca, connect_timeout=10, read_timeout=20,
+    )
+    assert not tls.ok and tls.code == "registry_tls_failed"
 
 
 @pytest.mark.asyncio
