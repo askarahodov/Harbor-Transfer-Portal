@@ -12,6 +12,8 @@ from app.services.nexus_discovery import NexusDiscoveryService
 def discovery(monkeypatch: pytest.MonkeyPatch):
     service = NexusDiscoveryService.__new__(NexusDiscoveryService)
     service.url = "https://nexus.example.test"
+    service.search_url = None
+    service.search_repository = None
     service.username = "transfer-reader"
     service.password = "sensitive-do-not-expose"
     service.verify = True
@@ -81,3 +83,70 @@ async def test_untrusted_payload_is_discarded(discovery) -> None:
     response["json"] = {"repositories": ["team/valid", "../escape", "bad tag"]}
     result = await service.catalog()
     assert result.items == ("team/valid",)
+
+
+@pytest.mark.asyncio
+async def test_nexus_rest_search_uses_configured_repository_and_pagination(
+    discovery, monkeypatch
+) -> None:
+    service, _seen, _response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-all"
+    seen: list[httpx.Request] = []
+    original = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if "continuationToken" in request.url.params:
+            return httpx.Response(200, json={
+                "items": [{"name": "jaegertracing/jaeger", "version": "2.13.0"}],
+                "continuationToken": None,
+            })
+        return httpx.Response(200, json={
+            "items": [
+                {"name": "jaegertracing/jaeger", "version": "2.12.0"},
+                {"name": "other/tool", "version": "3.0"},
+            ],
+            "continuationToken": "next",
+        })
+
+    def client_factory(**kwargs):  # type: ignore[no-untyped-def]
+        assert kwargs["trust_env"] is False
+        assert kwargs["follow_redirects"] is False
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr(
+        "app.services.nexus_discovery.httpx.AsyncClient", client_factory
+    )
+    names = await service.catalog("jaeger")
+    assert names.available
+    assert names.items == ("jaegertracing/jaeger",)
+    tags = await service.tags("jaegertracing/jaeger", "2.13")
+    assert tags.available
+    assert tags.items == ("2.13.0",)
+    assert all(request.url.path == "/service/rest/v1/search" for request in seen)
+    assert all(request.url.params["repository"] == "docker-all" for request in seen)
+
+
+@pytest.mark.asyncio
+async def test_nexus_rest_browse_access_denied_falls_back_to_manual(
+    discovery, monkeypatch
+) -> None:
+    service, _seen, _response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-all"
+    original = httpx.AsyncClient
+
+    def factory(**kwargs):  # type: ignore[no-untyped-def]
+        return original(
+            transport=httpx.MockTransport(lambda request: httpx.Response(403)),
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        "app.services.nexus_discovery.httpx.AsyncClient", factory
+    )
+    result = await service.catalog()
+    assert not result.available
+    assert result.items == ()
+    assert "repository:tag" in (result.message or "")
