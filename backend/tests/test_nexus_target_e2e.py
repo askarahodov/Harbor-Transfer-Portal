@@ -40,7 +40,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _app(settings: Settings, password: str, *, url: str = REGISTRY_URL):
+def _app(
+    settings: Settings, password: str, *, url: str = REGISTRY_URL,
+    search_url: str | None = None,
+):
     app = create_app(settings)
     Base.metadata.create_all(app.state.db_engine)
     with app.state.session_factory() as session:
@@ -57,6 +60,7 @@ def _app(settings: Settings, password: str, *, url: str = REGISTRY_URL):
             verify_tls=False,
             enabled=True,
             registry_type="nexus",
+            nexus_search_url=search_url,
         )
         profiles.rotate_credential(profile.id, password)
         session.commit()
