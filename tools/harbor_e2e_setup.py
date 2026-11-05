@@ -42,6 +42,10 @@ def _create_robot(
     actions: list[tuple[str, str]],
     output: Path,
 ) -> None:
+    # Harbor's GET API may set a session cookie. Keep robot provisioning
+    # authenticated by HTTP Basic alone; a session cookie on a POST without
+    # its separate CSRF header can trigger a misleading 403.
+    client.cookies.clear()
     response = client.post(
         "/api/v2.0/robots",
         json={
@@ -117,6 +121,9 @@ def configure(
             raise ValueError("Harbor admin account lacks expected system privileges")
 
         for name in (SOURCE_PROJECT, TARGET_PROJECT):
+            # Do not send the session cookie acquired by /users/current:
+            # Basic-authenticated automation should not mix in session/CSRF auth.
+            client.cookies.clear()
             response = client.post(
                 "/api/v2.0/projects",
                 json={"project_name": name, "public": False},
