@@ -237,6 +237,25 @@ sidecar, handoff и download ticket; operation и artifact завершаютс�
 Региональный SOURCE успех относится к предыдущему оттестированному коммиту,
 не автоматически к новому head. Релиз **NO-GO**.
 
+## 3e. Отказоустойчивость SOURCE: диск, отмена, восстановление (05.11.2026)
+
+**Draft [PR #450](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/450)**
+поверх #449 и #442. На disposable Nexus 3.69 OSS добавлены сценарии:
+недостаток свободного места отклоняет SOURCE export до публикации (HTTP 507),
+отмена во время реальной стадии Nexus copy завершает operation `CANCELLED`
+без выдачи bundle/download ticket. Регрессия restart reconciliation
+проверяет удаление не только архива и `.sha256`, но и подписанного
+`*.htp-handoff.json` по **точному persistently owned delivery ID**;
+сохраняются файлы и metadata уже завершённой операции. Очистка не
+удаляет произвольные «осиротевшие» файлы без доказанной принадлежности.
+
+**Подтверждение реального Nexus CI:** [Nexus E2E #41976943384](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41976943384)
+**SUCCESS**. Общий [CI #41976943393](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41976943393)
+проверяется отдельно на head #450; статус см. по ссылке.
+
+Эти тесты не заменяют проверку физически независимых корпоративных
+SOURCE/TARGET, TLS/CA, RBAC и браузера. Release verdict — **NO-GO**.
+
 ## 4. Перед выпуском и после выпуска
 
 1. Завершить/согласовать зависимые PR #438–#442, затем обязательные #431,
