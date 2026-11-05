@@ -19,13 +19,13 @@ from app.config import Settings
 from app.db.base import Base
 from app.db.session import create_db_engine, create_session_factory
 from app.services.harbor_profiles import HarborProfileService
+from app.services.harbor_settings import EffectiveHarborSettings
 from app.services.nexus_service import (
     ImageReference,
     NexusService,
     NexusServiceError,
     TargetState,
 )
-from app.services.harbor_settings import EffectiveHarborSettings
 from app.services.registry_client import _NexusServiceWrapper, create_registry_client
 from app.services.registry_probe import probe_docker_v2
 from integration.registry_smoke import _write_oci_image_fixture
