@@ -235,6 +235,11 @@ def _probe(
             if greeting.status_code == 401 and scheme not in {"bearer", "basic"}:
                 checks.append(_check("docker_endpoint", "FAIL", "invalid_auth_challenge", 401))
                 return record
+            if greeting.status_code == 200 and greeting.headers.get(
+                "Docker-Distribution-API-Version", ""
+            ).lower() != "registry/2.0":
+                checks.append(_check("docker_endpoint", "FAIL", "not_docker_registry_v2", 200))
+                return record
             if greeting.status_code not in {200, 401}:
                 checks.append(_check("docker_endpoint", "FAIL", "v2_endpoint_unavailable",
                                      greeting.status_code))

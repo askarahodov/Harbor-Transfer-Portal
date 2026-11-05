@@ -135,6 +135,23 @@ def test_invalid_endpoint_never_makes_network_calls(endpoint):
     assert "password" not in json.dumps(result)
 
 
+def test_html_200_is_not_a_docker_registry():
+    hits: list[str] = []
+
+    def handler(req):
+        hits.append(req.url.path)
+        return httpx.Response(200, text="<html>Sign in</html>")
+
+    def factory(**kwargs):
+        return httpx.Client(transport=httpx.MockTransport(handler), **kwargs)
+
+    report = run_document(_document([_anonymous_docker("docker-a")]),
+                          client_factory=factory)
+    assert report["preflight_status"] == "FAIL"
+    assert report["entries"][0]["checks"][0]["code"] == "not_docker_registry_v2"
+    assert hits == ["/v2/"]
+
+
 def test_redirect_and_bad_challenge_fail_closed_without_following():
     urls: list[str] = []
 
