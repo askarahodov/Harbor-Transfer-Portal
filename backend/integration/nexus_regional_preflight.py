@@ -285,24 +285,40 @@ def _probe(
     entry: dict[str, Any], *,
     client_factory: Any = httpx.Client,
 ) -> dict[str, Any]:
-    # No raw URLs, account names, paths or exception strings in the evidence report.
+    # Only validated fixed identifiers can enter the operator evidence.
+    # Never echo an invalid config value, which might contain credentials.
+    if not isinstance(entry, dict):
+        return {
+            "id": "", "contour": None, "format": None,
+            "repository": "", "kind": None,
+            "checks": [_check("configuration_or_response", "FAIL", "probe_invalid")],
+        }
+    identifier = entry.get("id")
+    repository = entry.get("repository")
+    contour = entry.get("contour")
+    artifact_format = entry.get("format")
+    kind = entry.get("kind")
+    valid_id = isinstance(identifier, str) and _REPOSITORY.fullmatch(identifier) is not None
+    valid_repository = (
+        isinstance(repository, str) and _REPOSITORY.fullmatch(repository) is not None
+    )
     record: dict[str, Any] = {
-        "id": str(entry.get("id", ""))[:64],
-        "contour": entry.get("contour"),
-        "format": entry.get("format"),
-        "repository": str(entry.get("repository", ""))[:128],
-        "kind": entry.get("kind"),
+        "id": identifier if valid_id else "",
+        "contour": contour if contour in ("SOURCE", "TARGET") else None,
+        "format": artifact_format if artifact_format in ("docker", "helm") else None,
+        "repository": repository if valid_repository else "",
+        "kind": kind if kind in ("hosted", "proxy", "group") else None,
         "checks": [],
     }
     checks = record["checks"]
     try:
-        if not isinstance(entry.get("id"), str) or _REPOSITORY.fullmatch(entry["id"]) is None:
+        if not valid_id:
             raise ValueError("id_invalid")
-        if entry.get("contour") not in {"SOURCE", "TARGET"}:
+        if contour not in ("SOURCE", "TARGET"):
             raise ValueError("contour_invalid")
-        if entry.get("format") not in {"docker", "helm"}:
+        if artifact_format not in ("docker", "helm"):
             raise ValueError("format_invalid")
-        if entry.get("kind") not in {"hosted", "proxy", "group"}:
+        if kind not in ("hosted", "proxy", "group"):
             raise ValueError("kind_invalid")
         _name(entry.get("repository"), _REPOSITORY, "repository_invalid")
         origin = _valid_origin(entry.get("endpoint"))
