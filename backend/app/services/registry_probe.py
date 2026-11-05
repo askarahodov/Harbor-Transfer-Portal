@@ -81,7 +81,8 @@ async def probe_docker_v2(
         ) as client:
             response = await client.get(profile.url.rstrip("/") + "/v2/", auth=auth)
             if response.status_code == 200:
-                if response.headers.get("Docker-Distribution-API-Version", "").lower() != "registry/2.0":
+                docker_version = response.headers.get("Docker-Distribution-API-Version", "")
+                if docker_version.lower() != "registry/2.0":
                     return _result(
                         "registry_invalid_endpoint",
                         "Endpoint не подтвердил Docker Registry v2",
