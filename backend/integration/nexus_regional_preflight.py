@@ -320,7 +320,7 @@ def main() -> int:
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(output)
-    except (ValueError, OSError, json.JSONDecodeError):
+    except (ValueError, OSError):
         print(
             "Preflight validation or report creation failed (details suppressed)",
             file=sys.stderr,
