@@ -88,23 +88,26 @@ def _unambiguous_index(payload: bytes, repository: str) -> dict:
             ):
                 raise ValueError("index_invalid")
             filename = f"{chart}-{version}.tgz"
-            advertised = urls[0]
-            parsed_url = urlsplit(advertised)
-            if (
-                parsed_url.path not in {
-                    filename, "/" + filename,
-                    f"/repository/{repository}/{filename}",
-                }
-                or parsed_url.query or parsed_url.fragment
-                or parsed_url.username is not None
-                or parsed_url.password is not None
-                or "\\" in advertised
-                or (parsed_url.scheme and parsed_url.scheme not in {"http", "https"})
-                or (parsed_url.netloc and parsed_url.path != (
-                    f"/repository/{repository}/{filename}"
-                ))
-            ):
-                raise ValueError("index_invalid")
+            allowed_paths = {
+                filename, "/" + filename,
+                f"/repository/{repository}/{filename}",
+            }
+            for advertised in urls:
+                if not isinstance(advertised, str):
+                    raise ValueError("index_invalid")
+                parsed_url = urlsplit(advertised)
+                if (
+                    parsed_url.path not in allowed_paths
+                    or parsed_url.query or parsed_url.fragment
+                    or parsed_url.username is not None
+                    or parsed_url.password is not None
+                    or "\\" in advertised
+                    or (parsed_url.scheme and parsed_url.scheme not in {"http", "https"})
+                    or (parsed_url.netloc and parsed_url.path != (
+                        f"/repository/{repository}/{filename}"
+                    ))
+                ):
+                    raise ValueError("index_invalid")
             identity = (chart, version)
             if identity in seen:
                 raise ValueError("index_invalid")
