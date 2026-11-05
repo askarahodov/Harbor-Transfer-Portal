@@ -39,6 +39,34 @@ _MAX_INDEX = 4 * 1024 * 1024
 _MAX_CHART = 100 * 1024 * 1024
 
 
+class _UniqueKeysLoader(yaml.SafeLoader):
+    """Fail closed on duplicate YAML mapping keys, including nested metadata."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict:
+        self.flatten_mapping(node)
+        mapping: dict = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            try:
+                duplicate = key in mapping
+            except TypeError as exc:
+                raise yaml.constructor.ConstructorError(
+                    "while reading YAML mapping", node.start_mark,
+                    "unhashable mapping key", key_node.start_mark,
+                ) from exc
+            if duplicate:
+                raise yaml.constructor.ConstructorError(
+                    "while reading YAML mapping", node.start_mark,
+                    "duplicate mapping key", key_node.start_mark,
+                )
+            mapping[key] = self.construct_object(value_node, deep=deep)
+        return mapping
+
+
+def _load_unambiguous_yaml(data: bytes) -> object:
+    return yaml.load(data, Loader=_UniqueKeysLoader)
+
+
 @dataclass(frozen=True)
 class HelmChartVersion:
     name: str
@@ -133,7 +161,7 @@ class NexusHelmHttpService:
             return HelmHttpResult(False, code="helm_index_unavailable",
                                   message="Helm repository недоступен")
         try:
-            data = yaml.safe_load(bytes(content))
+            data = _load_unambiguous_yaml(bytes(content))
         except (yaml.YAMLError, UnicodeError):
             return HelmHttpResult(False, code="helm_index_invalid",
                                   message="Неверный формат Helm index.yaml")
@@ -314,7 +342,7 @@ class NexusHelmHttpService:
                 stream = archive.extractfile(metadata)
                 if stream is None:
                     raise ValueError("Chart.yaml unreadable")
-                manifest = yaml.safe_load(stream.read())
+                manifest = _load_unambiguous_yaml(stream.read())
                 if (
                     not isinstance(manifest, dict)
                     or manifest.get("name") != name
