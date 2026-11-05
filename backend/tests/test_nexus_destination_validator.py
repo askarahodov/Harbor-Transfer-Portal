@@ -85,3 +85,34 @@ async def test_target_credentials_never_sent_over_http(
     assert not result.write_allowed
     assert result.error_code == "nexus_insecure_transport"
     assert "sensitive-password-not-for-logs" not in (result.message or "")
+
+
+@pytest.mark.asyncio
+async def test_local_disposable_target_http_loopback_is_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[httpx.Request] = []
+    actual_client = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, headers={"Docker-Distribution-API-Version": "registry/2.0"})
+
+    def factory(**kwargs):  # type: ignore[no-untyped-def]
+        return actual_client(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr(
+        "app.services.nexus_destination_validator.httpx.AsyncClient", factory
+    )
+    validator = NexusDestinationValidator.__new__(NexusDestinationValidator)
+    validator.settings = Settings(_env_file=None)
+    validator._url = "http://127.0.0.1:8083"
+    validator._registry_host = "127.0.0.1:8083"
+    validator._username = "operator"
+    validator._password = "temporary-test-password"
+    validator._verify = False
+
+    result = await validator.validate("test-project", "test-project/image")
+    assert result.project_exists and result.write_allowed
+    assert len(seen) == 1
+    assert seen[0].url.host == "127.0.0.1"
