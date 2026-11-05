@@ -319,3 +319,96 @@ class NexusHelmHttpService:
                     "helm_postcheck_failed", "Helm upload checksum не подтверждён"
                 )
         return digest
+
+
+class NexusHelmAdapter:
+    """Translate classic Helm HTTP semantics to the bundle pipeline's chart interface."""
+
+    def __init__(self, session: Session, settings: Settings, profile_id: str) -> None:
+        self.client = NexusHelmHttpService(session, settings, profile_id)
+
+    @staticmethod
+    def _error(exc: NexusHelmHttpError):
+        from app.services.helm_oci_service import HelmServiceError
+
+        return HelmServiceError(exc.code, exc.message)
+
+    async def inspect_target(self, chart, *, expected_digest: str | None = None):
+        from app.services.helm_oci_service import HelmTargetInspection, HelmTargetState
+
+        try:
+            result = await self.client.list_charts(chart.repository)
+        except NexusHelmHttpError as exc:
+            raise self._error(exc) from exc
+        if not result.available:
+            from app.services.helm_oci_service import HelmServiceError
+
+            raise HelmServiceError(
+                result.code or "helm_index_unavailable",
+                result.message or "Helm index.yaml недоступен",
+            )
+        match = next(
+            (v for v in result.items if v.name == chart.name and v.version == chart.version),
+            None,
+        )
+        if match is None:
+            return HelmTargetInspection(HelmTargetState.ABSENT, None)
+        digest = "sha256:" + match.digest
+        state = (
+            HelmTargetState.SAME_DIGEST
+            if expected_digest == digest
+            else HelmTargetState.CONFLICTING_DIGEST
+            if expected_digest is not None
+            else HelmTargetState.PRESENT
+        )
+        return HelmTargetInspection(state, digest)
+
+    async def pull_chart(self, chart, destination: Path):
+        from app.services.helm_oci_service import HelmPackageMetadata, HelmPullResult
+
+        destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+        output = destination / f"{chart.name}-{chart.version}.tgz"
+        try:
+            item = await self.client.download_chart(
+                chart.repository, chart.name, chart.version, output
+            )
+        except NexusHelmHttpError as exc:
+            raise self._error(exc) from exc
+        package = HelmPackageMetadata(output, chart.name, chart.version, item.digest)
+        return HelmPullResult("sha256:" + item.digest, package)
+
+    async def push_chart(
+        self, package: Path, target, *, source_digest: str | None = None,
+        allow_existing: bool = False,
+    ):
+        from app.services.helm_oci_service import HelmPackageMetadata, HelmPushResult
+
+        if allow_existing:
+            from app.services.helm_oci_service import HelmServiceError
+
+            raise HelmServiceError(
+                "helm_overwrite_unsupported",
+                "Nexus Helm HTTP overwrite запрещён: требуется отдельная approval-политика",
+            )
+        try:
+            digest = await self.client.upload_chart(
+                target.repository, target.name, target.version, package
+            )
+        except NexusHelmHttpError as exc:
+            raise self._error(exc) from exc
+        target_digest = "sha256:" + digest
+        if source_digest is not None and source_digest != target_digest:
+            from app.services.helm_oci_service import HelmServiceError
+
+            raise HelmServiceError(
+                "helm_payload_digest_mismatch",
+                "Helm HTTP payload не совпадает с подписанным SOURCE digest",
+            )
+        return HelmPushResult(
+            package=HelmPackageMetadata(package, target.name, target.version, digest),
+            target_digest=target_digest,
+            source_digest=source_digest,
+            digest_matches_source=(
+                source_digest == target_digest if source_digest is not None else None
+            ),
+        )
