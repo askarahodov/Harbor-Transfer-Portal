@@ -419,3 +419,50 @@ def test_preflight_never_echoes_invalid_config_in_evidence(
     assert "secret-do-not-echo" not in json.dumps(report)
     assert "sensitive" not in json.dumps(report)
     assert not network_calls
+
+
+@pytest.mark.parametrize("field,unsafe", [
+    ("environment", "region?token=secret-do-not-echo"),
+    ("operator", "https://credentials.example.test/password"),
+    ("change_id", "CHG-1\\nAuthorization: Bearer private"),
+    ("environment", "x" * 129),
+])
+def test_preflight_rejects_unsafe_evidence_header_before_any_probe(field, unsafe):
+    attempted = []
+
+    def factory(**kwargs):
+        attempted.append(kwargs)
+        raise AssertionError("unsafe evidence header must not start requests")
+
+    document = _document([_anonymous_docker("docker-source")])
+    document[field] = unsafe
+    with pytest.raises(ValueError, match="evidence_identifier_invalid") as exc:
+        run_document(document, client_factory=factory)
+    assert "secret-do-not-echo" not in str(exc.value)
+    assert "Bearer private" not in str(exc.value)
+    assert not attempted
+
+
+def test_preflight_valid_approval_identifiers_remain_in_evidence():
+    document = _document([{
+        "id": "helm-read", "contour": "SOURCE", "format": "helm",
+        "kind": "hosted", "repository": "helm-team",
+        "endpoint": "https://nexus.example.test",
+    }])
+    document.update({
+        "environment": "REGION-WEST_2",
+        "operator": "svc-acceptance",
+        "change_id": "CHG.2026-11-05",
+    })
+
+    def factory(**kwargs):
+        return httpx.Client(transport=httpx.MockTransport(
+            lambda req: httpx.Response(403)
+        ), **kwargs)
+
+    report = run_document(document, client_factory=factory)
+    assert report["preflight_status"] == "FAIL"
+    assert report["release_verdict"] == "NO-GO"
+    assert report["environment"] == "REGION-WEST_2"
+    assert report["operator"] == "svc-acceptance"
+    assert report["change_id"] == "CHG.2026-11-05"
