@@ -68,6 +68,27 @@ async def test_bearer_challenge_verifies_credentials_without_repository(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_bearer_token_html_200_is_not_docker_registry(monkeypatch):
+    def handler(request):
+        if request.url.path == "/service/token":
+            return httpx.Response(200, json={"token": "opaque-test-token"})
+        if request.headers.get("authorization") == "Bearer opaque-test-token":
+            return httpx.Response(200, text="<html>Not a registry</html>")
+        return httpx.Response(
+            401,
+            headers={
+                "WWW-Authenticate": (
+                    'Bearer realm="https://nexus.example.test/service/token",service="nexus"'
+                )
+            },
+        )
+
+    mock_client(monkeypatch, handler)
+    result = await probe(profile())
+    assert not result.ok and result.code == "registry_invalid_endpoint"
+
+
+@pytest.mark.asyncio
 async def test_bad_password_returns_safe_failure(monkeypatch):
     def handler(request):
         if request.url.path == "/service/token":
