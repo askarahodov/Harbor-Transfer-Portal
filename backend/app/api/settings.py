@@ -381,9 +381,9 @@ def update_harbor_profile(
                     if payload.nexus_search_url is not None else None
                 ),
                 nexus_search_repository=payload.nexus_search_repository,
-                nexus_search_set=(
-                    "nexus_search_url" in payload.model_fields_set
-                    or "nexus_search_repository" in payload.model_fields_set
+                nexus_search_url_set="nexus_search_url" in payload.model_fields_set,
+                nexus_search_repository_set=(
+                    "nexus_search_repository" in payload.model_fields_set
                 ),
             )
             if changed_fields:
