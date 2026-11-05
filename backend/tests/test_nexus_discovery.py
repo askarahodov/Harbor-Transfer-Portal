@@ -221,3 +221,56 @@ async def test_rest_search_never_sends_credentials_over_http(discovery) -> None:
     assert not result.available
     assert seen == []
     assert "HTTPS" in (result.message or "")
+
+
+@pytest.mark.asyncio
+async def test_inventory_returns_only_visible_docker_and_helm_repositories(
+    discovery,
+) -> None:
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[
+            {"name": "docker-a", "format": "docker", "type": "hosted"},
+            {"name": "helm-b", "format": "helm", "type": "hosted"},
+            {"name": "docker-proxy", "format": "docker", "type": "proxy"},
+            {"name": "maven-releases", "format": "maven2", "type": "hosted"},
+            {"name": "raw", "format": "raw", "type": "hosted"},
+            {"name": "invalid", "format": "helm", "type": "unexpected"},
+        ])
+
+    response["custom_handler"] = handler
+    result = await service.inventory()
+    assert result.available
+    assert [(i.name, i.format, i.kind) for i in result.items] == [
+        ("docker-a", "docker", "hosted"),
+        ("docker-proxy", "docker", "proxy"),
+        ("helm-b", "helm", "hosted"),
+    ]
+    assert [request.url.path for request in seen] == ["/service/rest/v1/repositories"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 403, 404, 502])
+async def test_inventory_unavailable_never_claims_empty_registry(
+    discovery, status: int,
+) -> None:
+    service, _seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    response["status"] = status
+    result = await service.inventory()
+    assert not result.available
+    assert result.items == ()
+    assert result.message
+
+
+@pytest.mark.asyncio
+async def test_inventory_requires_configured_https_ui(discovery) -> None:
+    service, seen, _response = discovery
+    result = await service.inventory()
+    assert not result.available
+    service.search_url = "http://nexus-ui.example.test"
+    result = await service.inventory()
+    assert not result.available
+    assert seen == []
