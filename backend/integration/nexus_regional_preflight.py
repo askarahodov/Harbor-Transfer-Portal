@@ -32,6 +32,7 @@ _DIGEST = re.compile(r"(?:sha256:)?[a-f0-9]{64}\Z")
 _MAX_INDEX = 4 * 1024 * 1024
 _MAX_CHART = 100 * 1024 * 1024
 _MAX_CONFIG = 1024 * 1024
+_MAX_PASSWORD = 16 * 1024
 _MAX_VERSIONS = 500
 
 
@@ -130,9 +131,15 @@ _ACCEPT_MANIFEST = ", ".join((
 def _valid_origin(value: Any) -> str:
     if not isinstance(value, str):
         raise ValueError("endpoint_invalid")
-    parsed = urlsplit(value)
+    try:
+        parsed = urlsplit(value)
+        # Access hostname/port while inside the error boundary: invalid
+        # bracketed IPv6 or ports raise ValueError in urllib.parse.
+        host, port = parsed.hostname, parsed.port
+    except ValueError as exc:
+        raise ValueError("endpoint_invalid") from exc
     if (
-        parsed.scheme != "https" or not parsed.hostname
+        parsed.scheme != "https" or not host or (port is not None and port <= 0)
         or parsed.path not in {"", "/"} or parsed.query or parsed.fragment
         or parsed.username is not None or parsed.password is not None
     ):
@@ -153,10 +160,18 @@ def _credential(entry: dict[str, Any]) -> tuple[str | None, str | None]:
         return None, None
     if not isinstance(user, str) or not user or not isinstance(secret, str):
         raise ValueError("service_identity_incomplete")
-    path = Path(secret)
-    if path.is_symlink() or not path.is_file() or (path.stat().st_mode & 0o077):
-        raise ValueError("password_file_permissions_invalid")
-    value = path.read_text(encoding="utf-8").strip()
+    try:
+        fd = os.open(secret, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or (info.st_mode & 0o077):
+                raise ValueError("password_file_permissions_invalid")
+            payload = handle.read(_MAX_PASSWORD + 1)
+        if len(payload) > _MAX_PASSWORD:
+            raise ValueError("password_file_too_large")
+        value = payload.decode("utf-8").strip()
+    except (OSError, UnicodeError) as exc:
+        raise ValueError("password_file_permissions_invalid") from exc
     if not value:
         raise ValueError("password_file_empty")
     return user, value
@@ -370,7 +385,21 @@ def _probe(
             else:
                 _read_helm(client, origin, entry, checks)
     except ValueError as exc:
-        checks.append(_check("configuration_or_response", "FAIL", str(exc)))
+        # Report fixed domain codes only. urllib/httpx/OS parser errors can
+        # contain operator-supplied URLs, credentials or local secret paths.
+        known_codes = {
+            "endpoint_invalid", "repository_invalid", "chart_invalid",
+            "version_invalid", "image_invalid", "tag_invalid",
+            "service_identity_incomplete", "password_file_permissions_invalid",
+            "password_file_too_large", "password_file_empty", "ca_file_missing",
+            "id_invalid", "contour_invalid", "format_invalid", "kind_invalid",
+            "response_too_large",
+        }
+        code = str(exc)
+        checks.append(_check(
+            "configuration_or_response", "FAIL",
+            code if code in known_codes else "configuration_or_response_invalid",
+        ))
     except (httpx.HTTPError, OSError, UnicodeError):
         checks.append(_check("network_or_tls", "FAIL", "connection_or_ca_failed"))
     return record
