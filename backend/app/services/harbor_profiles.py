@@ -39,6 +39,8 @@ class HarborProfile:
     enabled: bool
     is_default: bool = False
     registry_type: Literal["harbor", "nexus"] = "harbor"
+    nexus_search_url: str | None = None
+    nexus_search_repository: str | None = None
 
 
 class HarborProfileService:
@@ -199,6 +201,8 @@ class HarborProfileService:
         verify_tls: bool,
         enabled: bool,
         registry_type: Literal["harbor", "nexus"] = "harbor",
+        nexus_search_url: str | None = None,
+        nexus_search_repository: str | None = None,
     ) -> HarborProfile:
         normalized_name = self._normalize_name(name)
         validated_url = HarborSettingsService._validated_url(url)
@@ -221,6 +225,8 @@ class HarborProfileService:
             verify_tls=verify_tls,
             enabled=enabled,
             registry_type=registry_type,
+            nexus_search_url=self._search_url(nexus_search_url),
+            nexus_search_repository=self._search_repository(nexus_search_repository),
         )
         profiles.append(profile)
         self._save_additional(profiles)
@@ -237,6 +243,9 @@ class HarborProfileService:
         verify_tls: bool | None = None,
         enabled: bool | None = None,
         registry_type: Literal["harbor", "nexus"] | None = None,
+        nexus_search_url: str | None = None,
+        nexus_search_repository: str | None = None,
+        nexus_search_set: bool = False,
     ) -> HarborProfile:
         if profile_id == DEFAULT_PROFILE_ID:
             raise HarborSettingsError(
@@ -281,6 +290,14 @@ class HarborProfileService:
             verify_tls=verify_tls if verify_tls is not None else current.verify_tls,
             enabled=next_enabled,
             registry_type=next_registry_type,
+            nexus_search_url=(
+                self._search_url(nexus_search_url) if nexus_search_set
+                else current.nexus_search_url
+            ),
+            nexus_search_repository=(
+                self._search_repository(nexus_search_repository) if nexus_search_set
+                else current.nexus_search_repository
+            ),
         )
         self._save_additional([updated if item.id == current.id else item for item in profiles])
         return updated
@@ -476,6 +493,10 @@ class HarborProfileService:
                     verify_tls=item["verify_tls"],
                     enabled=item["enabled"],
                     registry_type=registry_type,  # type: ignore[arg-type]
+                    nexus_search_url=self._search_url(item.get("nexus_search_url")),
+                    nexus_search_repository=self._search_repository(
+                        item.get("nexus_search_repository")
+                    ),
                 )
                 if (
                     not profile.id
@@ -505,11 +526,40 @@ class HarborProfileService:
                 "verify_tls": item.verify_tls,
                 "enabled": item.enabled,
                 "registry_type": item.registry_type,
+                "nexus_search_url": item.nexus_search_url,
+                "nexus_search_repository": item.nexus_search_repository,
             }
             for item in sorted(profiles, key=lambda value: value.name.casefold())
         ]
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         self.metadata.set_value(PROFILES_KEY, encoded)
+
+    @staticmethod
+    def _search_url(value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        parsed = HarborSettingsService._validated_url(value.strip())
+        if parsed is None or not parsed.startswith("https://"):
+            raise HarborSettingsError(
+                "nexus_search_url_invalid",
+                "Nexus REST Search API требует корневой HTTPS URL Nexus UI",
+            )
+        return parsed
+
+    @staticmethod
+    def _search_repository(value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        normalized = value.strip()
+        if (
+            len(normalized) > 128
+            or not all(c.isalnum() or c in "._-" for c in normalized)
+        ):
+            raise HarborSettingsError(
+                "nexus_search_repository_invalid",
+                "Укажите имя Docker repository из Nexus UI",
+            )
+        return normalized
 
     def _profile_dir(self, profile: HarborProfile) -> Path:
         return self.settings.harbor_managed_secret_file.parent / "harbor-profiles" / profile.id
