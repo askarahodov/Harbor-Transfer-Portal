@@ -61,7 +61,9 @@ async function searchNexusRepositories(): Promise<void> {
     if (generation !== nexusGeneration || wizard.selectedHarborProfileId !== profileId) return
     nexusRepositories.value = result.items
     nexusCatalogMessage.value = result.available
-      ? result.truncated ? 'Показана первая страница; уточните название для поиска.' : null
+      ? (result.message ?? (result.truncated
+        ? 'Результаты неполные; для полного поиска настройте Nexus REST Search API.'
+        : null))
       : (result.message ?? 'Перечисление Nexus недоступно; введите точный repository.')
   } catch (reason) {
     if (generation === nexusGeneration) {
@@ -85,7 +87,9 @@ async function searchNexusTags(): Promise<void> {
     if (generation !== nexusTagsGeneration || wizard.selectedHarborProfileId !== profileId) return
     nexusTags.value = result.items
     nexusTagsMessage.value = result.available
-      ? result.truncated ? 'Показана первая страница тегов; уточните поиск.' : null
+      ? (result.message ?? (result.truncated
+        ? 'Результаты тегов неполные; уточните название или настройте REST Search API.'
+        : null))
       : (result.message ?? 'Теги недоступны; введите точный tag.')
   } catch (reason) {
     if (generation === nexusTagsGeneration) {
