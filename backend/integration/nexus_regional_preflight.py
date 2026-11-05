@@ -95,7 +95,10 @@ def _unambiguous_index(payload: bytes, repository: str) -> dict:
             for advertised in urls:
                 if not isinstance(advertised, str):
                     raise ValueError("index_invalid")
-                parsed_url = urlsplit(advertised)
+                try:
+                    parsed_url = urlsplit(advertised)
+                except ValueError as exc:
+                    raise ValueError("index_invalid") from exc
                 if (
                     parsed_url.path not in allowed_paths
                     or parsed_url.query or parsed_url.fragment
