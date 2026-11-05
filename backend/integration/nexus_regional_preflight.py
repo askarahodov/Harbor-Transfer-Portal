@@ -13,7 +13,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -287,7 +287,7 @@ def run_document(document: dict[str, Any], *, client_factory: Any = httpx.Client
         check["status"] for entry in entries for check in entry["checks"]
     ]
     return {
-        "schema": 1, "generated_at": datetime.now(timezone.utc).isoformat(),
+        "schema": 1, "generated_at": datetime.now(UTC).isoformat(),
         "environment": document["environment"], "operator": document["operator"],
         "change_id": document["change_id"], "commit_sha": document["commit_sha"],
         "entries": entries,
@@ -296,7 +296,9 @@ def run_document(document: dict[str, Any], *, client_factory: Any = httpx.Client
             "INCOMPLETE" if "UNVERIFIED" in all_statuses else "PASS"
         ),
         "release_verdict": "NO-GO",
-        "release_reason": "Regional signed handoff, write ACL, recovery and approver evidence pending",
+        "release_reason": (
+            "Regional signed handoff, write ACL, recovery and approver evidence pending"
+        ),
     }
 
 
@@ -314,7 +316,10 @@ def main() -> int:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(output)
     except (ValueError, OSError, json.JSONDecodeError):
-        print("Preflight validation or report creation failed (details suppressed)", file=sys.stderr)
+        print(
+            "Preflight validation or report creation failed (details suppressed)",
+            file=sys.stderr,
+        )
         return 2
     print("Sanitized read-only Nexus preflight report created; release remains NO-GO")
     return 0 if result["preflight_status"] == "PASS" else 1
