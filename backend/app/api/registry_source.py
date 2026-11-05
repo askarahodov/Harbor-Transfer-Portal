@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.services.harbor_profiles import HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
-from app.services.nexus_service import ImageReference, NexusService, NexusServiceError
 from app.services.nexus_discovery import NexusDiscoveryService
+from app.services.nexus_service import ImageReference, NexusService, NexusServiceError
 
 router = APIRouter(prefix="/registry/source", tags=["registry"])
 
