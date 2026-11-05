@@ -610,3 +610,74 @@ async def test_source_download_refuses_ambiguous_index_before_package_request(
         "/repository/helm-a/index.yaml",
     ]
     assert "secret-not-for-logs" not in str(error.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("index_yaml", [
+    # Duplicate chart name hides an earlier version collection.
+    "entries:\n  demo:\n    - version: 1.2.3\n      digest: " + "a" * 64
+    + "\n      urls: [demo-1.2.3.tgz]\n  demo: []\n",
+    # Duplicate digest in a version record hides a checksum conflict.
+    "entries:\n  demo:\n    - version: 1.2.3\n      digest: " + "a" * 64
+    + "\n      digest: " + "b" * 64 + "\n      urls: [demo-1.2.3.tgz]\n",
+    # Duplicate top-level entries can hide the entire first catalog.
+    "entries:\n  demo: []\nentries:\n  other: []\n",
+])
+async def test_duplicate_yaml_mapping_keys_block_source_and_target(
+    client_service, monkeypatch, tmp_path: Path, index_yaml: str,
+):
+    service, state, data, _digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["calls"].append(request)
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+        if request.url.path == "/repository/helm-a/index.yaml":
+            return httpx.Response(200, text=index_yaml)
+        raise AssertionError("ambiguous Helm YAML must not trigger downloads or writes")
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    # Even exploratory listing must not silently hide duplicate YAML keys.
+    catalog = await service.list_charts("helm-a")
+    assert not catalog.available and catalog.code == "helm_index_invalid"
+
+    destination = tmp_path / "demo-1.2.3.tgz"
+    with pytest.raises(NexusHelmHttpError) as source_error:
+        await service.download_chart("helm-a", "demo", "1.2.3", destination)
+    assert source_error.value.code == "helm_index_invalid"
+    assert not destination.exists()
+
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    with pytest.raises(HelmServiceError) as target_error:
+        await bridge.inspect_target(HelmChartReference("helm-a", "demo", "1.2.3"))
+    assert target_error.value.code == "helm_index_invalid"
+
+    package = tmp_path / "demo-1.2.3.tgz"
+    package.write_bytes(data)
+    with pytest.raises(NexusHelmHttpError) as upload_error:
+        await service.upload_chart("helm-a", "demo", "1.2.3", package)
+    assert upload_error.value.code == "helm_index_invalid"
+    assert all(req.method == "GET" for req in state["calls"])
+    assert all(req.url.host == "nexus.example.test" for req in state["calls"])
+
+
+def test_duplicate_chart_yaml_name_or_version_rejected():
+    for metadata in (
+        b"apiVersion: v2\nname: demo\nname: impostor\nversion: 1.2.3\n",
+        b"apiVersion: v2\nname: demo\nversion: 1.2.3\nversion: 2.0.0\n",
+    ):
+        archive_buffer = io.BytesIO()
+        with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
+            entry = tarfile.TarInfo("demo/Chart.yaml")
+            entry.size = len(metadata)
+            archive.addfile(entry, io.BytesIO(metadata))
+        with pytest.raises(NexusHelmHttpError) as error:
+            NexusHelmHttpService._validate_package(
+                archive_buffer.getvalue(), "demo", "1.2.3"
+            )
+        assert error.value.code == "helm_package_invalid"
