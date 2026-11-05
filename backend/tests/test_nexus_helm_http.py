@@ -11,7 +11,12 @@ import httpx
 import pytest
 import yaml
 
-from app.services.nexus_helm_http import NexusHelmHttpError, NexusHelmHttpService
+from app.services.helm_oci_service import HelmChartReference, HelmServiceError, HelmTargetState
+from app.services.nexus_helm_http import (
+    NexusHelmAdapter,
+    NexusHelmHttpError,
+    NexusHelmHttpService,
+)
 
 REAL_ASYNC_CLIENT = httpx.AsyncClient
 
@@ -170,4 +175,78 @@ async def test_helm_invalid_archive_never_uploaded(client_service, tmp_path: Pat
     with pytest.raises(NexusHelmHttpError) as error:
         await service.upload_chart("helm-a", "demo", "1.2.3", package)
     assert error.value.code == "helm_package_invalid"
+    assert not state["calls"]
+
+
+@pytest.mark.asyncio
+async def test_helm_bridge_inspects_same_conflict_and_absent(client_service):
+    service, state, _data, digest = client_service
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    chart = HelmChartReference("helm-a", "demo", "1.2.3")
+    same = await bridge.inspect_target(chart, expected_digest="sha256:" + digest)
+    assert same.state == HelmTargetState.SAME_DIGEST
+    conflict = await bridge.inspect_target(chart, expected_digest="sha256:" + "0" * 64)
+    assert conflict.state == HelmTargetState.CONFLICTING_DIGEST
+    state["present"] = False
+    absent = await bridge.inspect_target(chart, expected_digest="sha256:" + digest)
+    assert absent.state == HelmTargetState.ABSENT
+
+
+@pytest.mark.asyncio
+async def test_helm_bridge_pull_for_signed_bundle(client_service, tmp_path: Path):
+    service, _state, _data, digest = client_service
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    chart = HelmChartReference("helm-a", "demo", "1.2.3")
+    result = await bridge.pull_chart(chart, tmp_path / "charts")
+    assert result.source_digest == "sha256:" + digest
+    assert result.package.sha256 == digest
+    assert result.package.path.is_file()
+
+
+@pytest.mark.asyncio
+async def test_helm_bridge_push_refuses_digest_mismatch_before_mutation(
+    client_service, tmp_path: Path,
+):
+    service, state, data, _digest = client_service
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    file = tmp_path / "demo-1.2.3.tgz"
+    file.write_bytes(data)
+    target = HelmChartReference("helm-a", "demo", "1.2.3")
+    with pytest.raises(HelmServiceError) as error:
+        await bridge.push_chart(file, target, source_digest="sha256:" + "0" * 64)
+    assert error.value.code == "helm_payload_digest_mismatch"
+    assert not state["calls"]
+
+
+@pytest.mark.asyncio
+async def test_helm_bridge_push_verifies_target_digest(client_service, tmp_path: Path):
+    service, state, data, digest = client_service
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    state["present"] = False
+    file = tmp_path / "demo-1.2.3.tgz"
+    file.write_bytes(data)
+    target = HelmChartReference("helm-a", "demo", "1.2.3")
+    result = await bridge.push_chart(file, target, source_digest="sha256:" + digest)
+    assert result.target_digest == "sha256:" + digest
+    assert result.digest_matches_source is True
+    assert state["upload"]
+
+
+@pytest.mark.asyncio
+async def test_helm_bridge_never_performs_overwrite(client_service, tmp_path: Path):
+    service, state, data, digest = client_service
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    file = tmp_path / "demo-1.2.3.tgz"
+    file.write_bytes(data)
+    with pytest.raises(HelmServiceError) as error:
+        await bridge.push_chart(
+            file, HelmChartReference("helm-a", "demo", "1.2.3"),
+            source_digest="sha256:" + digest, allow_existing=True,
+        )
+    assert error.value.code == "helm_overwrite_unsupported"
     assert not state["calls"]
