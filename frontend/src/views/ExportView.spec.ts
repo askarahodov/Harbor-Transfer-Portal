@@ -361,6 +361,10 @@ describe('SOURCE export wizard view', () => {
         },
       ],
     })
+    const helmCharts = vi.spyOn(exportsApi, 'listNexusHelmCharts').mockResolvedValue({
+      available: true, code: null, message: null,
+      items: [{ name: 'chart-demo', version: '1.0.0', digest: 'a'.repeat(64) }],
+    })
     const inventory = vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
       available: true,
       message: null,
@@ -403,6 +407,11 @@ describe('SOURCE export wizard view', () => {
     expect(wrapper.get('.nexus-inventory').text()).toContain('docker-proxy')
     expect(wrapper.get('.nexus-inventory').text()).toContain('helm-team')
     expect(wrapper.get('.nexus-inventory').text()).toContain('Helm HTTP (.tgz)')
+    await button(wrapper, 'Показать charts').trigger('click')
+    await flushPromises()
+    expect(helmCharts).toHaveBeenCalledWith('nexus-profile', 'helm-team')
+    expect(wrapper.text()).toContain('chart-demo')
+    expect(wrapper.text()).toContain('Helm HTTP chart export/import')
     expect(wrapper.text()).toContain('Helm OCI не используются.')
     expect(wrapper.find('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(false)
     expect(connection).not.toHaveBeenCalled()
