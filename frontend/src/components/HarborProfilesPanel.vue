@@ -7,6 +7,8 @@ import { apiClient } from '@/api/client'
 type HarborProfile = {
   id: string
   registry_type: 'harbor' | 'nexus'
+  nexus_search_url?: string | null
+  nexus_search_repository?: string | null
   name: string
   url: string
   username: string | null
@@ -48,6 +50,8 @@ const url = ref('')
 const username = ref('')
 const verifyTls = ref(true)
 const registryType = ref<'harbor' | 'nexus'>('harbor')
+const nexusSearchUrl = ref('')
+const nexusSearchRepository = ref('')
 const credential = ref('')
 const caPem = ref('')
 
@@ -119,6 +123,8 @@ function resetEditor(): void {
   caPem.value = ''
   verifyTls.value = true
   registryType.value = 'harbor'
+  nexusSearchUrl.value = ''
+  nexusSearchRepository.value = ''
 }
 
 function validateUrlForRegistry(url: string, registryType: 'harbor' | 'nexus'): string | null {
@@ -150,6 +156,8 @@ function editProfile(profile: HarborProfile): void {
   caPem.value = ''
   verifyTls.value = profile.verify_tls
   registryType.value = profile.registry_type ?? 'harbor'
+  nexusSearchUrl.value = profile.nexus_search_url ?? ''
+  nexusSearchRepository.value = profile.nexus_search_repository ?? ''
   error.value = ''
   message.value = ''
   void nextTick(() => {
@@ -172,6 +180,17 @@ async function saveProfile(): Promise<void> {
     error.value = urlError
     return
   }
+  if (registryType.value === 'nexus' && (nexusSearchUrl.value || nexusSearchRepository.value)) {
+    if (!nexusSearchUrl.value.trim() || !nexusSearchRepository.value.trim()) {
+      error.value = 'Для поиска Nexus укажите и HTTPS URL Nexus UI, и имя Docker hosted repository.'
+      return
+    }
+    if (!nexusSearchUrl.value.startsWith('https://') ||
+        validateUrlForRegistry(nexusSearchUrl.value, 'nexus')) {
+      error.value = 'Для Nexus REST Search требуется HTTPS URL корня Nexus UI без пути.'
+      return
+    }
+  }
   savingProfile.value = true
   error.value = ''
   message.value = ''
@@ -182,6 +201,8 @@ async function saveProfile(): Promise<void> {
       username: username.value.trim() || null,
       verify_tls: verifyTls.value,
       registry_type: registryType.value,
+      nexus_search_url: registryType.value === 'nexus' ? nexusSearchUrl.value.trim() || null : null,
+      nexus_search_repository: registryType.value === 'nexus' ? nexusSearchRepository.value.trim() || null : null,
     }
     const response = editingId.value
       ? await apiClient.patch<HarborProfile>(
@@ -486,7 +507,15 @@ onMounted(() => void load())
               <option value="nexus">Sonatype Nexus</option>
             </select>
           </label>
-          <p v-if="registryType === 'nexus'" class="profile-hint">Nexus 3.69 OSS: Docker Registry v2 (точный repository:tag). Harbor API и Helm OCI недоступны.</p>
+          <p v-if="registryType === 'nexus'" class="profile-hint">Nexus 3.69 OSS: Docker v2 для переноса образов. Для удобного поиска настройте отдельный REST Search API Nexus UI; это не URL Docker connector. Helm OCI недоступен.</p>
+          <label v-if="registryType === 'nexus'">
+            Nexus UI HTTPS URL (необязательно)
+            <input v-model="nexusSearchUrl" type="url" placeholder="https://nexus-ui.example.internal" />
+          </label>
+          <label v-if="registryType === 'nexus'">
+            Имя Docker repository в Nexus UI (необязательно)
+            <input v-model="nexusSearchRepository" type="text" maxlength="128" placeholder="docker-hosted" />
+          </label>
           <label>
             Service account
             <input v-model="username" type="text" autocomplete="username" />
