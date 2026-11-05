@@ -7,8 +7,11 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from app.api.registry_source import ExactSourceInspectionRequest, inspect_exact_source
-from app.api.registry_source import nexus_helm_catalog
+from app.api.registry_source import (
+    ExactSourceInspectionRequest,
+    inspect_exact_source,
+    nexus_helm_catalog,
+)
 from app.services.nexus_helm_http import HelmChartVersion, HelmHttpResult
 from app.services.nexus_service import ImageInspection
 
