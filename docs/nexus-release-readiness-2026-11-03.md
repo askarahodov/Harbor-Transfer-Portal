@@ -250,8 +250,9 @@ sidecar, handoff и download ticket; operation и artifact завершаютс�
 удаляет произвольные «осиротевшие» файлы без доказанной принадлежности.
 
 **Подтверждение реального Nexus CI:** [Nexus E2E #41976943384](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41976943384)
-**SUCCESS**. Общий [CI #41976943393](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41976943393)
-проверяется отдельно на head #450; статус см. по ссылке.
+**SUCCESS (11 passed)**. Общий [CI #41976943393](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41976943393)
+**SUCCESS**, включая backend pytest, Ruff, Mypy, security и Quality Gate на
+head `98b2f0a` PR #450.
 
 Эти тесты не заменяют проверку физически независимых корпоративных
 SOURCE/TARGET, TLS/CA, RBAC и браузера. Release verdict — **NO-GO**.
