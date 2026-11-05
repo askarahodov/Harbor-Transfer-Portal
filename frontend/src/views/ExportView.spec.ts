@@ -361,6 +361,14 @@ describe('SOURCE export wizard view', () => {
         },
       ],
     })
+    const listNexusRepositories = vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: true, items: ['0702/centos7', 'jaegertracing/jaeger'],
+      message: null, truncated: false,
+    })
+    const listNexusTags = vi.spyOn(exportsApi, 'listNexusTags').mockResolvedValue({
+      available: true, items: ['7.9.2009', 'latest'],
+      message: null, truncated: false,
+    })
     const connection = vi.spyOn(exportsApi, 'getHarborConnection')
     const projects = vi.spyOn(exportsApi, 'listHarborProjects')
     const repositories = vi.spyOn(exportsApi, 'listHarborRepositories')
@@ -381,14 +389,22 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
 
     expect(wrapper.get('#export-harbor-profile').text()).toContain('Nexus · Docker v2')
-    expect(wrapper.text()).toContain('Helm OCI здесь не поддерживается')
+    expect(wrapper.text()).toContain('Helm OCI не используются.')
     expect(wrapper.find('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(false)
     expect(connection).not.toHaveBeenCalled()
     expect(projects).not.toHaveBeenCalled()
     expect(repositories).not.toHaveBeenCalled()
     expect(artifacts).not.toHaveBeenCalled()
 
+    await button(wrapper, 'Найти репозитории').trigger('click')
+    await flushPromises()
+    expect(listNexusRepositories).toHaveBeenCalledWith('nexus-profile', '')
+    expect(wrapper.text()).toContain('jaegertracing/jaeger')
     await wrapper.get('input[placeholder="team/application"]').setValue('0702/centos7')
+    await button(wrapper, 'Найти теги').trigger('click')
+    await flushPromises()
+    expect(listNexusTags).toHaveBeenCalledWith('nexus-profile', '0702/centos7', '')
+    expect(wrapper.text()).toContain('latest')
     await wrapper.get('input[placeholder="1.0.0"]').setValue('7.9.2009')
     await wrapper.get('form.nexus-exact-form').trigger('submit')
     await flushPromises()
