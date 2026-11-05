@@ -299,7 +299,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         overrides: dict[int, str],
         validator: DestinationValidator,
         skopeo: SkopeoService | RegistryClient,
-        helm: HelmOciService,
+        helm: HelmOciService | NexusHelmAdapter,
     ) -> ImportDestinationArtifactPlanResponse:
         try:
             source_project, suffix = validated_source_repository(item.repository)
@@ -452,7 +452,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         version: str | None,
         expected_digest: str | None,
         validator: DestinationValidator,
-        helm: HelmOciService,
+        helm: HelmOciService | NexusHelmAdapter,
     ) -> ImportDestinationArtifactPlanResponse:
         try:
             if name is None or version is None:
