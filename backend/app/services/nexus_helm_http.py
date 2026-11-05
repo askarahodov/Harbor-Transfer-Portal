@@ -217,28 +217,34 @@ class NexusHelmHttpService:
                             message="Helm index содержит непроверяемую версию",
                         )
                     continue
-                advertised = urls[0]
                 filename = f"{name}-{version}.tgz"
-                # Nexus may advertise an absolute download URL, including one
-                # synthesized from reverse-proxy headers. Never request it.
-                # Accept only the expected same-repository path shape and
-                # construct downloads from the configured trusted HTTPS origin.
-                parsed_url = urlsplit(advertised)
+                # Never follow advertised URLs. Inspect every mirror URL,
+                # not only the first; hidden unsafe alternatives must not
+                # turn a malformed catalog into a valid signed export.
                 allowed_paths = {
                     filename,
                     f"/{filename}",
                     f"/repository/{repository}/{filename}",
                 }
-                if (
-                    parsed_url.path not in allowed_paths
-                    or parsed_url.query or parsed_url.fragment
-                    or parsed_url.username or parsed_url.password
-                    or "\\" in advertised
-                    or (parsed_url.scheme and parsed_url.scheme not in {"http", "https"})
-                    or (parsed_url.netloc and parsed_url.path != (
-                        f"/repository/{repository}/{filename}"
-                    ))
-                ):
+                unsafe = False
+                for advertised in urls:
+                    if not isinstance(advertised, str):
+                        unsafe = True
+                        break
+                    parsed_url = urlsplit(advertised)
+                    if (
+                        parsed_url.path not in allowed_paths
+                        or parsed_url.query or parsed_url.fragment
+                        or parsed_url.username or parsed_url.password
+                        or "\\" in advertised
+                        or (parsed_url.scheme and parsed_url.scheme not in {"http", "https"})
+                        or (parsed_url.netloc and parsed_url.path != (
+                            f"/repository/{repository}/{filename}"
+                        ))
+                    ):
+                        unsafe = True
+                        break
+                if unsafe:
                     if strict:
                         return HelmHttpResult(
                             False, code="helm_index_invalid",
