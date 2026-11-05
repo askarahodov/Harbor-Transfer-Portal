@@ -7,7 +7,9 @@ are never used for Helm. All outgoing URLs are derived from a trusted Nexus UI o
 from __future__ import annotations
 
 import hashlib
+import io
 import re
+import tarfile
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote, urlsplit
@@ -190,6 +192,43 @@ class NexusHelmHttpService:
             handle.write(chunks)
         return entry
 
+    @staticmethod
+    def _validate_package(data: bytes, name: str, version: str) -> None:
+        """Reject malformed archives, unsafe members and mismatched Chart.yaml."""
+        try:
+            with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+                members = archive.getmembers()
+                if len(members) > 1000 or sum(m.size for m in members) > _MAX_CHART:
+                    raise ValueError("archive limits")
+                for member in members:
+                    if (
+                        member.issym() or member.islnk() or member.isdev()
+                        or member.name.startswith("/")
+                        or any(p in ("", ".", "..") for p in member.name.split("/"))
+                        or not (member.isfile() or member.isdir())
+                    ):
+                        raise ValueError("unsafe archive member")
+                metadata = next(
+                    (m for m in members if m.name == f"{name}/Chart.yaml" and m.isfile()),
+                    None,
+                )
+                if metadata is None or metadata.size > 64 * 1024:
+                    raise ValueError("Chart.yaml missing")
+                stream = archive.extractfile(metadata)
+                if stream is None:
+                    raise ValueError("Chart.yaml unreadable")
+                manifest = yaml.safe_load(stream.read())
+                if (
+                    not isinstance(manifest, dict)
+                    or manifest.get("name") != name
+                    or manifest.get("version") != version
+                ):
+                    raise ValueError("Chart.yaml identity mismatch")
+        except (tarfile.TarError, yaml.YAMLError, OSError, ValueError) as exc:
+            raise NexusHelmHttpError(
+                "helm_package_invalid", "Некорректный или небезопасный Helm package"
+            ) from exc
+
     async def upload_chart(
         self, repository: str, name: str, version: str, package: Path
     ) -> str:
@@ -203,6 +242,7 @@ class NexusHelmHttpService:
         if package.stat().st_size > _MAX_CHART:
             raise NexusHelmHttpError("helm_chart_too_large", "Helm package превышает лимит")
         data = package.read_bytes()
+        self._validate_package(data, name, version)
         digest = hashlib.sha256(data).hexdigest()
         async with self._client() as client:
             # No writes to proxy/group or repositories whose type cannot be verified.
