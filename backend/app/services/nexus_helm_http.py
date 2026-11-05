@@ -9,7 +9,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import os
 import re
+import stat
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -306,7 +308,6 @@ class NexusHelmHttpService:
             raise NexusHelmHttpError("helm_digest_mismatch", "Checksum Helm package не совпадает")
         self._validate_package(bytes(chunks), name, version)
         # O_EXCL prevents overwriting an existing chart. Caller owns cleanup.
-        import os
         fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as handle:
             handle.write(chunks)
@@ -364,21 +365,53 @@ class NexusHelmHttpService:
                 "helm_package_invalid", "Некорректный или небезопасный Helm package"
             ) from exc
 
+    @staticmethod
+    def _read_package_bytes(package: Path) -> bytes:
+        """Read a bounded snapshot without following a swapped-in symlink."""
+        if package.suffix != ".tgz":
+            raise NexusHelmHttpError("helm_package_invalid", "Ожидается обычный Helm .tgz файл")
+        try:
+            fd = os.open(package, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(fd, "rb") as handle:
+                info = os.fstat(handle.fileno())
+                if not stat.S_ISREG(info.st_mode):
+                    raise NexusHelmHttpError(
+                        "helm_package_invalid", "Ожидается обычный Helm .tgz файл"
+                    )
+                if info.st_size > _MAX_CHART:
+                    raise NexusHelmHttpError(
+                        "helm_chart_too_large", "Helm package превышает лимит"
+                    )
+                data = handle.read(_MAX_CHART + 1)
+                if len(data) > _MAX_CHART:
+                    raise NexusHelmHttpError(
+                        "helm_chart_too_large", "Helm package превышает лимит"
+                    )
+                return data
+        except OSError as exc:
+            raise NexusHelmHttpError(
+                "helm_package_invalid", "Helm package недоступен или небезопасен"
+            ) from exc
+
     async def upload_chart(
-        self, repository: str, name: str, version: str, package: Path
+        self, repository: str, name: str, version: str, package: Path,
+        *, expected_digest: str | None = None,
     ) -> str:
         """Upload to Helm hosted via Components API. Never overwrite an existing version."""
         self._base()
         self._repository(repository)
         if _CHART.fullmatch(name) is None or _VERSION.fullmatch(version) is None:
             raise NexusHelmHttpError("helm_reference_invalid", "Некорректный Helm chart/version")
-        if package.is_symlink() or not package.is_file() or package.suffix != ".tgz":
-            raise NexusHelmHttpError("helm_package_invalid", "Ожидается обычный Helm .tgz файл")
-        if package.stat().st_size > _MAX_CHART:
-            raise NexusHelmHttpError("helm_chart_too_large", "Helm package превышает лимит")
-        data = package.read_bytes()
-        self._validate_package(data, name, version)
+        data = self._read_package_bytes(package)
         digest = hashlib.sha256(data).hexdigest()
+        # Check the signed SOURCE digest against the exact byte snapshot
+        # supplied in the upload body, not an earlier read of the path.
+        if expected_digest is not None and expected_digest != "sha256:" + digest:
+            raise NexusHelmHttpError(
+                "helm_payload_digest_mismatch",
+                "Helm package не совпадает с подписанным SOURCE digest",
+            )
+        self._validate_package(data, name, version)
         async with self._client() as client:
             # No writes to proxy/group or repositories whose type cannot be verified.
             meta_url = self._base() + "/service/rest/v1/repositories/" + quote(repository)
@@ -535,16 +568,10 @@ class NexusHelmAdapter:
                 "helm_overwrite_unsupported",
                 "Nexus Helm HTTP overwrite запрещён: требуется отдельная approval-политика",
             )
-        if source_digest is not None:
-            observed_source_digest = "sha256:" + hashlib.sha256(package.read_bytes()).hexdigest()
-            if observed_source_digest != source_digest:
-                raise HelmServiceError(
-                    "helm_payload_digest_mismatch",
-                    "Helm package не совпадает с подписанным SOURCE digest",
-                )
         try:
             digest = await self.client.upload_chart(
-                target.repository, target.name, target.version, package
+                target.repository, target.name, target.version, package,
+                expected_digest=source_digest,
             )
         except NexusHelmHttpError as exc:
             raise self._error(exc) from exc
