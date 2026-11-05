@@ -111,6 +111,21 @@ def provision(password: str) -> None:
             },
         },
     )
+    for name in ("htp-helm-source", "htp-helm-target"):
+        request(
+            "POST", "/repositories/helm/hosted", password,
+            {
+                "name": name,
+                "online": True,
+                "storage": {
+                    "blobStoreName": "default",
+                    "strictContentTypeValidation": True,
+                    "writePolicy": "allow_once",
+                },
+                "cleanup": {"policyNames": []},
+            },
+        )
+
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         try:
