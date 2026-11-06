@@ -939,9 +939,9 @@ onBeforeUnmount(() => {
               <tr><th>Тип</th><th>Артефакт</th><th>Reference</th><th>Digest SOURCE</th><th>Размер</th></tr>
             </thead>
             <tbody>
-              <tr v-for="item in wizard.preview?.artifacts" :key="`${item.project}/${item.repository}:${item.reference}`">
+              <tr v-for="item in wizard.preview?.artifacts" :key="`${item.project ?? ''}/${item.repository}:${item.reference}`">
                 <td>{{ kindLabel(item.kind) }}</td>
-                <td>{{ item.project }}/{{ item.repository }}</td>
+                <td>{{ item.project ? item.project + '/' : '' }}{{ item.repository }}</td>
                 <td><strong>{{ item.reference }}</strong></td>
                 <td class="digest" :title="item.source_digest">{{ shortDigest(item.source_digest) }}</td>
                 <td>{{ formatBytes(item.size_bytes) }}</td>
