@@ -20,10 +20,33 @@ Nexus Docker v2 SOURCE produces **schema_version 1.1** with:
 ```
 
 The signed `source.registry` is an origin URL, not credentials and not a
-transfer destination. `source.harbor` is deliberately absent for Nexus.
+transfer destination. Nexus origins must have an HTTP(S) scheme, host, and
+optional port, but **no username/password, path, query or fragment**.
+HTTPS is required for deployed regional connectors; plain HTTP remains
+accepted only for isolated disposable integration fixtures. `source.harbor` is deliberately absent for Nexus.
 The JSON Schema rejects Nexus provenance with `source.harbor` or without
 `source.registry`; the Pydantic model enforces the same constraints.
 The bundle signature covers all present origin fields and the 1.1 version.
+
+## Version-to-origin contract (validated before signature acceptance)
+
+The 1.0 manifest is the **legacy Harbor format**: it must contain
+`source.harbor` and must not include `source.registry_type` or
+`source.registry`. The 1.1 manifest is the **explicit Nexus format**:
+it must contain `source.registry_type: "nexus"` and `source.registry`,
+and must omit `source.harbor`. The JSON Schema (runtime and published
+copies) and Pydantic validator enforce this mapping, including when a
+manifest has been re-signed with a trusted key. This prevents a 1.0
+Nexus-origin manifest being silently interpreted as legacy Harbor by an
+old TARGET. There is no automatic 1.0 downgrade for Nexus.
+
+The signed canonical JSON uses sorted keys, compact separators, UTF-8
+and excludes absent/null optional fields; old Harbor 1.0 manifest bytes
+remain unchanged. TARGET must validate the manifest against the schema
+and verify its signature before acting on any source provenance, and
+must **never** fetch from the signed `source.registry`. The schema's
+major-version acceptance alone does not imply that a particular minor
+version can be downgraded to 1.0.
 
 ## Compatibility and rollout order
 
@@ -47,6 +70,8 @@ TARGET verification.
 - Nexus 1.1 signed round-trip and independent verification
 - Tampering with Nexus origin invalidates signature
 - Missing registry and inconsistent `source.harbor` are rejected
+- 1.0 Nexus/registry extensions and 1.1 Harbor/absent Nexus markers rejected by JSON Schema and Pydantic
+- Nexus origins containing credentials, path/query/fragment or malformed IPv6/port rejected
 
 Release status: **draft pending CI, integration E2E and review**. This
 protocol addition does not by itself establish regional Nexus readiness.
