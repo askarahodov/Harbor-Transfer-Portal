@@ -179,7 +179,7 @@ def test_nexus_preview_digest_change_before_prepare_creates_no_operation(
     assert error.value.code == "export_source_changed"
     assert client.inspect_image.await_count == 2
     assert harbor.calls == {}
-    assert manager.list_operations().total == 0
+    assert manager.get_operation(1) is None
 
 
 def test_nexus_prepare_binds_exact_selected_profile_and_repository(
