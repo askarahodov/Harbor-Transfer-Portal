@@ -65,6 +65,43 @@ def test_nexus_preview_uses_docker_inspection_without_harbor_api(tmp_path: Path)
     assert harbor.calls == {}
 
 
+def test_nexus_root_image_preview_and_operation_keep_exact_registry_path(tmp_path: Path) -> None:
+    """Nexus can contain baseimage (no namespace); do not produce /baseimage or baseimage/baseimage."""
+    orchestrator, profile_id, harbor, client = _nexus_orchestrator(tmp_path)
+    selection = ExportArtifactSelection(
+        kind=ArtifactKind.CONTAINER_IMAGE,
+        project=None,
+        repository="baseimage",
+        reference="latest",
+        digest=IMAGE_DIGEST,
+    )
+    preview = orchestrator.preview((selection,), harbor_profile_id=profile_id)
+    assert preview[0].project is None
+    assert preview[0].full_repository == "baseimage"
+    inspected = client.inspect_image.await_args.args[0]
+    assert inspected.repository == "baseimage"
+    assert inspected.reference == "latest"
+    resolved, operation_id, _delivery, _ids = orchestrator._prepare_export_operation(
+        (selection,), None, "operator", None, profile_id,
+    )
+    assert resolved[0].full_repository == "baseimage"
+    operation = orchestrator.operation_manager.get_operation(operation_id)
+    assert operation is not None
+    assert operation.artifacts[0].repository == "baseimage"
+    assert harbor.calls == {}
+
+
+def test_nexus_helm_without_project_is_rejected_by_selection_schema() -> None:
+    with pytest.raises(ValueError):
+        ExportArtifactSelection(
+            kind=ArtifactKind.HELM_CHART,
+            project=None,
+            repository="chart",
+            reference="1.0.0",
+            digest=IMAGE_DIGEST,
+        )
+
+
 def test_nexus_changed_digest_rejected_before_operation(tmp_path: Path) -> None:
     orchestrator, profile_id, harbor, _client = _nexus_orchestrator(tmp_path, "sha256:" + "b" * 64)
     with pytest.raises(ExportOrchestrationError) as error:
