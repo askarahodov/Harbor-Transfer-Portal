@@ -43,6 +43,62 @@ describe('NexusDockerBrowser', () => {
     expect(wrapper.emitted('add')?.[0]).toEqual(['bitnami/redis', '3.20', DIGEST])
   })
 
+  it('uses a compact searchable image selector to open a Harbor-style tag table', async () => {
+    const wrapper = mount(NexusDockerBrowser, {
+      props: { profileId: 'proxy-id', nexusRepository: 'docker-proxy' },
+    })
+    await flushPromises()
+    const selector = wrapper.get('select[aria-label="Выбрать Docker image Nexus"]')
+    expect(selector.findAll('option').map(option => option.text())).toContain('bitnami/redis')
+    expect(wrapper.get('.nexus-browser__catalog').element.tagName).toBe('DETAILS')
+    expect(wrapper.get('.nexus-browser__catalog').attributes('open')).toBeUndefined()
+    await selector.setValue('bitnami/redis')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenCalledWith('proxy-id', 'bitnami/redis', '', undefined)
+    expect(wrapper.get('table.nexus-browser__table').text()).toContain('3.20')
+    await wrapper.get('input[aria-label="Выбрать 3.20"]').setValue(true)
+    await wrapper.findAll('button').find(button => button.text() === 'Добавить выбранное (1)')!
+      .trigger('click')
+    await flushPromises()
+    expect(exportsApi.inspectExactNexusImage).toHaveBeenCalledWith(
+      'proxy-id', 'bitnami/redis', '3.20',
+    )
+    expect(wrapper.emitted('add')?.[0]).toEqual(['bitnami/redis', '3.20', DIGEST])
+    wrapper.unmount()
+  })
+
+  it('retains the selected image and checked tags while searching for another image', async () => {
+    vi.useFakeTimers()
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: ['v1', 'v2'], message: null,
+      truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.listNexusRepositories).mockImplementation(async (_id, search) => ({
+      available: true,
+      items: search === 'bitnami' ? ['bitnami/redis'] : ['alpine', 'bitnami/redis'],
+      message: null, truncated: false, next_cursor: null,
+    }))
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('select[aria-label="Выбрать Docker image Nexus"]').setValue('alpine')
+    await flushPromises()
+    await wrapper.get('input[aria-label="Выбрать v1"]').setValue(true)
+    expect(wrapper.text()).toContain('Выбрано: 1')
+    await wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]').setValue('bitnami')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushPromises()
+    const selector = wrapper.get('select[aria-label="Выбрать Docker image Nexus"]')
+    expect((selector.element as HTMLSelectElement).value).toBe('alpine')
+    expect(selector.findAll('option').map(option => option.text())).toContain('alpine · выбран')
+    expect(wrapper.get('table.nexus-browser__table').text()).toContain('v1')
+    expect(wrapper.text()).toContain('Выбрано: 1')
+    await selector.setValue('bitnami/redis')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Выбрано: 1')
+    expect(exportsApi.listNexusTags).toHaveBeenCalledWith('proxy-id', 'bitnami/redis', '', undefined)
+    wrapper.unmount()
+  })
+
   it('verifies baseimage directly on docker-proxy when Nexus browse and tags are forbidden', async () => {
     vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
       available: false, items: [], message: 'Каталог Docker v2 закрыт',
