@@ -879,7 +879,7 @@ onBeforeUnmount(() => {
             class="selected-artifact"
           >
             <div>
-              <strong>{{ artifact.project }}/{{ artifact.repository }}:{{ artifact.reference }}</strong>
+              <strong>{{ artifact.project ? artifact.project + '/' : '' }}{{ artifact.repository }}:{{ artifact.reference }}</strong>
               <span>{{ kindLabel(artifact.kind) }} · {{ formatBytes(artifact.size_bytes) }}</span>
               <code :title="artifact.digest">{{ shortDigest(artifact.digest) }}</code>
             </div>
