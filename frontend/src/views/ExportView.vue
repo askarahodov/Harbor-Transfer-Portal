@@ -140,6 +140,8 @@ async function loadNexusInventory(): Promise<void> {
 }
 
 const nexusTags = ref<string[]>([])
+const nexusRepositoryCursor = ref<string | null>(null)
+const nexusTagCursor = ref<string | null>(null)
 const nexusCatalogMessage = ref<string | null>(null)
 const nexusTagsMessage = ref<string | null>(null)
 const nexusBrowseBusy = ref(false)
@@ -148,56 +150,88 @@ let nexusRepoTimer: ReturnType<typeof setTimeout> | null = null
 let nexusTagTimer: ReturnType<typeof setTimeout> | null = null
 let nexusGeneration = 0
 
-async function searchNexusRepositories(): Promise<void> {
+async function searchNexusRepositories(cursor: string | null = null): Promise<void> {
   const profileId = wizard.selectedHarborProfileId
   if (!wizard.isNexus || !profileId) return
+  const search = exactRepository.value.trim()
   const generation = ++nexusGeneration
   nexusBrowseBusy.value = true
+  if (!cursor) {
+    nexusRepositoryCursor.value = null
+    nexusRepositories.value = []
+  }
   try {
-    const result = await listNexusRepositories(profileId, exactRepository.value.trim())
-    if (generation !== nexusGeneration || wizard.selectedHarborProfileId !== profileId) return
-    nexusRepositories.value = result.items
-    nexusCatalogMessage.value = result.available
-      ? (result.message ?? (result.truncated
-        ? 'Результаты неполные; для полного поиска настройте Nexus REST Search API.'
-        : null))
-      : (result.message ?? 'Перечисление Nexus недоступно; введите точный repository.')
+    const result = cursor
+      ? await listNexusRepositories(profileId, search, cursor)
+      : await listNexusRepositories(profileId, search)
+    if (generation !== nexusGeneration || wizard.selectedHarborProfileId !== profileId
+        || exactRepository.value.trim() !== search) return
+    if (!result.available) {
+      nexusRepositoryCursor.value = null
+      nexusCatalogMessage.value = result.message ?? 'Перечисление Nexus недоступно.'
+      return
+    }
+    nexusRepositories.value = [...new Set([
+      ...(cursor ? nexusRepositories.value : []), ...result.items,
+    ])].sort()
+    // A page may contain no matches while the server still has later pages.
+    nexusRepositoryCursor.value = result.next_cursor ?? null
+    nexusCatalogMessage.value = result.message ?? (
+      result.next_cursor
+        ? 'Найдено не всё: нажмите «Показать ещё», чтобы продолжить поиск по Nexus.'
+        : 'Поиск завершён для доступного каталога.'
+    )
   } catch (reason) {
     if (generation === nexusGeneration) {
+      nexusRepositoryCursor.value = null
       nexusCatalogMessage.value = apiErrorInfo(reason, 'Не удалось получить каталог Nexus.').message
-      nexusRepositories.value = []
     }
   } finally {
     if (generation === nexusGeneration) nexusBrowseBusy.value = false
   }
 }
 
-let nexusTagsGeneration = 0
-async function searchNexusTags(): Promise<void> {
+async function searchNexusTags(cursor: string | null = null): Promise<void> {
   const profileId = wizard.selectedHarborProfileId
   const repository = exactRepository.value.trim()
+  const search = exactReference.value.trim()
   if (!wizard.isNexus || !profileId || !repository) return
   const generation = ++nexusTagsGeneration
   nexusTagsBusy.value = true
+  if (!cursor) {
+    nexusTagCursor.value = null
+    nexusTags.value = []
+  }
   try {
-    const result = await listNexusTags(profileId, repository, exactReference.value.trim())
-    if (generation !== nexusTagsGeneration || wizard.selectedHarborProfileId !== profileId) return
-    nexusTags.value = result.items
-    nexusTagsMessage.value = result.available
-      ? (result.message ?? (result.truncated
-        ? 'Результаты тегов неполные; уточните название или настройте REST Search API.'
-        : null))
-      : (result.message ?? 'Теги недоступны; введите точный tag.')
+    const result = cursor
+      ? await listNexusTags(profileId, repository, search, cursor)
+      : await listNexusTags(profileId, repository, search)
+    if (generation !== nexusTagsGeneration || wizard.selectedHarborProfileId !== profileId
+        || exactRepository.value.trim() !== repository
+        || exactReference.value.trim() !== search) return
+    if (!result.available) {
+      nexusTagCursor.value = null
+      nexusTagsMessage.value = result.message ?? 'Теги недоступны; введите точный tag.'
+      return
+    }
+    nexusTags.value = [...new Set([
+      ...(cursor ? nexusTags.value : []), ...result.items,
+    ])].sort()
+    nexusTagCursor.value = result.next_cursor ?? null
+    nexusTagsMessage.value = result.message ?? (
+      result.next_cursor
+        ? 'Есть следующие страницы тегов. Нажмите «Показать ещё теги».'
+        : 'Поиск тегов завершён для доступного репозитория.'
+    )
   } catch (reason) {
     if (generation === nexusTagsGeneration) {
+      nexusTagCursor.value = null
       nexusTagsMessage.value = apiErrorInfo(reason, 'Не удалось получить теги Nexus.').message
-      nexusTags.value = []
     }
   } finally {
     if (generation === nexusTagsGeneration) nexusTagsBusy.value = false
   }
 }
-
 
 async function inspectNexusReference(): Promise<void> {
   const profileId = wizard.selectedHarborProfileId
@@ -234,6 +268,10 @@ watch([exactRepository, exactReference], () => {
   exactError.value = null
 })
 watch(exactRepository, () => {
+  nexusGeneration += 1
+  nexusTagsGeneration += 1
+  nexusRepositoryCursor.value = null
+  nexusTagCursor.value = null
   nexusTags.value = []
   nexusTagsMessage.value = null
   if (nexusRepoTimer !== null) clearTimeout(nexusRepoTimer)
@@ -241,6 +279,8 @@ watch(exactRepository, () => {
   nexusRepoTimer = setTimeout(() => { void searchNexusRepositories() }, 400)
 })
 watch(exactReference, () => {
+  nexusTagsGeneration += 1
+  nexusTagCursor.value = null
   if (nexusTagTimer !== null) clearTimeout(nexusTagTimer)
   nexusTagTimer = setTimeout(() => { void searchNexusTags() }, 400)
 })
@@ -263,6 +303,8 @@ watch(() => wizard.selectedHarborProfileId, () => {
   nexusInventoryMessage.value = null
   nexusRepositories.value = []
   nexusTags.value = []
+  nexusRepositoryCursor.value = null
+  nexusTagCursor.value = null
   nexusCatalogMessage.value = null
   nexusTagsMessage.value = null
   if (wizard.isNexus) {
@@ -714,6 +756,13 @@ onBeforeUnmount(() => {
                 {{ nexusBrowseBusy ? 'Поиск репозиториев…' : 'Найти репозитории' }}
               </button>
               <p v-if="nexusCatalogMessage" class="muted" role="status">{{ nexusCatalogMessage }}</p>
+              <button
+                v-if="nexusRepositoryCursor"
+                type="button"
+                class="secondary-button"
+                :disabled="nexusBrowseBusy"
+                @click="searchNexusRepositories(nexusRepositoryCursor)"
+              >{{ nexusBrowseBusy ? 'Загрузка…' : 'Показать ещё репозитории' }}</button>
               <div v-if="nexusRepositories.length" class="nexus-suggestions" aria-label="Найденные Nexus репозитории">
                 <button v-for="name in nexusRepositories" :key="name" type="button" class="secondary-button" @click="exactRepository = name; exactReference = ''; searchNexusTags()">{{ name }}</button>
               </div>
@@ -727,6 +776,13 @@ onBeforeUnmount(() => {
                 {{ nexusTagsBusy ? 'Поиск тегов…' : 'Найти теги' }}
               </button>
               <p v-if="nexusTagsMessage" class="muted" role="status">{{ nexusTagsMessage }}</p>
+              <button
+                v-if="nexusTagCursor"
+                type="button"
+                class="secondary-button"
+                :disabled="nexusTagsBusy"
+                @click="searchNexusTags(nexusTagCursor)"
+              >{{ nexusTagsBusy ? 'Загрузка…' : 'Показать ещё теги' }}</button>
               <div v-if="nexusTags.length" class="nexus-suggestions" aria-label="Найденные Nexus теги">
                 <button v-for="tag in nexusTags" :key="tag" type="button" class="secondary-button" @click="exactReference = tag">{{ tag }}</button>
               </div>
