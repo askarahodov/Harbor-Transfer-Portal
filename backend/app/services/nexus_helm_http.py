@@ -539,6 +539,7 @@ class NexusHelmAdapter:
                 isinstance(details, dict)
                 and details.get("format") == "helm"
                 and details.get("type") == "hosted"
+                and details.get("name", chart.repository) == chart.repository
             ):
                 return HelmTargetInspection(HelmTargetState.ABSENT, None)
         if not result.available:
