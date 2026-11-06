@@ -88,7 +88,7 @@ describe('NexusDockerBrowser', () => {
     await vi.advanceTimersByTimeAsync(350)
     await flushPromises()
     const selector = wrapper.get('select[aria-label="Выбрать Docker image Nexus"]')
-    expect(selector.element.value).toBe('alpine')
+    expect((selector.element as HTMLSelectElement).value).toBe('alpine')
     expect(selector.findAll('option').map(option => option.text())).toContain('alpine · выбран')
     expect(wrapper.get('table.nexus-browser__table').text()).toContain('v1')
     expect(wrapper.text()).toContain('Выбрано: 1')
