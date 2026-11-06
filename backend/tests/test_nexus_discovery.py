@@ -485,6 +485,32 @@ async def test_paged_rest_search_keeps_scoping_and_exposes_continuation(discover
 
 
 @pytest.mark.asyncio
+async def test_paged_rest_tag_lookup_filters_exact_image_on_server(discovery):
+    service, requests, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["repository"] == "docker-proxy"
+        assert request.url.params["name"] == "bitnami/redis"
+        return httpx.Response(200, json={
+            "items": [
+                {"repository": "docker-proxy", "name": "bitnami/redis",
+                 "version": "7.2"},
+                {"repository": "docker-proxy", "name": "other/redis",
+                 "version": "foreign"},
+            ],
+            "continuationToken": None,
+        })
+
+    response["custom_handler"] = handler
+    result = await service.tags_page("bitnami/redis")
+    assert result.available
+    assert result.items == ("7.2",)
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
 async def test_paged_rest_tags_follow_token_without_leaking_other_repositories(discovery):
     service, seen, response = discovery
     service.search_url = "https://nexus-ui.example.test"
