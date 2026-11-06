@@ -335,20 +335,23 @@ export type NexusSuggestions = {
   items: string[]
   message: string | null
   truncated: boolean
+  next_cursor?: string | null
 }
 
-export async function listNexusRepositories(profileId: string, search = ''): Promise<NexusSuggestions> {
+export async function listNexusRepositories(
+  profileId: string, search = '', cursor?: string,
+): Promise<NexusSuggestions> {
   const response = await apiClient.get<NexusSuggestions>('/registry/source/nexus/repositories', {
-    params: { profile_id: profileId, search },
+    params: { profile_id: profileId, search, paged: true, ...(cursor ? { cursor } : {}) },
   })
   return response.data
 }
 
 export async function listNexusTags(
-  profileId: string, repository: string, search = '',
+  profileId: string, repository: string, search = '', cursor?: string,
 ): Promise<NexusSuggestions> {
   const response = await apiClient.get<NexusSuggestions>('/registry/source/nexus/tags', {
-    params: { profile_id: profileId, repository, search },
+    params: { profile_id: profileId, repository, search, paged: true, ...(cursor ? { cursor } : {}) },
   })
   return response.data
 }
