@@ -9,6 +9,7 @@ import {
 const props = defineProps<{
   profileId: string
   nexusRepository?: string | null
+  restSearchConfigured?: boolean
 }>()
 const emit = defineEmits<{
   add: [repository: string, reference: string, digest: string]
@@ -332,6 +333,11 @@ onBeforeUnmount(() => {
     <section class="nexus-browser__catalog" aria-label="Иерархия доступных Docker-образов">
       <h4>Образы и папки</h4>
       <p class="muted">Дерево показывает доступные этому профилю Docker-образы. Для proxy каталог может быть неполным; точная проверка image:tag доступна ниже.</p>
+      <p v-if="!restSearchConfigured" class="muted" role="status">
+        Для поиска через Nexus REST Search заполните в настройках профиля отдельный
+        Nexus UI HTTPS URL и имя Docker repository (например, docker-proxy).
+        Пока используется Docker v2 catalog, который ваш Nexus может запрещать.
+      </p>
     <label class="nexus-browser__label">
       Найти образ в выбранном Nexus repository
       <input
