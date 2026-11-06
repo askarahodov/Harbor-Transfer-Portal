@@ -96,6 +96,62 @@ def test_nexus_helm_preview_uses_plain_http_catalog_without_harbor_api(tmp_path:
 
 
 
+def test_nexus_helm_only_preview_does_not_construct_docker_connector(
+    tmp_path: Path,
+) -> None:
+    orchestrator, profile_id, harbor, client = _nexus_orchestrator(tmp_path)
+    chart = ExportArtifactSelection(
+        kind=ArtifactKind.HELM_CHART,
+        project="helm-hosted",
+        repository="sample",
+        reference="1.2.3",
+        digest=IMAGE_DIGEST,
+    )
+    adapter = MagicMock()
+    adapter.client.list_charts = AsyncMock(return_value=HelmHttpResult(
+        available=True,
+        items=(HelmChartVersion("sample", "1.2.3", "sample-1.2.3.tgz", "a" * 64),),
+    ))
+
+    def unexpected_docker_client(_session, _profile_id):
+        raise AssertionError("Helm HTTP-only preview must not initialize Docker")
+
+    orchestrator._registry_client_factory = unexpected_docker_client
+    with patch("app.services.export_orchestrator.NexusHelmAdapter", return_value=adapter):
+        result = orchestrator.preview((chart,), harbor_profile_id=profile_id)
+    assert len(result) == 1
+    assert result[0].digest == IMAGE_DIGEST
+    adapter.client.list_charts.assert_awaited_once_with("helm-hosted")
+    client.inspect_image.assert_not_awaited()
+    assert harbor.calls == {}
+
+
+def test_nexus_mixed_preview_reuses_one_docker_client(
+    tmp_path: Path,
+) -> None:
+    orchestrator, profile_id, harbor, client = _nexus_orchestrator(tmp_path)
+    second = ExportArtifactSelection(
+        kind=ArtifactKind.CONTAINER_IMAGE,
+        project="team",
+        repository="worker",
+        reference="v2",
+        digest=IMAGE_DIGEST,
+    )
+    created = []
+
+    def docker_client(_session, selected_profile_id):
+        created.append(selected_profile_id)
+        return client
+
+    orchestrator._registry_client_factory = docker_client
+    result = orchestrator.preview((_image(), second), harbor_profile_id=profile_id)
+    assert len(result) == 2
+    assert created == [profile_id]
+    assert client.inspect_image.await_count == 2
+    assert [item.full_repository for item in result] == ["team/app", "team/worker"]
+    assert harbor.calls == {}
+
+
 def test_nexus_prepare_reinspects_before_persisting(tmp_path: Path) -> None:
     orchestrator, profile_id, _harbor, client = _nexus_orchestrator(tmp_path)
     client.inspect_image.return_value = ImageInspection(digest="sha256:" + "c" * 64)
