@@ -105,6 +105,22 @@ async function readCatalog(next = false): Promise<void> {
     if (current === generation) repoBusy.value = false
   }
 }
+/** Find matches on later server pages without forcing one click per page.
+ * A hard eight-page budget per action bounds latency and Nexus load.
+ */
+async function searchAcrossPages(next = false): Promise<void> {
+  const profile = props.profileId
+  const search = query.value.trim()
+  await readCatalog(next)
+  if (!search) return
+  for (let page = 1; page < 8; page += 1) {
+    if (profile !== props.profileId || search !== query.value.trim()
+        || repoBusy.value || !cursor.value || error.value
+        || repositories.value.length >= 20) return
+    await readCatalog(true)
+  }
+}
+
 async function readTags(next = false): Promise<void> {
   const id = props.profileId
   const repository = selectedRepository.value
@@ -185,7 +201,7 @@ async function chooseTag(tag: string): Promise<void> {
 function scheduleSearch(): void {
   if (searchTimer) clearTimeout(searchTimer)
   resetCatalog()
-  searchTimer = setTimeout(() => { void readCatalog() }, 350)
+  searchTimer = setTimeout(() => { void searchAcrossPages() }, 350)
 }
 function scheduleTagSearch(): void {
   if (tagTimer) clearTimeout(tagTimer)
@@ -218,7 +234,7 @@ onBeforeUnmount(() => {
           Выберите образ, затем версию; digest проверяется перед добавлением.
         </p>
       </div>
-      <button type="button" class="secondary-button" :disabled="repoBusy" @click="readCatalog()">
+      <button type="button" class="secondary-button" :disabled="repoBusy" @click="searchAcrossPages()">
         Обновить каталог
       </button>
     </header>
@@ -246,7 +262,7 @@ onBeforeUnmount(() => {
     </ul>
     <button
       v-if="cursor" type="button" class="secondary-button"
-      :disabled="repoBusy" @click="readCatalog(true)"
+      :disabled="repoBusy" @click="searchAcrossPages(true)"
     >{{ repoBusy ? 'Загрузка…' : 'Следующая страница образов' }}</button>
     <p v-if="!repositories.length && !repoBusy && pagesRead && cursor" class="muted">
       На прочитанных страницах совпадений нет. Продолжите поиск по следующим страницам.
