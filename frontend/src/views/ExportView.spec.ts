@@ -412,6 +412,58 @@ describe('SOURCE export wizard view', () => {
     wrapper.unmount()
   })
 
+  it('loads later Nexus catalog and tag pages without discarding earlier results', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [{
+        id: 'nexus-profile', name: 'Nexus proxy',
+        url: 'https://docker.example.test', registry_type: 'nexus', is_default: true,
+      }],
+    })
+    vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: true, items: [], message: null,
+    })
+    const repositories = vi.spyOn(exportsApi, 'listNexusRepositories').mockImplementation(
+      async (_profile, _search, cursor) => cursor
+        ? { available: true, items: ['bitnami/redis'], message: null,
+            truncated: false, next_cursor: null }
+        : { available: true, items: ['alpine'], message: null,
+            truncated: true, next_cursor: 'page-2' },
+    )
+    const tags = vi.spyOn(exportsApi, 'listNexusTags').mockImplementation(
+      async (_profile, _repo, _search, cursor) => cursor
+        ? { available: true, items: ['3.20'], message: null,
+            truncated: false, next_cursor: null }
+        : { available: true, items: ['3.19'], message: null,
+            truncated: true, next_cursor: 'tag-page-2' },
+    )
+    const harborProjects = vi.spyOn(exportsApi, 'listHarborProjects')
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('alpine')
+    await button(wrapper, 'Показать ещё репозитории').trigger('click')
+    await flushPromises()
+    expect(repositories).toHaveBeenCalledWith('nexus-profile', '', 'page-2')
+    expect(wrapper.text()).toContain('bitnami/redis')
+    expect(wrapper.text()).toContain('alpine')
+    await wrapper.get('input[placeholder="team/application"]').setValue('alpine')
+    await button(wrapper, 'Найти теги').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('3.19')
+    await button(wrapper, 'Показать ещё теги').trigger('click')
+    await flushPromises()
+    expect(tags).toHaveBeenCalledWith('nexus-profile', 'alpine', '', 'tag-page-2')
+    expect(wrapper.text()).toContain('3.19')
+    expect(wrapper.text()).toContain('3.20')
+    expect(harborProjects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('routes Nexus exact-reference inspection without calling Harbor browse APIs', async () => {
     vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
       items: [
