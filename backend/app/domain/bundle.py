@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from pathlib import PurePosixPath
+from urllib.parse import urlsplit
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -53,6 +54,22 @@ class BundleSource(BaseModel):
         if self.registry_type == "nexus":
             if self.harbor is not None or not self.registry:
                 raise ValueError("Nexus source requires registry and forbids source.harbor")
+            # Source provenance must be an origin, never an auth-bearing URL,
+            # transfer endpoint, or a path containing secrets. HTTP remains
+            # accepted for explicitly isolated test connectors.
+            try:
+                parsed = urlsplit(self.registry)
+                host, port = parsed.hostname, parsed.port
+            except ValueError as exc:
+                raise ValueError("Nexus registry origin is invalid") from exc
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not host or port == 0
+                or parsed.username is not None or parsed.password is not None
+                or parsed.path not in {"", "/"}
+                or parsed.query or parsed.fragment
+            ):
+                raise ValueError("Nexus registry origin must not contain credentials or paths")
         elif not self.harbor:
             raise ValueError("Legacy Harbor source requires source.harbor")
         if self.registry_type == "harbor" and self.registry not in (None, self.harbor):
@@ -105,6 +122,17 @@ class BundleManifest(BaseModel):
     source: BundleSource
     comment: str | None = Field(default=None, max_length=2000)
     artifacts: list[ArtifactDescriptor] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_versioned_source(self) -> BundleManifest:
+        # v1.0 has already been deployed to TARGET with Harbor-only meaning.
+        # v1.1 introduces Nexus provenance; do not silently relabel either.
+        if self.schema_version == "1.0":
+            if self.source.registry_type is not None or self.source.registry is not None:
+                raise ValueError("Bundle 1.0 cannot include registry provenance extensions")
+        elif self.schema_version == "1.1" and self.source.registry_type != "nexus":
+            raise ValueError("Bundle 1.1 requires explicit Nexus provenance")
+        return self
 
     @field_validator("created_at")
     @classmethod
