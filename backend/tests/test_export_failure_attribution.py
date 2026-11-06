@@ -5,6 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -18,6 +19,7 @@ from app.services.bundle_package_service import BundlePackageService
 from app.services.export_orchestrator import ExportOrchestrator
 from app.services.harbor_client import HarborArtifact
 from app.services.helm_oci_service import HelmPackageMetadata, HelmPullResult
+from app.services.nexus_helm_http import NexusHelmHttpError
 from app.services.operation_manager import OperationManager
 from app.services.skopeo_service import ImageReference, SkopeoServiceError
 
@@ -54,11 +56,17 @@ class FakeHarborClient:
 
 
 class FakeHelmService:
-    def __init__(self) -> None:
+    def __init__(self, *, fail_with_nexus_http: bool = False) -> None:
         self.calls: list[tuple[str, str, str]] = []
+        self.fail_with_nexus_http = fail_with_nexus_http
 
     async def pull_chart(self, chart, destination: Path) -> HelmPullResult:  # type: ignore[no-untyped-def]
         self.calls.append((chart.repository, chart.name, chart.version))
+        if self.fail_with_nexus_http:
+            raise NexusHelmHttpError(
+                "helm_index_unavailable",
+                "Synthetic Helm HTTP retrieval failure",
+            )
         destination.mkdir(parents=True)
         package = destination / f"{chart.name}-{chart.version}.tgz"
         package.write_bytes(b"chart-package")
@@ -134,7 +142,10 @@ def _selections() -> tuple[ExportArtifactSelection, ...]:
     )
 
 
-def test_mixed_export_keeps_root_failure_on_actual_artifact(tmp_path: Path) -> None:
+@pytest.mark.parametrize("helm_http_failure", [False, True])
+def test_mixed_export_keeps_root_failure_on_actual_artifact(
+    tmp_path: Path, helm_http_failure: bool
+) -> None:
     private_key, trusted_dir = _write_keys(tmp_path)
     data = tmp_path / "data"
     database_url = f"sqlite:///{tmp_path / 'export.db'}"
@@ -161,7 +172,7 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(tmp_path: Path) -> N
     session_factory = create_session_factory(engine)
     manager = OperationManager(session_factory, settings)
     harbor = FakeHarborClient()
-    helm = FakeHelmService()
+    helm = FakeHelmService(fail_with_nexus_http=helm_http_failure)
     skopeo = FailingSkopeoService()
     package_service = BundlePackageService(settings)
     orchestrator = ExportOrchestrator(
@@ -189,7 +200,9 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(tmp_path: Path) -> N
     operation = manager.get_operation(asyncio.run(scenario()))
     assert operation is not None
     assert operation.status is OperationStatus.FAILED
-    assert operation.error_code == "skopeo_command_failed"
+    assert operation.error_code == (
+        "helm_index_unavailable" if helm_http_failure else "skopeo_command_failed"
+    )
 
     artifacts = sorted(operation.artifacts, key=lambda item: item.id)
     assert [artifact.repository for artifact in artifacts] == [
@@ -202,13 +215,18 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(tmp_path: Path) -> N
         ArtifactStatus.FAILED,
         ArtifactStatus.FAILED,
     ]
-    assert [artifact.error_code for artifact in artifacts] == [
-        "export_aborted",
-        "skopeo_command_failed",
-        "export_aborted",
-    ]
-    assert "synthetic copy failure" in (artifacts[1].error_message or "")
+    assert [artifact.error_code for artifact in artifacts] == (
+        ["helm_index_unavailable", "export_aborted", "export_aborted"]
+        if helm_http_failure
+        else ["export_aborted", "skopeo_command_failed", "export_aborted"]
+    )
+    if helm_http_failure:
+        assert "Synthetic Helm HTTP retrieval failure" in (artifacts[0].error_message or "")
+    else:
+        assert "synthetic copy failure" in (artifacts[1].error_message or "")
     assert helm.calls == [("helm/admin", "admin", "1.0.0-build184")]
-    assert [(call.repository, call.reference) for call in skopeo.calls] == [
-        ("clever/admin-api", "1.8.0-build549")
-    ]
+    assert [(call.repository, call.reference) for call in skopeo.calls] == (
+        [] if helm_http_failure else [("clever/admin-api", "1.8.0-build549")]
+    )
+    assert operation.bundle_filename is None
+    assert operation.bundle_sha256 is None
