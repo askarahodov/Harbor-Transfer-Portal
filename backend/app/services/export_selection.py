@@ -34,6 +34,7 @@ class ResolvedExportArtifact:
     reference: str
     digest: str
     size_bytes: int | None
+    media_type: str | None = None
 
     @property
     def full_repository(self) -> str:
