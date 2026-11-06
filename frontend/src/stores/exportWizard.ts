@@ -47,9 +47,13 @@ function storageOrNull(): Storage | null {
   return typeof window === 'undefined' ? null : window.sessionStorage
 }
 
-function selectedKey(selection: ExportSelection): string {
-  // A tag is a distinct export choice even when multiple tags share one manifest digest.
-  return [selection.kind, selection.project, selection.repository, selection.reference, selection.digest].join('|')
+function selectedKey(selection: ExportSelection, preserveTag = false): string {
+  // Harbor historically deduplicates tag aliases by immutable digest.
+  // Nexus Docker SOURCE must preserve operator-selected exact tag references.
+  return [
+    selection.kind, selection.project, selection.repository,
+    ...(preserveTag ? [selection.reference] : []), selection.digest,
+  ].join('|')
 }
 
 function savedOperationId(): number | null {
@@ -435,7 +439,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
       digest: `sha256:${sha256}`,
       size_bytes: null,
     }
-    selected.value = { ...selected.value, [selectedKey(selection)]: selection }
+    selected.value = { ...selected.value, [selectedKey(selection, true)]: selection }
     preview.value = null
     return true
   }
@@ -469,7 +473,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
       digest,
       size_bytes: null,
     }
-    selected.value = { ...selected.value, [selectedKey(item)]: item }
+    selected.value = { ...selected.value, [selectedKey(item, true)]: item }
     preview.value = null
     clearError()
     return true
