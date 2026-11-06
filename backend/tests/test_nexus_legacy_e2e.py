@@ -20,6 +20,7 @@ from app.db.base import Base
 from app.db.session import create_db_engine, create_session_factory
 from app.services.harbor_profiles import HarborProfileService
 from app.services.harbor_settings import EffectiveHarborSettings
+from app.services.nexus_discovery import NexusDiscoveryService
 from app.services.nexus_service import (
     ImageReference,
     NexusService,
@@ -225,6 +226,62 @@ async def test_two_named_docker_connector_profiles_are_isolated(
         assert imported.verified
         assert imported.target_digest == expected
         assert (await target.inspect_image(image)).digest == expected
+
+
+@pytest.mark.asyncio
+async def test_real_nexus_inventory_and_docker_tag_browse_isolated_from_harbor(
+    admin_password: str, tls_certificate: Path, tmp_path: Path,
+) -> None:
+    """Discover two Nexus hosted repositories, then read a seeded Docker tag.
+
+    Inventory is a Nexus REST API view; tag browsing is authorized on the
+    selected Docker v2 connector and does not imply write access.
+    """
+    settings = make_settings(tmp_path, "invalid-global-password")
+    seed = NexusService(
+        MagicMock(), make_settings(tmp_path / "seed", admin_password),
+    )
+    await asyncio.to_thread(
+        seeded_schema2_image,
+        seed,
+        settings.skopeo_payload_root / "browse-seed",
+        admin_password,
+    )
+    engine = create_db_engine(settings.database_url)
+    Base.metadata.create_all(engine)
+    sessions = create_session_factory(engine)
+    with sessions() as session:
+        profiles = HarborProfileService(session, settings)
+        profile = profiles.create(
+            name="Nexus SOURCE inventory",
+            url="https://127.0.0.1:8443",
+            username="admin",
+            enabled=True,
+            verify_tls=True,
+            registry_type="nexus",
+            nexus_search_url="https://127.0.0.1:8444",
+            nexus_search_repository="htp-e2e",
+        )
+        profiles.rotate_credential(profile.id, admin_password)
+        profiles.install_ca(profile.id, tls_certificate.read_text(encoding="utf-8"))
+        session.commit()
+
+        discovery = NexusDiscoveryService(session, settings, profile.id)
+        visible = await discovery.inventory()
+        assert visible.available, visible.message
+        repositories = {(item.name, item.format, item.kind) for item in visible.items}
+        assert ("htp-e2e", "docker", "hosted") in repositories
+        assert ("htp-e2e-target", "docker", "hosted") in repositories
+        assert ("htp-helm-source", "helm", "hosted") in repositories
+        assert all(item.format in {"docker", "helm"} for item in visible.items)
+
+        # Docker v2 tags/list is separate from REST inventory/search.
+        discovery.search_repository = None
+        tags = await discovery.tags("htp-e2e/source")
+        assert tags.available, tags.message
+        assert "1.0.0" in tags.items
+        invalid_repo = await discovery.tags("htp-e2e/does-not-exist")
+        assert "1.0.0" not in invalid_repo.items
 
 
 @pytest.mark.asyncio
