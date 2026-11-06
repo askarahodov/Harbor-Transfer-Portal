@@ -183,7 +183,7 @@ async def probe_docker_v2(
         # httpcore may flatten the original SSL failure into the ConnectError
         # message or retain it through __context__ rather than __cause__.
         # Only classify; never expose raw error text or internal endpoints.
-        pending = [exc]
+        pending: list[BaseException] = [exc]
         visited: set[int] = set()
         while pending:
             cause = pending.pop()
