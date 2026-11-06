@@ -79,6 +79,27 @@ Helm и прочих форматов **не отображаются**. Пов�
 ответ игнорируется. Только успешное чтение digest выбранного
 reference даёт основание добавить Docker image к SOURCE selection.
 
+### SOURCE preview/export: Docker и обычный Helm HTTP
+
+SOURCE preview выбирает adapter по `registry_type` сохранённого
+профиля. Для Nexus Docker проверяется выбранный `repository:tag`
+через Docker v2 и фиксируется точный SHA-256; при повторной
+подготовке операции tag инспектируется снова и изменение digest
+даёт `export_source_changed` **до** создания export operation.
+Сохранённая операция привязана к идентификатору и URL
+выбранного профиля; materialization повторно проверяет SOURCE
+digest перед созданием подписанного bundle.
+
+Для Nexus **только с обычными Helm HTTP charts** preview работает
+через `index.yaml` и SHA-256 chart, не создавая Docker v2
+client и не требуя наличия Docker image. Если в выборе
+несколько Docker images, клиент одного выбранного Nexus
+профиля создаётся только один раз; Harbor API для Nexus не
+вызывается. Helm OCI для Nexus запрещён. Независимые
+Docker/Helm привилегии и корпоративный TLS/ACL проверяются
+оператором отдельно; зелёный disposable E2E не заменяет
+региональное подписанное подтверждение по #436.
+
 ## 2. Безопасность, согласование и остановка
 
 До любого обращения к региональным Nexus оператор документирует
