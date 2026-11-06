@@ -99,6 +99,36 @@ describe('NexusDockerBrowser', () => {
     wrapper.unmount()
   })
 
+  it('retries denied tags/list for an already selected known image without losing healthy choices', async () => {
+    let attempt = 0
+    vi.mocked(exportsApi.listNexusTags).mockImplementation(async () => {
+      attempt += 1
+      return attempt === 1
+        ? { available: false, items: [], message: 'Нет прав на теги',
+            truncated: false, next_cursor: null }
+        : { available: true, items: ['v1'], message: null,
+            truncated: false, next_cursor: null }
+    })
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('select[aria-label="Выбрать Docker image Nexus"]').setValue('alpine')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Нет прав на теги')
+    await wrapper.get('input[aria-label="Имя известного Docker image"]').setValue('alpine')
+    await wrapper.findAll('button').find(button => button.text() === 'Показать теги этого образа')!
+      .trigger('click')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('table.nexus-browser__table').text()).toContain('v1')
+    await wrapper.get('input[aria-label="Выбрать v1"]').setValue(true)
+    await wrapper.findAll('button').find(button => button.text() === 'Показать теги этого образа')!
+      .trigger('click')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('Выбрано: 1')
+    wrapper.unmount()
+  })
+
   it('verifies baseimage directly on docker-proxy when Nexus browse and tags are forbidden', async () => {
     vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
       available: false, items: [], message: 'Каталог Docker v2 закрыт',
