@@ -430,6 +430,23 @@ export async function createExportDownloadTicket(
   return response.data
 }
 
+/**
+ * A download ticket authorizes exactly one same-origin operation endpoint.
+ * Never follow a URL supplied by a compromised/misconfigured API response.
+ * The browser handles the large archive as a native streamed download.
+ */
+export function navigateToExportDownload(
+  ticket: ExportDownloadTicket,
+  operationId: number,
+): void {
+  const expected = `/api/exports/${operationId}/download`
+  if (!Number.isSafeInteger(operationId) || operationId <= 0 ||
+      ticket.download_url !== expected) {
+    throw new Error('Некорректный URL скачивания bundle.')
+  }
+  window.location.assign(expected)
+}
+
 export function apiErrorInfo(error: unknown, fallback: string): ApiErrorInfo {
   if (!axios.isAxiosError(error)) {
     return { code: 'unexpected_error', message: fallback }
