@@ -76,6 +76,7 @@ class ExportResolvedArtifactResponse(BaseModel):
     reference: str
     source_digest: str
     size_bytes: int | None = None
+    media_type: str | None = None
 
 
 class ExportPreviewResponse(BaseModel):
