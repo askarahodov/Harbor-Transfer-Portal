@@ -11,7 +11,10 @@ import httpx
 import pytest
 import yaml
 
+from app.domain.imports import ImportPreviewState
+from app.services.harbor_destination_validator import DestinationCapability
 from app.services.helm_oci_service import HelmChartReference, HelmServiceError, HelmTargetState
+from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
 from app.services.nexus_helm_http import (
     NexusHelmAdapter,
     NexusHelmHttpError,
@@ -550,6 +553,53 @@ async def test_target_index_alone_never_bypasses_metadata_lookup_failure(
     )
     assert len(state["calls"]) == 2
     assert all(request.url.host == "nexus.example.test" for request in state["calls"])
+    assert all(request.method == "GET" for request in state["calls"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["proxy", "group"])
+async def test_nexus_helm_destination_plan_does_not_claim_write_for_read_only_repository(
+    client_service, kind: str,
+) -> None:
+    service, state, _data, digest = client_service
+    state["kind"] = kind
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    planner = ImportDestinationPlanOrchestrator.__new__(ImportDestinationPlanOrchestrator)
+
+    class ForbiddenDockerValidator:
+        registry_host = "not-applicable"
+
+        async def validate(self, project: str, repository: str) -> DestinationCapability:
+            raise AssertionError("Nexus Helm HTTP must not use Docker preflight")
+
+    planned = await planner._plan_chart(
+        {
+            "index": 0,
+            "artifact_type": "helm-chart",
+            "source_repository": "helm-source/demo",
+            "source_project": "helm-source",
+            "name": "demo",
+            "version": "1.2.3",
+            "expected_digest": "sha256:" + digest,
+            "payload_size": 1024,
+        },
+        target_project="helm-a",
+        target_repository="helm-a",
+        name="demo",
+        version="1.2.3",
+        expected_digest="sha256:" + digest,
+        validator=ForbiddenDockerValidator(),
+        helm=bridge,
+    )
+    assert planned.classification == ImportPreviewState.ERROR
+    assert planned.error_code == "helm_repository_read_only"
+    assert planned.project_exists
+    assert not planned.write_allowed
+    assert [request.url.path for request in state["calls"]] == [
+        "/repository/helm-a/index.yaml",
+        "/service/rest/v1/repositories/helm-a",
+    ]
     assert all(request.method == "GET" for request in state["calls"])
 
 
