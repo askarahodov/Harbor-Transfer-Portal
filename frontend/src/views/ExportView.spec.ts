@@ -212,6 +212,69 @@ describe('SOURCE export wizard view', () => {
     expect(button(wrapper, 'Скачать `.sha256`').attributes('type')).toBe('button')
   })
 
+  it('uses native ticket download from a completed Nexus SOURCE operation', async () => {
+    mockHappyPath()
+    vi.mocked(exportsApi.listHarborProfiles).mockResolvedValue({
+      items: [{
+        id: 'nexus-profile', name: 'Nexus hosted',
+        url: 'https://nexus.example.test',
+        registry_type: 'nexus', is_default: true,
+      }],
+    })
+    const inventory = vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: false, items: [], message: 'REST inventory forbidden',
+    })
+    vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: false, items: [], message: 'Docker catalog forbidden', truncated: false,
+    })
+    vi.spyOn(exportsApi, 'listNexusTags').mockResolvedValue({
+      available: false, items: [], message: 'Docker tags forbidden', truncated: false,
+    })
+    vi.spyOn(exportsApi, 'inspectExactNexusImage').mockResolvedValue({
+      repository: 'team/app', reference: 'v1', digest: DIGEST, media_type: null,
+    })
+    vi.mocked(exportsApi.previewExport).mockResolvedValue({
+      artifacts: [{
+        kind: 'container-image', project: 'team',
+        repository: 'app', reference: 'v1',
+        source_digest: DIGEST, size_bytes: null,
+      }],
+      estimated_payload_bytes: null,
+    })
+    const mint = vi.spyOn(exportsApi, 'createExportDownloadTicket').mockResolvedValue({
+      download_url: '/api/exports/42/download', expires_in_seconds: 120,
+    })
+    const navigate = vi.spyOn(exportsApi, 'navigateToExportDownload').mockImplementation(() => {})
+    const harborProjects = vi.spyOn(exportsApi, 'listHarborProjects')
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+    expect(inventory).toHaveBeenCalledWith('nexus-profile')
+    await wrapper.get('input[placeholder="team/application"]').setValue('team/app')
+    await wrapper.get('input[placeholder="1.0.0"]').setValue('v1')
+    await wrapper.get('form.nexus-exact-form').trigger('submit')
+    await flushPromises()
+    await button(wrapper, 'Добавить образ в выбор').trigger('click')
+    await button(wrapper, 'Проверить выбранное').trigger('click')
+    await flushPromises()
+    await button(wrapper, 'Запустить экспорт').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Bundle готов к физическому переносу')
+    await button(wrapper, 'Скачать bundle').trigger('click')
+    await flushPromises()
+    expect(mint).toHaveBeenCalledExactlyOnceWith(42)
+    expect(navigate).toHaveBeenCalledExactlyOnceWith({
+      download_url: '/api/exports/42/download', expires_in_seconds: 120,
+    }, 42)
+    expect(harborProjects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('lets an admin generate missing signing identity and continue export', async () => {
     mockHappyPath()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
