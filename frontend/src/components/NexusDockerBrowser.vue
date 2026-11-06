@@ -83,7 +83,7 @@ async function toggleVerifiedTag(tag: string): Promise<void> {
     selectedTagChoices.value = selectedTagChoices.value.filter(value => value !== tag)
     return
   }
-  if (selectedTagChoices.value.length >= selectedTagLimit || verifyingTags.value.includes(tag)) return
+  if (selectedTagChoices.value.length + verifyingTags.value.length >= selectedTagLimit || verifyingTags.value.includes(tag)) return
   const profileId = props.profileId
   const image = selectedRepository.value
   const epoch = tagGeneration
@@ -112,6 +112,7 @@ function addVerifiedTags(): void {
   if (verified.some(item => !item || item.repository !== selectedRepository.value
       || !/^sha256:[a-f0-9]{64}$/.test(item.digest))) return
   for (const item of verified) {
+    if (!item) return
     emit('add', item.repository, item.reference, item.digest)
   }
   selectedTagChoices.value = []
