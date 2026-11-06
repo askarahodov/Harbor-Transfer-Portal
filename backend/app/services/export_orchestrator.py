@@ -121,6 +121,10 @@ class ExportOrchestrator:
         profile = self._profile_snapshot(harbor_profile_id)
         if profile.registry_type == "nexus":
             return self._preview_nexus(selections, profile)
+        if any(selection.project is None for selection in selections):
+            raise ExportOrchestrationError(
+                "export_selection_invalid", "Harbor требует явный project для каждого артефакта",
+            )
 
         client = self._build_harbor_client(profile.id)
         try:
@@ -147,6 +151,10 @@ class ExportOrchestrator:
                 for selection in selections:
                     if selection.kind is ArtifactKind.HELM_CHART:
                         helm = NexusHelmAdapter(session, self.settings, profile.id)
+                        if selection.project is None:
+                            raise ExportOrchestrationError(
+                                "export_selection_invalid", "Helm HTTP требует имя repository",
+                            )
                         catalog = await helm.client.list_charts(selection.project)
                         if not catalog.available:
                             raise ExportOrchestrationError(
@@ -183,7 +191,10 @@ class ExportOrchestrator:
                             "export_artifact_unsupported", "Неподдерживаемый SOURCE artifact",
                         )
                     image = ImageReference(
-                        repository=f"{selection.project}/{selection.repository}",
+                        repository=(
+                            f"{selection.project}/{selection.repository}"
+                            if selection.project else selection.repository
+                        ),
                         reference=selection.reference,
                     )
                     if client is None:
