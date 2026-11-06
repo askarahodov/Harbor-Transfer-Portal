@@ -88,6 +88,21 @@ Endpoint нужен для безопасного native browser download бол
 
 Ticket не является общей web-session cookie и не должен давать доступ к другому export operation.
 
+Для SOURCE Harbor и Nexus frontend принимает от ticket API только точный
+относительный `/api/exports/{operation_id}/download` активной операции.
+Внешние URL, query/fragment, иной operation ID и некорректный идентификатор
+отвергаются до вызова browser navigation. Ответ, пришедший после смены
+операции/сброса мастера, игнорируется. Большой файл обрабатывает сам браузер,
+без загрузки всего archive через Axios. Тест `ExportView.spec.ts`
+проходит Nexus exact `repository:tag` → preview → export completion →
+клик `Скачать bundle` → ticket → вызов навигации, а
+`exports.spec.ts` проверяет негативные URL. Это UI automation в
+Vitest/jsdom, **не** ручной тест установленного браузера. Перед
+корпоративным GO оператор отдельно фиксирует фактический browser download,
+имя/размер, sidecar, SHA-256 и signed handoff на региональном стенде.
+
+
+
 ### Download
 
 `GET /api/exports/{operation_id}/download`
