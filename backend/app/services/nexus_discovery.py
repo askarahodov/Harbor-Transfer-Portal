@@ -202,6 +202,10 @@ class NexusDiscoveryService:
             )
         auth = httpx.BasicAuth(self.username, self.password or "") if self.username else None
         params = {"repository": self.search_repository, "format": "docker"}
+        # Exact image name is a Nexus-native search criterion: enumerate only
+        # this image's versions, not all versions of a large proxy repository.
+        if repository is not None:
+            params["name"] = repository
         if cursor is not None:
             params["continuationToken"] = cursor
         try:
@@ -355,6 +359,8 @@ class NexusDiscoveryService:
             ) as client:
                 for page in range(5):
                     params = {"repository": self.search_repository, "format": "docker"}
+                    if repository is not None:
+                        params["name"] = repository
                     if token:
                         params["continuationToken"] = token
                     response = await client.get(
