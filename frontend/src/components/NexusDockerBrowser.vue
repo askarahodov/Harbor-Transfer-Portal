@@ -95,6 +95,7 @@ const tagPagesRead = ref(0)
 let generation = 0
 let tagGeneration = 0
 let inspectionGeneration = 0
+let bulkGeneration = 0
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let tagTimer: ReturnType<typeof setTimeout> | null = null
 const seenCursors = new Set<string>()
@@ -103,6 +104,7 @@ const seenTagCursors = new Set<string>()
 function resetTag(): void {
   tagGeneration += 1
   inspectionGeneration += 1
+  bulkGeneration += 1
   candidateTags.value = []
   versionPage.value = 1
   inspectedDigests.value = {}
@@ -257,6 +259,7 @@ function openKnownImage(): void {
 }
 
 async function inspectKnownImage(): Promise<void> {
+  if (bulkBusy.value) return
   const name = knownImage.value.trim()
   const tag = knownTag.value.trim()
   knownError.value = null
@@ -357,7 +360,7 @@ async function addCandidates(): Promise<void> {
   if (!id || !repository || !chosen.length || bulkBusy.value) return
   bulkBusy.value = true
   bulkError.value = null
-  const verification = ++inspectionGeneration
+  const verification = ++bulkGeneration
   const results: Array<ExactNexusInspection | null> = Array(chosen.length).fill(null)
   const failures: string[] = []
   let next = 0
@@ -380,7 +383,7 @@ async function addCandidates(): Promise<void> {
   }
   try {
     await Promise.all(Array.from({ length: Math.min(3, chosen.length) }, () => worker()))
-    if (verification !== inspectionGeneration || id !== props.profileId
+    if (verification !== bulkGeneration || id !== props.profileId
       || repository !== selectedRepository.value) return
     if (failures.length) {
       bulkError.value = `Не удалось проверить ${failures.length} из ${chosen.length} тегов. Ничего не добавлено. Проверьте права и доступность версий в Nexus.`
@@ -397,7 +400,7 @@ async function addCandidates(): Promise<void> {
     }
     candidateTags.value = []
   } finally {
-    if (verification === inspectionGeneration) bulkBusy.value = false
+    if (verification === bulkGeneration) bulkBusy.value = false
   }
 }
 
@@ -595,9 +598,9 @@ onBeforeUnmount(() => {
             aria-label="Точный tag Docker image" placeholder="latest" />
         </label>
         <div class="nexus-browser__direct-actions">
-          <button type="button" class="secondary-button" :disabled="tagsBusy || !knownImage.trim()"
+          <button type="button" class="secondary-button" :disabled="tagsBusy || bulkBusy || !knownImage.trim()"
             @click="openKnownImage">Показать теги этого образа</button>
-          <button type="submit" class="secondary-button" :disabled="inspectBusy || !knownImage.trim() || !knownTag.trim()">
+          <button type="submit" class="secondary-button" :disabled="inspectBusy || bulkBusy || !knownImage.trim() || !knownTag.trim()">
             {{ inspectBusy ? 'Проверяем…' : 'Проверить image и digest' }}
           </button>
         </div>
