@@ -666,7 +666,14 @@ onBeforeUnmount(() => {
           <AlertTriangle :size="22" aria-hidden="true" />
           <div>
             <strong>Nexus · Docker Registry v2</strong>
-            <p>Поиск доступен, если ваш Nexus разрешает Docker v2 catalog/tags. Если каталог закрыт, укажите точный repository:tag. Harbor API и Helm OCI не используются.</p>
+            <p>В Nexus Browse путь <code>docker-proxy / v2 / baseimage</code> означает образ <code>baseimage</code> внутри Docker repository <code>docker-proxy</code>. Проверьте образ и tag напрямую — полный каталог для этого не нужен.</p>
+            <NexusDockerBrowser
+              v-if="wizard.selectedHarborProfileId"
+              :key="wizard.selectedHarborProfileId"
+              :profile-id="wizard.selectedHarborProfileId"
+              :nexus-repository="wizard.selectedHarborProfile?.nexus_search_repository"
+              @add="wizard.addExactNexusImage"
+            />
             <div class="nexus-inventory" aria-label="Репозитории Nexus по сервисной учётной записи">
               <div class="nexus-inventory__heading">
                 <strong>Репозитории Nexus: Docker и Helm</strong>
@@ -674,7 +681,7 @@ onBeforeUnmount(() => {
                   {{ nexusInventoryBusy ? 'Загрузка…' : 'Обновить список' }}
                 </button>
               </div>
-              <p class="muted">Список получен с правами сервисного пользователя. Видимость не означает право чтения или записи. Для каждого Docker repository нужен собственный профиль с его Docker v2 connector URL; другие форматы не показываются. При переключении профиля текущий выбор сбрасывается.</p>
+              <p class="muted">Дополнительный список Nexus UI/API необязателен для проверки известного Docker image:tag. Если список не доступен, воспользуйтесь проверкой образа выше. У каждого Docker repository должен быть свой настроенный Docker v2 connector; видимость в Nexus UI не подтверждает pull/push.</p>
               <p v-if="nexusInventoryMessage" role="status" class="muted">{{ nexusInventoryMessage }}</p>
               <ul v-if="nexusInventoryAvailable && nexusInventory.length" class="nexus-inventory__list">
                 <li v-for="item in nexusInventory" :key="item.format + ':' + item.name">
@@ -707,6 +714,8 @@ onBeforeUnmount(() => {
                   >Показать charts</button>
                 </li>
               </ul>
+              <details class="nexus-inventory__helm-manual">
+                <summary>Дополнительно: обычные Helm HTTP repositories (не Docker)</summary>
               <form class="nexus-helm-manual" @submit.prevent="browseManualHelmRepository">
                 <label for="nexus-helm-repository">Helm repository — точное имя
                   <input
@@ -729,7 +738,7 @@ onBeforeUnmount(() => {
                 </p>
               </form>
               <div v-if="nexusHelmSelection" class="nexus-helm-catalog" role="region" aria-label="Helm charts и версии">
-                <strong>Helm: {{ nexusHelmSelection }} (только чтение)</strong>
+                <strong>{{ nexusHelmMessage ? 'Проверка Helm repository: ' : 'Helm: ' }}{{ nexusHelmSelection }} (только чтение)</strong>
                 <p v-if="nexusHelmMessage" role="status">{{ nexusHelmMessage }}</p>
                 <ul v-if="nexusHelmVersions.length">
                   <li v-for="entry in nexusHelmVersions" :key="entry.name + ':' + entry.version">
@@ -745,14 +754,8 @@ onBeforeUnmount(() => {
                 </ul>
                 <p class="muted">Helm HTTP: chart можно добавить в подписанный SOURCE bundle. TARGET требует отдельной проверки прав записи в hosted repository; overwrite запрещён.</p>
               </div>
+              </details>
             </div>
-            <NexusDockerBrowser
-              v-if="wizard.selectedHarborProfileId"
-              :key="wizard.selectedHarborProfileId"
-              :profile-id="wizard.selectedHarborProfileId"
-              :nexus-repository="wizard.selectedHarborProfile?.nexus_search_repository"
-              @add="wizard.addExactNexusImage"
-            />
             <details class="nexus-manual-fallback">
               <summary>Расширенный ручной поиск и точный repository:tag</summary>
               <p class="muted">Если Nexus не перечисляет образ, здесь можно проверить известный Docker reference напрямую.</p>
