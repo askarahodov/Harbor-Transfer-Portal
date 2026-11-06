@@ -33,12 +33,11 @@ describe('NexusDockerBrowser', () => {
       .trigger('click')
     await flushPromises()
     expect(exportsApi.listNexusTags).toHaveBeenCalledWith('proxy-id', 'bitnami/redis', '', undefined)
-    await wrapper.findAll('[aria-label="Теги Docker"] button')
-      .find(button => button.text() === '3.20')!.trigger('click')
+    await wrapper.get('input[aria-label="Выбрать 3.20"]').setValue(true)
     await flushPromises()
     expect(exportsApi.inspectExactNexusImage)
       .toHaveBeenCalledWith('proxy-id', 'bitnami/redis', '3.20')
-    await wrapper.findAll('button').find(button => button.text() === 'Добавить проверенный образ')!
+    await wrapper.findAll('button').find(button => button.text() === 'Добавить выбранное')!
       .trigger('click')
     expect(wrapper.emitted('add')?.[0]).toEqual(['bitnami/redis', '3.20', DIGEST])
   })
@@ -139,15 +138,79 @@ describe('NexusDockerBrowser', () => {
     expect(exportsApi.listNexusTags).toHaveBeenCalledWith(
       'proxy-id', 'team/platform/api', '', undefined,
     )
-    await wrapper.findAll('[aria-label="Теги Docker"] button')
-      .find(button => button.text() === 'v2')!.trigger('click')
+    await wrapper.get('input[aria-label="Выбрать v2"]').setValue(true)
     await flushPromises()
     expect(exportsApi.inspectExactNexusImage).toHaveBeenCalledWith(
       'proxy-id', 'team/platform/api', 'v2',
     )
-    await wrapper.findAll('button').find(button => button.text() === 'Добавить проверенный образ')!
+    await wrapper.findAll('button').find(button => button.text() === 'Добавить выбранное')!
       .trigger('click')
     expect(wrapper.emitted('add')?.[0]).toEqual(['team/platform/api', 'v2', DIGEST])
+    wrapper.unmount()
+  })
+
+  it('selects multiple Docker tags in a Harbor-like table only after individual digest verification', async () => {
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: ['v1', 'v2'], message: null,
+      truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.inspectExactNexusImage).mockImplementation(async (_id, repository, reference) => ({
+      repository, reference, digest: reference === 'v1' ? DIGEST : 'sha256:' + 'b'.repeat(64),
+      media_type: null,
+    }))
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="Выбрать Docker image alpine"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('table[aria-label="Теги Docker"] thead').text())
+      .toContain('Digest')
+    expect(wrapper.get('table[aria-label="Теги Docker"] thead').text())
+      .toContain('Размер')
+    expect(wrapper.get('table[aria-label="Теги Docker"] tbody').text())
+      .toContain('Не проверен')
+    expect(wrapper.get('button').exists()).toBe(true)
+    await wrapper.get('input[aria-label="Выбрать v1"]').setValue(true)
+    await flushPromises()
+    await wrapper.get('input[aria-label="Выбрать v2"]').setValue(true)
+    await flushPromises()
+    expect(wrapper.text()).toContain('Выбрано: 2')
+    await wrapper.findAll('button').find(button => button.text() === 'Добавить выбранное')!
+      .trigger('click')
+    expect(wrapper.emitted('add')).toEqual([
+      ['alpine', 'v1', DIGEST],
+      ['alpine', 'v2', 'sha256:' + 'b'.repeat(64)],
+    ])
+    wrapper.unmount()
+  })
+
+  it('fails closed when exact image/tag/digest mismatches and resets on switching images', async () => {
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: ['v1'], message: null,
+      truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.inspectExactNexusImage).mockResolvedValue({
+      repository: 'foreign/image', reference: 'v1', digest: DIGEST, media_type: null,
+    })
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="Выбрать Docker image alpine"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('input[aria-label="Выбрать v1"]').setValue(true)
+    await flushPromises()
+    expect(wrapper.text()).toContain('несовпадающий Docker image')
+    expect(wrapper.text()).not.toContain('Выбрано: 1')
+    expect(wrapper.emitted('add')).toBeUndefined()
+
+    vi.mocked(exportsApi.inspectExactNexusImage).mockResolvedValue({
+      repository: 'alpine', reference: 'v1', digest: DIGEST, media_type: null,
+    })
+    await wrapper.get('input[aria-label="Выбрать v1"]').setValue(true)
+    await flushPromises()
+    expect(wrapper.text()).toContain('Выбрано: 1')
+    await wrapper.get('button[aria-label="Выбрать Docker image bitnami/redis"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Выбрано: 1')
+    expect(wrapper.emitted('add')).toBeUndefined()
     wrapper.unmount()
   })
 
