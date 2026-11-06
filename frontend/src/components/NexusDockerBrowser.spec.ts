@@ -43,6 +43,73 @@ describe('NexusDockerBrowser', () => {
     expect(wrapper.emitted('add')?.[0]).toEqual(['bitnami/redis', '3.20', DIGEST])
   })
 
+  it('verifies baseimage directly on docker-proxy when Nexus browse and tags are forbidden', async () => {
+    vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
+      available: false, items: [], message: 'Каталог Docker v2 закрыт',
+      truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: false, items: [], message: 'Нет прав для перечисления тегов',
+      truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.inspectExactNexusImage).mockResolvedValue({
+      repository: 'baseimage', reference: '1.0.0', digest: DIGEST, media_type: null,
+    })
+    const wrapper = mount(NexusDockerBrowser, {
+      props: { profileId: 'proxy-id', nexusRepository: 'docker-proxy' },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('docker-proxy / v2 / baseimage')
+    await wrapper.get('input[aria-label="Имя известного Docker image"]').setValue('baseimage')
+    await wrapper.get('input[aria-label="Точный tag Docker image"]').setValue('1.0.0')
+    await wrapper.get('form.nexus-browser__direct-form').trigger('submit')
+    await flushPromises()
+    expect(exportsApi.inspectExactNexusImage).toHaveBeenCalledWith(
+      'proxy-id', 'baseimage', '1.0.0',
+    )
+    expect(exportsApi.listNexusTags).not.toHaveBeenCalled()
+    await wrapper.findAll('button').find(button => button.text() === 'Добавить проверенный образ')!
+      .trigger('click')
+    expect(wrapper.emitted('add')?.[0]).toEqual(['baseimage', '1.0.0', DIGEST])
+    wrapper.unmount()
+  })
+
+  it('shows tags for a known proxy image without depending on the Docker catalog', async () => {
+    vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
+      available: false, items: [], message: 'Browse запрещён',
+      truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: ['1.0.0', 'latest'], message: null,
+      truncated: false, next_cursor: null,
+    })
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('input[aria-label="Имя известного Docker image"]').setValue('baseimage')
+    await wrapper.findAll('button').find(button => button.text() === 'Показать теги этого образа')!
+      .trigger('click')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenCalledWith(
+      'proxy-id', 'baseimage', '', undefined,
+    )
+    expect(wrapper.get('[aria-label="Теги Docker"]').text()).toContain('1.0.0')
+    wrapper.unmount()
+  })
+
+  it('rejects invalid image names and does not offer unchecked selection', async () => {
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('input[aria-label="Имя известного Docker image"]')
+      .setValue('docker-proxy/v2/../baseimage')
+    await wrapper.get('input[aria-label="Точный tag Docker image"]').setValue('latest')
+    await wrapper.get('form.nexus-browser__direct-form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Укажите точное имя Docker image')
+    expect(exportsApi.inspectExactNexusImage).not.toHaveBeenCalled()
+    expect(wrapper.emitted('add')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('follows later pages without treating an empty first page as empty catalogue', async () => {
     vi.mocked(exportsApi.listNexusRepositories).mockImplementation(async (_id, _search, cursor) =>
       cursor ? {
