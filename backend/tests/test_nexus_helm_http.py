@@ -400,6 +400,49 @@ async def test_helm_bridge_empty_hosted_404_is_safe_new(client_service):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"name": "foreign-helm", "format": "helm", "type": "hosted"},
+        {"name": "helm-a", "format": "docker", "type": "hosted"},
+        {"name": "helm-a", "format": "helm", "type": "group"},
+    ],
+)
+async def test_helm_bridge_empty_index_requires_matching_hosted_repository(
+    client_service, monkeypatch: pytest.MonkeyPatch, metadata: dict[str, str],
+) -> None:
+    service, state, _data, _digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["calls"].append(request)
+        if request.url.path == "/repository/helm-a/index.yaml":
+            return httpx.Response(404)
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            return httpx.Response(200, json=metadata)
+        raise AssertionError("Unverified repository identity must not trigger a write")
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    with pytest.raises(HelmServiceError) as error:
+        await bridge.inspect_target(
+            HelmChartReference("helm-a", "demo", "1.2.3"),
+            expected_digest="sha256:" + "a" * 64,
+        )
+    assert error.value.code == "helm_index_missing"
+    assert [request.url.path for request in state["calls"]] == [
+        "/repository/helm-a/index.yaml",
+        "/service/rest/v1/repositories/helm-a",
+    ]
+    assert all(request.method == "GET" for request in state["calls"])
+    assert all(request.url.host == "nexus.example.test" for request in state["calls"])
+
+
+@pytest.mark.asyncio
 async def test_helm_index_normalizes_absolute_url_without_following_it(client_service):
     service, state, _data, digest = client_service
     original = REAL_ASYNC_CLIENT
