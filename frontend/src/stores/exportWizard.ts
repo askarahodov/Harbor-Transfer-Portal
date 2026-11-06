@@ -481,7 +481,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   function requestPayload() {
     const profileId = selectedHarborProfileId.value
     if (!profileId) {
-      throw new Error('Harbor profile is required')
+      throw new Error('Registry profile is required')
     }
     return {
       artifacts: selectedArtifacts.value.map((artifact) => ({
@@ -500,7 +500,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     if (!selectedHarborProfileId.value) {
       error.value = {
         code: 'harbor_profile_required',
-        message: 'Выберите Harbor profile перед продолжением.',
+        message: 'Выберите профиль Harbor или Nexus перед продолжением.',
       }
       return false
     }
