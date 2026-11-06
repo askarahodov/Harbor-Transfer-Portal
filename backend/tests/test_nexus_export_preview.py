@@ -66,7 +66,7 @@ def test_nexus_preview_uses_docker_inspection_without_harbor_api(tmp_path: Path)
 
 
 def test_nexus_root_image_preview_and_operation_keep_exact_registry_path(tmp_path: Path) -> None:
-    """Nexus can contain baseimage (no namespace); do not produce /baseimage or baseimage/baseimage."""
+    """Root-level Nexus Docker image must survive preview and persistence unchanged."""
     orchestrator, profile_id, harbor, client = _nexus_orchestrator(tmp_path)
     selection = ExportArtifactSelection(
         kind=ArtifactKind.CONTAINER_IMAGE,
