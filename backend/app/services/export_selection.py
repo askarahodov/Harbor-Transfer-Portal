@@ -73,6 +73,10 @@ def resolve_export_selection(
     client: HarborArtifactLookup,
     selection: ExportArtifactSelection,
 ) -> ResolvedExportArtifact:
+    if selection.project is None:
+        raise ExportSelectionResolutionError(
+            "export_selection_invalid", "Harbor требует явный project",
+        )
     try:
         artifact = client.get_artifact(
             selection.project,
