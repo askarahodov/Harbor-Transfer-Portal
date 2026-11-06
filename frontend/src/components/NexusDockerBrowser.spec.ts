@@ -212,6 +212,32 @@ describe('NexusDockerBrowser', () => {
     wrapper.unmount()
   })
 
+  it('drops in-flight batch verification when Nexus profile changes, without stale emits', async () => {
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: ['v1'], message: null,
+      truncated: false, next_cursor: null,
+    })
+    let resolveInspect!: (value: exportsApi.ExactNexusInspection) => void
+    vi.mocked(exportsApi.inspectExactNexusImage).mockImplementation(
+      () => new Promise(resolve => { resolveInspect = resolve }),
+    )
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'old-nexus' } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="Выбрать Docker image alpine"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('input[aria-label="Выбрать v1"]').setValue(true)
+    await wrapper.findAll('button')
+      .find(button => button.text() === 'Добавить выбранное (1)')!.trigger('click')
+    await wrapper.setProps({ profileId: 'new-nexus' })
+    resolveInspect({
+      repository: 'alpine', reference: 'v1', digest: DIGEST, media_type: null,
+    })
+    await flushPromises()
+    expect(wrapper.emitted('add')).toBeUndefined()
+    expect(wrapper.text()).not.toContain('Проверка digest…')
+    wrapper.unmount()
+  })
+
   it('paginates 100 tags into compact 25-row tables while retaining selected choices', async () => {
     vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
       available: true, items: Array.from({ length: 100 }, (_, i) => 'v' + String(i).padStart(3, '0')),
