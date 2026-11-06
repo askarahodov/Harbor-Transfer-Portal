@@ -104,13 +104,13 @@ async def test_nexus_rest_search_uses_configured_repository_and_pagination(
         seen.append(request)
         if "continuationToken" in request.url.params:
             return httpx.Response(200, json={
-                "items": [{"name": "jaegertracing/jaeger", "version": "2.13.0"}],
+                "items": [{"repository": "docker-all", "name": "jaegertracing/jaeger", "version": "2.13.0"}],
                 "continuationToken": None,
             })
         return httpx.Response(200, json={
             "items": [
-                {"name": "jaegertracing/jaeger", "version": "2.12.0"},
-                {"name": "other/tool", "version": "3.0"},
+                {"repository": "docker-all", "name": "jaegertracing/jaeger", "version": "2.12.0"},
+                {"repository": "docker-all", "name": "other/tool", "version": "3.0"},
             ],
             "continuationToken": "next",
         })
@@ -147,8 +147,8 @@ async def test_rest_search_scopes_acl_per_configured_docker_repository(
         if repository == "docker-denied":
             return httpx.Response(403)
         contents = {
-            "docker-hosted": [{"name": "team/app", "version": "v1"}],
-            "docker-group": [{"name": "team/worker", "version": "v2"}],
+            "docker-hosted": [{"repository": "docker-hosted", "name": "team/app", "version": "v1"}],
+            "docker-group": [{"repository": "docker-group", "name": "team/worker", "version": "v2"}],
         }
         return httpx.Response(200, json={
             "items": contents.get(repository, []),
@@ -320,3 +320,102 @@ async def test_inventory_requires_configured_https_ui(discovery) -> None:
     result = await service.inventory()
     assert not result.available
     assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_rest_search_discards_foreign_acl_results_even_if_server_ignores_filter(
+    discovery, monkeypatch,
+) -> None:
+    service, requests, _response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-hosted"
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={
+            "items": [
+                {"repository": "docker-hosted", "name": "team/allowed", "version": "v1"},
+                {"repository": "docker-denied", "name": "team/private", "version": "secret"},
+                {"name": "team/unattributed", "version": "v2"},
+                {"repository": "helm-hosted", "name": "team/chart", "version": "v3"},
+            ],
+            "continuationToken": None,
+        })
+
+    def factory(**kwargs):  # type: ignore[no-untyped-def]
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_discovery.httpx.AsyncClient", factory)
+    names = await service.catalog()
+    tags = await service.tags("team/allowed")
+    foreign = await service.tags("team/private")
+    assert names.available and names.items == ("team/allowed",)
+    assert tags.available and tags.items == ("v1",)
+    assert foreign.available and foreign.items == ()
+    assert len(requests) == 3
+    assert all(r.url.params["repository"] == "docker-hosted" for r in requests)
+
+
+@pytest.mark.asyncio
+async def test_rest_search_rejects_cyclic_continuation_token(discovery, monkeypatch):
+    service, requests, _response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-hosted"
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={
+            "items": [{"repository": "docker-hosted", "name": "team/app", "version": "v1"}],
+            "continuationToken": "same-token",
+        })
+
+    def factory(**kwargs):  # type: ignore[no-untyped-def]
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_discovery.httpx.AsyncClient", factory)
+    result = await service.catalog()
+    assert not result.available
+    assert result.items == ()
+    assert len(requests) == 2
+    assert "пагинация" in (result.message or "").lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("url", [
+    "http://nexus-ui.example.test",
+    "https://[invalid",
+    "https://nexus-ui.example.test:0",
+    "https://nexus-ui.example.test/secret/path",
+])
+async def test_rest_search_rejects_unsafe_ui_origin_before_network(
+    discovery, url,
+) -> None:
+    service, requests, _response = discovery
+    service.search_url = url
+    service.search_repository = "docker-hosted"
+    result = await service.catalog()
+    assert not result.available and result.items == ()
+    assert not requests
+
+
+@pytest.mark.asyncio
+async def test_inventory_ignores_malformed_repo_names(discovery):
+    service, _requests, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[
+            {"name": "docker-allowed", "format": "docker", "type": "hosted"},
+            {"name": "secret/other-repo", "format": "docker", "type": "hosted"},
+            {"name": "bad name", "format": "docker", "type": "hosted"},
+            {"name": "helm-ok", "format": "helm", "type": "proxy"},
+        ])
+
+    response["custom_handler"] = handler
+    result = await service.inventory()
+    assert result.available
+    assert [(i.name, i.format) for i in result.items] == [
+        ("docker-allowed", "docker"), ("helm-ok", "helm"),
+    ]
