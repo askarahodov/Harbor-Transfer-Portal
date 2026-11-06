@@ -121,6 +121,7 @@ class NexusSuggestionResponse(BaseModel):
     items: list[str]
     message: str | None = None
     truncated: bool = False
+    next_cursor: str | None = None
 
 
 class NexusRepositoryItemResponse(BaseModel):
@@ -168,11 +169,20 @@ async def nexus_repository_suggestions(
     session: SessionDep,
     profile_id: str = Query(min_length=1, max_length=64),
     search: str = Query(default="", max_length=128),
+    paged: bool = False,
+    cursor: str | None = Query(default=None, max_length=512),
 ) -> NexusSuggestionResponse:
     try:
-        result = await NexusDiscoveryService(
-            session, request.app.state.settings, profile_id
-        ).catalog(search.strip())
+        service = NexusDiscoveryService(session, request.app.state.settings, profile_id)
+        result = (
+            await service.catalog_page(search.strip(), cursor)
+            if paged else await service.catalog(search.strip())
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "registry_cursor_invalid", "message": "Неверный курсор Nexus"},
+        ) from exc
     except HarborSettingsError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -181,6 +191,7 @@ async def nexus_repository_suggestions(
     return NexusSuggestionResponse(
         available=result.available, items=list(result.items),
         message=result.message, truncated=result.truncated,
+        next_cursor=result.next_cursor,
     )
 
 
@@ -192,11 +203,15 @@ async def nexus_tag_suggestions(
     profile_id: str = Query(min_length=1, max_length=64),
     repository: str = Query(min_length=1, max_length=255),
     search: str = Query(default="", max_length=128),
+    paged: bool = False,
+    cursor: str | None = Query(default=None, max_length=512),
 ) -> NexusSuggestionResponse:
     try:
-        result = await NexusDiscoveryService(
-            session, request.app.state.settings, profile_id
-        ).tags(repository, search.strip())
+        service = NexusDiscoveryService(session, request.app.state.settings, profile_id)
+        result = (
+            await service.tags_page(repository, search.strip(), cursor)
+            if paged else await service.tags(repository, search.strip())
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -210,6 +225,7 @@ async def nexus_tag_suggestions(
     return NexusSuggestionResponse(
         available=result.available, items=list(result.items),
         message=result.message, truncated=result.truncated,
+        next_cursor=result.next_cursor,
     )
 
 
