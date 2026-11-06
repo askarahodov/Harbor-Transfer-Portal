@@ -71,6 +71,51 @@ function toggleFolder(path: string): void {
 const tags = ref<string[]>([])
 const selectedRepository = ref('')
 const selectedTag = ref('')
+const selectedTagChoices = ref<string[]>([])
+const verifiedTags = ref<Record<string, ExactNexusInspection>>({})
+const verifyingTags = ref<string[]>([])
+const multiTagError = ref<string | null>(null)
+const selectedTagLimit = 25
+
+async function toggleVerifiedTag(tag: string): Promise<void> {
+  if (!selectedRepository.value || !validTagOrDigest.test(tag)) return
+  if (selectedTagChoices.value.includes(tag)) {
+    selectedTagChoices.value = selectedTagChoices.value.filter(value => value !== tag)
+    return
+  }
+  if (selectedTagChoices.value.length >= selectedTagLimit || verifyingTags.value.includes(tag)) return
+  const profileId = props.profileId
+  const image = selectedRepository.value
+  const epoch = tagGeneration
+  verifyingTags.value = [...verifyingTags.value, tag]
+  multiTagError.value = null
+  try {
+    const inspected = verifiedTags.value[tag] ?? await inspectExactNexusImage(profileId, image, tag)
+    if (profileId !== props.profileId || image !== selectedRepository.value || epoch !== tagGeneration) return
+    if (inspected.repository !== image || inspected.reference !== tag || !/^sha256:[a-f0-9]{64}$/.test(inspected.digest)) {
+      multiTagError.value = 'Nexus вернул несовпадающий Docker image, tag или digest.'
+      return
+    }
+    verifiedTags.value = { ...verifiedTags.value, [tag]: inspected }
+    selectedTagChoices.value = [...selectedTagChoices.value, tag]
+  } catch (reason) {
+    if (profileId === props.profileId && image === selectedRepository.value && epoch === tagGeneration) {
+      multiTagError.value = apiErrorInfo(reason, 'Не удалось подтвердить digest выбранного тега.').message
+    }
+  } finally {
+    verifyingTags.value = verifyingTags.value.filter(value => value !== tag)
+  }
+}
+function addVerifiedTags(): void {
+  if (!selectedTagChoices.value.length || verifyingTags.value.length) return
+  const verified = selectedTagChoices.value.map(tag => verifiedTags.value[tag])
+  if (verified.some(item => !item || item.repository !== selectedRepository.value
+      || !/^sha256:[a-f0-9]{64}$/.test(item.digest))) return
+  for (const item of verified) {
+    emit('add', item.repository, item.reference, item.digest)
+  }
+  selectedTagChoices.value = []
+}
 const inspection = ref<ExactNexusInspection | null>(null)
 const error = ref<string | null>(null)
 const tagError = ref<string | null>(null)
@@ -96,6 +141,10 @@ function resetTag(): void {
   tags.value = []
   tagQuery.value = ''
   selectedTag.value = ''
+  selectedTagChoices.value = []
+  verifiedTags.value = {}
+  verifyingTags.value = []
+  multiTagError.value = null
   inspection.value = null
   inspectionError.value = null
   tagError.value = null
@@ -180,6 +229,7 @@ async function readTags(next = false): Promise<void> {
   if (!id || !repository || tagsBusy.value) return
   if (!next) {
     tagGeneration += 1
+    // Changing only the tag filter leaves the chosen tags in the same image.
     tags.value = []
     tagCursor.value = null
     seenTagCursors.clear()
@@ -378,7 +428,8 @@ onBeforeUnmount(() => {
     </p>
     </section>
     <section v-if="selectedRepository" class="nexus-browser__versions" aria-label="Версии Docker-образа">
-      <h4>Версии: {{ selectedRepository }}</h4>
+      <h4>Версии / теги: {{ selectedRepository }}</h4>
+      <p class="muted">Как в Harbor: отметьте несколько версий и добавьте их вместе. Перед выбором каждой версии проверяется точный SHA-256 digest. Размер и дата не выводятся, пока Nexus API не предоставит подтверждённые данные.</p>
       <label class="nexus-browser__label">
         Фильтр tag
         <input v-model="tagQuery" type="search" autocomplete="off"
@@ -391,12 +442,36 @@ onBeforeUnmount(() => {
         {{ tagsBusy ? 'Читаем версии…' : `Версий: ${tags.length} · страниц: ${tagPagesRead}` }}
         {{ tagCursor ? '· Есть следующие страницы' : '' }}
       </p>
-      <ul v-if="tags.length" class="nexus-browser__list" aria-label="Теги Docker">
-        <li v-for="tag in tags" :key="tag">
-          <button type="button" class="secondary-button" :aria-pressed="selectedTag === tag"
-            @click="chooseTag(tag)">{{ tag }}</button>
-        </li>
-      </ul>
+      <div v-if="tags.length" class="nexus-browser__table-wrap">
+        <table class="nexus-browser__table" aria-label="Теги Docker">
+          <thead><tr>
+            <th scope="col"><span class="sr-only">Выбрать</span></th>
+            <th scope="col">Версия / tag</th>
+            <th scope="col">Тип</th>
+            <th scope="col">Digest</th>
+            <th scope="col">Размер</th>
+            <th scope="col">Добавлен</th>
+          </tr></thead>
+          <tbody>
+            <tr v-for="tag in tags" :key="tag"
+              :class="{ 'nexus-browser__row--selected': selectedTagChoices.includes(tag) }">
+              <td><input type="checkbox" :checked="selectedTagChoices.includes(tag)"
+                :disabled="verifyingTags.includes(tag) || (!selectedTagChoices.includes(tag) && selectedTagChoices.length >= selectedTagLimit)"
+                :aria-label="'Выбрать ' + tag" @change="toggleVerifiedTag(tag)" /></td>
+              <td><strong>{{ tag }}</strong><span v-if="verifyingTags.includes(tag)" class="muted"> · проверка digest…</span></td>
+              <td>Container image</td>
+              <td><code v-if="verifiedTags[tag]" :title="verifiedTags[tag].digest">{{ verifiedTags[tag].digest.slice(0, 21) }}…{{ verifiedTags[tag].digest.slice(-8) }}</code><span v-else class="muted">Не проверен</span></td>
+              <td class="muted">—</td><td class="muted">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-if="multiTagError" role="alert">{{ multiTagError }}</p>
+      <div class="nexus-browser__multi-actions">
+        <span>{{ selectedTagChoices.length ? `Выбрано: ${selectedTagChoices.length}` : 'Выберите один или несколько тегов.' }}</span>
+        <button type="button" class="secondary-button" :disabled="!selectedTagChoices.length || verifyingTags.length > 0"
+          @click="addVerifiedTags">Добавить выбранное</button>
+      </div>
       <button v-if="tagCursor" type="button" class="secondary-button"
         :disabled="tagsBusy" @click="readTags(true)">Следующая страница тегов</button>
       <p v-if="inspectionError" role="alert">{{ inspectionError }}</p>
@@ -465,8 +540,15 @@ onBeforeUnmount(() => {
 .nexus-browser h3, .nexus-browser h4 { margin: 0; }
 .nexus-browser__label { display: grid; gap: var(--space-2); font-weight: 600; }
 .nexus-browser input { width: 100%; min-height: 40px; padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
-.nexus-browser__list { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-2); max-height: 360px; overflow-y: auto; }
-.nexus-browser__list button { width: 100%; text-align: left; overflow-wrap: anywhere; }
+.nexus-browser__table-wrap { max-height: 440px; overflow: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.nexus-browser__table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 13px; }
+.nexus-browser__table th, .nexus-browser__table td { padding: var(--space-2) var(--space-3); text-align: left; border-bottom: 1px solid var(--color-border); }
+.nexus-browser__table th { font-size: 12px; color: var(--color-text-muted); background: var(--color-surface-subtle); position: sticky; top: 0; }
+.nexus-browser__table tbody tr:last-child td { border-bottom: 0; }
+.nexus-browser__row--selected { background: var(--color-info-surface); }
+.nexus-browser__table code { overflow-wrap: anywhere; font-size: 12px; }
+.nexus-browser__multi-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: space-between; align-items: center; color: var(--color-text-muted); font-size: 13px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .nexus-browser__versions { display: grid; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
 .nexus-browser__verified { display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
 .nexus-browser__verified code { overflow-wrap: anywhere; }
