@@ -274,13 +274,15 @@ describe('export wizard store', () => {
     expect(store.isNexus).toBe(true)
     expect(store.addExactNexusImage('baseimage', 'latest', DIGEST)).toBe(true)
     expect(store.addExactNexusImage('cbl-mariner/base/redis', '6.2', DIGEST)).toBe(true)
-    expect(store.selectedCount).toBe(2)
+    expect(store.addExactNexusImage('cbl-mariner/base/redis', '6.2-arm64', DIGEST)).toBe(true)
+    // Distinct tags may share the same manifest digest: keep both export choices.
+    expect(store.selectedCount).toBe(3)
     expect(store.selectedArtifacts).toEqual(expect.arrayContaining([
       expect.objectContaining({ project: null, repository: 'baseimage', reference: 'latest' }),
       expect.objectContaining({ project: 'cbl-mariner', repository: 'base/redis', reference: '6.2' }),
     ]))
     expect(store.addExactNexusImage('../escape', 'latest', DIGEST)).toBe(false)
-    expect(store.selectedCount).toBe(2)
+    expect(store.selectedCount).toBe(3)
   })
 
   it('debounces all Harbor search inputs and resets pagination before requesting', async () => {
