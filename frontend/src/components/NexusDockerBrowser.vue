@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 import {
   apiErrorInfo, inspectExactNexusImage, listNexusRepositories, listNexusTags,
@@ -22,6 +22,51 @@ const knownError = ref<string | null>(null)
 const validImageName = /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/
 const validTagOrDigest = /^(?:[A-Za-z0-9_][A-Za-z0-9._-]{0,127}|sha256:[a-f0-9]{64})$/
 const repositories = ref<string[]>([])
+type ImageTreeNode = { path: string; label: string; depth: number; isImage: boolean; children: ImageTreeNode[] }
+const collapsedPaths = ref<string[]>([])
+const imageTree = computed<ImageTreeNode[]>(() => {
+  const roots: ImageTreeNode[] = []
+  const byPath = new Map<string, ImageTreeNode>()
+  for (const image of repositories.value) {
+    let siblings = roots
+    const parts = image.split('/')
+    for (let index = 0; index < parts.length; index += 1) {
+      const path = parts.slice(0, index + 1).join('/')
+      let node = byPath.get(path)
+      if (!node) {
+        node = { path, label: parts[index], depth: index, isImage: false, children: [] }
+        siblings.push(node)
+        byPath.set(path, node)
+      }
+      if (index === parts.length - 1) node.isImage = true
+      siblings = node.children
+    }
+  }
+  const sort = (nodes: ImageTreeNode[]): void => {
+    nodes.sort((a, b) => a.label.localeCompare(b.label))
+    nodes.forEach(node => sort(node.children))
+  }
+  sort(roots)
+  return roots
+})
+const visibleImageRows = computed<ImageTreeNode[]>(() => {
+  const rows: ImageTreeNode[] = []
+  const visit = (nodes: ImageTreeNode[]): void => {
+    for (const node of nodes) {
+      rows.push(node)
+      if (query.value.trim() || !collapsedPaths.value.includes(node.path)) {
+        visit(node.children)
+      }
+    }
+  }
+  visit(imageTree.value)
+  return rows
+})
+function toggleFolder(path: string): void {
+  collapsedPaths.value = collapsedPaths.value.includes(path)
+    ? collapsedPaths.value.filter(item => item !== path)
+    : [...collapsedPaths.value, path]
+}
 const tags = ref<string[]>([])
 const selectedRepository = ref('')
 const selectedTag = ref('')
@@ -62,6 +107,7 @@ function resetTag(): void {
 function resetCatalog(): void {
   generation += 1
   repositories.value = []
+  collapsedPaths.value = []
   cursor.value = null
   error.value = null
   pagesRead.value = 0
@@ -273,51 +319,19 @@ onBeforeUnmount(() => {
   <section class="nexus-browser" aria-label="Каталог Docker-образов Nexus">
     <header class="nexus-browser__heading">
       <div>
-        <h3>Каталог Docker-образов</h3>
+        <h3>Docker-образы Nexus: дерево и версии</h3>
         <p class="muted">
           Nexus repository: <strong>{{ nexusRepository || 'текущий Docker connector' }}</strong>.
-          Выберите образ, затем версию; digest проверяется перед добавлением.
+          Раскройте папку, выберите образ и tag; digest проверяется перед добавлением.
         </p>
       </div>
       <button type="button" class="secondary-button" :disabled="repoBusy" @click="searchAcrossPages()">
-        Обновить каталог
+        Обновить дерево
       </button>
     </header>
-    <section class="nexus-browser__direct" aria-label="Проверить известный Docker image Nexus">
-      <h4>Образ из Nexus Browse — по точному имени</h4>
-      <p class="muted">
-        Если в Nexus открыт <code>docker-proxy / v2 / baseimage</code>, здесь нужно ввести
-        <strong>baseimage</strong>. <code>docker-proxy</code> — имя Nexus repository,
-        а не часть имени образа и не Helm repository. Каталог может быть закрыт,
-        но проверка конкретного образа остаётся доступна.
-      </p>
-      <form class="nexus-browser__direct-form" @submit.prevent="inspectKnownImage">
-        <label class="nexus-browser__label">
-          Имя Docker image внутри выбранного connector
-          <input v-model="knownImage" type="text" autocomplete="off" maxlength="255"
-            aria-label="Имя известного Docker image" placeholder="baseimage" />
-        </label>
-        <label class="nexus-browser__label">
-          Точный tag или sha256 digest
-          <input v-model="knownTag" type="text" autocomplete="off" maxlength="128"
-            aria-label="Точный tag Docker image" placeholder="latest" />
-        </label>
-        <div class="nexus-browser__direct-actions">
-          <button type="button" class="secondary-button" :disabled="tagsBusy || !knownImage.trim()"
-            @click="openKnownImage">Показать теги этого образа</button>
-          <button type="submit" class="secondary-button" :disabled="inspectBusy || !knownImage.trim() || !knownTag.trim()">
-            {{ inspectBusy ? 'Проверяем…' : 'Проверить image и digest' }}
-          </button>
-        </div>
-      </form>
-      <p v-if="knownError" role="alert">{{ knownError }}</p>
-      <p v-if="selectedRepository === knownImage.trim() && tagError" role="status" class="muted">
-        Список тегов недоступен: {{ tagError }}. Если tag известен, введите его выше и проверьте digest напрямую.
-      </p>
-    </section>
-    <details class="nexus-browser__catalog">
-      <summary>Необязательный поиск через каталог Nexus Docker v2 / REST Search</summary>
-      <p class="muted">Для больших proxy-репозиториев список может быть неполным или закрытым. Поиск не требуется для проверки известного image:tag.</p>
+    <section class="nexus-browser__catalog" aria-label="Иерархия доступных Docker-образов">
+      <h4>Образы и папки</h4>
+      <p class="muted">Дерево показывает доступные этому профилю Docker-образы. Для proxy каталог может быть неполным; точная проверка image:tag доступна ниже.</p>
     <label class="nexus-browser__label">
       Найти образ в выбранном Nexus repository
       <input
@@ -331,13 +345,22 @@ onBeforeUnmount(() => {
       {{ repoBusy ? 'Читаем страницу Nexus…' : `Найдено ${repositories.length} образов, прочитано страниц: ${pagesRead}` }}
       {{ cursor ? '· В Nexus есть следующие страницы' : (pagesRead ? '· Доступные страницы просмотрены' : '') }}
     </p>
-    <ul v-if="repositories.length" class="nexus-browser__list" aria-label="Docker-образы">
-      <li v-for="name in repositories" :key="name">
-        <button
-          type="button" class="secondary-button"
-          :aria-pressed="selectedRepository === name"
-          @click="chooseImage(name)"
-        >{{ name }}</button>
+    <ul v-if="repositories.length" class="nexus-browser__tree" role="tree" aria-label="Дерево Docker-образов">
+      <li v-for="node in visibleImageRows" :key="node.path"
+        role="treeitem" :aria-level="node.depth + 1"
+        :aria-expanded="node.children.length ? !collapsedPaths.includes(node.path) : undefined">
+        <div class="nexus-browser__tree-row" :style="{ paddingLeft: (node.depth * 18) + 'px' }">
+          <button v-if="node.children.length" type="button" class="secondary-button"
+            :aria-label="(collapsedPaths.includes(node.path) ? 'Раскрыть ' : 'Свернуть ') + node.path"
+            @click="toggleFolder(node.path)">
+            {{ collapsedPaths.includes(node.path) ? '▸' : '▾' }} {{ node.label }}
+          </button>
+          <button v-if="node.isImage" type="button" class="secondary-button"
+            :aria-label="'Выбрать Docker image ' + node.path"
+            :aria-pressed="selectedRepository === node.path" @click="chooseImage(node.path)">
+            {{ node.path }}
+          </button>
+        </div>
       </li>
     </ul>
     <button
@@ -347,7 +370,7 @@ onBeforeUnmount(() => {
     <p v-if="!repositories.length && !repoBusy && pagesRead && cursor" class="muted">
       На прочитанных страницах совпадений нет. Продолжите поиск по следующим страницам.
     </p>
-    </details>
+    </section>
     <section v-if="selectedRepository" class="nexus-browser__versions" aria-label="Версии Docker-образа">
       <h4>Версии: {{ selectedRepository }}</h4>
       <label class="nexus-browser__label">
@@ -381,9 +404,42 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </section>
+    <details class="nexus-browser__direct" aria-label="Проверить известный Docker image Nexus">
+      <summary>Точный Docker image:tag, если дерево недоступно</summary>
+      <h4>Проверка образа по точному имени</h4>
+      <p class="muted">
+        Если в Nexus открыт <code>docker-proxy / v2 / baseimage</code>, здесь нужно ввести
+        <strong>baseimage</strong>. <code>docker-proxy</code> — имя Nexus repository,
+        а не часть имени образа и не Helm repository. Каталог может быть закрыт,
+        но проверка конкретного образа остаётся доступна.
+      </p>
+      <form class="nexus-browser__direct-form" @submit.prevent="inspectKnownImage">
+        <label class="nexus-browser__label">
+          Имя Docker image внутри выбранного connector
+          <input v-model="knownImage" type="text" autocomplete="off" maxlength="255"
+            aria-label="Имя известного Docker image" placeholder="baseimage" />
+        </label>
+        <label class="nexus-browser__label">
+          Точный tag или sha256 digest
+          <input v-model="knownTag" type="text" autocomplete="off" maxlength="128"
+            aria-label="Точный tag Docker image" placeholder="latest" />
+        </label>
+        <div class="nexus-browser__direct-actions">
+          <button type="button" class="secondary-button" :disabled="tagsBusy || !knownImage.trim()"
+            @click="openKnownImage">Показать теги этого образа</button>
+          <button type="submit" class="secondary-button" :disabled="inspectBusy || !knownImage.trim() || !knownTag.trim()">
+            {{ inspectBusy ? 'Проверяем…' : 'Проверить image и digest' }}
+          </button>
+        </div>
+      </form>
+      <p v-if="knownError" role="alert">{{ knownError }}</p>
+      <p v-if="selectedRepository === knownImage.trim() && tagError" role="status" class="muted">
+        Список тегов недоступен: {{ tagError }}. Если tag известен, введите его выше и проверьте digest напрямую.
+      </p>
+    </details>
     <p class="muted">
-      Каталог показывает доступные серверному профилю записи. Если Nexus proxy не
-      перечисляет нужный образ, используйте ручной repository:tag ниже.
+      Дерево показывает только видимые текущему профилю образы. Если listing proxy закрыт,
+      откройте точную проверку image:tag. При просмотре и проверке digest запись не выполняется.
     </p>
   </section>
 </template>
@@ -395,7 +451,10 @@ onBeforeUnmount(() => {
 .nexus-browser__direct-form { display: grid; gap: var(--space-3); }
 .nexus-browser__direct-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .nexus-browser__catalog { display: grid; gap: var(--space-3); }
-.nexus-browser__catalog summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-3); }
+.nexus-browser__direct summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-3); }
+.nexus-browser__tree { display: grid; gap: var(--space-2); list-style: none; padding: 0; margin: 0; max-height: 400px; overflow-y: auto; }
+.nexus-browser__tree-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.nexus-browser__tree-row button { text-align: left; overflow-wrap: anywhere; }
 .nexus-browser__direct code { overflow-wrap: anywhere; }
 .nexus-browser h3, .nexus-browser h4 { margin: 0; }
 .nexus-browser__label { display: grid; gap: var(--space-2); font-weight: 600; }
