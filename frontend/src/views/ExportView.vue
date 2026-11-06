@@ -33,6 +33,7 @@ import ExportArtifactSelector from '@/components/ExportArtifactSelector.vue'
 import ExportReadyCard from '@/components/ExportReadyCard.vue'
 import HarborProfileSelector from '@/components/HarborProfileSelector.vue'
 import SearchCombobox from '@/components/SearchCombobox.vue'
+import NexusDockerBrowser from '@/components/NexusDockerBrowser.vue'
 import WizardStepper from '@/components/WizardStepper.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
 import { useAuthStore } from '@/stores/auth'
@@ -310,7 +311,6 @@ watch(() => wizard.selectedHarborProfileId, () => {
   nexusTagsMessage.value = null
   if (wizard.isNexus) {
     void loadNexusInventory()
-    void searchNexusRepositories()
   }
 })
 
@@ -746,6 +746,16 @@ onBeforeUnmount(() => {
                 <p class="muted">Helm HTTP: chart можно добавить в подписанный SOURCE bundle. TARGET требует отдельной проверки прав записи в hosted repository; overwrite запрещён.</p>
               </div>
             </div>
+            <NexusDockerBrowser
+              v-if="wizard.selectedHarborProfileId"
+              :key="wizard.selectedHarborProfileId"
+              :profile-id="wizard.selectedHarborProfileId"
+              :nexus-repository="wizard.selectedHarborProfile?.nexus_search_repository"
+              @add="wizard.addExactNexusImage"
+            />
+            <details class="nexus-manual-fallback">
+              <summary>Расширенный ручной поиск и точный repository:tag</summary>
+              <p class="muted">Если Nexus не перечисляет образ, здесь можно проверить известный Docker reference напрямую.</p>
             <form class="nexus-exact-form" @submit.prevent="inspectNexusReference">
               <label>Repository
                 <input v-model="exactRepository" type="text" required maxlength="255" placeholder="team/application" autocomplete="off" list="nexus-repositories" />
@@ -798,6 +808,7 @@ onBeforeUnmount(() => {
                 @click="wizard.addExactNexusImage(exactResult.repository, exactResult.reference, exactResult.digest)"
               >Добавить образ в выбор</button>
             </div>
+            </details>
           </div>
         </div>
 
