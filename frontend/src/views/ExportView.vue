@@ -672,9 +672,11 @@ onBeforeUnmount(() => {
               :key="wizard.selectedHarborProfileId"
               :profile-id="wizard.selectedHarborProfileId"
               :nexus-repository="wizard.selectedHarborProfile?.nexus_search_repository"
+              :rest-search-configured="Boolean(wizard.selectedHarborProfile?.nexus_search_url && wizard.selectedHarborProfile?.nexus_search_repository)"
               @add="wizard.addExactNexusImage"
             />
-            <div class="nexus-inventory" aria-label="Репозитории Nexus по сервисной учётной записи">
+            <details class="nexus-inventory" aria-label="Репозитории Nexus по сервисной учётной записи">
+              <summary>Дополнительно: список Docker/Helm repositories Nexus UI</summary>
               <div class="nexus-inventory__heading">
                 <strong>Репозитории Nexus: Docker и Helm</strong>
                 <button type="button" class="secondary-button" :disabled="nexusInventoryBusy" @click="loadNexusInventory">
@@ -755,7 +757,7 @@ onBeforeUnmount(() => {
                 <p class="muted">Helm HTTP: chart можно добавить в подписанный SOURCE bundle. TARGET требует отдельной проверки прав записи в hosted repository; overwrite запрещён.</p>
               </div>
               </details>
-            </div>
+            </details>
             <details class="nexus-manual-fallback">
               <summary>Расширенный ручной поиск и точный repository:tag</summary>
               <p class="muted">Если Nexus не перечисляет образ, здесь можно проверить известный Docker reference напрямую.</p>
