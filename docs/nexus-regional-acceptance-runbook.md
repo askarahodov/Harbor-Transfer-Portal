@@ -83,7 +83,7 @@ reference даёт основание добавить Docker image к SOURCE se
 
 SOURCE preview выбирает adapter по `registry_type` сохранённого
 профиля. Для Nexus Docker проверяется выбранный `repository:tag`
-через Docker v2 и фиксируется точный SHA-256; при повторной
+через Docker v2 и фиксируются точный SHA-256, Docker manifest `media_type` и неизвестный размер как `size_bytes: null` (без выдуманной оценки); при повторной
 подготовке операции tag инспектируется снова и изменение digest
 даёт `export_source_changed` **до** создания export operation.
 Сохранённая операция привязана к идентификатору и URL
