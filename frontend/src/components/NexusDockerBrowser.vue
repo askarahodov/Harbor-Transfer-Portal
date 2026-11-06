@@ -122,7 +122,7 @@ function resetTag(): void {
   tagsBusy.value = false
   inspectBusy.value = false
 }
-function resetCatalog(): void {
+function resetCatalog(preserveSelection = false): void {
   generation += 1
   repositories.value = []
   collapsedPaths.value = []
@@ -131,14 +131,18 @@ function resetCatalog(): void {
   pagesRead.value = 0
   seenCursors.clear()
   repoBusy.value = false
-  selectedRepository.value = ''
-  resetTag()
+  // Searching and refreshing must retain checked tags on the selected image.
+  // Changing connector or selecting a new image clears the old selection.
+  if (!preserveSelection) {
+    selectedRepository.value = ''
+    resetTag()
+  }
 }
 async function readCatalog(next = false): Promise<void> {
   const id = props.profileId
   const search = query.value.trim()
   if (!id || repoBusy.value) return
-  if (!next) resetCatalog()
+  if (!next) resetCatalog(true)
   const current = ++generation
   const pageCursor = next ? cursor.value : null
   if (next && (!pageCursor || seenCursors.has(pageCursor))) {
@@ -242,9 +246,10 @@ async function readTags(next = false): Promise<void> {
   }
 }
 function chooseImage(name: string): void {
+  if (name === selectedRepository.value) return
   selectedRepository.value = name
   resetTag()
-  void readTags()
+  if (name) void readTags()
 }
 
 function openKnownImage(): void {
@@ -406,7 +411,7 @@ async function addCandidates(): Promise<void> {
 
 function scheduleSearch(): void {
   if (searchTimer) clearTimeout(searchTimer)
-  resetCatalog()
+  resetCatalog(true)
   searchTimer = setTimeout(() => { void searchAcrossPages() }, 350)
 }
 function scheduleTagSearch(): void {
@@ -452,27 +457,46 @@ onBeforeUnmount(() => {
         Обновить дерево
       </button>
     </header>
-    <section class="nexus-browser__catalog" aria-label="Иерархия доступных Docker-образов">
-      <h4>Образы и папки</h4>
-      <p class="muted">Дерево показывает доступные этому профилю Docker-образы. Для proxy каталог может быть неполным; точная проверка image:tag доступна ниже.</p>
-      <p v-if="!restSearchConfigured" class="muted" role="status">
-        Для поиска через Nexus REST Search заполните в настройках профиля отдельный
-        Nexus UI HTTPS URL и имя Docker repository (например, docker-proxy).
-        Пока используется Docker v2 catalog, который ваш Nexus может запрещать.
+    <section class="nexus-browser__picker" aria-label="Выбор Docker image Nexus">
+      <div class="nexus-browser__picker-fields">
+        <label class="nexus-browser__label">
+          Поиск Docker image
+          <input v-model="query" type="search" autocomplete="off"
+            aria-label="Поиск Docker-образов Nexus"
+            placeholder="Например, baseimage или cbl-mariner/base/redis"
+            @input="scheduleSearch" />
+        </label>
+        <label class="nexus-browser__label">
+          Docker image / репозиторий
+          <select :value="selectedRepository" aria-label="Выбрать Docker image Nexus"
+            @change="chooseImage(($event.target as HTMLSelectElement).value)">
+            <option value="">Выберите образ</option>
+            <option v-if="selectedRepository && !repositories.includes(selectedRepository)"
+              :value="selectedRepository">{{ selectedRepository }} · выбран</option>
+            <option v-for="name in repositories" :key="name" :value="name">{{ name }}</option>
+          </select>
+        </label>
+      </div>
+      <p v-if="error" role="alert">{{ error }}</p>
+      <p v-else role="status" class="muted">
+        {{ repoBusy ? 'Загружаем доступные образы…' : `Найдено ${repositories.length} образов, прочитано страниц: ${pagesRead}` }}
+        {{ cursor ? '· список продолжается' : (pagesRead ? '· доступные страницы просмотрены' : '') }}
       </p>
-    <label class="nexus-browser__label">
-      Найти образ в выбранном Nexus repository
-      <input
-        v-model="query" type="search" autocomplete="off"
-        aria-label="Поиск Docker-образов Nexus" placeholder="Например, bitnami/redis"
-        @input="scheduleSearch"
-      />
-    </label>
-    <p v-if="error" role="alert">{{ error }}</p>
-    <p v-else role="status" class="muted">
-      {{ repoBusy ? 'Читаем страницу Nexus…' : `Найдено ${repositories.length} образов, прочитано страниц: ${pagesRead}` }}
-      {{ cursor ? '· В Nexus есть следующие страницы' : (pagesRead ? '· Доступные страницы просмотрены' : '') }}
-    </p>
+      <p v-if="!restSearchConfigured" class="muted">
+        Для более полного поиска укажите Nexus UI HTTPS URL и имя Docker repository
+        в настройках профиля. Проверка известного image:tag доступна без каталога.
+      </p>
+      <button v-if="cursor" type="button" class="secondary-button"
+        :disabled="repoBusy" @click="searchAcrossPages(true)">
+        {{ repoBusy ? 'Загрузка…' : 'Следующая страница образов' }}
+      </button>
+      <p v-if="!repositories.length && !repoBusy && pagesRead && cursor" class="muted">
+        На прочитанных страницах совпадений нет. Продолжите поиск по следующим страницам.
+      </p>
+    </section>
+    <details class="nexus-browser__catalog" aria-label="Иерархия доступных Docker-образов">
+      <summary>Дополнительно: дерево папок Docker-образов</summary>
+      <p class="muted">Дерево строится только из имён, доступных этому сервисному профилю. Выбор из списка выше и дерева эквивалентны.</p>
     <ul v-if="repositories.length" class="nexus-browser__tree" role="tree" aria-label="Дерево Docker-образов">
       <li v-for="node in visibleImageRows" :key="node.path"
         role="treeitem" :aria-level="node.depth + 1"
@@ -491,14 +515,7 @@ onBeforeUnmount(() => {
         </div>
       </li>
     </ul>
-    <button
-      v-if="cursor" type="button" class="secondary-button"
-      :disabled="repoBusy" @click="searchAcrossPages(true)"
-    >{{ repoBusy ? 'Загрузка…' : 'Следующая страница образов' }}</button>
-    <p v-if="!repositories.length && !repoBusy && pagesRead && cursor" class="muted">
-      На прочитанных страницах совпадений нет. Продолжите поиск по следующим страницам.
-    </p>
-    </section>
+    </details>
     <section v-if="selectedRepository" class="nexus-browser__versions" aria-label="Версии Docker-образа">
       <h4>Версии: {{ selectedRepository }}</h4>
       <label class="nexus-browser__label">
@@ -623,7 +640,12 @@ onBeforeUnmount(() => {
 .nexus-browser__direct { display: grid; gap: var(--space-3); }
 .nexus-browser__direct-form { display: grid; gap: var(--space-3); }
 .nexus-browser__direct-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.nexus-browser__catalog { display: grid; gap: var(--space-3); }
+.nexus-browser__picker { display: grid; gap: var(--space-2); }
+.nexus-browser__picker-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.nexus-browser__picker select { width: 100%; min-height: 40px; padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; }
+.nexus-browser__catalog { padding-top: var(--space-2); }
+.nexus-browser__catalog summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-3); }
+@media (max-width: 760px) { .nexus-browser__picker-fields { grid-template-columns: 1fr; } }
 .nexus-browser__direct summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-3); }
 .nexus-browser__tree { display: grid; gap: var(--space-2); list-style: none; padding: 0; margin: 0; max-height: 400px; overflow-y: auto; }
 .nexus-browser__tree-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
