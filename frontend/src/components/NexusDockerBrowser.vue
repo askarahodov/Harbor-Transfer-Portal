@@ -69,6 +69,11 @@ function toggleFolder(path: string): void {
     : [...collapsedPaths.value, path]
 }
 const tags = ref<string[]>([])
+const candidateTags = ref<string[]>([])
+const inspectedDigests = ref<Record<string, string>>({})
+const bulkBusy = ref(false)
+const bulkError = ref<string | null>(null)
+const MAX_BATCH = 25
 const selectedRepository = ref('')
 const selectedTag = ref('')
 const inspection = ref<ExactNexusInspection | null>(null)
@@ -93,6 +98,10 @@ const seenTagCursors = new Set<string>()
 function resetTag(): void {
   tagGeneration += 1
   inspectionGeneration += 1
+  candidateTags.value = []
+  inspectedDigests.value = {}
+  bulkError.value = null
+  bulkBusy.value = false
   tags.value = []
   tagQuery.value = ''
   selectedTag.value = ''
@@ -177,10 +186,12 @@ async function readTags(next = false): Promise<void> {
   const id = props.profileId
   const repository = selectedRepository.value
   const search = tagQuery.value.trim()
-  if (!id || !repository || tagsBusy.value) return
+  if (!id || !repository || tagsBusy.value || bulkBusy.value) return
   if (!next) {
     tagGeneration += 1
     tags.value = []
+    candidateTags.value = []
+    bulkError.value = null
     tagCursor.value = null
     seenTagCursors.clear()
     tagPagesRead.value = 0
@@ -271,6 +282,7 @@ async function chooseTag(tag: string): Promise<void> {
     if (current === inspectionGeneration && id === props.profileId
         && repository === selectedRepository.value && tag === selectedTag.value) {
       inspection.value = value
+      inspectedDigests.value = { ...inspectedDigests.value, [tag]: value.digest }
     }
   } catch (reason) {
     if (current === inspectionGeneration) {
@@ -282,6 +294,91 @@ async function chooseTag(tag: string): Promise<void> {
     if (current === inspectionGeneration) inspectBusy.value = false
   }
 }
+function toggleCandidate(tag: string): void {
+  if (bulkBusy.value) return
+  bulkError.value = null
+  if (candidateTags.value.includes(tag)) {
+    candidateTags.value = candidateTags.value.filter(value => value !== tag)
+  } else if (candidateTags.value.length >= MAX_BATCH) {
+    bulkError.value = `За один раз можно выбрать не более ${MAX_BATCH} тегов.`
+  } else {
+    candidateTags.value = [...candidateTags.value, tag]
+  }
+}
+
+function toggleVisibleCandidates(): void {
+  if (bulkBusy.value) return
+  const visible = tags.value
+  const allSelected = visible.length > 0 && visible.every(tag => candidateTags.value.includes(tag))
+  if (allSelected) {
+    candidateTags.value = candidateTags.value.filter(tag => !visible.includes(tag))
+    bulkError.value = null
+    return
+  }
+  const merged = [...new Set([...candidateTags.value, ...visible])]
+  if (merged.length > MAX_BATCH) {
+    bulkError.value = `Выберите до ${MAX_BATCH} тегов. При необходимости добавьте следующую группу отдельно.`
+    return
+  }
+  bulkError.value = null
+  candidateTags.value = merged
+}
+
+/** Verify every selected tag independently before adding any to the export.
+ * The 3-worker limit bounds service-account load on large Nexus proxy repositories.
+ * A partial failure produces no partial export selection.
+ */
+async function addCandidates(): Promise<void> {
+  const id = props.profileId
+  const repository = selectedRepository.value
+  const chosen = [...candidateTags.value]
+  if (!id || !repository || !chosen.length || bulkBusy.value) return
+  bulkBusy.value = true
+  bulkError.value = null
+  const verification = ++inspectionGeneration
+  const results: Array<ExactNexusInspection | null> = Array(chosen.length).fill(null)
+  const failures: string[] = []
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < chosen.length) {
+      const index = next++
+      const tag = chosen[index]
+      try {
+        const inspected = await inspectExactNexusImage(id, repository, tag)
+        if (inspected.repository !== repository || inspected.reference !== tag
+          || !/^sha256:[a-f0-9]{64}$/.test(inspected.digest)) {
+          failures.push(tag)
+        } else {
+          results[index] = inspected
+        }
+      } catch {
+        failures.push(tag)
+      }
+    }
+  }
+  try {
+    await Promise.all(Array.from({ length: Math.min(3, chosen.length) }, () => worker()))
+    if (verification !== inspectionGeneration || id !== props.profileId
+      || repository !== selectedRepository.value) return
+    if (failures.length) {
+      bulkError.value = `Не удалось проверить ${failures.length} из ${chosen.length} тегов. Ничего не добавлено. Проверьте права и доступность версий в Nexus.`
+      return
+    }
+    if (results.some(v => v === null)) return
+    for (const inspected of results) {
+      if (inspected) emit('add', inspected.repository, inspected.reference, inspected.digest)
+    }
+    inspectedDigests.value = {
+      ...inspectedDigests.value,
+      ...Object.fromEntries(results.filter((v): v is ExactNexusInspection => v !== null)
+        .map(v => [v.reference, v.digest])),
+    }
+    candidateTags.value = []
+  } finally {
+    if (verification === inspectionGeneration) bulkBusy.value = false
+  }
+}
+
 function scheduleSearch(): void {
   if (searchTimer) clearTimeout(searchTimer)
   resetCatalog()
