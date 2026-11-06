@@ -252,6 +252,14 @@ async function saveProfile(): Promise<void> {
 }
 
 async function testProfile(profile: HarborProfile): Promise<void> {
+  // The Harbor REST check is never valid for a Nexus Docker connector,
+  // regardless of how this action is invoked.
+  if (profile.registry_type === 'nexus') {
+    feedbackLocation.value = 'list'
+    error.value = 'Для Nexus используйте проверку Docker Registry v2.'
+    message.value = ''
+    return
+  }
   feedbackLocation.value = 'list'
   testingId.value = profile.id
   error.value = ''
