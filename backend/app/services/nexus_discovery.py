@@ -21,6 +21,7 @@ _REPOSITORY = re.compile(
     r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
 )
 _TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}")
+_NEXUS_REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 
 @dataclass(frozen=True)
@@ -125,7 +126,7 @@ class NexusDiscoveryService:
                 continue
             name, fmt, kind = (entry.get(key) for key in ("name", "format", "type"))
             if (
-                not isinstance(name, str) or _REPOSITORY.fullmatch(name) is None
+                not isinstance(name, str) or _NEXUS_REPO.fullmatch(name) is None
                 or not isinstance(fmt, str) or fmt not in {"docker", "helm"}
                 or not isinstance(kind, str) or kind not in {"hosted", "proxy", "group"}
             ):
@@ -176,7 +177,7 @@ class NexusDiscoveryService:
             return DiscoveryResult(
                 False, (), "Nexus REST Search требует корректный HTTPS URL"
             )
-        if _REPOSITORY.fullmatch(self.search_repository) is None:
+        if _NEXUS_REPO.fullmatch(self.search_repository) is None:
             return DiscoveryResult(False, (), "Некорректный Nexus Docker repository")
         auth = (
             httpx.BasicAuth(self.username, self.password or "")
