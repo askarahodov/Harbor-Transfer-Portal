@@ -160,6 +160,50 @@ def test_nexus_prepare_reinspects_before_persisting(tmp_path: Path) -> None:
     assert error.value.code == "export_source_changed"
 
 
+def test_nexus_preview_digest_change_before_prepare_creates_no_operation(
+    tmp_path: Path,
+) -> None:
+    orchestrator, profile_id, harbor, client = _nexus_orchestrator(tmp_path)
+    manager = orchestrator.operation_manager
+    client.inspect_image.side_effect = [
+        ImageInspection(digest=IMAGE_DIGEST),
+        ImageInspection(digest="sha256:" + "c" * 64),
+    ]
+    initial = orchestrator.preview((_image(),), harbor_profile_id=profile_id)
+    assert initial[0].digest == IMAGE_DIGEST
+
+    with pytest.raises(ExportOrchestrationError) as error:
+        orchestrator._prepare_export_operation(
+            (_image(),), None, "operator", None, profile_id,
+        )
+    assert error.value.code == "export_source_changed"
+    assert client.inspect_image.await_count == 2
+    assert harbor.calls == {}
+    assert manager.list_operations().total == 0
+
+
+def test_nexus_prepare_binds_exact_selected_profile_and_repository(
+    tmp_path: Path,
+) -> None:
+    orchestrator, profile_id, harbor, client = _nexus_orchestrator(tmp_path)
+    resolved, operation_id, delivery_id, artifact_ids = (
+        orchestrator._prepare_export_operation(
+            (_image(),), None, "operator", None, profile_id,
+        )
+    )
+    persisted = orchestrator.operation_manager.get_operation(operation_id)
+    assert persisted is not None
+    assert persisted.harbor_profile_id == profile_id
+    assert persisted.harbor_profile_url == "https://nexus.example.test"
+    assert persisted.delivery_id == delivery_id
+    assert len(artifact_ids) == 1
+    assert resolved[0].full_repository == "team/app"
+    assert persisted.artifacts[0].repository == "team/app"
+    assert persisted.artifacts[0].source_digest == IMAGE_DIGEST
+    assert client.inspect_image.await_count == 1
+    assert harbor.calls == {}
+
+
 def test_nexus_repository_with_namespace_keeps_full_path(tmp_path: Path) -> None:
     """Registry namespace must not be dropped: project + repository is the Docker path."""
     orchestrator, profile_id, _harbor, client = _nexus_orchestrator(tmp_path)
