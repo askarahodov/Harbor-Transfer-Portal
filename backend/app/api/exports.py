@@ -210,6 +210,7 @@ def preview_export(
                 reference=item.reference,
                 source_digest=item.digest,
                 size_bytes=item.size_bytes,
+                media_type=item.media_type,
             )
             for selected, item in zip(payload.artifacts, resolved, strict=True)
         ],
