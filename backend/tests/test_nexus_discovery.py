@@ -104,7 +104,10 @@ async def test_nexus_rest_search_uses_configured_repository_and_pagination(
         seen.append(request)
         if "continuationToken" in request.url.params:
             return httpx.Response(200, json={
-                "items": [{"repository": "docker-all", "name": "jaegertracing/jaeger", "version": "2.13.0"}],
+                "items": [
+                    {"repository": "docker-all", "name": "jaegertracing/jaeger",
+                     "version": "2.13.0"},
+                ],
                 "continuationToken": None,
             })
         return httpx.Response(200, json={
@@ -148,7 +151,9 @@ async def test_rest_search_scopes_acl_per_configured_docker_repository(
             return httpx.Response(403)
         contents = {
             "docker-hosted": [{"repository": "docker-hosted", "name": "team/app", "version": "v1"}],
-            "docker-group": [{"repository": "docker-group", "name": "team/worker", "version": "v2"}],
+            "docker-group": [
+                {"repository": "docker-group", "name": "team/worker", "version": "v2"},
+            ],
         }
         return httpx.Response(200, json={
             "items": contents.get(repository, []),
