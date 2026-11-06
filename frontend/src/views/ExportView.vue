@@ -14,6 +14,7 @@ import { apiClient } from '@/api/client'
 import {
   apiErrorInfo,
   createExportDownloadTicket,
+  navigateToExportDownload,
   downloadExportHandoff,
   getExportHandoffRecord,
   inspectExactNexusImage,
@@ -391,10 +392,13 @@ async function generateIdentityAndContinueExport(): Promise<void> {
 
 async function downloadBundle(): Promise<void> {
   if (!wizard.operation || !wizard.bundle) return
+  const operationId = wizard.operation.id
   downloadError.value = null
   try {
-    const ticket = await createExportDownloadTicket(wizard.operation.id)
-    window.location.assign(ticket.download_url)
+    const ticket = await createExportDownloadTicket(operationId)
+    // Ignore tickets for an operation that is no longer active in the UI.
+    if (wizard.operation?.id !== operationId || !wizard.bundle) return
+    navigateToExportDownload(ticket, operationId)
   } catch (error) {
     downloadError.value = apiErrorInfo(
       error,
