@@ -109,6 +109,7 @@ export type ExportResolvedArtifact = {
   reference: string
   source_digest: string
   size_bytes: number | null
+  media_type?: string | null
 }
 
 export type ExportPreview = {
