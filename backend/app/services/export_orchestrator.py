@@ -139,13 +139,10 @@ class ExportOrchestrator:
 
         async def inspect() -> tuple[ResolvedExportArtifact, ...]:
             with self.session_factory() as session:
-                client = (
-                    self._registry_client_factory(session, profile.id)
-                    if self._registry_client_factory is not None
-                    else create_registry_client(
-                        "nexus", session, self.settings, profile_id=profile.id
-                    )
-                )
+                # Classic Helm HTTP is independent from the Docker v2
+                # connector; do not construct Docker credentials/client for
+                # a Helm-only SOURCE export.
+                client: RegistryClient | None = None
                 results: list[ResolvedExportArtifact] = []
                 for selection in selections:
                     if selection.kind is ArtifactKind.HELM_CHART:
@@ -189,6 +186,14 @@ class ExportOrchestrator:
                         repository=f"{selection.project}/{selection.repository}",
                         reference=selection.reference,
                     )
+                    if client is None:
+                        client = (
+                            self._registry_client_factory(session, profile.id)
+                            if self._registry_client_factory is not None
+                            else create_registry_client(
+                                "nexus", session, self.settings, profile_id=profile.id
+                            )
+                        )
                     inspected = await client.inspect_image(image)
                     if inspected.digest != selection.digest:
                         raise ExportOrchestrationError(
