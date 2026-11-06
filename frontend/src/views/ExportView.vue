@@ -874,7 +874,7 @@ onBeforeUnmount(() => {
         <div v-if="wizard.selectedArtifacts.length" class="selected-artifacts" aria-label="Выбранные артефакты">
           <div
             v-for="artifact in wizard.selectedArtifacts"
-            :key="[artifact.kind, artifact.project, artifact.repository, artifact.digest].join('|')"
+            :key="[artifact.kind, artifact.project, artifact.repository, artifact.reference, artifact.digest].join('|')"
             class="selected-artifact"
           >
             <div>
