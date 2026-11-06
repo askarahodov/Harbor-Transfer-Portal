@@ -16,6 +16,11 @@ const emit = defineEmits<{
 
 const query = ref('')
 const tagQuery = ref('')
+const knownImage = ref('')
+const knownTag = ref('')
+const knownError = ref<string | null>(null)
+const validImageName = /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/
+const validTagOrDigest = /^(?:[A-Za-z0-9_][A-Za-z0-9._-]{0,127}|sha256:[a-f0-9]{64})$/
 const repositories = ref<string[]>([])
 const tags = ref<string[]>([])
 const selectedRepository = ref('')
@@ -174,6 +179,38 @@ function chooseImage(name: string): void {
   resetTag()
   void readTags()
 }
+
+function openKnownImage(): void {
+  const name = knownImage.value.trim()
+  knownError.value = null
+  if (!validImageName.test(name)) {
+    knownError.value = 'Укажите имя Docker image без префикса v2/ и без имени Nexus repository.'
+    return
+  }
+  // The catalog can be forbidden on Nexus proxy, while tags/list may still work.
+  chooseImage(name)
+}
+
+async function inspectKnownImage(): Promise<void> {
+  const name = knownImage.value.trim()
+  const tag = knownTag.value.trim()
+  knownError.value = null
+  if (!validImageName.test(name)) {
+    knownError.value = 'Укажите точное имя Docker image, например baseimage или team/app.'
+    return
+  }
+  if (!validTagOrDigest.test(tag)) {
+    knownError.value = 'Укажите точный Docker tag или sha256 digest выбранного образа.'
+    return
+  }
+  if (selectedRepository.value !== name) {
+    selectedRepository.value = name
+    resetTag()
+  }
+  // Exact inspect uses the configured Docker v2 connector and Skopeo; it does
+  // not require permissions for /v2/_catalog, Nexus REST Search or tags/list.
+  await chooseTag(tag)
+}
 async function chooseTag(tag: string): Promise<void> {
   const id = props.profileId
   const repository = selectedRepository.value
@@ -210,9 +247,17 @@ function scheduleTagSearch(): void {
   tagCursor.value = null
   tagTimer = setTimeout(() => { void readTags() }, 350)
 }
+watch([knownImage, knownTag], () => {
+  inspectionGeneration += 1
+  inspection.value = null
+  inspectionError.value = null
+})
 watch(() => props.profileId, () => {
   if (searchTimer) clearTimeout(searchTimer)
   if (tagTimer) clearTimeout(tagTimer)
+  knownImage.value = ''
+  knownTag.value = ''
+  knownError.value = null
   query.value = ''
   resetCatalog()
   if (props.profileId) void readCatalog()
@@ -238,6 +283,41 @@ onBeforeUnmount(() => {
         Обновить каталог
       </button>
     </header>
+    <section class="nexus-browser__direct" aria-label="Проверить известный Docker image Nexus">
+      <h4>Образ из Nexus Browse — по точному имени</h4>
+      <p class="muted">
+        Если в Nexus открыт <code>docker-proxy / v2 / baseimage</code>, здесь нужно ввести
+        <strong>baseimage</strong>. <code>docker-proxy</code> — имя Nexus repository,
+        а не часть имени образа и не Helm repository. Каталог может быть закрыт,
+        но проверка конкретного образа остаётся доступна.
+      </p>
+      <form class="nexus-browser__direct-form" @submit.prevent="inspectKnownImage">
+        <label class="nexus-browser__label">
+          Имя Docker image внутри выбранного connector
+          <input v-model="knownImage" type="text" autocomplete="off" maxlength="255"
+            aria-label="Имя известного Docker image" placeholder="baseimage" />
+        </label>
+        <label class="nexus-browser__label">
+          Точный tag или sha256 digest
+          <input v-model="knownTag" type="text" autocomplete="off" maxlength="128"
+            aria-label="Точный tag Docker image" placeholder="latest" />
+        </label>
+        <div class="nexus-browser__direct-actions">
+          <button type="button" class="secondary-button" :disabled="tagsBusy || !knownImage.trim()"
+            @click="openKnownImage">Показать теги этого образа</button>
+          <button type="submit" class="secondary-button" :disabled="inspectBusy || !knownImage.trim() || !knownTag.trim()">
+            {{ inspectBusy ? 'Проверяем…' : 'Проверить image и digest' }}
+          </button>
+        </div>
+      </form>
+      <p v-if="knownError" role="alert">{{ knownError }}</p>
+      <p v-if="selectedRepository === knownImage.trim() && tagError" role="status" class="muted">
+        Список тегов недоступен: {{ tagError }}. Если tag известен, введите его выше и проверьте digest напрямую.
+      </p>
+    </section>
+    <details class="nexus-browser__catalog">
+      <summary>Необязательный поиск через каталог Nexus Docker v2 / REST Search</summary>
+      <p class="muted">Для больших proxy-репозиториев список может быть неполным или закрытым. Поиск не требуется для проверки известного image:tag.</p>
     <label class="nexus-browser__label">
       Найти образ в выбранном Nexus repository
       <input
@@ -267,6 +347,7 @@ onBeforeUnmount(() => {
     <p v-if="!repositories.length && !repoBusy && pagesRead && cursor" class="muted">
       На прочитанных страницах совпадений нет. Продолжите поиск по следующим страницам.
     </p>
+    </details>
     <section v-if="selectedRepository" class="nexus-browser__versions" aria-label="Версии Docker-образа">
       <h4>Версии: {{ selectedRepository }}</h4>
       <label class="nexus-browser__label">
@@ -310,6 +391,12 @@ onBeforeUnmount(() => {
 <style scoped>
 .nexus-browser { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .nexus-browser__heading { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-3); }
+.nexus-browser__direct { display: grid; gap: var(--space-3); }
+.nexus-browser__direct-form { display: grid; gap: var(--space-3); }
+.nexus-browser__direct-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.nexus-browser__catalog { display: grid; gap: var(--space-3); }
+.nexus-browser__catalog summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-3); }
+.nexus-browser__direct code { overflow-wrap: anywhere; }
 .nexus-browser h3, .nexus-browser h4 { margin: 0; }
 .nexus-browser__label { display: grid; gap: var(--space-2); font-weight: 600; }
 .nexus-browser input { width: 100%; min-height: 40px; padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
