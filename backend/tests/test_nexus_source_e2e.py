@@ -139,6 +139,9 @@ def test_real_source_api_signed_bundle_and_browser_ticket(
         assert preview.json()["artifacts"][0]["project"] == "htp-e2e"
         assert preview.json()["artifacts"][0]["repository"] == "source"
         assert preview.json()["artifacts"][0]["size_bytes"] is None
+        assert preview.json()["artifacts"][0]["media_type"] == (
+            "application/vnd.docker.distribution.manifest.v2+json"
+        )
 
         # Nonexistent Nexus tag must fail closed before starting a worker or
         # creating any downloadable output.
