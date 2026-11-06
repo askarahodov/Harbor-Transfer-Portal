@@ -868,3 +868,58 @@ async def test_helm_valid_secondary_same_repository_url_is_permitted(client_serv
     with patch("app.services.nexus_helm_http.httpx.AsyncClient", factory):
         listed = await service.list_charts("helm-a")
     assert listed.available and len(listed.items) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unsafe_url", [
+    "https://[invalid",
+    "https://nexus.example.test:not-a-port",
+    "https://nexus.example.test:0",
+    "https://nexus.example.test:65536",
+    "https://reader:secret@nexus.example.test",
+    "https://nexus.example.test/repository/helm-a",
+    "https://nexus.example.test/?token=secret",
+    "http://nexus.example.test",
+])
+async def test_helm_http_origin_must_be_valid_root_https_before_network(
+    client_service, unsafe_url,
+):
+    service, state, _data, _digest = client_service
+    service.base_url = unsafe_url
+    result = None
+    with pytest.raises(NexusHelmHttpError) as error:
+        result = await service.list_charts("helm-a")
+    assert result is None
+    assert error.value.code == "helm_url_invalid"
+    assert "secret" not in error.value.message.lower()
+    assert not state["calls"]
+
+
+@pytest.mark.asyncio
+async def test_helm_hosted_upload_rejects_metadata_for_different_repository(
+    client_service, monkeypatch, tmp_path: Path,
+):
+    service, state, data, _digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request):
+        state["calls"].append(request)
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            return httpx.Response(200, json={
+                "name": "helm-another", "format": "helm", "type": "hosted",
+            })
+        raise AssertionError("foreign metadata must not cause Helm writes or index reads")
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    package = tmp_path / "demo-1.2.3.tgz"
+    package.write_bytes(data)
+    with pytest.raises(NexusHelmHttpError) as error:
+        await service.upload_chart("helm-a", "demo", "1.2.3", package)
+    assert error.value.code == "helm_repository_read_only"
+    assert [call.url.path for call in state["calls"]] == [
+        "/service/rest/v1/repositories/helm-a",
+    ]
+    assert "secret-not-for-logs" not in str(error.value)
