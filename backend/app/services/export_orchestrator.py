@@ -272,6 +272,7 @@ class ExportOrchestrator:
                 ExportOrchestrationError,
                 HarborSettingsError,
                 NexusServiceError,
+                NexusHelmHttpError,
                 OperationTaskFailure,
             ) as exc:
                 self._abort_unfinished_artifacts(context, artifact_ids)
@@ -518,6 +519,7 @@ class ExportOrchestrator:
                     SkopeoServiceError,
                     HelmServiceError,
                     NexusServiceError,
+                    NexusHelmHttpError,
                     HarborSettingsError,
                     ExportOrchestrationError,
                 ) as exc:
