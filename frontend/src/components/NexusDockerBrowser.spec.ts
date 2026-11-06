@@ -110,6 +110,47 @@ describe('NexusDockerBrowser', () => {
     wrapper.unmount()
   })
 
+  it('browses hierarchical Docker image namespaces and verifies a selected leaf tag', async () => {
+    vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
+      available: true,
+      items: ['baseimage', 'team/worker', 'team/platform/api'],
+      message: null, truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: ['v1', 'v2'], message: null,
+      truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.inspectExactNexusImage).mockResolvedValue({
+      repository: 'team/platform/api', reference: 'v2', digest: DIGEST, media_type: null,
+    })
+    const wrapper = mount(NexusDockerBrowser, {
+      props: { profileId: 'proxy-id', nexusRepository: 'docker-proxy' },
+    })
+    await flushPromises()
+    expect(wrapper.get('[role="tree"]').text()).toContain('baseimage')
+    expect(wrapper.get('[role="tree"]').text()).toContain('team/platform/api')
+    expect(wrapper.findAll('[role="treeitem"]')).toHaveLength(5)
+    await wrapper.get('button[aria-label="Свернуть team"]').trigger('click')
+    expect(wrapper.findAll('[role="treeitem"]')).toHaveLength(2)
+    await wrapper.get('button[aria-label="Раскрыть team"]').trigger('click')
+    await wrapper.get('button[aria-label="Выбрать Docker image team/platform/api"]')
+      .trigger('click')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenCalledWith(
+      'proxy-id', 'team/platform/api', '', undefined,
+    )
+    await wrapper.findAll('[aria-label="Теги Docker"] button')
+      .find(button => button.text() === 'v2')!.trigger('click')
+    await flushPromises()
+    expect(exportsApi.inspectExactNexusImage).toHaveBeenCalledWith(
+      'proxy-id', 'team/platform/api', 'v2',
+    )
+    await wrapper.findAll('button').find(button => button.text() === 'Добавить проверенный образ')!
+      .trigger('click')
+    expect(wrapper.emitted('add')?.[0]).toEqual(['team/platform/api', 'v2', DIGEST])
+    wrapper.unmount()
+  })
+
   it('follows later pages without treating an empty first page as empty catalogue', async () => {
     vi.mocked(exportsApi.listNexusRepositories).mockImplementation(async (_id, _search, cursor) =>
       cursor ? {
@@ -192,7 +233,7 @@ describe('NexusDockerBrowser', () => {
     const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'restricted' } })
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('Нет прав')
-    expect(wrapper.text()).toContain('ручной repository:tag')
+    expect(wrapper.text()).toContain('Точный Docker image:tag, если дерево недоступно')
     expect(wrapper.emitted('add')).toBeUndefined()
     expect(exportsApi.inspectExactNexusImage).not.toHaveBeenCalled()
   })
