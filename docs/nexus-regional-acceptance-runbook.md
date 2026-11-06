@@ -121,12 +121,14 @@ DTO, недоступный inventory, доступность формы руч�
 корректный корневой **HTTPS origin** с валидным TCP port. Ошибочные
 IPv6-скобки, порт 0/выше 65535, текст вместо порта, путь, userinfo,
 query или fragment приводят к `helm_url_invalid` **до HTTP-запроса**
-и не раскрывают credentials. Прежде чем отправлять chart через
-Nexus Components API, TARGET проверяет REST metadata **именно
-запрошенного** Helm hosted repository: если поле `name` присутствует
-и не совпадает с выбранным repository, upload запрещён. Отсутствие
-подтверждённых ACL/format/type также исключает запись; Nexus
-proxy/group остаются только для чтения. Это программные гарантии,
+и не раскрывают credentials. **До классификации TARGET-плана**
+(`NEW/SAME/CONFLICT`) и повторно **перед загрузкой** через Nexus
+Components API Portal проверяет REST metadata **именно запрошенного**
+Helm repository. Обязательны явные `name` (точное совпадение),
+`format=helm`, `type=hosted`; отсутствие `name`, чужое имя,
+proxy/group, запрет 401/403, redirect или недостоверный JSON блокируют
+план и upload. Даже корректный `index.yaml` сам по себе не доказывает
+hosted-тип или write ACL. Nexus proxy/group остаются только для чтения. Это программные гарантии,
 которые не заменяют тесты реальных сервисных ACL и approved
 repository endpoints в региональной сети.
 

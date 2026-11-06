@@ -62,10 +62,13 @@ repositories не допускают обхода прав через глоба
 3. Helm index должен иметь однозначные chart/version/digest и безопасные
    package paths; `.tgz` валидируется по SHA-256 и Chart.yaml. Отказ
    отдельного repository обрабатывается независимо.
-4. TARGET объявляет Helm version отсутствующей по 404 `index.yaml`
-   **только после подтверждения, что metadata относится к запрошенному
-   Helm hosted repository**. Другая `name`, `format` или `type` не
-   является доказательством `ABSENT` и запрещает операцию.
+4. Перед **любым** Helm TARGET-планом (`NEW/SAME/CONFLICT`), даже если
+   `index.yaml` доступен, и непосредственно перед upload требуется
+   подтверждение Nexus REST metadata: явный `name`, равный запрошенному
+   repository, `format=helm` и `type=hosted`. Ошибка/отказ metadata,
+   отсутствие имени или чужие формат/тип запрещают план. Только после
+   этой проверки 404 `index.yaml` может означать `ABSENT` для пустого
+   hosted repository; обычный индекс и его digest не подтверждают ACL.
 5. Запись разрешена только в явный approved hosted repository с
    подтверждённой TARGET identity. Proxy/group — read-only.
    Конфликт digest/version не перезаписывается.

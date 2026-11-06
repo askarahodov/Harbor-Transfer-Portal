@@ -11,7 +11,10 @@ import httpx
 import pytest
 import yaml
 
+from app.domain.imports import ImportPreviewState
+from app.services.harbor_destination_validator import DestinationCapability
 from app.services.helm_oci_service import HelmChartReference, HelmServiceError, HelmTargetState
+from app.services.import_destination_plan import ImportDestinationPlanOrchestrator
 from app.services.nexus_helm_http import (
     NexusHelmAdapter,
     NexusHelmHttpError,
@@ -197,7 +200,7 @@ async def test_first_helm_hosted_upload_accepts_missing_index_after_type_check(
     def handler(request):
         state["calls"].append(request)
         if request.url.path == "/service/rest/v1/repositories/helm-a":
-            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+            return httpx.Response(200, json={"name": "helm-a", "format": "helm", "type": "hosted"})
         if request.url.path == "/service/rest/v1/components":
             state["upload"] = True
             return httpx.Response(204)
@@ -233,7 +236,7 @@ async def test_helm_upload_polls_delayed_index_without_repeating_post(
     def handler(request):
         state["calls"].append(request)
         if request.url.path == "/service/rest/v1/repositories/helm-a":
-            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+            return httpx.Response(200, json={"name": "helm-a", "format": "helm", "type": "hosted"})
         if request.url.path == "/service/rest/v1/components":
             state["upload"] = True
             return httpx.Response(204)
@@ -310,6 +313,14 @@ async def test_helm_bridge_inspects_same_conflict_and_absent(client_service):
     state["present"] = False
     absent = await bridge.inspect_target(chart, expected_digest="sha256:" + digest)
     assert absent.state == HelmTargetState.ABSENT
+    assert [request.url.path for request in state["calls"]] == [
+        path
+        for _ in range(3)
+        for path in (
+            "/repository/helm-a/index.yaml",
+            "/service/rest/v1/repositories/helm-a",
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -381,7 +392,7 @@ async def test_helm_bridge_empty_hosted_404_is_safe_new(client_service):
         if request.url.path == "/repository/helm-a/index.yaml":
             return httpx.Response(404)
         if request.url.path == "/service/rest/v1/repositories/helm-a":
-            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+            return httpx.Response(200, json={"name": "helm-a", "format": "helm", "type": "hosted"})
         return httpx.Response(404)
 
     def factory(**kwargs):
@@ -433,13 +444,191 @@ async def test_helm_bridge_empty_index_requires_matching_hosted_repository(
             HelmChartReference("helm-a", "demo", "1.2.3"),
             expected_digest="sha256:" + "a" * 64,
         )
-    assert error.value.code == "helm_index_missing"
+    assert error.value.code == "helm_repository_read_only"
     assert [request.url.path for request in state["calls"]] == [
         "/repository/helm-a/index.yaml",
         "/service/rest/v1/repositories/helm-a",
     ]
     assert all(request.method == "GET" for request in state["calls"])
     assert all(request.url.host == "nexus.example.test" for request in state["calls"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("catalog_has_chart", [True, False])
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"name": "foreign-helm", "format": "helm", "type": "hosted"},
+        {"name": "helm-a", "format": "docker", "type": "hosted"},
+        {"name": "helm-a", "format": "helm", "type": "proxy"},
+        {"name": "helm-a", "format": "helm", "type": "group"},
+        {"format": "helm", "type": "hosted"},
+    ],
+)
+async def test_target_never_plans_from_index_without_exact_hosted_identity(
+    client_service, monkeypatch: pytest.MonkeyPatch,
+    catalog_has_chart: bool, metadata: dict[str, str],
+) -> None:
+    service, state, _data, digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["calls"].append(request)
+        if request.url.path == "/repository/helm-a/index.yaml":
+            entries = [{
+                "version": "1.2.3", "digest": digest,
+                "urls": ["demo-1.2.3.tgz"],
+            }] if catalog_has_chart else []
+            return httpx.Response(200, text=yaml.safe_dump({
+                "entries": {"demo": entries},
+            }))
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            return httpx.Response(200, json=metadata)
+        raise AssertionError("Unverified TARGET repository must not trigger a write")
+
+    def factory(**kwargs):
+        assert kwargs["follow_redirects"] is False
+        assert kwargs["trust_env"] is False
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    with pytest.raises(HelmServiceError) as error:
+        await bridge.inspect_target(
+            HelmChartReference("helm-a", "demo", "1.2.3"),
+            expected_digest="sha256:" + digest,
+        )
+    assert error.value.code == "helm_repository_read_only"
+    assert [request.url.path for request in state["calls"]] == [
+        "/repository/helm-a/index.yaml",
+        "/service/rest/v1/repositories/helm-a",
+    ]
+    assert all(request.method == "GET" for request in state["calls"])
+    assert all(request.url.host == "nexus.example.test" for request in state["calls"])
+    assert "secret-not-for-logs" not in error.value.message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response_kind", ["denied", "redirect", "invalid-json"])
+async def test_target_index_alone_never_bypasses_metadata_lookup_failure(
+    client_service, monkeypatch: pytest.MonkeyPatch, response_kind: str,
+) -> None:
+    service, state, _data, digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["calls"].append(request)
+        if request.url.path == "/repository/helm-a/index.yaml":
+            return httpx.Response(200, text=yaml.safe_dump({
+                "entries": {"demo": [{
+                    "version": "1.2.3", "digest": digest,
+                    "urls": ["demo-1.2.3.tgz"],
+                }]},
+            }))
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            if response_kind == "invalid-json":
+                return httpx.Response(200, text="<html>no metadata</html>")
+            return httpx.Response(
+                403 if response_kind == "denied" else 302,
+                headers={"Location": "https://untrusted.invalid/"},
+            )
+        raise AssertionError("Unverified metadata must not cause a write")
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    with pytest.raises(HelmServiceError) as error:
+        await bridge.inspect_target(
+            HelmChartReference("helm-a", "demo", "1.2.3"),
+            expected_digest="sha256:" + digest,
+        )
+    assert error.value.code == (
+        "helm_repository_invalid"
+        if response_kind == "invalid-json"
+        else "helm_repository_unavailable"
+    )
+    assert len(state["calls"]) == 2
+    assert all(request.url.host == "nexus.example.test" for request in state["calls"])
+    assert all(request.method == "GET" for request in state["calls"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["proxy", "group"])
+async def test_nexus_helm_destination_plan_does_not_claim_write_for_read_only_repository(
+    client_service, kind: str,
+) -> None:
+    service, state, _data, digest = client_service
+    state["kind"] = kind
+    bridge = NexusHelmAdapter.__new__(NexusHelmAdapter)
+    bridge.client = service
+    planner = ImportDestinationPlanOrchestrator.__new__(ImportDestinationPlanOrchestrator)
+
+    class ForbiddenDockerValidator:
+        registry_host = "not-applicable"
+
+        async def validate(self, project: str, repository: str) -> DestinationCapability:
+            raise AssertionError("Nexus Helm HTTP must not use Docker preflight")
+
+    planned = await planner._plan_chart(
+        {
+            "index": 0,
+            "artifact_type": "helm-chart",
+            "source_repository": "helm-source/demo",
+            "source_project": "helm-source",
+            "name": "demo",
+            "version": "1.2.3",
+            "expected_digest": "sha256:" + digest,
+            "payload_size": 1024,
+        },
+        target_project="helm-a",
+        target_repository="helm-a",
+        name="demo",
+        version="1.2.3",
+        expected_digest="sha256:" + digest,
+        validator=ForbiddenDockerValidator(),
+        helm=bridge,
+    )
+    assert planned.classification == ImportPreviewState.ERROR
+    assert planned.error_code == "helm_repository_read_only"
+    assert planned.project_exists
+    assert not planned.write_allowed
+    assert [request.url.path for request in state["calls"]] == [
+        "/repository/helm-a/index.yaml",
+        "/service/rest/v1/repositories/helm-a",
+    ]
+    assert all(request.method == "GET" for request in state["calls"])
+
+
+@pytest.mark.asyncio
+async def test_helm_upload_requires_explicit_metadata_name_before_post(
+    client_service, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    service, state, data, _digest = client_service
+    original = REAL_ASYNC_CLIENT
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["calls"].append(request)
+        if request.url.path == "/service/rest/v1/repositories/helm-a":
+            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+        raise AssertionError("Unconfirmed metadata must not trigger index or POST")
+
+    def factory(**kwargs):
+        return original(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    package = tmp_path / "demo-1.2.3.tgz"
+    package.write_bytes(data)
+    with pytest.raises(NexusHelmHttpError) as error:
+        await service.upload_chart("helm-a", "demo", "1.2.3", package)
+    assert error.value.code == "helm_repository_read_only"
+    assert [request.url.path for request in state["calls"]] == [
+        "/service/rest/v1/repositories/helm-a",
+    ]
+    assert all(request.method == "GET" for request in state["calls"])
 
 
 @pytest.mark.asyncio
@@ -512,7 +701,7 @@ async def test_malformed_target_index_never_allows_upload_or_absent_plan(
     def handler(request):
         state["calls"].append(request)
         if request.url.path == "/service/rest/v1/repositories/helm-a":
-            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+            return httpx.Response(200, json={"name": "helm-a", "format": "helm", "type": "hosted"})
         if request.url.path == "/repository/helm-a/index.yaml":
             return httpx.Response(200, text=yaml.safe_dump({
                 "entries": {"demo": [bad_record]},
@@ -550,7 +739,7 @@ async def test_duplicate_chart_version_fails_closed_before_target_upload(
     def handler(request):
         state["calls"].append(request)
         if request.url.path == "/service/rest/v1/repositories/helm-a":
-            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+            return httpx.Response(200, json={"name": "helm-a", "format": "helm", "type": "hosted"})
         if request.url.path == "/repository/helm-a/index.yaml":
             return httpx.Response(200, text=yaml.safe_dump({
                 "entries": {"demo": [
@@ -675,7 +864,7 @@ async def test_duplicate_yaml_mapping_keys_block_source_and_target(
     def handler(request: httpx.Request) -> httpx.Response:
         state["calls"].append(request)
         if request.url.path == "/service/rest/v1/repositories/helm-a":
-            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+            return httpx.Response(200, json={"name": "helm-a", "format": "helm", "type": "hosted"})
         if request.url.path == "/repository/helm-a/index.yaml":
             return httpx.Response(200, text=index_yaml)
         raise AssertionError("ambiguous Helm YAML must not trigger downloads or writes")
@@ -854,7 +1043,7 @@ async def test_helm_secondary_index_url_blocks_source_and_target_before_network(
     def handler(request: httpx.Request) -> httpx.Response:
         state["calls"].append(request)
         if request.url.path == "/service/rest/v1/repositories/helm-a":
-            return httpx.Response(200, json={"format": "helm", "type": "hosted"})
+            return httpx.Response(200, json={"name": "helm-a", "format": "helm", "type": "hosted"})
         if request.url.path == "/repository/helm-a/index.yaml":
             return httpx.Response(200, text=yaml.safe_dump({
                 "entries": {"demo": [{
