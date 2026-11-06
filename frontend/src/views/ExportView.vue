@@ -666,7 +666,7 @@ onBeforeUnmount(() => {
           <AlertTriangle :size="22" aria-hidden="true" />
           <div>
             <strong>Nexus · Docker Registry v2</strong>
-            <p>В Nexus Browse путь <code>docker-proxy / v2 / baseimage</code> означает образ <code>baseimage</code> внутри Docker repository <code>docker-proxy</code>. Проверьте образ и tag напрямую — полный каталог для этого не нужен.</p>
+            <p>В Nexus Browse путь <code>docker-proxy / v2 / baseimage</code> означает образ <code>baseimage</code> внутри Docker repository <code>docker-proxy</code>. Проверьте образ и tag напрямую — полный каталог для этого не нужен. Harbor API и Helm OCI не используются.</p>
             <NexusDockerBrowser
               v-if="wizard.selectedHarborProfileId"
               :key="wizard.selectedHarborProfileId"
@@ -689,7 +689,7 @@ onBeforeUnmount(() => {
                   <span>{{ item.format === 'docker' ? 'Docker' : 'Helm' }} · {{ item.kind }}</span>
                   <span class="muted">{{ item.format === 'helm'
                     ? 'Helm HTTP (.tgz) — SOURCE export; TARGET hosted upload требует прав'
-                    : 'Docker connector выбирается из привязанных профилей, image/tag проверяются ниже' }}</span>
+                    : 'Docker connector выбирается из привязанных профилей, image/tag проверяются в форме выше' }}</span>
                   <template v-if="item.format === 'docker'">
                     <span v-if="!dockerConnectorProfile(item.name)" class="muted">
                       Для этого Docker repository отдельный connector-профиль ещё не настроен.
