@@ -752,7 +752,7 @@ onBeforeUnmount(() => {
                   <option v-for="name in nexusRepositories" :key="name" :value="name" />
                 </datalist>
               </label>
-              <button class="secondary-button" type="button" :disabled="nexusBrowseBusy" @click="searchNexusRepositories">
+              <button class="secondary-button" type="button" :disabled="nexusBrowseBusy" @click="searchNexusRepositories()">
                 {{ nexusBrowseBusy ? 'Поиск репозиториев…' : 'Найти репозитории' }}
               </button>
               <p v-if="nexusCatalogMessage" class="muted" role="status">{{ nexusCatalogMessage }}</p>
@@ -772,7 +772,7 @@ onBeforeUnmount(() => {
                   <option v-for="tag in nexusTags" :key="tag" :value="tag" />
                 </datalist>
               </label>
-              <button type="button" class="secondary-button" :disabled="!exactRepository.trim() || nexusTagsBusy" @click="searchNexusTags">
+              <button type="button" class="secondary-button" :disabled="!exactRepository.trim() || nexusTagsBusy" @click="searchNexusTags()">
                 {{ nexusTagsBusy ? 'Поиск тегов…' : 'Найти теги' }}
               </button>
               <p v-if="nexusTagsMessage" class="muted" role="status">{{ nexusTagsMessage }}</p>
