@@ -144,6 +144,41 @@ class NexusHelmHttpService:
             follow_redirects=False, trust_env=False,
         )
 
+    async def _require_hosted_repository(
+        self, client: httpx.AsyncClient, repository: str
+    ) -> None:
+        """Confirm exact TARGET identity before planning or uploading a Helm chart."""
+        url = (
+            self._base() + "/service/rest/v1/repositories/"
+            + quote(self._repository(repository))
+        )
+        try:
+            response = await client.get(url)
+        except httpx.HTTPError as exc:
+            raise NexusHelmHttpError(
+                "helm_repository_unavailable", "Нет доступа к Helm repository"
+            ) from exc
+        if response.status_code != 200:
+            raise NexusHelmHttpError(
+                "helm_repository_unavailable", "Нет доступа к Helm repository"
+            )
+        try:
+            details = response.json()
+        except ValueError as exc:
+            raise NexusHelmHttpError(
+                "helm_repository_invalid", "Некорректный ответ Nexus"
+            ) from exc
+        if (
+            not isinstance(details, dict)
+            or details.get("name") != repository
+            or details.get("format") != "helm"
+            or details.get("type") != "hosted"
+        ):
+            raise NexusHelmHttpError(
+                "helm_repository_read_only",
+                "Запись разрешена только в подтверждённый Helm hosted repository",
+            )
+
     async def _load_index(
         self, client: httpx.AsyncClient, repository: str, *, strict: bool = False
     ) -> HelmHttpResult:
@@ -429,33 +464,8 @@ class NexusHelmHttpService:
             )
         self._validate_package(data, name, version)
         async with self._client() as client:
-            # No writes to proxy/group or repositories whose type cannot be verified.
-            meta_url = self._base() + "/service/rest/v1/repositories/" + quote(repository)
-            try:
-                meta = await client.get(meta_url)
-            except httpx.HTTPError as exc:
-                raise NexusHelmHttpError(
-                    "helm_repository_unavailable", "Нет доступа к Helm repository"
-                ) from exc
-            if meta.status_code != 200:
-                raise NexusHelmHttpError(
-                    "helm_repository_unavailable", "Нет доступа к Helm repository"
-                )
-            try:
-                details = meta.json()
-            except ValueError as exc:
-                raise NexusHelmHttpError(
-                    "helm_repository_invalid", "Некорректный ответ Nexus"
-                ) from exc
-            if (
-                not isinstance(details, dict)
-                or details.get("format") != "helm"
-                or details.get("type") != "hosted"
-                or details.get("name", repository) != repository
-            ):
-                raise NexusHelmHttpError(
-                    "helm_repository_read_only", "Запись разрешена только в Helm hosted"
-                )
+            # TARGET planning and write must agree on the exact hosted identity.
+            await self._require_hosted_repository(client, repository)
             # A malformed entry must never be interpreted as an absent version
             # during pre-write conflict detection.
             current = await self._load_index(client, repository, strict=True)
@@ -521,27 +531,16 @@ class NexusHelmAdapter:
         try:
             async with self.client._client() as http:
                 result = await self.client._load_index(http, chart.repository, strict=True)
+                # Reading an index proves neither hosted type nor repository identity.
+                # TARGET must refuse NEW/SAME/CONFLICT planning for proxy/group or
+                # foreign repositories, even when the chart is already indexed.
+                if result.available or result.code == "helm_index_missing":
+                    await self.client._require_hosted_repository(http, chart.repository)
         except NexusHelmHttpError as exc:
             raise self._error(exc) from exc
         if not result.available and result.code == "helm_index_missing":
-            # Empty hosted repos may not have an index until first chart upload.
-            # Never infer ABSENT from 404 without confirming repository identity.
-            try:
-                async with self.client._client() as http:
-                    meta = await http.get(
-                        self.client._base() + "/service/rest/v1/repositories/"
-                        + quote(self.client._repository(chart.repository))
-                    )
-                    details = meta.json() if meta.status_code == 200 else None
-            except (httpx.HTTPError, ValueError):
-                details = None
-            if (
-                isinstance(details, dict)
-                and details.get("format") == "helm"
-                and details.get("type") == "hosted"
-                and details.get("name", chart.repository) == chart.repository
-            ):
-                return HelmTargetInspection(HelmTargetState.ABSENT, None)
+            # A new hosted repository may have no index before its first upload.
+            return HelmTargetInspection(HelmTargetState.ABSENT, None)
         if not result.available:
             raise HelmServiceError(
                 result.code or "helm_index_unavailable",
