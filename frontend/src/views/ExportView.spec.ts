@@ -569,6 +569,55 @@ describe('SOURCE export wizard view', () => {
     wrapper.unmount()
   })
 
+  it('does not show a stale inspected digest after Nexus repository or tag changes', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [{
+        id: 'nexus-profile', name: 'Nexus', url: 'https://nexus.example.test',
+        registry_type: 'nexus', is_default: false,
+      }],
+    })
+    vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: false, items: [], message: 'Нет доступа к inventory',
+    })
+    vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: false, items: [], message: 'Каталог закрыт', truncated: false,
+    })
+    vi.spyOn(exportsApi, 'listNexusTags').mockResolvedValue({
+      available: false, items: [], message: 'Теги закрыты', truncated: false,
+    })
+    let resolveInspection: ((value: exportsApi.ExactNexusInspection) => void) | undefined
+    const inspect = vi.spyOn(exportsApi, 'inspectExactNexusImage').mockImplementation(
+      () => new Promise((resolve) => { resolveInspection = resolve }),
+    )
+    const harborProjects = vi.spyOn(exportsApi, 'listHarborProjects')
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('input[placeholder="team/application"]').setValue('team/app')
+    await wrapper.get('input[placeholder="1.0.0"]').setValue('v1')
+    await wrapper.get('form.nexus-exact-form').trigger('submit')
+    expect(inspect).toHaveBeenCalledWith('nexus-profile', 'team/app', 'v1')
+    expect(resolveInspection).toBeDefined()
+
+    // The operator changes the tag while the previous async digest probe is in flight.
+    await wrapper.get('input[placeholder="1.0.0"]').setValue('v2')
+    resolveInspection?.({
+      repository: 'team/app', reference: 'v1', digest: DIGEST, media_type: null,
+    })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Найден team/app:v1')
+    expect(wrapper.findAll('button').some((item) =>
+      item.text().includes('Добавить образ в выбор'),
+    )).toBe(false)
+    expect(harborProjects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('renders an actionable TARGET fallback and does not browse Harbor', async () => {
     const connection = vi.spyOn(exportsApi, 'getHarborConnection')
     const runtime = useRuntimeStore(pinia)
