@@ -447,14 +447,14 @@ onBeforeUnmount(() => {
   <section class="nexus-browser" aria-label="Каталог Docker-образов Nexus">
     <header class="nexus-browser__heading">
       <div>
-        <h3>Docker-образы Nexus: дерево и версии</h3>
+        <h3>Docker-образы и версии Nexus</h3>
         <p class="muted">
           Nexus repository: <strong>{{ nexusRepository || 'текущий Docker connector' }}</strong>.
-          Раскройте папку, выберите образ и tag; digest проверяется перед добавлением.
+          Найдите образ, выберите версии в таблице и добавьте проверенные SHA-256 digest.
         </p>
       </div>
       <button type="button" class="secondary-button" :disabled="repoBusy" @click="searchAcrossPages()">
-        Обновить дерево
+        Обновить список
       </button>
     </header>
     <section class="nexus-browser__picker" aria-label="Выбор Docker image Nexus">
