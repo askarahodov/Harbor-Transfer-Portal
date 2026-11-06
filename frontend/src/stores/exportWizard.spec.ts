@@ -262,6 +262,29 @@ describe('export wizard store', () => {
     expect(store.selectedArtifacts).toEqual([])
   })
 
+  it('adds Nexus root and nested Docker images without inventing a Harbor-style project', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [{
+        id: 'nexus', name: 'Nexus docker-proxy',
+        url: 'https://docker.example.test', registry_type: 'nexus', is_default: false,
+      }],
+    })
+    const store = useExportWizardStore()
+    await store.initialize()
+    expect(store.isNexus).toBe(true)
+    expect(store.addExactNexusImage('baseimage', 'latest', DIGEST)).toBe(true)
+    expect(store.addExactNexusImage('cbl-mariner/base/redis', '6.2', DIGEST)).toBe(true)
+    expect(store.addExactNexusImage('cbl-mariner/base/redis', '6.2-arm64', DIGEST)).toBe(true)
+    // Distinct tags may share the same manifest digest: keep both export choices.
+    expect(store.selectedCount).toBe(3)
+    expect(store.selectedArtifacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ project: null, repository: 'baseimage', reference: 'latest' }),
+      expect.objectContaining({ project: 'cbl-mariner', repository: 'base/redis', reference: '6.2' }),
+    ]))
+    expect(store.addExactNexusImage('../escape', 'latest', DIGEST)).toBe(false)
+    expect(store.selectedCount).toBe(3)
+  })
+
   it('debounces all Harbor search inputs and resets pagination before requesting', async () => {
     vi.useFakeTimers()
     const store = useExportWizardStore()

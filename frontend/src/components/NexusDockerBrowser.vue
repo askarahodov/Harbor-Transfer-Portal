@@ -69,6 +69,16 @@ function toggleFolder(path: string): void {
     : [...collapsedPaths.value, path]
 }
 const tags = ref<string[]>([])
+const candidateTags = ref<string[]>([])
+const inspectedDigests = ref<Record<string, string>>({})
+const bulkBusy = ref(false)
+const bulkError = ref<string | null>(null)
+const MAX_BATCH = 25
+const VERSION_PAGE_SIZE = 25
+const versionPage = ref(1)
+const visibleTags = computed(() =>
+  tags.value.slice((versionPage.value - 1) * VERSION_PAGE_SIZE, versionPage.value * VERSION_PAGE_SIZE),
+)
 const selectedRepository = ref('')
 const selectedTag = ref('')
 const inspection = ref<ExactNexusInspection | null>(null)
@@ -85,6 +95,7 @@ const tagPagesRead = ref(0)
 let generation = 0
 let tagGeneration = 0
 let inspectionGeneration = 0
+let bulkGeneration = 0
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let tagTimer: ReturnType<typeof setTimeout> | null = null
 const seenCursors = new Set<string>()
@@ -93,6 +104,12 @@ const seenTagCursors = new Set<string>()
 function resetTag(): void {
   tagGeneration += 1
   inspectionGeneration += 1
+  bulkGeneration += 1
+  candidateTags.value = []
+  versionPage.value = 1
+  inspectedDigests.value = {}
+  bulkError.value = null
+  bulkBusy.value = false
   tags.value = []
   tagQuery.value = ''
   selectedTag.value = ''
@@ -177,10 +194,13 @@ async function readTags(next = false): Promise<void> {
   const id = props.profileId
   const repository = selectedRepository.value
   const search = tagQuery.value.trim()
-  if (!id || !repository || tagsBusy.value) return
+  if (!id || !repository || tagsBusy.value || bulkBusy.value) return
   if (!next) {
     tagGeneration += 1
     tags.value = []
+    candidateTags.value = []
+    versionPage.value = 1
+    bulkError.value = null
     tagCursor.value = null
     seenTagCursors.clear()
     tagPagesRead.value = 0
@@ -239,6 +259,7 @@ function openKnownImage(): void {
 }
 
 async function inspectKnownImage(): Promise<void> {
+  if (bulkBusy.value) return
   const name = knownImage.value.trim()
   const tag = knownTag.value.trim()
   knownError.value = null
@@ -271,6 +292,7 @@ async function chooseTag(tag: string): Promise<void> {
     if (current === inspectionGeneration && id === props.profileId
         && repository === selectedRepository.value && tag === selectedTag.value) {
       inspection.value = value
+      inspectedDigests.value = { ...inspectedDigests.value, [tag]: value.digest }
     }
   } catch (reason) {
     if (current === inspectionGeneration) {
@@ -282,6 +304,106 @@ async function chooseTag(tag: string): Promise<void> {
     if (current === inspectionGeneration) inspectBusy.value = false
   }
 }
+function toggleCandidate(tag: string): void {
+  if (bulkBusy.value) return
+  bulkError.value = null
+  if (candidateTags.value.includes(tag)) {
+    candidateTags.value = candidateTags.value.filter(value => value !== tag)
+  } else if (candidateTags.value.length >= MAX_BATCH) {
+    bulkError.value = `За один раз можно выбрать не более ${MAX_BATCH} тегов.`
+  } else {
+    candidateTags.value = [...candidateTags.value, tag]
+  }
+}
+
+function toggleVisibleCandidates(): void {
+  if (bulkBusy.value) return
+  const visible = visibleTags.value
+  const allSelected = visible.length > 0 && visible.every(tag => candidateTags.value.includes(tag))
+  if (allSelected) {
+    candidateTags.value = candidateTags.value.filter(tag => !visible.includes(tag))
+    bulkError.value = null
+    return
+  }
+  const merged = [...new Set([...candidateTags.value, ...visible])]
+  if (merged.length > MAX_BATCH) {
+    bulkError.value = `Выберите до ${MAX_BATCH} тегов. При необходимости добавьте следующую группу отдельно.`
+    return
+  }
+  bulkError.value = null
+  candidateTags.value = merged
+}
+
+async function nextVersionPage(): Promise<void> {
+  if (bulkBusy.value || tagsBusy.value) return
+  if (versionPage.value * VERSION_PAGE_SIZE < tags.value.length) {
+    versionPage.value += 1
+    return
+  }
+  if (!tagCursor.value) return
+  const before = tags.value.length
+  await readTags(true)
+  if (tags.value.length > before) versionPage.value += 1
+}
+function previousVersionPage(): void {
+  if (!bulkBusy.value && versionPage.value > 1) versionPage.value -= 1
+}
+
+/** Verify every selected tag independently before adding any to the export.
+ * The 3-worker limit bounds service-account load on large Nexus proxy repositories.
+ * A partial failure produces no partial export selection.
+ */
+async function addCandidates(): Promise<void> {
+  const id = props.profileId
+  const repository = selectedRepository.value
+  const chosen = [...candidateTags.value]
+  if (!id || !repository || !chosen.length || bulkBusy.value) return
+  bulkBusy.value = true
+  bulkError.value = null
+  const verification = ++bulkGeneration
+  const results: Array<ExactNexusInspection | null> = Array(chosen.length).fill(null)
+  const failures: string[] = []
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < chosen.length) {
+      const index = next++
+      const tag = chosen[index]
+      try {
+        const inspected = await inspectExactNexusImage(id, repository, tag)
+        if (inspected.repository !== repository || inspected.reference !== tag
+          || !/^sha256:[a-f0-9]{64}$/.test(inspected.digest)) {
+          failures.push(tag)
+        } else {
+          results[index] = inspected
+        }
+      } catch {
+        failures.push(tag)
+      }
+    }
+  }
+  try {
+    await Promise.all(Array.from({ length: Math.min(3, chosen.length) }, () => worker()))
+    if (verification !== bulkGeneration || id !== props.profileId
+      || repository !== selectedRepository.value) return
+    if (failures.length) {
+      bulkError.value = `Не удалось проверить ${failures.length} из ${chosen.length} тегов. Ничего не добавлено. Проверьте права и доступность версий в Nexus.`
+      return
+    }
+    if (results.some(v => v === null)) return
+    for (const inspected of results) {
+      if (inspected) emit('add', inspected.repository, inspected.reference, inspected.digest)
+    }
+    inspectedDigests.value = {
+      ...inspectedDigests.value,
+      ...Object.fromEntries(results.filter((v): v is ExactNexusInspection => v !== null)
+        .map(v => [v.reference, v.digest])),
+    }
+    candidateTags.value = []
+  } finally {
+    if (verification === bulkGeneration) bulkBusy.value = false
+  }
+}
+
 function scheduleSearch(): void {
   if (searchTimer) clearTimeout(searchTimer)
   resetCatalog()
@@ -391,14 +513,59 @@ onBeforeUnmount(() => {
         {{ tagsBusy ? 'Читаем версии…' : `Версий: ${tags.length} · страниц: ${tagPagesRead}` }}
         {{ tagCursor ? '· Есть следующие страницы' : '' }}
       </p>
-      <ul v-if="tags.length" class="nexus-browser__list" aria-label="Теги Docker">
-        <li v-for="tag in tags" :key="tag">
-          <button type="button" class="secondary-button" :aria-pressed="selectedTag === tag"
-            @click="chooseTag(tag)">{{ tag }}</button>
-        </li>
-      </ul>
-      <button v-if="tagCursor" type="button" class="secondary-button"
-        :disabled="tagsBusy" @click="readTags(true)">Следующая страница тегов</button>
+      <div v-if="tags.length" class="nexus-browser__table-wrap" aria-label="Таблица версий Nexus">
+        <table class="nexus-browser__table">
+          <thead>
+            <tr>
+              <th scope="col">
+                <input type="checkbox" aria-label="Выбрать все видимые версии"
+                  :disabled="bulkBusy"
+                  :checked="visibleTags.length > 0 && visibleTags.every(tag => candidateTags.includes(tag))"
+                  @change="toggleVisibleCandidates" />
+              </th>
+              <th scope="col">Версия / tag</th>
+              <th scope="col">Тип</th>
+              <th scope="col">Digest</th>
+              <th scope="col">Размер</th>
+              <th scope="col">Добавлен</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="tag in visibleTags" :key="tag"
+              :class="{ 'nexus-browser__row--selected': candidateTags.includes(tag) }">
+              <td><input type="checkbox" :aria-label="'Выбрать ' + tag"
+                :disabled="bulkBusy" :checked="candidateTags.includes(tag)"
+                @change="toggleCandidate(tag)" /></td>
+              <td><button type="button" class="nexus-browser__tag-link"
+                :aria-pressed="selectedTag === tag" :disabled="inspectBusy || bulkBusy"
+                @click="chooseTag(tag)">{{ tag }}</button></td>
+              <td>Container image</td>
+              <td><code v-if="inspectedDigests[tag]" :title="inspectedDigests[tag]">
+                {{ inspectedDigests[tag].slice(0, 17) }}…{{ inspectedDigests[tag].slice(-8) }}
+              </code><span v-else class="muted">Не проверен</span></td>
+              <td class="muted">—</td>
+              <td class="muted">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-if="tags.length" class="nexus-browser__table-actions">
+        <span class="muted">{{ candidateTags.length ? `Выбрано: ${candidateTags.length}` : 'Отметьте нужные версии.' }}</span>
+        <button type="button" class="nexus-browser__add"
+          :disabled="!candidateTags.length || bulkBusy || inspectBusy"
+          @click="addCandidates">
+          {{ bulkBusy ? 'Проверка digest…' : `Добавить выбранное (${candidateTags.length})` }}
+        </button>
+      </div>
+      <p v-if="bulkError" role="alert">{{ bulkError }}</p>
+      <div v-if="tags.length || tagCursor" class="nexus-browser__pagination" aria-label="Страницы версий Nexus">
+        <button type="button" :disabled="versionPage <= 1 || bulkBusy || tagsBusy"
+          @click="previousVersionPage">Назад</button>
+        <span>Страница {{ versionPage }} · показано {{ visibleTags.length }} из {{ tags.length }} загруженных</span>
+        <button type="button"
+          :disabled="bulkBusy || tagsBusy || (versionPage * VERSION_PAGE_SIZE >= tags.length && !tagCursor)"
+          @click="nextVersionPage">Далее</button>
+      </div>
       <p v-if="inspectionError" role="alert">{{ inspectionError }}</p>
       <p v-if="inspectBusy" role="status">Проверяем digest в Nexus…</p>
       <div v-if="inspection" class="nexus-browser__verified" role="status">
@@ -431,9 +598,9 @@ onBeforeUnmount(() => {
             aria-label="Точный tag Docker image" placeholder="latest" />
         </label>
         <div class="nexus-browser__direct-actions">
-          <button type="button" class="secondary-button" :disabled="tagsBusy || !knownImage.trim()"
+          <button type="button" class="secondary-button" :disabled="tagsBusy || bulkBusy || !knownImage.trim()"
             @click="openKnownImage">Показать теги этого образа</button>
-          <button type="submit" class="secondary-button" :disabled="inspectBusy || !knownImage.trim() || !knownTag.trim()">
+          <button type="submit" class="secondary-button" :disabled="inspectBusy || bulkBusy || !knownImage.trim() || !knownTag.trim()">
             {{ inspectBusy ? 'Проверяем…' : 'Проверить image и digest' }}
           </button>
         </div>
@@ -460,13 +627,30 @@ onBeforeUnmount(() => {
 .nexus-browser__direct summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-3); }
 .nexus-browser__tree { display: grid; gap: var(--space-2); list-style: none; padding: 0; margin: 0; max-height: 400px; overflow-y: auto; }
 .nexus-browser__tree-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
-.nexus-browser__tree-row button { text-align: left; overflow-wrap: anywhere; }
+.nexus-browser__tree-row button { min-height: 34px; text-align: left; overflow-wrap: anywhere; border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; color: var(--color-text); padding: 6px var(--space-3); cursor: pointer; }
+.nexus-browser__tree-row button:hover, .nexus-browser__tree-row button:focus-visible { background: var(--color-surface-subtle); border-color: var(--color-border); }
+.nexus-browser__tree-row button[aria-pressed="true"] { background: var(--color-info-surface); border-color: var(--color-action); color: var(--color-text); }
+.nexus-browser__tree-row button:disabled { cursor: not-allowed; }
 .nexus-browser__direct code { overflow-wrap: anywhere; }
 .nexus-browser h3, .nexus-browser h4 { margin: 0; }
 .nexus-browser__label { display: grid; gap: var(--space-2); font-weight: 600; }
 .nexus-browser input { width: 100%; min-height: 40px; padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
-.nexus-browser__list { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-2); max-height: 360px; overflow-y: auto; }
-.nexus-browser__list button { width: 100%; text-align: left; overflow-wrap: anywhere; }
+.nexus-browser__table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.nexus-browser__table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px; }
+.nexus-browser__table th, .nexus-browser__table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: middle; }
+.nexus-browser__table th { color: var(--color-text-muted); font-size: 12px; }
+.nexus-browser__table tr:last-child td { border-bottom: 0; }
+.nexus-browser__table input[type="checkbox"] { width: 16px; min-height: 16px; cursor: pointer; }
+.nexus-browser__row--selected { background: var(--color-info-surface); }
+.nexus-browser__table code { font-size: 12px; }
+.nexus-browser__tag-link { border: 0; background: none; color: var(--color-action); padding: 0; font: inherit; text-align: left; font-weight: 700; cursor: pointer; }
+.nexus-browser__tag-link:hover { text-decoration: underline; }
+.nexus-browser__table-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; font-size: 13px; }
+.nexus-browser__add { min-height: 36px; padding: 0 var(--space-3); border: 1px solid var(--color-action); border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); font-weight: 700; cursor: pointer; }
+.nexus-browser__add:disabled { opacity: .5; cursor: not-allowed; }
+.nexus-browser__pagination { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: var(--space-3); color: var(--color-text-muted); font-size: 12px; }
+.nexus-browser__pagination button { border: 0; background: transparent; color: var(--color-action); cursor: pointer; }
+.nexus-browser__pagination button:disabled { opacity: .5; cursor: not-allowed; }
 .nexus-browser__versions { display: grid; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
 .nexus-browser__verified { display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
 .nexus-browser__verified code { overflow-wrap: anywhere; }

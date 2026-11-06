@@ -47,8 +47,13 @@ function storageOrNull(): Storage | null {
   return typeof window === 'undefined' ? null : window.sessionStorage
 }
 
-function selectedKey(selection: ExportSelection): string {
-  return [selection.kind, selection.project, selection.repository, selection.digest].join('|')
+function selectedKey(selection: ExportSelection, preserveTag = false): string {
+  // Harbor historically deduplicates tag aliases by immutable digest.
+  // Nexus Docker SOURCE must preserve operator-selected exact tag references.
+  return [
+    selection.kind, selection.project, selection.repository,
+    ...(preserveTag ? [selection.reference] : []), selection.digest,
+  ].join('|')
 }
 
 function savedOperationId(): number | null {
@@ -434,7 +439,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
       digest: `sha256:${sha256}`,
       size_bytes: null,
     }
-    selected.value = { ...selected.value, [selectedKey(selection)]: selection }
+    selected.value = { ...selected.value, [selectedKey(selection, true)]: selection }
     preview.value = null
     return true
   }
@@ -446,17 +451,13 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   ): boolean {
     if (!isNexus.value || !selectedHarborProfileId.value) return false
     const separator = repositoryPath.indexOf('/')
-    if (separator <= 0 || separator === repositoryPath.length - 1) {
-      error.value = {
-        code: 'registry_reference_invalid',
-        message: 'Укажите repository с namespace: team/application.',
-      }
-      return false
-    }
-    const project = repositoryPath.slice(0, separator)
-    const repository = repositoryPath.slice(separator + 1)
-    if (!/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(project) ||
-        !/^[a-z0-9]+(?:[._/-][a-z0-9]+)*$/.test(repository) ||
+    // Nexus Docker v2 allows both root names (baseimage) and nested names
+    // (cbl-mariner/base/redis). Unlike Harbor, the first path segment is not
+    // necessarily a project. A null project preserves root-level image identity.
+    const project = separator === -1 ? null : repositoryPath.slice(0, separator)
+    const repository = separator === -1 ? repositoryPath : repositoryPath.slice(separator + 1)
+    if ((project !== null && !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(project)) ||
+        !/^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/.test(repository) ||
         !/^sha256:[a-f0-9]{64}$/.test(digest)) {
       error.value = {
         code: 'registry_reference_invalid',
@@ -472,7 +473,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
       digest,
       size_bytes: null,
     }
-    selected.value = { ...selected.value, [selectedKey(item)]: item }
+    selected.value = { ...selected.value, [selectedKey(item, true)]: item }
     preview.value = null
     clearError()
     return true

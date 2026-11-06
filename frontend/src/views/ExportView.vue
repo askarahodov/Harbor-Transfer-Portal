@@ -662,8 +662,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div v-if="wizard.isNexus" class="notice notice--info" role="status">
-          <AlertTriangle :size="22" aria-hidden="true" />
+        <div v-if="wizard.isNexus" class="nexus-source-workspace">
           <div>
             <strong>Nexus · Docker Registry v2</strong>
             <p>В Nexus Browse путь <code>docker-proxy / v2 / baseimage</code> означает образ <code>baseimage</code> внутри Docker repository <code>docker-proxy</code>. Проверьте образ и tag напрямую — полный каталог для этого не нужен. Harbor API и Helm OCI не используются.</p>
@@ -875,11 +874,11 @@ onBeforeUnmount(() => {
         <div v-if="wizard.selectedArtifacts.length" class="selected-artifacts" aria-label="Выбранные артефакты">
           <div
             v-for="artifact in wizard.selectedArtifacts"
-            :key="[artifact.kind, artifact.project, artifact.repository, artifact.digest].join('|')"
+            :key="[artifact.kind, artifact.project, artifact.repository, artifact.reference, artifact.digest].join('|')"
             class="selected-artifact"
           >
             <div>
-              <strong>{{ artifact.project }}/{{ artifact.repository }}:{{ artifact.reference }}</strong>
+              <strong>{{ artifact.project ? artifact.project + '/' : '' }}{{ artifact.repository }}:{{ artifact.reference }}</strong>
               <span>{{ kindLabel(artifact.kind) }} · {{ formatBytes(artifact.size_bytes) }}</span>
               <code :title="artifact.digest">{{ shortDigest(artifact.digest) }}</code>
             </div>
@@ -940,9 +939,9 @@ onBeforeUnmount(() => {
               <tr><th>Тип</th><th>Артефакт</th><th>Reference</th><th>Digest SOURCE</th><th>Размер</th></tr>
             </thead>
             <tbody>
-              <tr v-for="item in wizard.preview?.artifacts" :key="`${item.project}/${item.repository}:${item.reference}`">
+              <tr v-for="item in wizard.preview?.artifacts" :key="`${item.project ?? ''}/${item.repository}:${item.reference}`">
                 <td>{{ kindLabel(item.kind) }}</td>
-                <td>{{ item.project }}/{{ item.repository }}</td>
+                <td>{{ item.project ? item.project + '/' : '' }}{{ item.repository }}</td>
                 <td><strong>{{ item.reference }}</strong></td>
                 <td class="digest" :title="item.source_digest">{{ shortDigest(item.source_digest) }}</td>
                 <td>{{ formatBytes(item.size_bytes) }}</td>
@@ -1104,6 +1103,9 @@ h3 { margin-bottom: var(--space-2); font-size: 16px; }
 .selected-artifact code { overflow-wrap: anywhere; font-size: 12px; }
 .browser-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
 .compact-selector { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr); gap: var(--space-3); align-items: end; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
+.nexus-source-workspace { padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); color: var(--color-text); min-width: 0; }
+.nexus-source-workspace > div { display: grid; gap: var(--space-3); min-width: 0; }
+.nexus-source-workspace p { color: var(--color-text-muted); margin: 0; }
 .compact-selector__versions { grid-column: 1 / -1; margin-top: var(--space-2); }
 .compact-field { display: grid; gap: var(--space-2); min-width: 0; font-weight: 700; }
 .compact-pagination { display: flex; align-items: center; justify-content: center; gap: var(--space-1); font-size: 12px; color: var(--color-text-muted); }

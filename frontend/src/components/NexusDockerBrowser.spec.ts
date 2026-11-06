@@ -33,8 +33,8 @@ describe('NexusDockerBrowser', () => {
       .trigger('click')
     await flushPromises()
     expect(exportsApi.listNexusTags).toHaveBeenCalledWith('proxy-id', 'bitnami/redis', '', undefined)
-    await wrapper.findAll('[aria-label="Теги Docker"] button')
-      .find(button => button.text() === '3.20')!.trigger('click')
+    await wrapper.get('button.nexus-browser__tag-link[aria-pressed="false"]')
+      .trigger('click')
     await flushPromises()
     expect(exportsApi.inspectExactNexusImage)
       .toHaveBeenCalledWith('proxy-id', 'bitnami/redis', '3.20')
@@ -92,7 +92,7 @@ describe('NexusDockerBrowser', () => {
     expect(exportsApi.listNexusTags).toHaveBeenCalledWith(
       'proxy-id', 'baseimage', '', undefined,
     )
-    expect(wrapper.get('[aria-label="Теги Docker"]').text()).toContain('1.0.0')
+    expect(wrapper.get('[aria-label="Таблица версий Nexus"]').text()).toContain('1.0.0')
     wrapper.unmount()
   })
 
@@ -139,7 +139,7 @@ describe('NexusDockerBrowser', () => {
     expect(exportsApi.listNexusTags).toHaveBeenCalledWith(
       'proxy-id', 'team/platform/api', '', undefined,
     )
-    await wrapper.findAll('[aria-label="Теги Docker"] button')
+    await wrapper.findAll('button.nexus-browser__tag-link')
       .find(button => button.text() === 'v2')!.trigger('click')
     await flushPromises()
     expect(exportsApi.inspectExactNexusImage).toHaveBeenCalledWith(
@@ -148,6 +148,113 @@ describe('NexusDockerBrowser', () => {
     await wrapper.findAll('button').find(button => button.text() === 'Добавить проверенный образ')!
       .trigger('click')
     expect(wrapper.emitted('add')?.[0]).toEqual(['team/platform/api', 'v2', DIGEST])
+    wrapper.unmount()
+  })
+
+  it('matches Harbor table layout and stages several Nexus tags for bounded verified export', async () => {
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: ['v1', 'v2', 'v3'], message: null,
+      truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.inspectExactNexusImage).mockImplementation(
+      async (_id, repository, reference) => ({
+        repository, reference, digest: DIGEST, media_type: null,
+      }),
+    )
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="Выбрать Docker image bitnami/redis"]').trigger('click')
+    await flushPromises()
+    const table = wrapper.get('table.nexus-browser__table')
+    expect(table.text()).toContain('Версия / tag')
+    expect(table.text()).toContain('Digest')
+    expect(table.text()).toContain('Размер')
+    expect(table.text()).toContain('Добавлен')
+    expect(table.text()).toContain('Не проверен')
+    await wrapper.get('input[aria-label="Выбрать v1"]').setValue(true)
+    await wrapper.get('input[aria-label="Выбрать v3"]').setValue(true)
+    expect(wrapper.text()).toContain('Выбрано: 2')
+    await wrapper.findAll('button').find(button => button.text() === 'Добавить выбранное (2)')!
+      .trigger('click')
+    await flushPromises()
+    expect(exportsApi.inspectExactNexusImage).toHaveBeenCalledTimes(2)
+    expect(wrapper.emitted('add')).toEqual([
+      ['bitnami/redis', 'v1', DIGEST],
+      ['bitnami/redis', 'v3', DIGEST],
+    ])
+    expect(table.text()).toContain('sha256:')
+    expect(wrapper.text()).toContain('Отметьте нужные версии')
+    wrapper.unmount()
+  })
+
+  it('keeps multi-selection atomic if one Nexus tag inspection fails', async () => {
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: ['v1', 'v2'], message: null,
+      truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.inspectExactNexusImage).mockImplementation(
+      async (_id, repository, reference) => {
+        if (reference === 'v2') throw new Error('upstream 403')
+        return { repository, reference, digest: DIGEST, media_type: null }
+      },
+    )
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="Выбрать Docker image alpine"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('input[aria-label="Выбрать все видимые версии"]').setValue(true)
+    await wrapper.findAll('button').find(button => button.text() === 'Добавить выбранное (2)')!
+      .trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('add')).toBeUndefined()
+    expect(wrapper.get('[role="alert"]').text()).toContain('Ничего не добавлено')
+    expect(wrapper.get('[role="alert"]').text()).not.toContain('403')
+    wrapper.unmount()
+  })
+
+  it('drops in-flight batch verification when Nexus profile changes, without stale emits', async () => {
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: ['v1'], message: null,
+      truncated: false, next_cursor: null,
+    })
+    let resolveInspect!: (value: exportsApi.ExactNexusInspection) => void
+    vi.mocked(exportsApi.inspectExactNexusImage).mockImplementation(
+      () => new Promise(resolve => { resolveInspect = resolve }),
+    )
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'old-nexus' } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="Выбрать Docker image alpine"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('input[aria-label="Выбрать v1"]').setValue(true)
+    await wrapper.findAll('button')
+      .find(button => button.text() === 'Добавить выбранное (1)')!.trigger('click')
+    await wrapper.setProps({ profileId: 'new-nexus' })
+    resolveInspect({
+      repository: 'alpine', reference: 'v1', digest: DIGEST, media_type: null,
+    })
+    await flushPromises()
+    expect(wrapper.emitted('add')).toBeUndefined()
+    expect(wrapper.text()).not.toContain('Проверка digest…')
+    wrapper.unmount()
+  })
+
+  it('paginates 100 tags into compact 25-row tables while retaining selected choices', async () => {
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: Array.from({ length: 100 }, (_, i) => 'v' + String(i).padStart(3, '0')),
+      message: null, truncated: false, next_cursor: null,
+    })
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="Выбрать Docker image alpine"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('table.nexus-browser__table tbody tr')).toHaveLength(25)
+    await wrapper.get('input[aria-label="Выбрать v000"]').setValue(true)
+    await wrapper.findAll('.nexus-browser__pagination button')
+      .find(button => button.text() === 'Далее')!.trigger('click')
+    expect(wrapper.findAll('table.nexus-browser__table tbody tr')).toHaveLength(25)
+    expect(wrapper.text()).toContain('Страница 2')
+    await wrapper.get('input[aria-label="Выбрать v025"]').setValue(true)
+    expect(wrapper.text()).toContain('Выбрано: 2')
     wrapper.unmount()
   })
 
