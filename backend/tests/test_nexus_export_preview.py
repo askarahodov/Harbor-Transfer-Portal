@@ -29,7 +29,9 @@ def _nexus_orchestrator(tmp_path: Path, digest: str = IMAGE_DIGEST):
         )
         session.commit()
     client = MagicMock()
-    client.inspect_image = AsyncMock(return_value=ImageInspection(digest=digest))
+    client.inspect_image = AsyncMock(return_value=ImageInspection(
+        digest=digest, media_type="application/vnd.docker.distribution.manifest.v2+json",
+    ))
     orchestrator = ExportOrchestrator(
         manager.session_factory,
         settings,
@@ -57,6 +59,7 @@ def test_nexus_preview_uses_docker_inspection_without_harbor_api(tmp_path: Path)
     assert len(result) == 1
     assert result[0].digest == IMAGE_DIGEST
     assert result[0].size_bytes is None
+    assert result[0].media_type == "application/vnd.docker.distribution.manifest.v2+json"
     assert result[0].full_repository == "team/app"
     assert client.inspect_image.await_count == 1
     assert harbor.calls == {}
