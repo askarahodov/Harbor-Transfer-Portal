@@ -125,7 +125,7 @@ class NexusDiscoveryService:
                 continue
             name, fmt, kind = (entry.get(key) for key in ("name", "format", "type"))
             if (
-                not isinstance(name, str) or not name or len(name) > 128
+                not isinstance(name, str) or _REPOSITORY.fullmatch(name) is None
                 or not isinstance(fmt, str) or fmt not in {"docker", "helm"}
                 or not isinstance(kind, str) or kind not in {"hosted", "proxy", "group"}
             ):
@@ -158,16 +158,33 @@ class NexusDiscoveryService:
         """
         if not self.search_url or not self.search_repository:
             return DiscoveryResult(False, (), "Nexus REST Search API не настроен")
-        if self.username and urlsplit(self.search_url).scheme != "https":
-            return DiscoveryResult(
-                False, (), "Nexus REST Search с учётными данными требует HTTPS"
+        try:
+            parsed_search_url = urlsplit(self.search_url)
+            valid_search_url = (
+                parsed_search_url.scheme == "https"
+                and parsed_search_url.hostname is not None
+                and parsed_search_url.port != 0
+                and parsed_search_url.path in {"", "/"}
+                and not parsed_search_url.query
+                and not parsed_search_url.fragment
+                and parsed_search_url.username is None
+                and parsed_search_url.password is None
             )
+        except ValueError:
+            valid_search_url = False
+        if not valid_search_url:
+            return DiscoveryResult(
+                False, (), "Nexus REST Search требует корректный HTTPS URL"
+            )
+        if _REPOSITORY.fullmatch(self.search_repository) is None:
+            return DiscoveryResult(False, (), "Некорректный Nexus Docker repository")
         auth = (
             httpx.BasicAuth(self.username, self.password or "")
             if self.username else None
         )
         found: set[str] = set()
         token: str | None = None
+        seen_tokens: set[str] = set()
         truncated = False
         try:
             async with httpx.AsyncClient(
@@ -197,7 +214,11 @@ class NexusDiscoveryService:
                             continue
                         name = item.get("name")
                         version = item.get("version")
-                        if not isinstance(name, str) or _REPOSITORY.fullmatch(name) is None:
+                        if (
+                            item.get("repository") != self.search_repository
+                            or not isinstance(name, str)
+                            or _REPOSITORY.fullmatch(name) is None
+                        ):
                             continue
                         if repository is None:
                             if search.casefold() in name.casefold():
@@ -206,8 +227,17 @@ class NexusDiscoveryService:
                             if _TAG.fullmatch(version) and search.casefold() in version.casefold():
                                 found.add(version)
                     next_token = data.get("continuationToken")
-                    if not isinstance(next_token, str) or not next_token:
+                    if next_token is None or next_token == "":
                         break
+                    if (
+                        not isinstance(next_token, str)
+                        or len(next_token) > 512
+                        or next_token in seen_tokens
+                    ):
+                        return DiscoveryResult(
+                            False, (), "Некорректная пагинация Nexus REST Search"
+                        )
+                    seen_tokens.add(next_token)
                     token = next_token
                     if page == 4:
                         truncated = True
