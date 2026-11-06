@@ -208,6 +208,7 @@ class ExportOrchestrator:
                             reference=selection.reference,
                             digest=inspected.digest,
                             size_bytes=None,
+                            media_type=inspected.media_type,
                         )
                     )
                 return tuple(results)
