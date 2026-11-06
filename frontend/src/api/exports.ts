@@ -90,7 +90,7 @@ export type HarborProfileOptions = {
 
 export type ExportSelection = {
   kind: Exclude<ArtifactKind, 'unknown-oci'>
-  project: string
+  project: string | null
   repository: string
   reference: string
   digest: string
@@ -104,7 +104,7 @@ export type ExportSelectionRequest = {
 
 export type ExportResolvedArtifact = {
   kind: Exclude<ArtifactKind, 'unknown-oci'>
-  project: string
+  project: string | null
   repository: string
   reference: string
   source_digest: string
