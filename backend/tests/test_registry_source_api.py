@@ -13,7 +13,7 @@ from app.api.registry_source import (
     nexus_helm_catalog,
 )
 from app.services.nexus_helm_http import HelmChartVersion, HelmHttpResult
-from app.services.nexus_service import ImageInspection
+from app.services.nexus_service import ImageInspection, NexusServiceError
 
 
 @pytest.fixture
@@ -124,3 +124,42 @@ async def test_nexus_helm_catalog_denied_is_not_misreported_as_empty(context):
     assert not result.available
     assert result.items == []
     assert result.code == "helm_repository_unavailable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_code,expected_status,expected_code", [
+    ("nexus_auth_failed", 403, "registry_auth_failed"),
+    ("nexus_not_found", 404, "registry_image_not_found"),
+    ("nexus_tls_failed", 502, "registry_tls_failed"),
+    ("nexus_timeout", 504, "registry_timeout"),
+    ("nexus_registry_connection_failed", 502, "registry_unavailable"),
+    ("nexus_invalid_output", 502, "registry_inspection_failed"),
+])
+async def test_exact_inspection_returns_sanitized_typed_failure(
+    context, error_code, expected_status, expected_code,
+):
+    request, session = context
+    profiles = MagicMock()
+    profiles.operation_snapshot.return_value = SimpleNamespace(
+        id="nexus-profile", registry_type="nexus"
+    )
+    service = MagicMock()
+    service.inspect_image = AsyncMock(side_effect=NexusServiceError(
+        error_code, "private https://secret.nexus.internal?token=do-not-leak",
+    ))
+    with (
+        patch("app.api.registry_source.HarborProfileService", return_value=profiles),
+        patch("app.api.registry_source.NexusService", return_value=service),
+    ):
+        with pytest.raises(HTTPException) as failure:
+            await inspect_exact_source(
+                ExactSourceInspectionRequest(
+                    profile_id="nexus-profile", repository="team/app", reference="v1"
+                ),
+                request, MagicMock(), session,
+            )
+    assert failure.value.status_code == expected_status
+    assert failure.value.detail["code"] == expected_code
+    assert "do-not-leak" not in str(failure.value.detail)
+    assert "secret.nexus.internal" not in str(failure.value.detail)
+    service.inspect_image.assert_awaited_once()
