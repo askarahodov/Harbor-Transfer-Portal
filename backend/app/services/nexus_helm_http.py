@@ -108,16 +108,22 @@ class NexusHelmHttpService:
         self.timeout = discovery.timeout
 
     def _base(self) -> str:
-        parsed = urlsplit(self.base_url)
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or parsed.path not in ("", "/")
-            or parsed.query
-            or parsed.fragment
-            or parsed.username
-            or parsed.password
-        ):
+        try:
+            parsed = urlsplit(self.base_url)
+            hostname, port = parsed.hostname, parsed.port
+            valid = (
+                parsed.scheme == "https"
+                and hostname is not None
+                and port != 0
+                and parsed.path in ("", "/")
+                and not parsed.query
+                and not parsed.fragment
+                and parsed.username is None
+                and parsed.password is None
+            )
+        except ValueError:
+            valid = False
+        if not valid:
             raise NexusHelmHttpError("helm_url_invalid", "Требуется корневой Nexus UI HTTPS URL")
         return self.base_url.rstrip("/")
 
@@ -445,6 +451,7 @@ class NexusHelmHttpService:
                 not isinstance(details, dict)
                 or details.get("format") != "helm"
                 or details.get("type") != "hosted"
+                or details.get("name", repository) != repository
             ):
                 raise NexusHelmHttpError(
                     "helm_repository_read_only", "Запись разрешена только в Helm hosted"
