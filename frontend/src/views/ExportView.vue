@@ -201,17 +201,26 @@ async function searchNexusTags(): Promise<void> {
 async function inspectNexusReference(): Promise<void> {
   const profileId = wizard.selectedHarborProfileId
   if (!wizard.isNexus || !profileId || exactBusy.value) return
+  const repository = exactRepository.value.trim()
+  const reference = exactReference.value.trim()
+  if (!repository || !reference) return
+  const stillCurrent = () => (
+    wizard.isNexus
+    && wizard.selectedHarborProfileId === profileId
+    && exactRepository.value.trim() === repository
+    && exactReference.value.trim() === reference
+  )
   exactBusy.value = true
   exactResult.value = null
   exactError.value = null
   try {
-    const inspected = await inspectExactNexusImage(
-      profileId, exactRepository.value.trim(), exactReference.value.trim(),
-    )
-    if (wizard.selectedHarborProfileId !== profileId) return
+    const inspected = await inspectExactNexusImage(profileId, repository, reference)
+    // Source selection must never show a digest from a stale profile, tag
+    // or repository once the operator edits the input while a probe is running.
+    if (!stillCurrent()) return
     exactResult.value = inspected
   } catch (reason) {
-    if (wizard.selectedHarborProfileId === profileId) {
+    if (stillCurrent()) {
       exactError.value = apiErrorInfo(reason, 'Не удалось проверить точный Docker reference.').message
     }
   } finally {
