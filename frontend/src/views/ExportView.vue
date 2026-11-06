@@ -191,6 +191,7 @@ async function searchNexusRepositories(cursor: string | null = null): Promise<vo
   }
 }
 
+let nexusTagsGeneration = 0
 async function searchNexusTags(cursor: string | null = null): Promise<void> {
   const profileId = wizard.selectedHarborProfileId
   const repository = exactRepository.value.trim()
