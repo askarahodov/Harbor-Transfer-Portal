@@ -210,5 +210,66 @@
         }
       ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "registry_type"
+                  ]
+                },
+                {
+                  "required": [
+                    "registry"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.1"
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "required": [
+              "registry_type",
+              "registry"
+            ],
+            "properties": {
+              "registry_type": {
+                "const": "nexus"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
