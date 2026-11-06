@@ -259,8 +259,17 @@ function openKnownImage(): void {
     knownError.value = 'Укажите имя Docker image без префикса v2/ и без имени Nexus repository.'
     return
   }
-  // The catalog can be forbidden on Nexus proxy, while tags/list may still work.
-  chooseImage(name)
+  // A known image may already be selected, but its tags/list can have
+  // failed earlier. Retry without requiring an image switch; do not discard
+  // already selected versions when the list is healthy.
+  if (name === selectedRepository.value) {
+    if (!tagsBusy.value && (tagError.value || !tags.value.length)) {
+      resetTag()
+      void readTags()
+    }
+  } else {
+    chooseImage(name)
+  }
 }
 
 async function inspectKnownImage(): Promise<void> {
