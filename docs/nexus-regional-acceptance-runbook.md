@@ -115,6 +115,21 @@ Registry v2**, но не проверка **Harbor API** и не Harbor Projects
 DTO, недоступный inventory, доступность формы ручного ввода
 и отсутствие сетевых Harbor browse вызовов при выборе Nexus.
 
+### Helm HTTP: изоляция URL и hosted metadata перед записью
+
+Для обычных Nexus Helm repositories UI/base URL принимается только как
+корректный корневой **HTTPS origin** с валидным TCP port. Ошибочные
+IPv6-скобки, порт 0/выше 65535, текст вместо порта, путь, userinfo,
+query или fragment приводят к `helm_url_invalid` **до HTTP-запроса**
+и не раскрывают credentials. Прежде чем отправлять chart через
+Nexus Components API, TARGET проверяет REST metadata **именно
+запрошенного** Helm hosted repository: если поле `name` присутствует
+и не совпадает с выбранным repository, upload запрещён. Отсутствие
+подтверждённых ACL/format/type также исключает запись; Nexus
+proxy/group остаются только для чтения. Это программные гарантии,
+которые не заменяют тесты реальных сервисных ACL и approved
+repository endpoints в региональной сети.
+
 ## 2. Безопасность, согласование и остановка
 
 До любого обращения к региональным Nexus оператор документирует
