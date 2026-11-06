@@ -48,7 +48,8 @@ function storageOrNull(): Storage | null {
 }
 
 function selectedKey(selection: ExportSelection): string {
-  return [selection.kind, selection.project, selection.repository, selection.digest].join('|')
+  // A tag is a distinct export choice even when multiple tags share one manifest digest.
+  return [selection.kind, selection.project, selection.repository, selection.reference, selection.digest].join('|')
 }
 
 function savedOperationId(): number | null {
