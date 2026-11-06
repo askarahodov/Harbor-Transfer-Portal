@@ -518,6 +518,9 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 target_repository,
                 final_reference,
                 exc,
+                # Nexus Helm has no independent write ACL probe. A failed
+                # hosted/identity inspection must not advertise write access.
+                write_allowed=not isinstance(helm, NexusHelmAdapter),
             )
 
     @staticmethod
@@ -565,6 +568,8 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         target_repository: str,
         final_reference: str,
         exc: Exception,
+        *,
+        write_allowed: bool = True,
     ) -> ImportDestinationArtifactPlanResponse:
         return ImportDestinationArtifactPlanResponse(
             **base,
@@ -572,7 +577,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             target_repository=target_repository,
             final_reference=final_reference,
             project_exists=True,
-            write_allowed=True,
+            write_allowed=write_allowed,
             classification=ImportPreviewState.ERROR,
             error_code=getattr(exc, "code", "import_target_inspection_failed"),
             message=str(exc),
