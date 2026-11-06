@@ -61,6 +61,37 @@ describe('Harbor profile selection store', () => {
     expect(sessionStorage.getItem('htp.harbor.profile-id')).toBe('profile-b')
   })
 
+  it('normalizes old DTOs to Harbor and preserves explicit Nexus type', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [
+        { id: 'legacy', name: 'Legacy', url: 'https://legacy.example.test', is_default: true },
+        {
+          id: 'nexus', name: 'Regional Nexus', url: 'https://docker.example.test',
+          is_default: false, registry_type: 'nexus',
+        },
+      ],
+    })
+    const store = useHarborProfilesStore()
+    expect(await store.load()).toBe(true)
+    expect(store.selectedProfile?.registry_type).toBe('harbor')
+    expect(store.select('nexus')).toBe(true)
+    expect(store.selectedProfile?.registry_type).toBe('nexus')
+    expect(store.select('legacy')).toBe(true)
+    expect(store.selectedProfile?.registry_type).toBe('harbor')
+  })
+
+  it('does not infer Nexus from an old DTO with Nexus in its name', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [
+        { id: 'legacy', name: 'Legacy Nexus migration', url: 'https://nexus.example.test',
+          is_default: true },
+      ],
+    })
+    const store = useHarborProfilesStore()
+    expect(await store.load()).toBe(true)
+    expect(store.selectedProfile?.registry_type).toBe('harbor')
+  })
+
   it('fails closed when there are no selectable Harbor profiles', async () => {
     vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({ items: [] })
     const store = useHarborProfilesStore()

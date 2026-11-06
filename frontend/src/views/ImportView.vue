@@ -249,12 +249,12 @@ onBeforeUnmount(() => {
 
       <HarborProfileSelector
         id="import-harbor-profile"
-        label="TARGET Harbor profile"
+        label="TARGET registry profile"
         :profiles="wizard.harborProfiles"
         :model-value="wizard.operation && !wizard.operation.harbor_profile_id ? null : wizard.selectedHarborProfileId"
         :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
         :locked="wizard.harborProfileLocked"
-        hint="Intake, TARGET preview и import будут закреплены за выбранным Harbor."
+        hint="Intake, TARGET preview и import закрепляются за выбранным реестром."
         @update:model-value="wizard.selectHarborProfile"
       />
 

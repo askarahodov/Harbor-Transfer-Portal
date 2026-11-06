@@ -640,6 +640,18 @@ class OperationManager:
             operation.error_code = code
             operation.error_message = message
             self._fail_running_artifacts(session, operation, code, message)
+            if operation.type is OperationType.EXPORT:
+                pending = session.scalars(
+                    select(ArtifactResult).where(
+                        ArtifactResult.operation_id == operation.id,
+                        ArtifactResult.status == ArtifactStatus.PENDING,
+                    )
+                )
+                for artifact in pending:
+                    artifact.status = ArtifactStatus.FAILED
+                    artifact.error_code = "export_aborted"
+                    artifact.error_message = "Export прерван до обработки артефакта"
+                    artifact.finished_at = now
             self._recalculate_counts(session, operation)
             session.commit()
 

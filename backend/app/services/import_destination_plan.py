@@ -55,6 +55,8 @@ from app.services.helm_oci_service import (
 )
 from app.services.import_orchestrator import ImportOrchestrationError
 from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
+from app.services.nexus_destination_validator import NexusDestinationValidator
+from app.services.nexus_helm_http import NexusHelmAdapter, NexusHelmHttpError
 from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
     OperationContext,
@@ -201,10 +203,14 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 validator = (
                     self.destination_validator_factory(session)
                     if self.destination_validator_factory is not None
-                    else HarborDestinationValidator(
-                        session,
-                        self.settings,
-                        harbor_profile_id=profile.id,
+                    else (
+                        NexusDestinationValidator(session, self.settings, profile_id=profile.id)
+                        if profile.registry_type == "nexus"
+                        else HarborDestinationValidator(
+                            session,
+                            self.settings,
+                            harbor_profile_id=profile.id,
+                        )
                     )
                 )
             except (HarborSettingsError, ValueError) as exc:
@@ -220,7 +226,11 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 skopeo = create_registry_client(
                     profile.registry_type, session, self.settings, profile_id=profile.id
                 )
-            helm = self.helm_factory(session)
+            helm = (
+                NexusHelmAdapter(session, self.settings, profile.id)
+                if profile.registry_type == "nexus"
+                else self.helm_factory(session)
+            )
             if isinstance(skopeo, SkopeoService):
                 skopeo.harbor_profile_id = profile.id
             if isinstance(helm, HelmOciService):
@@ -289,7 +299,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         overrides: dict[int, str],
         validator: DestinationValidator,
         skopeo: SkopeoService | RegistryClient,
-        helm: HelmOciService,
+        helm: HelmOciService | NexusHelmAdapter,
     ) -> ImportDestinationArtifactPlanResponse:
         try:
             source_project, suffix = validated_source_repository(item.repository)
@@ -344,7 +354,14 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 message="TARGET Harbor project имеет недопустимое имя",
             )
 
-        target_repository = target_project + (f"/{suffix}" if suffix else "")
+        # Nexus Helm hosted repositories are not OCI namespace/chart paths:
+        # the configured destination is the repository, while chart name is
+        # carried separately in the signed Helm artifact descriptor.
+        target_repository = (
+            target_project
+            if item.artifact_type == "helm-chart" and isinstance(helm, NexusHelmAdapter)
+            else target_project + (f"/{suffix}" if suffix else "")
+        )
         if item.artifact_type == "container-image":
             return await self._plan_image(
                 base,
@@ -442,7 +459,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         version: str | None,
         expected_digest: str | None,
         validator: DestinationValidator,
-        helm: HelmOciService,
+        helm: HelmOciService | NexusHelmAdapter,
     ) -> ImportDestinationArtifactPlanResponse:
         try:
             if name is None or version is None:
@@ -450,19 +467,32 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             target = HelmChartReference(target_repository, name, version)
         except ValueError as exc:
             return self._invalid_reference(base, target_project, target_repository, str(exc))
-        final_reference = (
-            f"oci://{validator.registry_host}/{target.harbor_repository}:{target.version}"
-        )
-        capability = await validator.validate(target_project, target.harbor_repository)
-        denied = self._capability_error(
-            base,
-            target_project,
-            target_repository,
-            final_reference,
-            capability,
-        )
-        if denied is not None:
-            return denied
+        if isinstance(helm, NexusHelmAdapter):
+            # Helm hosted uses Nexus HTTP and an index, never OCI/Docker v2.
+            try:
+                helm_root = helm.client._base()
+            except NexusHelmHttpError as exc:
+                return self._invalid_reference(
+                    base, target_project, target_repository, exc.message
+                )
+            final_reference = (
+                f"{helm_root}/repository/{target.repository}/"
+                f"{target.name}-{target.version}.tgz"
+            )
+        else:
+            final_reference = (
+                f"oci://{validator.registry_host}/{target.harbor_repository}:{target.version}"
+            )
+            capability = await validator.validate(target_project, target.harbor_repository)
+            denied = self._capability_error(
+                base,
+                target_project,
+                target_repository,
+                final_reference,
+                capability,
+            )
+            if denied is not None:
+                return denied
         try:
             inspected = await helm.inspect_target(target, expected_digest=expected_digest)
             classification = {
@@ -488,6 +518,9 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 target_repository,
                 final_reference,
                 exc,
+                # Nexus Helm has no independent write ACL probe. A failed
+                # hosted/identity inspection must not advertise write access.
+                write_allowed=not isinstance(helm, NexusHelmAdapter),
             )
 
     @staticmethod
@@ -535,6 +568,8 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         target_repository: str,
         final_reference: str,
         exc: Exception,
+        *,
+        write_allowed: bool = True,
     ) -> ImportDestinationArtifactPlanResponse:
         return ImportDestinationArtifactPlanResponse(
             **base,
@@ -542,7 +577,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
             target_repository=target_repository,
             final_reference=final_reference,
             project_exists=True,
-            write_allowed=True,
+            write_allowed=write_allowed,
             classification=ImportPreviewState.ERROR,
             error_code=getattr(exc, "code", "import_target_inspection_failed"),
             message=str(exc),

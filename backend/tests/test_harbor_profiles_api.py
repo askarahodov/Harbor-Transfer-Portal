@@ -524,3 +524,61 @@ def test_profile_create_edit_disable_enable_and_delete_persist_registry_type(
     listed_after = client.get("/api/settings/harbor/profiles", headers=headers)
     assert listed_after.status_code == 200
     assert [item["id"] for item in listed_after.json()["items"]] == ["default"]
+
+
+def test_nexus_profile_connection_api_checks_v2_without_harbor_or_image(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Nexus settings action probes its connector, not Harbor REST or busybox."""
+    from app.services.registry_probe import ProbeResult
+
+    client, app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Empty Nexus Docker hosted",
+            "url": "https://docker.nexus.example.test",
+            "username": "operator",
+            "verify_tls": True,
+            "enabled": True,
+            "registry_type": "nexus",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+    calls = []
+
+    async def fake_docker_probe(resolved, *, connect_timeout, read_timeout):
+        calls.append({
+            "url": resolved.url,
+            "connect_timeout": connect_timeout,
+            "read_timeout": read_timeout,
+        })
+        return ProbeResult(
+            ok=True, code="registry_connection_ok",
+            message="Docker Registry v2 доступен",
+        )
+
+    def forbidden_harbor_client(*_args, **_kwargs):
+        raise AssertionError("Nexus settings action must not invoke Harbor API")
+
+    monkeypatch.setattr("app.api.settings.probe_docker_v2", fake_docker_probe)
+    monkeypatch.setattr(
+        "app.services.harbor_profiles.HarborProfileService.build_client",
+        forbidden_harbor_client,
+    )
+    response = client.post(
+        f"/api/settings/harbor/profiles/{profile_id}/test-registry",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True, "code": "registry_connection_ok",
+        "message": "Docker Registry v2 доступен", "version": None,
+    }
+    assert len(calls) == 1
+    assert calls[0]["url"] == "https://docker.nexus.example.test"
+    assert "busybox" not in response.text
+    assert "Nexus (version unknown)" not in response.text

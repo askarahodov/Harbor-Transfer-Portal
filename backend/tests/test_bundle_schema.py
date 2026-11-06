@@ -54,3 +54,32 @@ def test_receipt_schema_accepts_terminal_receipt() -> None:
         "artifacts": [{"artifact_index": 0, "status": "VERIFIED"}],
     }
     jsonschema.Draft202012Validator(load_schema("receipt-v1.schema.json")).validate(receipt)
+
+
+@pytest.mark.parametrize(
+    "version,source,accepted",
+    [
+        ("1.0", {"contour": "SOURCE", "harbor": "harbor.source.local"}, True),
+        ("1.0", {"contour": "SOURCE", "registry_type": "nexus",
+                 "registry": "https://docker-nexus.internal"}, False),
+        ("1.0", {"contour": "SOURCE", "harbor": "harbor.source.local",
+                 "registry_type": "harbor"}, False),
+        ("1.1", {"contour": "SOURCE", "registry_type": "nexus",
+                 "registry": "https://docker-nexus.internal"}, True),
+        ("1.1", {"contour": "SOURCE", "harbor": "harbor.source.local"}, False),
+        ("1.1", {"contour": "SOURCE", "registry_type": "harbor",
+                 "harbor": "harbor.source.local"}, False),
+    ],
+)
+def test_manifest_schema_version_binds_source_provenance(
+    version: str, source: dict[str, str], accepted: bool,
+) -> None:
+    payload = valid_manifest()
+    payload["schema_version"] = version
+    payload["source"] = source
+    validator = jsonschema.Draft202012Validator(load_schema("manifest-v1.schema.json"))
+    if accepted:
+        validator.validate(payload)
+    else:
+        with pytest.raises(jsonschema.ValidationError):
+            validator.validate(payload)

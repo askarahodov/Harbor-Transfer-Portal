@@ -19,6 +19,8 @@ from app.config import Settings
 from app.db.base import Base
 from app.db.session import create_db_engine, create_session_factory
 from app.services.harbor_profiles import HarborProfileService
+from app.services.harbor_settings import EffectiveHarborSettings
+from app.services.nexus_discovery import NexusDiscoveryService
 from app.services.nexus_service import (
     ImageReference,
     NexusService,
@@ -26,6 +28,7 @@ from app.services.nexus_service import (
     TargetState,
 )
 from app.services.registry_client import _NexusServiceWrapper, create_registry_client
+from app.services.registry_probe import probe_docker_v2
 from integration.registry_smoke import _write_oci_image_fixture
 
 pytestmark = pytest.mark.skipif(
@@ -86,6 +89,55 @@ def seeded_schema2_image(service: NexusService, layout: Path, password: str) -> 
 
 
 @pytest.mark.asyncio
+async def test_real_empty_hosted_docker_v2_connection_requires_no_image(
+    admin_password: str, tls_certificate: Path,
+) -> None:
+    """A fresh Nexus hosted connector must pass without busybox or any tag.
+
+    The disposable setup starts the HTTPS Docker source connector on 8443;
+    this test runs before schema2 fixture publication in this module.
+    """
+    profile = EffectiveHarborSettings(
+        url="https://127.0.0.1:8443",
+        username="admin",
+        password=admin_password,
+        verify_tls=True,
+        ca_file=tls_certificate,
+    )
+    result = await probe_docker_v2(
+        profile, connect_timeout=10, read_timeout=20,
+    )
+    assert result.ok, result.code
+    assert result.code == "registry_connection_ok"
+
+    rejected = EffectiveHarborSettings(
+        url=profile.url,
+        username="admin",
+        password="deliberately-wrong-password",
+        verify_tls=True,
+        ca_file=tls_certificate,
+    )
+    wrong = await probe_docker_v2(
+        rejected, connect_timeout=10, read_timeout=20,
+    )
+    assert not wrong.ok
+    assert wrong.code == "registry_auth_failed"
+    assert "deliberately-wrong-password" not in wrong.message
+
+    unknown_ca = EffectiveHarborSettings(
+        url=profile.url,
+        username="admin",
+        password=admin_password,
+        verify_tls=True,
+        ca_file=None,
+    )
+    tls = await probe_docker_v2(
+        unknown_ca, connect_timeout=10, read_timeout=20,
+    )
+    assert not tls.ok and tls.code == "registry_tls_failed"
+
+
+@pytest.mark.asyncio
 async def test_docker_schema2_round_trip(admin_password: str, tmp_path: Path) -> None:
     """Exercise NexusService against actual Docker schema2 manifests, not OCI registry."""
     settings = make_settings(tmp_path, admin_password)
@@ -110,6 +162,126 @@ async def test_docker_schema2_round_trip(admin_password: str, tmp_path: Path) ->
     assert imported.target_digest == expected
     target_status = await service.inspect_target(target, expected_digest=expected)
     assert target_status.state == TargetState.SAME_DIGEST
+
+
+@pytest.mark.asyncio
+async def test_two_named_docker_connector_profiles_are_isolated(
+    admin_password: str, tmp_path: Path,
+) -> None:
+    """Two Nexus hosted repos on separate connectors; no global auth fallback.
+
+    The same account can be scoped to more than one repository. Portal must
+    preserve the connector URL and registry identity of each selected profile.
+    """
+    settings = make_settings(tmp_path, "intentionally-wrong-global-password")
+    seed = NexusService(
+        MagicMock(), make_settings(tmp_path / "seed", admin_password),
+    )
+    expected = await asyncio.to_thread(
+        seeded_schema2_image,
+        seed,
+        settings.skopeo_payload_root / "multi-seed",
+        admin_password,
+    )
+    engine = create_db_engine(settings.database_url)
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        profiles = HarborProfileService(session, settings)
+        first = profiles.create(
+            name="Docker hosted source", url="http://127.0.0.1:8082",
+            username="admin", enabled=True, verify_tls=False,
+            registry_type="nexus",
+            nexus_search_url="https://127.0.0.1:8444",
+            nexus_search_repository="htp-e2e",
+        )
+        second = profiles.create(
+            name="Docker hosted target", url="http://127.0.0.1:8083",
+            username="admin", enabled=True, verify_tls=False,
+            registry_type="nexus",
+            nexus_search_url="https://127.0.0.1:8444",
+            nexus_search_repository="htp-e2e-target",
+        )
+        profiles.rotate_credential(first.id, admin_password)
+        profiles.rotate_credential(second.id, admin_password)
+        session.commit()
+        assert profiles.get(first.id).nexus_search_repository == "htp-e2e"
+        assert profiles.get(second.id).nexus_search_repository == "htp-e2e-target"
+
+        source = NexusService(session, settings, nexus_profile_id=first.id)
+        target = NexusService(session, settings, nexus_profile_id=second.id)
+        image = ImageReference("htp-e2e/source", "1.0.0")
+        assert (await source.inspect_image(image)).digest == expected
+        assert (await target.inspect_target(
+            image, expected_digest=expected,
+        )).state == TargetState.ABSENT
+
+        exported = await source.export_image(
+            image, settings.skopeo_payload_root / "multi-exported",
+        )
+        assert exported.source_digest == expected
+        imported = await target.import_image(
+            exported.payload_path, image, expected_digest=expected,
+        )
+        assert imported.verified
+        assert imported.target_digest == expected
+        assert (await target.inspect_image(image)).digest == expected
+
+
+@pytest.mark.asyncio
+async def test_real_nexus_inventory_and_docker_tag_browse_isolated_from_harbor(
+    admin_password: str, tls_certificate: Path, tmp_path: Path,
+) -> None:
+    """Discover two Nexus hosted repositories, then read a seeded Docker tag.
+
+    Inventory is a Nexus REST API view; tag browsing is authorized on the
+    selected Docker v2 connector and does not imply write access.
+    """
+    settings = make_settings(tmp_path, "invalid-global-password")
+    seed = NexusService(
+        MagicMock(), make_settings(tmp_path / "seed", admin_password),
+    )
+    await asyncio.to_thread(
+        seeded_schema2_image,
+        seed,
+        settings.skopeo_payload_root / "browse-seed",
+        admin_password,
+    )
+    engine = create_db_engine(settings.database_url)
+    Base.metadata.create_all(engine)
+    sessions = create_session_factory(engine)
+    with sessions() as session:
+        profiles = HarborProfileService(session, settings)
+        profile = profiles.create(
+            name="Nexus SOURCE inventory",
+            url="https://127.0.0.1:8443",
+            username="admin",
+            enabled=True,
+            verify_tls=True,
+            registry_type="nexus",
+            nexus_search_url="https://127.0.0.1:8444",
+            nexus_search_repository="htp-e2e",
+        )
+        profiles.rotate_credential(profile.id, admin_password)
+        profiles.install_ca(profile.id, tls_certificate.read_text(encoding="utf-8"))
+        session.commit()
+
+        discovery = NexusDiscoveryService(session, settings, profile.id)
+        visible = await discovery.inventory()
+        assert visible.available, visible.message
+        repositories = {(item.name, item.format, item.kind) for item in visible.items}
+        assert ("htp-e2e", "docker", "hosted") in repositories
+        assert ("htp-e2e-target", "docker", "hosted") in repositories
+        assert ("htp-helm-source", "helm", "hosted") in repositories
+        assert all(item.format in {"docker", "helm"} for item in visible.items)
+
+        # Docker v2 tags/list is separate from REST inventory/search.
+        discovery.search_repository = None
+        tags = await discovery.tags("htp-e2e/source")
+        assert tags.available, tags.message
+        assert "1.0.0" in tags.items
+        invalid_repo = await discovery.tags("htp-e2e/does-not-exist")
+        assert "1.0.0" not in invalid_repo.items
 
 
 @pytest.mark.asyncio

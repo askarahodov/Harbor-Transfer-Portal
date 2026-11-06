@@ -29,14 +29,17 @@ class ExportSelectionResolutionError(Exception):
 @dataclass(frozen=True, slots=True)
 class ResolvedExportArtifact:
     kind: ArtifactKind
-    project: str
+    project: str | None
     repository: str
     reference: str
     digest: str
     size_bytes: int | None
+    media_type: str | None = None
 
     @property
     def full_repository(self) -> str:
+        if self.project is None:
+            return self.repository
         return f"{self.project}/{self.repository}"
 
 
@@ -70,6 +73,10 @@ def resolve_export_selection(
     client: HarborArtifactLookup,
     selection: ExportArtifactSelection,
 ) -> ResolvedExportArtifact:
+    if selection.project is None:
+        raise ExportSelectionResolutionError(
+            "export_selection_invalid", "Harbor требует явный project",
+        )
     try:
         artifact = client.get_artifact(
             selection.project,

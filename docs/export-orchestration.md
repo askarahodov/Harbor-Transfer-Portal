@@ -88,6 +88,21 @@ Endpoint нужен для безопасного native browser download бол
 
 Ticket не является общей web-session cookie и не должен давать доступ к другому export operation.
 
+Для SOURCE Harbor и Nexus frontend принимает от ticket API только точный
+относительный `/api/exports/{operation_id}/download` активной операции.
+Внешние URL, query/fragment, иной operation ID и некорректный идентификатор
+отвергаются до вызова browser navigation. Ответ, пришедший после смены
+операции/сброса мастера, игнорируется. Большой файл обрабатывает сам браузер,
+без загрузки всего archive через Axios. Тест `ExportView.spec.ts`
+проходит Nexus exact `repository:tag` → preview → export completion →
+клик `Скачать bundle` → ticket → вызов навигации, а
+`exports.spec.ts` проверяет негативные URL. Это UI automation в
+Vitest/jsdom, **не** ручной тест установленного браузера. Перед
+корпоративным GO оператор отдельно фиксирует фактический browser download,
+имя/размер, sidecar, SHA-256 и signed handoff на региональном стенде.
+
+
+
 ### Download
 
 `GET /api/exports/{operation_id}/download`
@@ -254,3 +269,20 @@ Regression suite покрывает:
 - ticket mint authorization;
 - `Content-Length`, SHA-256 и no-store metadata;
 - frontend selection/preview/progress/reload/ready flow.
+
+
+## Nexus SOURCE preview (в разработке, #430)
+
+Для профиля `registry_type=nexus` SOURCE preview проверяет указанный Docker
+`project/repository:tag` через registry transport, не вызывая Harbor API.
+Полученный digest сравнивается с digest, выбранным оператором; изменение
+или удаление исходного тега блокирует подготовку операции. Перед публикацией
+bundle materializer дополнительно сверяет digest с ожидаемым. Размер
+Nexus image на этапе preview считается неизвестным, а не оценивается по
+неполной информации.
+
+Legacy Helm charts на Nexus 3.69 OSS не поддерживаются: сервер возвращает
+`nexus_legacy_helm_unsupported`. Нельзя использовать успешный Docker v2
+inspect как доказательство поддержки Helm OCI. До завершения #432
+(provenance в подписанном манифесте), полного SOURCE/TARGET E2E и региональной
+приёмки выпуск Nexus export в production запрещён.

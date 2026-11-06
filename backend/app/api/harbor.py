@@ -44,6 +44,17 @@ def get_harbor_client(
     try:
         service = HarborProfileService(session, request.app.state.settings)
         selected_id = profile_id or service.active_profile_id()
+        selected = service.get(selected_id)
+        if selected is None:
+            raise _api_error(
+                status.HTTP_404_NOT_FOUND, "harbor_profile_not_found", "Профиль не найден"
+            )
+        if selected.registry_type != "harbor":
+            raise _api_error(
+                status.HTTP_409_CONFLICT,
+                "registry_type_mismatch",
+                "Для Nexus недоступен Harbor API; используйте Docker Registry v2",
+            )
         client = service.build_client(selected_id)
     except HarborSettingsError as exc:
         status_code = (
@@ -230,9 +241,17 @@ def selectable_profiles(
         items=[
             HarborSelectableProfileResponse(
                 id=profile.id,
+                registry_type=profile.registry_type,
                 name=profile.name,
                 url=profile.url,
                 is_default=profile.is_default,
+                nexus_search_url=(
+                    profile.nexus_search_url if profile.registry_type == "nexus" else None
+                ),
+                nexus_search_repository=(
+                    profile.nexus_search_repository
+                    if profile.registry_type == "nexus" else None
+                ),
             )
             for profile in service.selectable_profiles()
         ]

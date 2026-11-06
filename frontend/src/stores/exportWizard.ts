@@ -47,8 +47,13 @@ function storageOrNull(): Storage | null {
   return typeof window === 'undefined' ? null : window.sessionStorage
 }
 
-function selectedKey(selection: ExportSelection): string {
-  return [selection.kind, selection.project, selection.repository, selection.digest].join('|')
+function selectedKey(selection: ExportSelection, preserveTag = false): string {
+  // Harbor historically deduplicates tag aliases by immutable digest.
+  // Nexus Docker SOURCE must preserve operator-selected exact tag references.
+  return [
+    selection.kind, selection.project, selection.repository,
+    ...(preserveTag ? [selection.reference] : []), selection.digest,
+  ].join('|')
 }
 
 function savedOperationId(): number | null {
@@ -75,6 +80,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     loading: harborProfilesLoading,
     error: harborProfilesError,
   } = storeToRefs(harborProfilesStore)
+  const isNexus = computed(() => selectedHarborProfile.value?.registry_type === 'nexus')
   const step = ref<ExportWizardStep>(1)
   const connection = ref<HarborConnection | null>(null)
   const projects = ref<HarborProject[]>([])
@@ -199,7 +205,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
 
   async function loadConnection(): Promise<void> {
     const profileId = selectedHarborProfileId.value
-    if (!profileId) return
+    if (!profileId || isNexus.value) return
     try {
       connection.value = await getHarborConnection(profileId)
     } catch (requestError) {
@@ -211,6 +217,10 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadProjects(page = 1): Promise<void> {
+    if (isNexus.value) {
+      projects.value = []
+      return
+    }
     clearProjectSearchTimer()
     const requestGeneration = ++projectRequestGeneration
     const search = projectSearch.value
@@ -253,6 +263,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadRepositories(page = 1): Promise<void> {
+    if (isNexus.value) return
     const project = selectedProject.value
     if (!project) return
     clearRepositorySearchTimer()
@@ -304,6 +315,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadArtifacts(page = 1): Promise<void> {
+    if (isNexus.value) return
     const project = selectedProject.value
     const repository = selectedRepository.value
     if (!project || !repository) return
@@ -411,10 +423,66 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     preview.value = null
   }
 
+  function addExactNexusHelmChart(
+    helmRepository: string | null, name: string, version: string, sha256: string,
+  ): boolean {
+    if (!isNexus.value || !selectedHarborProfileId.value || !helmRepository) return false
+    const repoPattern = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/
+    const versionPattern = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}$/
+    if (!repoPattern.test(helmRepository) || !repoPattern.test(name)) return false
+    if (!versionPattern.test(version) || !/^[a-f0-9]{64}$/.test(sha256)) return false
+    const selection: SelectedExportArtifact = {
+      kind: 'helm-chart',
+      project: helmRepository,
+      repository: name,
+      reference: version,
+      digest: `sha256:${sha256}`,
+      size_bytes: null,
+    }
+    selected.value = { ...selected.value, [selectedKey(selection, true)]: selection }
+    preview.value = null
+    return true
+  }
+
+  function addExactNexusImage(
+    repositoryPath: string,
+    reference: string,
+    digest: string,
+  ): boolean {
+    if (!isNexus.value || !selectedHarborProfileId.value) return false
+    const separator = repositoryPath.indexOf('/')
+    // Nexus Docker v2 allows both root names (baseimage) and nested names
+    // (cbl-mariner/base/redis). Unlike Harbor, the first path segment is not
+    // necessarily a project. A null project preserves root-level image identity.
+    const project = separator === -1 ? null : repositoryPath.slice(0, separator)
+    const repository = separator === -1 ? repositoryPath : repositoryPath.slice(separator + 1)
+    if ((project !== null && !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(project)) ||
+        !/^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/.test(repository) ||
+        !/^sha256:[a-f0-9]{64}$/.test(digest)) {
+      error.value = {
+        code: 'registry_reference_invalid',
+        message: 'Некорректный Docker repository или digest.',
+      }
+      return false
+    }
+    const item: SelectedExportArtifact = {
+      kind: 'container-image',
+      project,
+      repository,
+      reference,
+      digest,
+      size_bytes: null,
+    }
+    selected.value = { ...selected.value, [selectedKey(item, true)]: item }
+    preview.value = null
+    clearError()
+    return true
+  }
+
   function requestPayload() {
     const profileId = selectedHarborProfileId.value
     if (!profileId) {
-      throw new Error('Harbor profile is required')
+      throw new Error('Registry profile is required')
     }
     return {
       artifacts: selectedArtifacts.value.map((artifact) => ({
@@ -433,7 +501,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     if (!selectedHarborProfileId.value) {
       error.value = {
         code: 'harbor_profile_required',
-        message: 'Выберите Harbor profile перед продолжением.',
+        message: 'Выберите профиль Harbor или Nexus перед продолжением.',
       }
       return false
     }
@@ -662,6 +730,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     harborProfiles,
     selectedHarborProfileId,
     selectedHarborProfile,
+    isNexus,
     harborProfilesLoading,
     harborProfileLocked,
     projects,
@@ -703,6 +772,8 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     isSelected,
     toggleArtifact,
     addArtifact,
+    addExactNexusHelmChart,
+    addExactNexusImage,
     preparePreview,
     backToSelection,
     start,

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -146,6 +147,19 @@ class AsyncioCommandRunner:
         self.temp_root = temp_root.resolve() if temp_root is not None else None
 
     @staticmethod
+    def _terminate_process_group(process: asyncio.subprocess.Process) -> None:
+        pid = getattr(process, "pid", None)
+        if pid is not None:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+                return
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                pass
+        process.kill()
+
+    @staticmethod
     def _environment(root: Path) -> dict[str, str]:
         home = root / "home"
         config_home = root / "xdg-config"
@@ -196,6 +210,7 @@ class AsyncioCommandRunner:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(root),
                 env=self._environment(root),
+                start_new_session=True,
             )
             if process.stdout is None or process.stderr is None:
                 process.kill()
@@ -206,17 +221,35 @@ class AsyncioCommandRunner:
             try:
                 await asyncio.wait_for(process.wait(), timeout_seconds)
             except TimeoutError as exc:
-                process.kill()
+                # Skopeo/Nexus may spawn helpers that inherit stderr pipes.
+                # Kill the whole process group so pipe readers do not remain
+                # blocked forever after the parent process exits.
+                self._terminate_process_group(process)
                 await process.wait()
-                await asyncio.gather(stdout_task, stderr_task)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(stdout_task, stderr_task), timeout=5
+                    )
+                except TimeoutError:
+                    stdout_task.cancel()
+                    stderr_task.cancel()
                 raise NexusServiceError(
                     "nexus_timeout",
                     "Операция Nexus превысила допустимое время выполнения",
                 ) from exc
             except asyncio.CancelledError:
-                process.kill()
+                # Skopeo/Nexus may spawn helpers that inherit stderr pipes.
+                # Kill the whole process group so pipe readers do not remain
+                # blocked forever after the parent process exits.
+                self._terminate_process_group(process)
                 await process.wait()
-                await asyncio.gather(stdout_task, stderr_task)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(stdout_task, stderr_task), timeout=5
+                    )
+                except TimeoutError:
+                    stdout_task.cancel()
+                    stderr_task.cancel()
                 raise
 
             stdout, stderr = await asyncio.gather(stdout_task, stderr_task)

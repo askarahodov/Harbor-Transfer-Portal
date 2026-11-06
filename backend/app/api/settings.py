@@ -2,6 +2,7 @@ from collections.abc import Generator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import AnyHttpUrl
 
 from app.auth.dependencies import SessionDep, require_roles
 from app.db.models import User, UserRole
@@ -26,7 +27,7 @@ from app.services.harbor_settings import (
     HarborSettingsError,
     HarborSettingsService,
 )
-from app.services.registry_client import create_registry_client
+from app.services.registry_probe import probe_docker_v2
 
 router = APIRouter(prefix="/settings/harbor", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
@@ -99,6 +100,10 @@ def _profile_response(
         is_default=profile.is_default,
         is_active=profile.id == service.active_profile_id(),
         registry_type=profile.registry_type,
+        nexus_search_url=(
+            AnyHttpUrl(profile.nexus_search_url) if profile.nexus_search_url else None
+        ),
+        nexus_search_repository=profile.nexus_search_repository,
     )
 
 
@@ -305,6 +310,10 @@ def create_harbor_profile(
             verify_tls=payload.verify_tls,
             enabled=payload.enabled,
             registry_type=payload.registry_type,
+            nexus_search_url=(
+                str(payload.nexus_search_url).rstrip("/") if payload.nexus_search_url else None
+            ),
+            nexus_search_repository=payload.nexus_search_repository,
         )
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
@@ -369,6 +378,15 @@ def update_harbor_profile(
                 enabled=payload.enabled if "enabled" in payload.model_fields_set else None,
                 registry_type=(
                     payload.registry_type if "registry_type" in payload.model_fields_set else None
+                ),
+                nexus_search_url=(
+                    str(payload.nexus_search_url).rstrip("/")
+                    if payload.nexus_search_url is not None else None
+                ),
+                nexus_search_repository=payload.nexus_search_repository,
+                nexus_search_url_set="nexus_search_url" in payload.model_fields_set,
+                nexus_search_repository_set=(
+                    "nexus_search_repository" in payload.model_fields_set
                 ),
             )
             if changed_fields:
@@ -531,74 +549,47 @@ async def test_registry_profile_connection(
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    # Create registry client based on profile type
-    try:
-        client = create_registry_client(
-            registry_type=profile.registry_type,
-            session=session,
-            settings=request.app.state.settings,
-            profile_id=profile.id,
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to create registry client: {exc}"
-        ) from exc
-
-    try:
-        info = await client.inspect_image(
-            type("ImageReference", (), {"repository": "library/busybox", "reference": "latest"})()
-        )
-    except Exception as exc:
-        # Map common errors
-        error_str = str(exc).lower()
-        if "unauthorized" in error_str or "authentication" in error_str:
-            code, message = "registry_auth_failed", "Реестр отклонил учётные данные"
-        elif "timeout" in str(exc).lower():
-            code, message = "registry_unavailable", "Реестр не ответил вовремя"
-        elif "tls" in error_str or "certificate" in error_str:
-            code, message = "registry_tls_failed", "Не удалось проверить TLS-сертификат реестра"
-        elif "connection" in error_str or "refused" in error_str:
-            code, message = "registry_unavailable", "Не удалось подключиться к реестру"
-        else:
-            code, message = (
-                "registry_error",
-                f"Проверка подключения к реестру завершилась ошибкой: {exc}",
+    if profile.registry_type == "nexus":
+        try:
+            resolved = HarborSettingsService(session, request.app.state.settings).resolve_profile(
+                profile.id
             )
+        except HarborSettingsError as exc:
+            raise _profile_error(exc) from exc
+        result = await probe_docker_v2(
+            resolved,
+            connect_timeout=request.app.state.settings.harbor_connect_timeout_seconds,
+            read_timeout=request.app.state.settings.harbor_read_timeout_seconds,
+        )
+        return HarborConnectionTestResponse(
+            ok=result.ok, code=result.code, message=result.message, version=None
+        )
+
+    # Harbor API is the authority for Harbor profiles; no Docker/OCI fallback.
+    try:
+        harbor_client = service.build_client(profile.id)
+    except HarborSettingsError as exc:
+        raise _profile_error(exc) from exc
+    try:
+        info = harbor_client.system_info()
+    except HarborClientError as exc:
+        mapping = {
+            "unauthorized": ("harbor_auth_failed", "Harbor отклонил учётные данные"),
+            "forbidden": ("harbor_forbidden", "Harbor запретил доступ"),
+            "timeout": ("harbor_unavailable", "Harbor не ответил вовремя"),
+            "tls_failed": ("harbor_tls_failed", "Не удалось проверить TLS-сертификат Harbor"),
+            "connection_failed": ("harbor_unavailable", "Не удалось подключиться к Harbor"),
+        }
+        code, message = mapping.get(
+            exc.code, ("harbor_error", "Проверка подключения к Harbor завершилась ошибкой")
+        )
         return HarborConnectionTestResponse(ok=False, code=code, message=message)
-
-    # Get version info based on registry type
-    version = "unknown"
-    try:
-        if profile.registry_type == "nexus":
-            # For Nexus, we can't easily get version via skopeo, use a placeholder
-            version = "Nexus (version unknown)"
-        else:
-            # For Harbor, use Harbor client to get version
-            from app.services.harbor_settings import HarborSettingsService
-
-            harbor_service = HarborSettingsService(session, request.app.state.settings)
-            resolved = harbor_service.resolve_profile(profile.id)
-            from app.services.harbor_client import HarborClient
-
-            harbor_client = HarborClient(
-                base_url=resolved.url or "",
-                username=resolved.username,
-                password=resolved.password,
-                verify=resolved.verify_tls
-                if not (resolved.verify_tls and resolved.ca_file)
-                else str(resolved.ca_file),
-                connect_timeout=request.app.state.settings.harbor_connect_timeout_seconds,
-                read_timeout=request.app.state.settings.harbor_read_timeout_seconds,
-            )
-            info = harbor_client.system_info()
-            version = info.harbor_version
-            harbor_client.close()
-    except Exception:
-        version = "unknown"
+    finally:
+        harbor_client.close()
 
     return HarborConnectionTestResponse(
         ok=True,
         code="registry_connection_ok",
-        message=f"Подключение к {profile.registry_type.capitalize()} profile успешно",
-        version=version,
+        message="Подключение к Harbor profile успешно",
+        version=info.harbor_version,
     )

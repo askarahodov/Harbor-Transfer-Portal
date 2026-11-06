@@ -33,6 +33,7 @@ from app.services.harbor_profiles import HarborProfile, HarborProfileService
 from app.services.harbor_settings import HarborSettingsError
 from app.services.helm_oci_service import HelmOciService, HelmServiceError
 from app.services.key_management import KeyManagementError, KeyManagementService
+from app.services.nexus_helm_http import NexusHelmAdapter, NexusHelmHttpError
 from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
     OperationArtifactSpec,
@@ -41,8 +42,8 @@ from app.services.operation_manager import (
     OperationManagerError,
     OperationTaskFailure,
 )
-from app.services.registry_client import RegistryClient
-from app.services.skopeo_service import SkopeoService, SkopeoServiceError
+from app.services.registry_client import RegistryClient, create_registry_client
+from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoServiceError
 
 
 @dataclass(slots=True)
@@ -117,13 +118,126 @@ class ExportOrchestrator:
         harbor_profile_id: str | None = None,
     ) -> tuple[ResolvedExportArtifact, ...]:
         self._require_source_contour()
-        client = self._build_harbor_client(harbor_profile_id)
+        profile = self._profile_snapshot(harbor_profile_id)
+        if profile.registry_type == "nexus":
+            return self._preview_nexus(selections, profile)
+        if any(selection.project is None for selection in selections):
+            raise ExportOrchestrationError(
+                "export_selection_invalid", "Harbor требует явный project для каждого артефакта",
+            )
+
+        client = self._build_harbor_client(profile.id)
         try:
             return tuple(resolve_export_selection(client, selection) for selection in selections)
         except ExportSelectionResolutionError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
         finally:
             client.close()
+
+    def _preview_nexus(
+        self,
+        selections: Sequence[ExportArtifactSelection],
+        profile: HarborProfile,
+    ) -> tuple[ResolvedExportArtifact, ...]:
+        """Inspect exact Docker references without invoking Harbor REST endpoints."""
+
+        async def inspect() -> tuple[ResolvedExportArtifact, ...]:
+            with self.session_factory() as session:
+                # Classic Helm HTTP is independent from the Docker v2
+                # connector; do not construct Docker credentials/client for
+                # a Helm-only SOURCE export.
+                client: RegistryClient | None = None
+                results: list[ResolvedExportArtifact] = []
+                for selection in selections:
+                    if selection.kind is ArtifactKind.HELM_CHART:
+                        helm = NexusHelmAdapter(session, self.settings, profile.id)
+                        if selection.project is None:
+                            raise ExportOrchestrationError(
+                                "export_selection_invalid", "Helm HTTP требует имя repository",
+                            )
+                        catalog = await helm.client.list_charts(selection.project)
+                        if not catalog.available:
+                            raise ExportOrchestrationError(
+                                catalog.code or "helm_index_unavailable",
+                                catalog.message or "Helm index.yaml недоступен",
+                            )
+                        match = next(
+                            (
+                                v for v in catalog.items
+                                if v.name == selection.repository
+                                and v.version == selection.reference
+                            ),
+                            None,
+                        )
+                        if match is None:
+                            raise ExportOrchestrationError(
+                                "export_source_not_found", "Helm chart/version не найден",
+                            )
+                        if "sha256:" + match.digest != selection.digest:
+                            raise ExportOrchestrationError(
+                                "export_source_changed", "SOURCE Helm digest изменился",
+                            )
+                        results.append(ResolvedExportArtifact(
+                            kind=ArtifactKind.HELM_CHART,
+                            project=selection.project,
+                            repository=selection.repository,
+                            reference=selection.reference,
+                            digest=selection.digest,
+                            size_bytes=None,
+                        ))
+                        continue
+                    if selection.kind is not ArtifactKind.CONTAINER_IMAGE:
+                        raise ExportOrchestrationError(
+                            "export_artifact_unsupported", "Неподдерживаемый SOURCE artifact",
+                        )
+                    image = ImageReference(
+                        repository=(
+                            f"{selection.project}/{selection.repository}"
+                            if selection.project else selection.repository
+                        ),
+                        reference=selection.reference,
+                    )
+                    if client is None:
+                        client = (
+                            self._registry_client_factory(session, profile.id)
+                            if self._registry_client_factory is not None
+                            else create_registry_client(
+                                "nexus", session, self.settings, profile_id=profile.id
+                            )
+                        )
+                    inspected = await client.inspect_image(image)
+                    if inspected.digest != selection.digest:
+                        raise ExportOrchestrationError(
+                            "export_source_changed",
+                            "SOURCE artifact digest изменился после выбора",
+                        )
+                    results.append(
+                        ResolvedExportArtifact(
+                            kind=ArtifactKind.CONTAINER_IMAGE,
+                            project=None,
+                            repository=image.repository,
+                            reference=selection.reference,
+                            digest=inspected.digest,
+                            size_bytes=None,
+                            media_type=inspected.media_type,
+                        )
+                    )
+                return tuple(results)
+
+        try:
+            return asyncio.run(inspect())
+        except NexusHelmHttpError as exc:
+            raise ExportOrchestrationError(exc.code, exc.message) from exc
+        except HelmServiceError as exc:
+            raise ExportOrchestrationError(exc.code, exc.message) from exc
+        except NexusServiceError as exc:
+            # NexusService emits sanitized, stable codes; preserve missing-tag diagnostics.
+            raise ExportOrchestrationError(exc.code, exc.message) from exc
+        except SkopeoServiceError as exc:
+            raise ExportOrchestrationError(
+                "registry_inspection_failed",
+                "Не удалось проверить SOURCE Docker image в Nexus",
+            ) from exc
 
     async def start_export(
         self,
@@ -165,10 +279,24 @@ class ExportOrchestrator:
                     comment=comment,
                     harbor_profile_id=bound_profile_id,
                 )
-            except (ExportOrchestrationError, HarborSettingsError, NexusServiceError) as exc:
-                # Profile/configuration errors can also occur before the artifact loop.
-                # They are operational failures, not unexpected worker crashes.
+            except (
+                ExportOrchestrationError,
+                HarborSettingsError,
+                NexusServiceError,
+                NexusHelmHttpError,
+                OperationTaskFailure,
+            ) as exc:
+                self._abort_unfinished_artifacts(context, artifact_ids)
+                self._clear_bundle_metadata(context.operation_id)
+                self._cleanup_published_delivery(delivery_id)
                 raise OperationTaskFailure(exc.code, exc.message) from exc
+            except Exception:
+                # Unexpected exception text may contain a secret: OperationManager
+                # writes sanitized public failure information and logs traceback.
+                self._abort_unfinished_artifacts(context, artifact_ids)
+                self._clear_bundle_metadata(context.operation_id)
+                self._cleanup_published_delivery(delivery_id)
+                raise
 
         try:
             self.operation_manager.submit(operation_id, worker)
@@ -402,6 +530,7 @@ class ExportOrchestrator:
                     SkopeoServiceError,
                     HelmServiceError,
                     NexusServiceError,
+                    NexusHelmHttpError,
                     HarborSettingsError,
                     ExportOrchestrationError,
                 ) as exc:
@@ -423,9 +552,12 @@ class ExportOrchestrator:
                 context.set_progress(current=index + 1, total=len(artifact_ids))
 
             context.transition(OperationStatus.PACKAGING)
+            source_profile = self._assert_operation_profile(context.operation_id, harbor_profile_id)
             source = BundleSource(
                 contour="SOURCE",
-                harbor=self._effective_harbor_url(harbor_profile_id),
+                harbor=source_profile.url if source_profile.registry_type == "harbor" else None,
+                registry_type=("nexus" if source_profile.registry_type == "nexus" else None),
+                registry=(source_profile.url if source_profile.registry_type == "nexus" else None),
                 portal_version=self.settings.app_version,
             )
             try:
@@ -722,6 +854,28 @@ class ExportOrchestrator:
     def _cleanup_helm_root(self, path: Path) -> None:
         """Compatibility hook; workspace ownership lives in the materializer."""
         self.artifact_materializer.cleanup_helm_root(path)
+
+    def _abort_unfinished_artifacts(
+        self, context: OperationContext, artifact_ids: Sequence[int]
+    ) -> None:
+        """Mark remaining artifacts, preserving the primary typed failure."""
+        operation = self.operation_manager.get_operation(context.operation_id)
+        if operation is None:
+            return
+        by_id = {artifact.id: artifact for artifact in operation.artifacts}
+        for artifact_id in artifact_ids:
+            artifact = by_id.get(artifact_id)
+            if artifact is None or artifact.status not in (
+                ArtifactStatus.PENDING,
+                ArtifactStatus.RUNNING,
+            ):
+                continue
+            context.set_artifact_status(
+                artifact_id,
+                ArtifactStatus.FAILED,
+                error_code="export_aborted",
+                error_message="Export bundle прерван; артефакт не опубликован",
+            )
 
     @staticmethod
     def _fail_artifacts(

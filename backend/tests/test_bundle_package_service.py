@@ -524,3 +524,105 @@ def test_runtime_manifest_schema_matches_normative_document(tmp_path: Path) -> N
         )
     )
     assert runtime_schema == normative
+
+
+def test_nexus_bundle_v11_round_trip_signed_without_harbor_field(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    service = BundlePackageService(settings)
+    built = service.build_bundle(
+        source=BundleSource(
+            contour="SOURCE",
+            registry_type="nexus",
+            registry="https://docker-nexus.internal",
+            portal_version="0.1.0",
+        ),
+        created_by="operator",
+        artifacts=_inputs(tmp_path)[:1],
+        delivery_id=DELIVERY_ID,
+        created_at=datetime(2026, 9, 11, 9, 0, tzinfo=UTC),
+    )
+    verified = service.verify_bundle(
+        built.archive_path, sidecar_path=built.sidecar_path
+    )
+    assert verified.manifest.schema_version == "1.1"
+    assert verified.manifest.source.registry_type == "nexus"
+    assert verified.manifest.source.registry == "https://docker-nexus.internal"
+    assert verified.manifest.source.harbor is None
+    with tarfile.open(built.archive_path, "r:gz") as archive:
+        manifest = json.load(archive.extractfile("manifest.json"))
+    assert manifest["source"]["registry_type"] == "nexus"
+    assert "harbor" not in manifest["source"]
+
+
+def test_nexus_origin_tamper_breaks_signature(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    service = BundlePackageService(settings)
+    built = service.build_bundle(
+        source=BundleSource(
+            contour="SOURCE", registry_type="nexus",
+            registry="https://docker-nexus.internal",
+        ),
+        created_by="operator",
+        artifacts=_inputs(tmp_path)[:1],
+        delivery_id=DELIVERY_ID,
+        created_at=datetime(2026, 9, 11, 9, 0, tzinfo=UTC),
+    )
+    tampered = tmp_path / "nexus-origin-tampered.tar.gz"
+
+    def transform(name: str, payload: bytes) -> bytes:
+        if name != "manifest.json":
+            return payload
+        manifest = json.loads(payload)
+        manifest["source"]["registry"] = "https://attacker.invalid"
+        return _canonical(manifest)
+
+    _rewrite_archive(built.archive_path, tampered, transform)
+    with pytest.raises(BundlePackageError) as error:
+        service.verify_bundle(tampered)
+    assert error.value.code == "bundle_signature_untrusted"
+
+
+@pytest.mark.parametrize("source_kind", ["legacy_as_1_1", "nexus_as_1_0"])
+def test_even_newly_resigned_bundle_cannot_relabel_source_version(
+    tmp_path: Path, source_kind: str,
+) -> None:
+    """An authorized signing key must not bypass v1.0/v1.1 provenance rules."""
+    settings = _settings(tmp_path)
+    service = BundlePackageService(settings)
+    nexus_source = BundleSource(
+        contour="SOURCE", registry_type="nexus",
+        registry="https://docker-nexus.internal",
+    )
+    source = (
+        BundleSource(contour="SOURCE", harbor="harbor.source.local")
+        if source_kind == "legacy_as_1_1" else nexus_source
+    )
+    built = service.build_bundle(
+        source=source, created_by="operator",
+        artifacts=_inputs(tmp_path)[:1], delivery_id=DELIVERY_ID,
+        created_at=datetime(2026, 9, 11, 9, 0, tzinfo=UTC),
+    )
+    with tarfile.open(built.archive_path, "r:gz") as archive:
+        manifest_stream = archive.extractfile("manifest.json")
+        assert manifest_stream is not None
+        manifest = json.load(manifest_stream)
+    manifest["schema_version"] = "1.1" if source_kind == "legacy_as_1_1" else "1.0"
+    modified = _canonical(manifest)
+    private_key = serialization.load_pem_private_key(
+        settings.bundle_signing_private_key_file.read_bytes(), password=None,
+    )
+    assert isinstance(private_key, Ed25519PrivateKey)
+    signature = private_key.sign(modified)
+    tampered = tmp_path / f"invalid-provenance-{source_kind}.tar.gz"
+
+    def transform(name: str, payload: bytes) -> bytes:
+        if name == "manifest.json":
+            return modified
+        if name == "manifest.sig":
+            return signature
+        return payload
+
+    _rewrite_archive(built.archive_path, tampered, transform)
+    with pytest.raises(BundlePackageError) as exc:
+        service.verify_bundle(tampered)
+    assert exc.value.code == "bundle_schema_invalid"

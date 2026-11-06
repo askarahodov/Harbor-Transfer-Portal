@@ -8,14 +8,24 @@ import {
   RefreshCw,
   XCircle,
 } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { apiClient } from '@/api/client'
 import {
   apiErrorInfo,
   createExportDownloadTicket,
+  navigateToExportDownload,
   downloadExportHandoff,
   getExportHandoffRecord,
+  inspectExactNexusImage,
+  getNexusInventory,
+  listNexusHelmCharts,
+  listNexusRepositories,
+  listNexusTags,
+  type ExactNexusInspection,
+  type NexusRepository,
+  type NexusHelmChartVersion,
+  type HarborProfileOption,
   type ArtifactStatus,
   type OperationStatus,
 } from '@/api/exports'
@@ -23,6 +33,7 @@ import ExportArtifactSelector from '@/components/ExportArtifactSelector.vue'
 import ExportReadyCard from '@/components/ExportReadyCard.vue'
 import HarborProfileSelector from '@/components/HarborProfileSelector.vue'
 import SearchCombobox from '@/components/SearchCombobox.vue'
+import NexusDockerBrowser from '@/components/NexusDockerBrowser.vue'
 import WizardStepper from '@/components/WizardStepper.vue'
 import { formatBytes, shortDigest as formatShortDigest } from '@/presentation/format'
 import { useAuthStore } from '@/stores/auth'
@@ -32,6 +43,277 @@ import { useRuntimeStore } from '@/stores/runtime'
 const wizard = useExportWizardStore()
 const runtime = useRuntimeStore()
 const auth = useAuthStore()
+const exactRepository = ref('')
+const exactReference = ref('')
+const exactResult = ref<ExactNexusInspection | null>(null)
+const exactError = ref<string | null>(null)
+const exactBusy = ref(false)
+const nexusRepositories = ref<string[]>([])
+const nexusInventory = ref<NexusRepository[]>([])
+const nexusInventoryAvailable = ref(false)
+const nexusInventoryMessage = ref<string | null>(null)
+const nexusInventoryBusy = ref(false)
+const nexusHelmSelection = ref<string | null>(null)
+const nexusHelmVersions = ref<NexusHelmChartVersion[]>([])
+const nexusHelmMessage = ref<string | null>(null)
+const nexusHelmBusy = ref(false)
+const nexusHelmManualRepository = ref('')
+const nexusHelmManualValid = computed(() =>
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(nexusHelmManualRepository.value.trim()),
+)
+
+function browseManualHelmRepository(): void {
+  if (!nexusHelmManualValid.value) return
+  void browseHelmRepository(nexusHelmManualRepository.value.trim())
+}
+
+let nexusHelmGeneration = 0
+
+async function browseHelmRepository(repository: string): Promise<void> {
+  const profileId = wizard.selectedHarborProfileId
+  if (!wizard.isNexus || !profileId) return
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(repository)) return
+  const generation = ++nexusHelmGeneration
+  nexusHelmSelection.value = repository
+  nexusHelmVersions.value = []
+  nexusHelmMessage.value = null
+  nexusHelmBusy.value = true
+  try {
+    const result = await listNexusHelmCharts(profileId, repository)
+    if (generation !== nexusHelmGeneration || wizard.selectedHarborProfileId !== profileId) return
+    nexusHelmVersions.value = result.available ? result.items : []
+    nexusHelmMessage.value = result.available
+      ? (result.items.length ? null : 'В доступном Helm index.yaml нет подходящих charts.')
+      : (result.message ?? 'Нет доступа к Helm index.yaml.')
+  } catch (reason) {
+    if (generation === nexusHelmGeneration && wizard.selectedHarborProfileId === profileId) {
+      nexusHelmVersions.value = []
+      nexusHelmMessage.value = apiErrorInfo(reason, 'Не удалось прочитать Helm index.yaml.').message
+    }
+  } finally {
+    if (generation === nexusHelmGeneration) nexusHelmBusy.value = false
+  }
+}
+
+function dockerConnectorProfile(repository: string): HarborProfileOption | null {
+  const origin = wizard.selectedHarborProfile?.nexus_search_url?.replace(/[/]$/, '')
+  if (!origin) return null
+  // A Docker v2 connector belongs to an explicitly configured profile.
+  // Never derive a connector URL from Nexus UI inventory or user-supplied names.
+  return wizard.harborProfiles.find((profile) =>
+    profile.registry_type === 'nexus'
+    && profile.nexus_search_repository === repository
+    && profile.nexus_search_url?.replace(/[/]$/, '') === origin
+  ) ?? null
+}
+
+function selectDockerConnector(repository: string): void {
+  const profile = dockerConnectorProfile(repository)
+  if (!profile || wizard.harborProfileLocked || wizard.selectedCount > 0) return
+  void wizard.selectHarborProfile(profile.id)
+}
+
+let nexusInventoryGeneration = 0
+
+async function loadNexusInventory(): Promise<void> {
+  const profileId = wizard.selectedHarborProfileId
+  if (!wizard.isNexus || !profileId) return
+  const generation = ++nexusInventoryGeneration
+  nexusInventoryBusy.value = true
+  nexusInventoryAvailable.value = false
+  nexusInventory.value = []
+  nexusInventoryMessage.value = null
+  try {
+    const result = await getNexusInventory(profileId)
+    if (generation !== nexusInventoryGeneration || wizard.selectedHarborProfileId !== profileId) return
+    nexusInventory.value = result.items
+    nexusInventoryAvailable.value = result.available
+    nexusInventoryMessage.value = result.message ?? (result.available
+      ? (result.items.length ? null : 'Доступных Docker/Helm репозиториев не обнаружено. Список может быть ограничен правами.')
+      : 'Список Nexus недоступен. Уточните URL Nexus UI и права сервисной учётной записи.')
+  } catch (reason) {
+    if (generation === nexusInventoryGeneration && wizard.selectedHarborProfileId === profileId) {
+      nexusInventoryMessage.value = apiErrorInfo(reason, 'Не удалось получить список репозиториев Nexus.').message
+    }
+  } finally {
+    if (generation === nexusInventoryGeneration) nexusInventoryBusy.value = false
+  }
+}
+
+const nexusTags = ref<string[]>([])
+const nexusRepositoryCursor = ref<string | null>(null)
+const nexusTagCursor = ref<string | null>(null)
+const nexusCatalogMessage = ref<string | null>(null)
+const nexusTagsMessage = ref<string | null>(null)
+const nexusBrowseBusy = ref(false)
+const nexusTagsBusy = ref(false)
+let nexusRepoTimer: ReturnType<typeof setTimeout> | null = null
+let nexusTagTimer: ReturnType<typeof setTimeout> | null = null
+let nexusGeneration = 0
+
+async function searchNexusRepositories(cursor: string | null = null): Promise<void> {
+  const profileId = wizard.selectedHarborProfileId
+  if (!wizard.isNexus || !profileId) return
+  const search = exactRepository.value.trim()
+  const generation = ++nexusGeneration
+  nexusBrowseBusy.value = true
+  if (!cursor) {
+    nexusRepositoryCursor.value = null
+    nexusRepositories.value = []
+  }
+  try {
+    const result = cursor
+      ? await listNexusRepositories(profileId, search, cursor)
+      : await listNexusRepositories(profileId, search)
+    if (generation !== nexusGeneration || wizard.selectedHarborProfileId !== profileId
+        || exactRepository.value.trim() !== search) return
+    if (!result.available) {
+      nexusRepositoryCursor.value = null
+      nexusCatalogMessage.value = result.message ?? 'Перечисление Nexus недоступно.'
+      return
+    }
+    nexusRepositories.value = [...new Set([
+      ...(cursor ? nexusRepositories.value : []), ...result.items,
+    ])].sort()
+    // A page may contain no matches while the server still has later pages.
+    nexusRepositoryCursor.value = result.next_cursor ?? null
+    nexusCatalogMessage.value = result.message ?? (
+      result.next_cursor
+        ? 'Найдено не всё: нажмите «Показать ещё», чтобы продолжить поиск по Nexus.'
+        : 'Поиск завершён для доступного каталога.'
+    )
+  } catch (reason) {
+    if (generation === nexusGeneration) {
+      nexusRepositoryCursor.value = null
+      nexusCatalogMessage.value = apiErrorInfo(reason, 'Не удалось получить каталог Nexus.').message
+    }
+  } finally {
+    if (generation === nexusGeneration) nexusBrowseBusy.value = false
+  }
+}
+
+let nexusTagsGeneration = 0
+async function searchNexusTags(cursor: string | null = null): Promise<void> {
+  const profileId = wizard.selectedHarborProfileId
+  const repository = exactRepository.value.trim()
+  const search = exactReference.value.trim()
+  if (!wizard.isNexus || !profileId || !repository) return
+  const generation = ++nexusTagsGeneration
+  nexusTagsBusy.value = true
+  if (!cursor) {
+    nexusTagCursor.value = null
+    nexusTags.value = []
+  }
+  try {
+    const result = cursor
+      ? await listNexusTags(profileId, repository, search, cursor)
+      : await listNexusTags(profileId, repository, search)
+    if (generation !== nexusTagsGeneration || wizard.selectedHarborProfileId !== profileId
+        || exactRepository.value.trim() !== repository
+        || exactReference.value.trim() !== search) return
+    if (!result.available) {
+      nexusTagCursor.value = null
+      nexusTagsMessage.value = result.message ?? 'Теги недоступны; введите точный tag.'
+      return
+    }
+    nexusTags.value = [...new Set([
+      ...(cursor ? nexusTags.value : []), ...result.items,
+    ])].sort()
+    nexusTagCursor.value = result.next_cursor ?? null
+    nexusTagsMessage.value = result.message ?? (
+      result.next_cursor
+        ? 'Есть следующие страницы тегов. Нажмите «Показать ещё теги».'
+        : 'Поиск тегов завершён для доступного репозитория.'
+    )
+  } catch (reason) {
+    if (generation === nexusTagsGeneration) {
+      nexusTagCursor.value = null
+      nexusTagsMessage.value = apiErrorInfo(reason, 'Не удалось получить теги Nexus.').message
+    }
+  } finally {
+    if (generation === nexusTagsGeneration) nexusTagsBusy.value = false
+  }
+}
+
+async function inspectNexusReference(): Promise<void> {
+  const profileId = wizard.selectedHarborProfileId
+  if (!wizard.isNexus || !profileId || exactBusy.value) return
+  const repository = exactRepository.value.trim()
+  const reference = exactReference.value.trim()
+  if (!repository || !reference) return
+  const stillCurrent = () => (
+    wizard.isNexus
+    && wizard.selectedHarborProfileId === profileId
+    && exactRepository.value.trim() === repository
+    && exactReference.value.trim() === reference
+  )
+  exactBusy.value = true
+  exactResult.value = null
+  exactError.value = null
+  try {
+    const inspected = await inspectExactNexusImage(profileId, repository, reference)
+    // Source selection must never show a digest from a stale profile, tag
+    // or repository once the operator edits the input while a probe is running.
+    if (!stillCurrent()) return
+    exactResult.value = inspected
+  } catch (reason) {
+    if (stillCurrent()) {
+      exactError.value = apiErrorInfo(reason, 'Не удалось проверить точный Docker reference.').message
+    }
+  } finally {
+    exactBusy.value = false
+  }
+}
+
+watch([exactRepository, exactReference], () => {
+  exactResult.value = null
+  exactError.value = null
+})
+watch(exactRepository, () => {
+  nexusGeneration += 1
+  nexusTagsGeneration += 1
+  nexusRepositoryCursor.value = null
+  nexusTagCursor.value = null
+  nexusTags.value = []
+  nexusTagsMessage.value = null
+  if (nexusRepoTimer !== null) clearTimeout(nexusRepoTimer)
+  if (nexusTagTimer !== null) clearTimeout(nexusTagTimer)
+  nexusRepoTimer = setTimeout(() => { void searchNexusRepositories() }, 400)
+})
+watch(exactReference, () => {
+  nexusTagsGeneration += 1
+  nexusTagCursor.value = null
+  if (nexusTagTimer !== null) clearTimeout(nexusTagTimer)
+  nexusTagTimer = setTimeout(() => { void searchNexusTags() }, 400)
+})
+
+watch(() => wizard.selectedHarborProfileId, () => {
+  exactRepository.value = ''
+  exactReference.value = ''
+  exactResult.value = null
+  exactError.value = null
+  nexusGeneration += 1
+  nexusTagsGeneration += 1
+  nexusInventoryGeneration += 1
+  nexusHelmGeneration += 1
+  nexusHelmSelection.value = null
+  nexusHelmManualRepository.value = ''
+  nexusHelmVersions.value = []
+  nexusHelmMessage.value = null
+  nexusInventory.value = []
+  nexusInventoryAvailable.value = false
+  nexusInventoryMessage.value = null
+  nexusRepositories.value = []
+  nexusTags.value = []
+  nexusRepositoryCursor.value = null
+  nexusTagCursor.value = null
+  nexusCatalogMessage.value = null
+  nexusTagsMessage.value = null
+  if (wizard.isNexus) {
+    void loadNexusInventory()
+  }
+})
+
 const downloadError = ref<string | null>(null)
 const printHandoffBusy = ref(false)
 const signingRecoveryBusy = ref(false)
@@ -81,6 +363,14 @@ const elapsed = computed(() => {
   const minutes = Math.floor(seconds / 60)
   const rest = seconds % 60
   return minutes > 0 ? `${minutes} мин ${rest} с` : `${rest} с`
+})
+
+const longRunning = computed(() => {
+  const operation = wizard.operation
+  if (!operation?.started_at || !['CREATED', 'VALIDATING', 'RUNNING', 'PACKAGING', 'VERIFYING'].includes(operation.status)) {
+    return false
+  }
+  return now.value - new Date(operation.started_at).getTime() > 5 * 60_000
 })
 
 const progressPercent = computed(() => {
@@ -145,10 +435,13 @@ async function generateIdentityAndContinueExport(): Promise<void> {
 
 async function downloadBundle(): Promise<void> {
   if (!wizard.operation || !wizard.bundle) return
+  const operationId = wizard.operation.id
   downloadError.value = null
   try {
-    const ticket = await createExportDownloadTicket(wizard.operation.id)
-    window.location.assign(ticket.download_url)
+    const ticket = await createExportDownloadTicket(operationId)
+    // Ignore tickets for an operation that is no longer active in the UI.
+    if (wizard.operation?.id !== operationId || !wizard.bundle) return
+    navigateToExportDownload(ticket, operationId)
   } catch (error) {
     downloadError.value = apiErrorInfo(
       error,
@@ -274,6 +567,10 @@ onMounted(async () => {
   }
   if (runtime.contour === 'SOURCE') {
     await wizard.initialize()
+    if (wizard.isNexus) {
+      void loadNexusInventory()
+      void searchNexusRepositories()
+    }
   }
   clock = setInterval(() => {
     now.value = Date.now()
@@ -282,6 +579,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   wizard.stopPolling()
+  nexusGeneration += 1
+  nexusTagsGeneration += 1
+  if (nexusRepoTimer !== null) clearTimeout(nexusRepoTimer)
+  if (nexusTagTimer !== null) clearTimeout(nexusTagTimer)
   if (clock !== null) clearInterval(clock)
 })
 </script>
@@ -293,11 +594,11 @@ onBeforeUnmount(() => {
         <p class="eyebrow">SOURCE · офлайн-передача</p>
         <h1 id="export-title">Отправка артефактов</h1>
         <p class="lead">
-          Выберите точные версии из локального Harbor, проверьте digest и создайте подписанный
-          Offline Bundle v1 для физического переноса в TARGET.
+          Выберите точный Docker-образ Nexus или версию из Harbor, проверьте digest и создайте подписанный
+          Offline Bundle для физического переноса в TARGET.
         </p>
       </div>
-      <div v-if="wizard.connection" class="connection-chip" aria-label="Состояние локального Harbor">
+      <div v-if="wizard.connection && !wizard.isNexus" class="connection-chip" aria-label="Состояние локального Harbor">
         <CheckCircle2 :size="18" aria-hidden="true" />
         Harbor {{ wizard.connection.version || 'подключён' }}
       </div>
@@ -338,12 +639,12 @@ onBeforeUnmount(() => {
 
       <HarborProfileSelector
         id="export-harbor-profile"
-        label="SOURCE Harbor profile"
+        label="SOURCE registry profile"
         :profiles="wizard.harborProfiles"
         :model-value="wizard.operation && !wizard.operation.harbor_profile_id ? null : wizard.selectedHarborProfileId"
         :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
         :locked="wizard.harborProfileLocked"
-        hint="Browse, preview и export будут закреплены за выбранным Harbor."
+        hint="Выбранный профиль закрепляется за операцией. Для Nexus используется Docker Registry v2 без Harbor API."
         @update:model-value="wizard.selectHarborProfile"
       />
 
@@ -361,7 +662,161 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="compact-selector" aria-label="Выбор артефакта Harbor">
+        <div v-if="wizard.isNexus" class="nexus-source-workspace">
+          <div>
+            <strong>Nexus · Docker Registry v2</strong>
+            <p>В Nexus Browse путь <code>docker-proxy / v2 / baseimage</code> означает образ <code>baseimage</code> внутри Docker repository <code>docker-proxy</code>. Проверьте образ и tag напрямую — полный каталог для этого не нужен. Harbor API и Helm OCI не используются.</p>
+            <NexusDockerBrowser
+              v-if="wizard.selectedHarborProfileId"
+              :key="wizard.selectedHarborProfileId"
+              :profile-id="wizard.selectedHarborProfileId"
+              :nexus-repository="wizard.selectedHarborProfile?.nexus_search_repository"
+              :rest-search-configured="Boolean(wizard.selectedHarborProfile?.nexus_search_url && wizard.selectedHarborProfile?.nexus_search_repository)"
+              @add="wizard.addExactNexusImage"
+            />
+            <details class="nexus-inventory" aria-label="Репозитории Nexus по сервисной учётной записи">
+              <summary>Дополнительно: список Docker/Helm repositories Nexus UI</summary>
+              <div class="nexus-inventory__heading">
+                <strong>Репозитории Nexus: Docker и Helm</strong>
+                <button type="button" class="secondary-button" :disabled="nexusInventoryBusy" @click="loadNexusInventory">
+                  {{ nexusInventoryBusy ? 'Загрузка…' : 'Обновить список' }}
+                </button>
+              </div>
+              <p class="muted">Дополнительный список Nexus UI/API необязателен для проверки известного Docker image:tag. Если список не доступен, воспользуйтесь проверкой образа выше. У каждого Docker repository должен быть свой настроенный Docker v2 connector; видимость в Nexus UI не подтверждает pull/push.</p>
+              <p v-if="nexusInventoryMessage" role="status" class="muted">{{ nexusInventoryMessage }}</p>
+              <ul v-if="nexusInventoryAvailable && nexusInventory.length" class="nexus-inventory__list">
+                <li v-for="item in nexusInventory" :key="item.format + ':' + item.name">
+                  <strong>{{ item.name }}</strong>
+                  <span>{{ item.format === 'docker' ? 'Docker' : 'Helm' }} · {{ item.kind }}</span>
+                  <span class="muted">{{ item.format === 'helm'
+                    ? 'Helm HTTP (.tgz) — SOURCE export; TARGET hosted upload требует прав'
+                    : 'Docker connector выбирается из привязанных профилей, image/tag проверяются в форме выше' }}</span>
+                  <template v-if="item.format === 'docker'">
+                    <span v-if="!dockerConnectorProfile(item.name)" class="muted">
+                      Для этого Docker repository отдельный connector-профиль ещё не настроен.
+                    </span>
+                    <span v-else-if="dockerConnectorProfile(item.name)?.id === wizard.selectedHarborProfileId">
+                      Docker connector выбран · требуется проверка image digest
+                    </span>
+                    <button
+                      v-else
+                      type="button"
+                      class="secondary-button"
+                      :disabled="wizard.harborProfileLocked || wizard.selectedCount > 0"
+                      @click="selectDockerConnector(item.name)"
+                    >Выбрать Docker connector</button>
+                  </template>
+                  <button
+                    v-if="item.format === 'helm'"
+                    type="button"
+                    class="secondary-button"
+                    :disabled="nexusHelmBusy"
+                    @click="browseHelmRepository(item.name)"
+                  >Показать charts</button>
+                </li>
+              </ul>
+              <details class="nexus-inventory__helm-manual">
+                <summary>Дополнительно: обычные Helm HTTP repositories (не Docker)</summary>
+              <form class="nexus-helm-manual" @submit.prevent="browseManualHelmRepository">
+                <label for="nexus-helm-repository">Helm repository — точное имя
+                  <input
+                    id="nexus-helm-repository"
+                    v-model="nexusHelmManualRepository"
+                    type="text"
+                    maxlength="128"
+                    autocomplete="off"
+                    placeholder="helm-hosted"
+                    pattern="[A-Za-z0-9][A-Za-z0-9._-]*"
+                  />
+                </label>
+                <button type="submit" class="secondary-button" :disabled="nexusHelmBusy || !nexusHelmManualValid">
+                  Проверить Helm-репозиторий
+                </button>
+                <p class="muted">
+                  Если общий список Nexus недоступен из-за прав или версии API, укажите известное имя.
+                  Проверяется доступ именно к index.yaml выбранного репозитория.
+                  Отказ 401/403 для одного репозитория не блокирует другие.
+                </p>
+              </form>
+              <div v-if="nexusHelmSelection" class="nexus-helm-catalog" role="region" aria-label="Helm charts и версии">
+                <strong>{{ nexusHelmMessage ? 'Проверка Helm repository: ' : 'Helm: ' }}{{ nexusHelmSelection }} (только чтение)</strong>
+                <p v-if="nexusHelmMessage" role="status">{{ nexusHelmMessage }}</p>
+                <ul v-if="nexusHelmVersions.length">
+                  <li v-for="entry in nexusHelmVersions" :key="entry.name + ':' + entry.version">
+                    {{ entry.name }} · {{ entry.version }} · sha256:{{ entry.digest.slice(0, 12) }}
+                    <button
+                      type="button"
+                      class="secondary-button"
+                      @click="wizard.addExactNexusHelmChart(
+                        nexusHelmSelection, entry.name, entry.version, entry.digest
+                      )"
+                    >Добавить Helm chart</button>
+                  </li>
+                </ul>
+                <p class="muted">Helm HTTP: chart можно добавить в подписанный SOURCE bundle. TARGET требует отдельной проверки прав записи в hosted repository; overwrite запрещён.</p>
+              </div>
+              </details>
+            </details>
+            <details class="nexus-manual-fallback">
+              <summary>Расширенный ручной поиск и точный repository:tag</summary>
+              <p class="muted">Если Nexus не перечисляет образ, здесь можно проверить известный Docker reference напрямую.</p>
+            <form class="nexus-exact-form" @submit.prevent="inspectNexusReference">
+              <label>Repository
+                <input v-model="exactRepository" type="text" required maxlength="255" placeholder="team/application" autocomplete="off" list="nexus-repositories" />
+                <datalist id="nexus-repositories">
+                  <option v-for="name in nexusRepositories" :key="name" :value="name" />
+                </datalist>
+              </label>
+              <button class="secondary-button" type="button" :disabled="nexusBrowseBusy" @click="searchNexusRepositories()">
+                {{ nexusBrowseBusy ? 'Поиск репозиториев…' : 'Найти репозитории' }}
+              </button>
+              <p v-if="nexusCatalogMessage" class="muted" role="status">{{ nexusCatalogMessage }}</p>
+              <button
+                v-if="nexusRepositoryCursor"
+                type="button"
+                class="secondary-button"
+                :disabled="nexusBrowseBusy"
+                @click="searchNexusRepositories(nexusRepositoryCursor)"
+              >{{ nexusBrowseBusy ? 'Загрузка…' : 'Показать ещё репозитории' }}</button>
+              <div v-if="nexusRepositories.length" class="nexus-suggestions" aria-label="Найденные Nexus репозитории">
+                <button v-for="name in nexusRepositories" :key="name" type="button" class="secondary-button" @click="exactRepository = name; exactReference = ''; searchNexusTags()">{{ name }}</button>
+              </div>
+              <label>Tag или digest
+                <input v-model="exactReference" type="text" required maxlength="128" placeholder="1.0.0" autocomplete="off" list="nexus-tags" />
+                <datalist id="nexus-tags">
+                  <option v-for="tag in nexusTags" :key="tag" :value="tag" />
+                </datalist>
+              </label>
+              <button type="button" class="secondary-button" :disabled="!exactRepository.trim() || nexusTagsBusy" @click="searchNexusTags()">
+                {{ nexusTagsBusy ? 'Поиск тегов…' : 'Найти теги' }}
+              </button>
+              <p v-if="nexusTagsMessage" class="muted" role="status">{{ nexusTagsMessage }}</p>
+              <button
+                v-if="nexusTagCursor"
+                type="button"
+                class="secondary-button"
+                :disabled="nexusTagsBusy"
+                @click="searchNexusTags(nexusTagCursor)"
+              >{{ nexusTagsBusy ? 'Загрузка…' : 'Показать ещё теги' }}</button>
+              <div v-if="nexusTags.length" class="nexus-suggestions" aria-label="Найденные Nexus теги">
+                <button v-for="tag in nexusTags" :key="tag" type="button" class="secondary-button" @click="exactReference = tag">{{ tag }}</button>
+              </div>
+              <button class="secondary-button" type="submit" :disabled="exactBusy || !exactRepository.trim() || !exactReference.trim()">Проверить Docker image</button>
+            </form>
+            <p v-if="exactError" role="alert">{{ exactError }}</p>
+            <div v-if="exactResult" role="status">
+              <p>Найден {{ exactResult.repository }}:{{ exactResult.reference }} · digest <code>{{ exactResult.digest }}</code></p>
+              <button
+                type="button"
+                class="secondary-button"
+                @click="wizard.addExactNexusImage(exactResult.repository, exactResult.reference, exactResult.digest)"
+              >Добавить образ в выбор</button>
+            </div>
+            </details>
+          </div>
+        </div>
+
+        <div v-else class="compact-selector" aria-label="Выбор артефакта Harbor">
           <SearchCombobox
             label="Проект Harbor"
             :model-value="wizard.selectedProject ?? ''"
@@ -419,11 +874,11 @@ onBeforeUnmount(() => {
         <div v-if="wizard.selectedArtifacts.length" class="selected-artifacts" aria-label="Выбранные артефакты">
           <div
             v-for="artifact in wizard.selectedArtifacts"
-            :key="[artifact.kind, artifact.project, artifact.repository, artifact.digest].join('|')"
+            :key="[artifact.kind, artifact.project, artifact.repository, artifact.reference, artifact.digest].join('|')"
             class="selected-artifact"
           >
             <div>
-              <strong>{{ artifact.project }}/{{ artifact.repository }}:{{ artifact.reference }}</strong>
+              <strong>{{ artifact.project ? artifact.project + '/' : '' }}{{ artifact.repository }}:{{ artifact.reference }}</strong>
               <span>{{ kindLabel(artifact.kind) }} · {{ formatBytes(artifact.size_bytes) }}</span>
               <code :title="artifact.digest">{{ shortDigest(artifact.digest) }}</code>
             </div>
@@ -461,7 +916,7 @@ onBeforeUnmount(() => {
             <strong>SOURCE</strong>
           </div>
           <div class="info-box">
-            <span>Локальный Harbor</span>
+            <span>{{ wizard.isNexus ? 'Nexus · Docker v2' : 'Локальный Harbor' }}</span>
             <strong>{{ wizard.connection?.version || 'подключён' }}</strong>
             <small v-if="wizard.connection?.auth_mode">Auth: {{ wizard.connection.auth_mode }}</small>
           </div>
@@ -484,9 +939,9 @@ onBeforeUnmount(() => {
               <tr><th>Тип</th><th>Артефакт</th><th>Reference</th><th>Digest SOURCE</th><th>Размер</th></tr>
             </thead>
             <tbody>
-              <tr v-for="item in wizard.preview?.artifacts" :key="`${item.project}/${item.repository}:${item.reference}`">
+              <tr v-for="item in wizard.preview?.artifacts" :key="`${item.project ?? ''}/${item.repository}:${item.reference}`">
                 <td>{{ kindLabel(item.kind) }}</td>
-                <td>{{ item.project }}/{{ item.repository }}</td>
+                <td>{{ item.project ? item.project + '/' : '' }}{{ item.repository }}</td>
                 <td><strong>{{ item.reference }}</strong></td>
                 <td class="digest" :title="item.source_digest">{{ shortDigest(item.source_digest) }}</td>
                 <td>{{ formatBytes(item.size_bytes) }}</td>
@@ -557,6 +1012,14 @@ onBeforeUnmount(() => {
           </progress>
         </div>
 
+        <div v-if="longRunning && wizard.operation" class="notice notice--info" role="status">
+          <AlertTriangle :size="22" aria-hidden="true" />
+          <div>
+            <strong>Экспорт выполняется дольше обычного.</strong>
+            <p>0% здесь означает 0 завершённых артефактов, а не отсутствие переданных байтов. Проверьте Skopeo/Nexus и свободное место на SOURCE. Если операция не меняет статус, сохраните ID {{ wizard.operation.id }} и серверные логи перед отменой; повторный экспорт не запускайте параллельно.</p>
+          </div>
+        </div>
+
         <div v-if="wizard.operation" class="operation-artifacts">
           <article v-for="artifact in wizard.operation.artifacts" :key="artifact.id" class="operation-artifact">
             <div>
@@ -608,6 +1071,19 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.nexus-inventory { margin-top: var(--space-3); display: grid; gap: var(--space-2); }
+.nexus-inventory__heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.nexus-inventory__list { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-2); }
+.nexus-inventory__list li { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.nexus-helm-manual { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.nexus-helm-manual label { display: grid; gap: var(--space-1); }
+.nexus-helm-manual input { min-height: 42px; width: 100%; padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); }
+.nexus-exact-form { display: grid; gap: var(--space-3); margin-top: var(--space-3); }
+.nexus-suggestions { display: flex; flex-wrap: wrap; gap: var(--space-2); max-height: 180px; overflow-y: auto; }
+.nexus-suggestions button { max-width: 100%; overflow-wrap: anywhere; }
+.nexus-exact-form label { display: grid; gap: var(--space-1); }
+.nexus-exact-form input { min-height: 42px; width: 100%; padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); }
+
 .export-page { display: grid; gap: var(--space-6); color: var(--color-text); }
 .page-heading, .section-heading, .artifact-panel__heading, .actions, .progress-label { display: flex; justify-content: space-between; gap: var(--space-4); align-items: flex-start; }
 h1, h2, h3, p { margin-top: 0; }
@@ -627,6 +1103,9 @@ h3 { margin-bottom: var(--space-2); font-size: 16px; }
 .selected-artifact code { overflow-wrap: anywhere; font-size: 12px; }
 .browser-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
 .compact-selector { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr); gap: var(--space-3); align-items: end; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
+.nexus-source-workspace { padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); color: var(--color-text); min-width: 0; }
+.nexus-source-workspace > div { display: grid; gap: var(--space-3); min-width: 0; }
+.nexus-source-workspace p { color: var(--color-text-muted); margin: 0; }
 .compact-selector__versions { grid-column: 1 / -1; margin-top: var(--space-2); }
 .compact-field { display: grid; gap: var(--space-2); min-width: 0; font-weight: 700; }
 .compact-pagination { display: flex; align-items: center; justify-content: center; gap: var(--space-1); font-size: 12px; color: var(--color-text-muted); }
