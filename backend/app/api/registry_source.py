@@ -67,13 +67,46 @@ async def inspect_exact_source(
             session, settings, nexus_profile_id=profile.id
         ).inspect_image(image)
     except NexusServiceError as exc:
-        # Never surface Skopeo command output, secrets or internal endpoints.
+        # Return only fixed, typed errors. Skopeo stdout/stderr, private URLs
+        # and service credentials must not cross the API boundary.
+        errors = {
+            "nexus_auth_failed": (
+                status.HTTP_403_FORBIDDEN,
+                "registry_auth_failed",
+                "Nexus отклонил учётные данные или запретил доступ",
+            ),
+            "nexus_not_found": (
+                status.HTTP_404_NOT_FOUND,
+                "registry_image_not_found",
+                "Docker image или tag не найден в доступном Nexus repository",
+            ),
+            "nexus_tls_failed": (
+                status.HTTP_502_BAD_GATEWAY,
+                "registry_tls_failed",
+                "Невозможно проверить TLS-сертификат Nexus",
+            ),
+            "nexus_timeout": (
+                status.HTTP_504_GATEWAY_TIMEOUT,
+                "registry_timeout",
+                "Истекло время ожидания Docker Registry",
+            ),
+            "nexus_registry_connection_failed": (
+                status.HTTP_502_BAD_GATEWAY,
+                "registry_unavailable",
+                "Нет сетевого соединения с Docker Registry",
+            ),
+        }
+        code_status, code, message = errors.get(
+            exc.code,
+            (
+                status.HTTP_502_BAD_GATEWAY,
+                "registry_inspection_failed",
+                "Не удалось проверить Docker image. Проверьте tag и доступы.",
+            ),
+        )
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "code": "registry_inspection_failed",
-                "message": "Не удалось проверить Docker image. Проверьте tag и доступы.",
-            },
+            status_code=code_status,
+            detail={"code": code, "message": message},
         ) from exc
     return ExactSourceInspectionResponse(
         repository=image.repository,
