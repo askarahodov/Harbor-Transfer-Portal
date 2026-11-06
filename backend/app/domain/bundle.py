@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from pathlib import PurePosixPath
-from urllib.parse import urlsplit
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
