@@ -21,7 +21,7 @@ describe('NexusDockerBrowser', () => {
       media_type: null,
     })
   })
-  afterEach(() => { vi.restoreAllMocks() })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
   it('provides an image → tag → inspected digest workflow for one Nexus connector', async () => {
     const wrapper = mount(NexusDockerBrowser, {
@@ -61,6 +61,39 @@ describe('NexusDockerBrowser', () => {
     await flushPromises()
     expect(exportsApi.listNexusRepositories).toHaveBeenCalledWith('proxy-id', '', 'next')
     expect(wrapper.text()).toContain('bitnami/redis')
+  })
+
+  it('automatically searches later proxy pages with a bounded query', async () => {
+    vi.useFakeTimers()
+    const seen: Array<string | undefined> = []
+    vi.mocked(exportsApi.listNexusRepositories).mockImplementation(
+      async (_id, search, cursor) => {
+        seen.push(cursor)
+        if (!search) {
+          return { available: true, items: ['alpine'], message: null,
+            truncated: false, next_cursor: null }
+        }
+        if (!cursor) {
+          return { available: true, items: [], message: null,
+            truncated: true, next_cursor: 'page-2' }
+        }
+        if (cursor === 'page-2') {
+          return { available: true, items: [], message: null,
+            truncated: true, next_cursor: 'page-3' }
+        }
+        return { available: true, items: ['bitnami/redis'], message: null,
+          truncated: false, next_cursor: null }
+      },
+    )
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]').setValue('bitnami')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushPromises()
+    expect(seen).toEqual([undefined, undefined, 'page-2', 'page-3'])
+    expect(wrapper.text()).toContain('bitnami/redis')
+    expect(wrapper.text()).toContain('прочитано страниц: 3')
+    wrapper.unmount()
   })
 
   it('does not leak or show old profile results after profile change', async () => {
