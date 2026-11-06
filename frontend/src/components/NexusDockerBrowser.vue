@@ -624,7 +624,10 @@ onBeforeUnmount(() => {
 .nexus-browser__direct summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-3); }
 .nexus-browser__tree { display: grid; gap: var(--space-2); list-style: none; padding: 0; margin: 0; max-height: 400px; overflow-y: auto; }
 .nexus-browser__tree-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
-.nexus-browser__tree-row button { text-align: left; overflow-wrap: anywhere; }
+.nexus-browser__tree-row button { min-height: 34px; text-align: left; overflow-wrap: anywhere; border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; color: var(--color-text); padding: 6px var(--space-3); cursor: pointer; }
+.nexus-browser__tree-row button:hover, .nexus-browser__tree-row button:focus-visible { background: var(--color-surface-subtle); border-color: var(--color-border); }
+.nexus-browser__tree-row button[aria-pressed="true"] { background: var(--color-info-surface); border-color: var(--color-action); color: var(--color-text); }
+.nexus-browser__tree-row button:disabled { cursor: not-allowed; }
 .nexus-browser__direct code { overflow-wrap: anywhere; }
 .nexus-browser h3, .nexus-browser h4 { margin: 0; }
 .nexus-browser__label { display: grid; gap: var(--space-2); font-weight: 600; }
