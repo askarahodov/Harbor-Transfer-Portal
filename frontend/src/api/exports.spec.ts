@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { apiClient } from '@/api/client'
 
-import { apiErrorInfo, getHarborConnection, listHarborProfiles, listHarborProjects } from './exports'
+import { apiErrorInfo, getHarborConnection, listHarborProfiles, listHarborProjects, navigateToExportDownload } from './exports'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -85,5 +85,23 @@ describe('profile-aware Harbor API', () => {
     expect(get).toHaveBeenNthCalledWith(2, '/harbor/connection', {
       params: { profile_id: 'profile-a' },
     })
+  })
+})
+
+
+describe('native export ticket destination guard', () => {
+  it.each([
+    ['https://attacker.example.test/upload', 42],
+    ['//attacker.example.test/api/exports/42/download', 42],
+    ['/api/exports/43/download', 42],
+    ['/api/exports/42/download?token=secret', 42],
+    ['/api/exports/42/download#other', 42],
+    ['/api/exports/42/download/../43/download', 42],
+    ['/api/exports/42/download', 0],
+    ['/api/exports/42/download', -1],
+  ])('rejects wrong or unsafe destination %s for operation %s', (download_url, operationId) => {
+    expect(() => navigateToExportDownload({
+      download_url, expires_in_seconds: 120,
+    }, operationId)).toThrow('Некорректный URL скачивания bundle.')
   })
 })
