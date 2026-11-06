@@ -197,7 +197,9 @@ class NexusDiscoveryService:
         except ValueError:
             valid = False
         if not valid or _NEXUS_REPO.fullmatch(self.search_repository) is None:
-            return DiscoveryResult(False, (), "Некорректный Nexus REST Search HTTPS URL или repository")
+            return DiscoveryResult(
+                False, (), "Некорректный Nexus REST Search HTTPS URL или repository"
+            )
         auth = httpx.BasicAuth(self.username, self.password or "") if self.username else None
         params = {"repository": self.search_repository, "format": "docker"}
         if cursor is not None:
