@@ -424,3 +424,139 @@ async def test_inventory_ignores_malformed_repo_names(discovery):
     assert [(i.name, i.format) for i in result.items] == [
         ("docker-allowed", "docker"), ("helm-ok", "helm"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_paged_docker_catalog_exposes_later_pages_beyond_first_hundred(discovery):
+    service, seen, response = discovery
+    first = [f"other/item-{i:03d}" for i in range(100)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "last" not in request.url.params:
+            return httpx.Response(200, json={"repositories": first})
+        assert request.url.params["last"] == first[-1]
+        return httpx.Response(200, json={
+            "repositories": ["softrust/service", "softrust/worker"],
+        })
+
+    response["custom_handler"] = handler
+    first_page = await service.catalog_page("softrust")
+    assert first_page.available and first_page.items == ()
+    assert first_page.truncated and first_page.next_cursor == first[-1]
+    second_page = await service.catalog_page("softrust", first_page.next_cursor)
+    assert second_page.items == ("softrust/service", "softrust/worker")
+    assert not second_page.truncated and second_page.next_cursor is None
+    assert len(seen) == 2
+
+
+@pytest.mark.asyncio
+async def test_paged_rest_search_keeps_scoping_and_exposes_continuation(discovery):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "continuationToken" not in request.url.params:
+            return httpx.Response(200, json={
+                "items": [
+                    {"repository": "docker-proxy", "name": "alpine", "version": "3.20"},
+                    {"repository": "docker-other", "name": "secret", "version": "v1"},
+                ],
+                "continuationToken": "next-page",
+            })
+        assert request.url.params["continuationToken"] == "next-page"
+        return httpx.Response(200, json={
+            "items": [
+                {"repository": "docker-proxy", "name": "bitnami/redis", "version": "7.0"},
+            ],
+            "continuationToken": None,
+        })
+
+    response["custom_handler"] = handler
+    first = await service.catalog_page()
+    assert first.items == ("alpine",)
+    assert first.next_cursor == "next-page"
+    second = await service.catalog_page(cursor=first.next_cursor)
+    assert second.items == ("bitnami/redis",)
+    assert second.next_cursor is None
+    assert len(seen) == 2
+    assert all(r.url.params["repository"] == "docker-proxy" for r in seen)
+    assert "secret" not in first.items + second.items
+
+
+@pytest.mark.asyncio
+async def test_paged_rest_tags_follow_token_without_leaking_other_repositories(discovery):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "continuationToken" not in request.url.params:
+            return httpx.Response(200, json={
+                "items": [
+                    {"repository": "docker-proxy", "name": "team/app", "version": "v1"},
+                ],
+                "continuationToken": "p2",
+            })
+        return httpx.Response(200, json={
+            "items": [
+                {"repository": "docker-proxy", "name": "team/app", "version": "v2"},
+                {"repository": "other", "name": "team/app", "version": "secret"},
+            ],
+            "continuationToken": None,
+        })
+
+    response["custom_handler"] = handler
+    first = await service.tags_page("team/app")
+    assert first.items == ("v1",)
+    second = await service.tags_page("team/app", cursor=first.next_cursor)
+    assert second.items == ("v2",)
+    assert len(seen) == 2
+
+
+@pytest.mark.asyncio
+async def test_paged_invalid_cursor_does_not_make_network_requests(discovery):
+    service, seen, _response = discovery
+    with pytest.raises(ValueError):
+        await service.catalog_page(cursor="../malicious")
+    with pytest.raises(ValueError):
+        await service.tags_page("team/app", cursor="../malicious")
+    assert not seen
+
+
+@pytest.mark.asyncio
+async def test_paged_docker_rejects_repeated_page_cursor(discovery):
+    service, seen, response = discovery
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"repositories": ["team/old"]},
+            headers={"Link": '</v2/_catalog?n=100&last=team/old>; rel="next"'},
+        )
+
+    response["custom_handler"] = handler
+    first = await service.catalog_page()
+    assert first.next_cursor == "team/old"
+    second = await service.catalog_page(cursor=first.next_cursor)
+    assert not second.available and second.items == ()
+    assert len(seen) == 2
+
+
+@pytest.mark.asyncio
+async def test_paged_rest_rejects_repeating_continuation_token(discovery):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "items": [],
+            "continuationToken": "same",
+        })
+
+    response["custom_handler"] = handler
+    first = await service.catalog_page()
+    assert first.next_cursor == "same"
+    second = await service.catalog_page(cursor=first.next_cursor)
+    assert not second.available and second.items == ()
+    assert len(seen) == 2
