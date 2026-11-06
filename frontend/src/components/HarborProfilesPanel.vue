@@ -513,8 +513,8 @@ onMounted(() => void load())
             <input v-model="name" name="profile-name" type="text" maxlength="128" placeholder="Harbor DC-2" />
           </label>
           <label>
-            URL
-            <input v-model="url" type="url" placeholder="https://harbor-dc2.local" />
+            {{ registryType === 'nexus' ? 'Docker v2 connector URL (не Nexus UI)' : 'URL' }}
+            <input v-model="url" type="url" :placeholder="registryType === 'nexus' ? 'https://docker-connector.example.internal:5000' : 'https://harbor-dc2.local'" />
           </label>
           <label>
             Тип реестра
@@ -523,7 +523,7 @@ onMounted(() => void load())
               <option value="nexus">Sonatype Nexus</option>
             </select>
           </label>
-          <p v-if="registryType === 'nexus'" class="profile-hint">Nexus разных версий: для каждого Docker repository (hosted / proxy / group) создайте отдельный профиль с его Docker v2 connector URL. Nexus UI HTTPS URL нужен для просмотра Docker/Helm репозиториев и Helm index.yaml; при закрытом списке Helm можно выбрать по точному имени. OCI в Nexus не используем. Отсутствие права чтения/записи одного репозитория не блокирует другие.</p>
+          <p v-if="registryType === 'nexus'" class="profile-hint">Nexus Browse: docker-proxy / v2 / baseimage означает Docker repository docker-proxy и image baseimage. В поле URL укажите корневой адрес HTTPS Docker v2 connector именно docker-proxy (проверка /v2/). Для каждого Docker repository hosted/proxy/group нужен отдельный профиль. Nexus UI HTTPS URL — отдельный необязательный адрес для административного списка и Helm HTTP; для проверки известного Docker image:tag он не требуется. Имя Docker repository (ниже) можно задать docker-proxy. Не используйте Helm OCI. Не отключайте TLS для обхода ошибок.</p>
           <label v-if="registryType === 'nexus'">
             Nexus UI HTTPS URL (необязательно)
             <input v-model="nexusSearchUrl" type="url" placeholder="https://nexus-ui.example.internal" />
