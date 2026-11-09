@@ -225,6 +225,35 @@ def test_harbor_root_image_plan_uses_full_repository_push_scope(
     assert ("test", "test") not in validator.calls
 
 
+def test_nexus_read_only_preflight_does_not_claim_push_permission(tmp_path: Path) -> None:
+    from app.services.nexus_destination_validator import NexusDestinationValidator
+
+    class ReadOnlyNexusValidator(FakeDestinationValidator, NexusDestinationValidator):
+        """Readable v2 connector is not proof of push permission."""
+
+    validator = ReadOnlyNexusValidator()
+    (
+        _settings_value, session_factory, _manager, skopeo, _helm,
+        _validator, orchestrator, operation_id,
+    ) = _environment(tmp_path, validator=validator)
+    with session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        current = _preview(operation_id)
+        current.artifacts = [current.artifacts[0]]
+        operation.import_preview_json = current.model_dump_json()
+        session.commit()
+
+    plan = asyncio.run(orchestrator.build_destination_plan(
+        operation_id, ImportDestinationPlanRequest(container_image_project="test"),
+    ))
+    assert plan.valid is True
+    assert plan.artifacts[0].write_allowed is True
+    assert plan.artifacts[0].write_permission_verified is False
+    assert plan.artifacts[0].classification == ImportPreviewState.NEW
+    assert skopeo.inspected == [("test/app/api", "1.4.2")]
+
+
 def test_harbor_root_image_denied_push_prevents_import_execute(tmp_path: Path) -> None:
     validator = FakeDestinationValidator(denied_repositories={"test/node"})
     (
