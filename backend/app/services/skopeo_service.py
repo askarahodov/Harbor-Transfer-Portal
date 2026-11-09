@@ -25,6 +25,12 @@ _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9
 _TAG_PATTERN = r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}"
 _PERSISTED_DIAGNOSTIC_LIMIT = 512
 _SAFE_LOCALE_ENV = ("LANG", "LC_ALL", "LC_CTYPE")
+# Fixed-size JSON fields: never serialize RepoTags, layers or environment.
+# Go template json() escapes strings; Skopeo's format flag supports it.
+_COMPACT_INSPECT_FORMAT = (
+    '{"Digest":{{json .Digest}},"Architecture":{{json .Architecture}},'
+    '"Os":{{json .Os}}}'
+)
 
 
 class SkopeoPhase(StrEnum):
@@ -389,6 +395,9 @@ class SkopeoService:
                 (
                     self.settings.skopeo_binary,
                     "inspect",
+                    "--no-tags",
+                    "--format",
+                    _COMPACT_INSPECT_FORMAT,
                     *self._registry_flags("inspect", harbor, security),
                     self._docker_transport(image, harbor),
                 ),
@@ -417,6 +426,9 @@ class SkopeoService:
             (
                 self.settings.skopeo_binary,
                 "inspect",
+                "--no-tags",
+                "--format",
+                _COMPACT_INSPECT_FORMAT,
                 *self._registry_flags("inspect", harbor, security),
                 self._docker_transport(image, harbor),
             ),
@@ -429,6 +441,9 @@ class SkopeoService:
             (
                 self.settings.skopeo_binary,
                 "inspect",
+                "--no-tags",
+                "--format",
+                _COMPACT_INSPECT_FORMAT,
                 self._oci_transport(payload_path),
             ),
             _SecurityContext(Path(), None, None, ()),
@@ -550,6 +565,11 @@ class SkopeoService:
 
     @staticmethod
     def _parse_inspection(payload: str) -> ImageInspection:
+        if payload.rstrip().endswith("[output truncated]"):
+            raise SkopeoServiceError(
+                "skopeo_output_truncated",
+                "Вывод inspect превысил настроенный лимит байт",
+            )
         try:
             data = json.loads(payload)
         except json.JSONDecodeError as exc:
