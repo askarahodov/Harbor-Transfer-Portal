@@ -556,7 +556,8 @@ class ExportOrchestrator:
                     # materializer exception. The traceback is restricted to server
                     # logs; never expose its message (which may contain secrets).
                     logger.exception(
-                        "unexpected export artifact materialization failure",
+                        "unexpected export artifact materialization failure artifact_id=%s",
+                        artifact_id,
                         extra={"operation_id": context.operation_id, "artifact_id": artifact_id},
                     )
                     safe_code = "export_artifact_internal_error"
