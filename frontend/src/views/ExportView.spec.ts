@@ -412,6 +412,50 @@ describe('SOURCE export wizard view', () => {
     wrapper.unmount()
   })
 
+  it('refreshes Nexus Search configuration after Settings edit in the same browser session', async () => {
+    const nexus = {
+      id: 'nexus-profile', name: 'Nexus proxy', url: 'https://docker.example.test',
+      registry_type: 'nexus' as const, is_default: true,
+    }
+    const list = vi.spyOn(exportsApi, 'listHarborProfiles')
+      .mockResolvedValueOnce({ items: [nexus] })
+      .mockResolvedValueOnce({
+        items: [{
+          ...nexus,
+          nexus_search_url: 'https://nexus-ui.example.test/',
+          nexus_search_repository: 'docker-proxy',
+        }],
+      })
+    vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: false, items: [], message: 'No inventory permission',
+    })
+    vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: true, items: [], message: null, truncated: false, next_cursor: null,
+    })
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const mountView = () => mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+
+    const first = mountView()
+    await flushPromises()
+    expect(first.get('.nexus-browser__heading').text()).toContain('текущий Docker connector')
+    expect(first.text()).toContain('Для более полного поиска укажите Nexus UI HTTPS URL')
+    first.unmount()
+
+    // The profile is edited in Settings, but Pinia is retained during SPA navigation.
+    const second = mountView()
+    await flushPromises()
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(second.get('.nexus-browser__heading').text()).toContain('docker-proxy')
+    expect(second.text()).not.toContain('Для более полного поиска укажите Nexus UI HTTPS URL')
+    expect(second.get('#export-harbor-profile').element).toHaveProperty('value', 'nexus-profile')
+    second.unmount()
+  })
+
   it('loads later Nexus catalog and tag pages without discarding earlier results', async () => {
     vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
       items: [{

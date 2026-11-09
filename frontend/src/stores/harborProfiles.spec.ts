@@ -92,6 +92,36 @@ describe('Harbor profile selection store', () => {
     expect(store.selectedProfile?.registry_type).toBe('harbor')
   })
 
+  it('re-reads Nexus REST Search fields after Settings edited the same selected profile', async () => {
+    sessionStorage.setItem('htp.harbor.profile-id', 'nexus-profile')
+    const nexus = {
+      id: 'nexus-profile', name: 'Regional Nexus',
+      url: 'https://docker.example.test', registry_type: 'nexus' as const,
+      is_default: true,
+    }
+    const list = vi.spyOn(exportsApi, 'listHarborProfiles')
+      .mockResolvedValueOnce({ items: [nexus] })
+      .mockResolvedValueOnce({
+        items: [{
+          ...nexus,
+          nexus_search_url: 'https://nexus-ui.example.test/',
+          nexus_search_repository: 'docker-proxy',
+        }],
+      })
+    const store = useHarborProfilesStore()
+    expect(await store.load()).toBe(true)
+    expect(store.selectedProfile?.nexus_search_repository).toBeUndefined()
+
+    // Default store reads are cached; a wizard entry must force server freshness.
+    expect(await store.load()).toBe(true)
+    expect(list).toHaveBeenCalledTimes(1)
+    expect(await store.load(true)).toBe(true)
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(store.selectedId).toBe('nexus-profile')
+    expect(store.selectedProfile?.nexus_search_url).toBe('https://nexus-ui.example.test/')
+    expect(store.selectedProfile?.nexus_search_repository).toBe('docker-proxy')
+  })
+
   it('fails closed when there are no selectable Harbor profiles', async () => {
     vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({ items: [] })
     const store = useHarborProfilesStore()
