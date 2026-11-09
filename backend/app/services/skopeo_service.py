@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.services.skopeo_inspection import COMPACT_INSPECT_FLAGS, is_output_truncated
 from app.services.harbor_settings import EffectiveHarborSettings, HarborSettingsService
 
 _DIGEST_PATTERN = r"sha256:[a-f0-9]{64}"
@@ -25,13 +26,6 @@ _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9
 _TAG_PATTERN = r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}"
 _PERSISTED_DIAGNOSTIC_LIMIT = 512
 _SAFE_LOCALE_ENV = ("LANG", "LC_ALL", "LC_CTYPE")
-# Fixed-size JSON fields: never serialize RepoTags, layers or environment.
-# Go template built-in printf("%q") quotes/escapes fields even in Skopeo 1.9.3.
-_COMPACT_INSPECT_FORMAT = (
-    '{"Digest":{{printf "%q" .Digest}},"Architecture":{{printf "%q" .Architecture}},'
-    '"Os":{{printf "%q" .Os}}}'
-)
-
 
 class SkopeoPhase(StrEnum):
     INSPECTING_SOURCE = "inspecting_source"
@@ -395,9 +389,7 @@ class SkopeoService:
                 (
                     self.settings.skopeo_binary,
                     "inspect",
-                    "--no-tags",
-                    "--format",
-                    _COMPACT_INSPECT_FORMAT,
+                    *COMPACT_INSPECT_FLAGS,
                     *self._registry_flags("inspect", harbor, security),
                     self._docker_transport(image, harbor),
                 ),
@@ -426,9 +418,7 @@ class SkopeoService:
             (
                 self.settings.skopeo_binary,
                 "inspect",
-                "--no-tags",
-                "--format",
-                _COMPACT_INSPECT_FORMAT,
+                *COMPACT_INSPECT_FLAGS,
                 *self._registry_flags("inspect", harbor, security),
                 self._docker_transport(image, harbor),
             ),
@@ -441,9 +431,7 @@ class SkopeoService:
             (
                 self.settings.skopeo_binary,
                 "inspect",
-                "--no-tags",
-                "--format",
-                _COMPACT_INSPECT_FORMAT,
+                *COMPACT_INSPECT_FLAGS,
                 self._oci_transport(payload_path),
             ),
             _SecurityContext(Path(), None, None, ()),
@@ -565,7 +553,7 @@ class SkopeoService:
 
     @staticmethod
     def _parse_inspection(payload: str) -> ImageInspection:
-        if payload.rstrip().endswith("[output truncated]"):
+        if is_output_truncated(payload):
             raise SkopeoServiceError(
                 "skopeo_output_truncated",
                 "Вывод inspect превысил настроенный лимит байт",
