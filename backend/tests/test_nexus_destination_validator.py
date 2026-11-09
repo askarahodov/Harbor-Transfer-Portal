@@ -32,7 +32,11 @@ async def test_docker_target_preflight_is_read_only_and_fail_closed(
 
     def handle(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return httpx.Response(status, headers=headers)
+        return httpx.Response(
+            status,
+            headers=headers,
+            text="private-token=must-not-leak" if status == 403 else "",
+        )
 
     def client_factory(**kwargs):  # type: ignore[no-untyped-def]
         assert kwargs["follow_redirects"] is False
@@ -62,6 +66,7 @@ async def test_docker_target_preflight_is_read_only_and_fail_closed(
         assert result.message == "Недостаточно прав для доступа к TARGET Nexus Docker connector"
     assert "sensitive-password-not-for-logs" not in (result.message or "")
     assert "WWW-Authenticate" not in (result.message or "")
+    assert "private-token=must-not-leak" not in (result.message or "")
 
 
 @pytest.mark.asyncio
