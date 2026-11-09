@@ -12,28 +12,16 @@ import pytest
 from app.services.harbor_settings import EffectiveHarborSettings
 from app.services.nexus_service import (
     CommandResult as NexusCommandResult,
-)
-from app.services.nexus_service import (
     ImageReference as NexusImageReference,
-)
-from app.services.nexus_service import (
     NexusService,
     NexusServiceError,
-)
-from app.services.nexus_service import (
     _drain_limited as drain_nexus,
 )
 from app.services.skopeo_service import (
     CommandResult as HarborCommandResult,
-)
-from app.services.skopeo_service import (
     ImageReference as HarborImageReference,
-)
-from app.services.skopeo_service import (
     SkopeoService,
     SkopeoServiceError,
-)
-from app.services.skopeo_service import (
     _drain_limited as drain_harbor,
 )
 
