@@ -221,6 +221,76 @@ repository identity и доступ должны соответствовать 
 с `next_cursor` — перейдите к следующей. Настоящая доступность и
 digest подтверждаются только точным Docker v2 inspect по connector.
 
+### Nexus Docker: member repository — не часть имени образа
+
+Реальный локальный тест с `docker-proxy` (Nexus Docker **group**)
+подтвердил: REST Search сообщает `item.repository=timeweb-proxy`
+для `node:18-alpine`, но Docker v2 manifest находится по **точному**
+пути `node:18-alpine`, а не `timeweb-proxy/node:18-alpine`.
+Поля REST Search `repository` (физический member) и Docker
+`name` (путь образа) — **разные идентичности**.
+
+Правильное тело SOURCE preview/export для Docker-образа:
+
+```json
+{
+  "kind": "container-image",
+  "project": null,
+  "repository": "node",
+  "reference": "18-alpine",
+  "digest": "sha256:<проверенный digest>"
+}
+```
+
+Для вложенных образов `repository` содержит **весь** путь, например
+`baseimage/nodejs/nodejs-ng`, а `project` также остаётся `null`.
+Нельзя добавлять `docker-proxy` или `timeweb-proxy` в `project`.
+UI сохраняет каноническое имя целиком, backend отказывает старой
+неоднозначной форме с кодом `export_selection_invalid` **до
+инспекции**. Если используете прежние скрипты/API-запросы —
+исправьте `project` и `repository`; `source_digest` всё так же
+сверяется перед созданием операции. Для Harbor SOURCE
+`project` по-прежнему обязателен. Для Nexus Helm HTTP имя
+Helm repository остаётся в `project` и не затронуто.
+
+### Локальный Nexus SOURCE → Harbor TARGET на одном компьютере
+
+Это полезный **функциональный smoke-test**, но не доказательство
+физической изоляции и не региональный GO. Предпочтительно иметь два
+независимых экземпляра Portal с разными Compose project names,
+SQLite/volumes, runtime roles и signing configuration, без общей DB
+и SOURCE private key. TARGET доверяет только заранее перенесённому
+SOURCE **публичному** Ed25519 ключу. Не подключайте TARGET
+напрямую к приватному Nexus SOURCE через инфраструктуру Portal.
+
+1. SOURCE: выбрать Nexus Docker v2 group-профиль и
+   канонический образ `node:18-alpine` или
+   `baseimage/nodejs/nodejs-ng:<tag>`, проверить digest и сделать
+   подписанный Export до `COMPLETED/VERIFIED`.
+2. Скопировать **три файла**: `*.htp.tar.gz`, соответствующий
+   `*.sha256` и подписанный `*.htp-handoff.json`; убедиться,
+   что контрольная сумма архива совпадает. Не копировать приватные
+   signing keys или базу SOURCE в TARGET.
+3. TARGET Portal: использовать разрешённый Harbor-профиль
+   с TLS/CA и учёткой, имеющей **push/pull только в выделенный
+   тестовый Harbor project**. Загрузить trio, проверить подпись
+   SOURCE, digest, статус `READY`, сопоставить исходный
+   Docker image с заранее выбранным целевым Harbor repository.
+   TARGET Harbor project должен существовать; не использовать
+   `proxy` / read-only destination.
+4. Просмотреть план `NEW` / `SAME` / `CONFLICT`,
+   запустить импорт с **overwrite=false**, проверить `VERIFIED`,
+   Harbor digest (включая multi-arch manifest/index) и receipt.
+   Повторить тот же bundle и убедиться в `SAME/SKIPPED`;
+   при конфликте убедиться, что данные не перезаписываются.
+
+Для теста двух экземпляров на одной машине порты, credentials,
+volumes и контуры должны быть разными. Если переключаете один
+экземпляр `SOURCE→TARGET` через UI, это лишь проверка
+функциональности приложения с общей DB/key custody, а не
+проверка доверенной изоляции. Не называйте такой тест
+физическим handoff в #434/#436.
+
 ### Docker inspect: большой список RepoTags
 
 При локальном тесте Nexus group `docker-proxy` подтверждены

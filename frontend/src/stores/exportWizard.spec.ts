@@ -279,10 +279,35 @@ describe('export wizard store', () => {
     expect(store.selectedCount).toBe(3)
     expect(store.selectedArtifacts).toEqual(expect.arrayContaining([
       expect.objectContaining({ project: null, repository: 'baseimage', reference: 'latest' }),
-      expect.objectContaining({ project: 'cbl-mariner', repository: 'base/redis', reference: '6.2' }),
+      expect.objectContaining({
+        project: null, repository: 'cbl-mariner/base/redis', reference: '6.2',
+      }),
     ]))
     expect(store.addExactNexusImage('../escape', 'latest', DIGEST)).toBe(false)
     expect(store.selectedCount).toBe(3)
+
+    const preview = vi.spyOn(exportsApi, 'previewExport').mockResolvedValue({
+      artifacts: [
+        { kind: 'container-image', project: null, repository: 'baseimage',
+          reference: 'latest', source_digest: DIGEST, size_bytes: null },
+        { kind: 'container-image', project: null, repository: 'cbl-mariner/base/redis',
+          reference: '6.2', source_digest: DIGEST, size_bytes: null },
+        { kind: 'container-image', project: null, repository: 'cbl-mariner/base/redis',
+          reference: '6.2-arm64', source_digest: DIGEST, size_bytes: null },
+      ],
+      estimated_payload_bytes: 0,
+    })
+    expect(await store.preparePreview()).toBe(true)
+    expect(preview).toHaveBeenCalledWith(expect.objectContaining({
+      harbor_profile_id: 'nexus',
+      artifacts: expect.arrayContaining([
+        expect.objectContaining({ project: null, repository: 'baseimage' }),
+        expect.objectContaining({ project: null, repository: 'cbl-mariner/base/redis' }),
+      ]),
+    }))
+    expect(preview.mock.lastCall?.[0].artifacts.every(
+      item => item.project === null,
+    )).toBe(true)
   })
 
   it('debounces all Harbor search inputs and resets pagination before requesting', async () => {

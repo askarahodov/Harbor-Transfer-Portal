@@ -247,8 +247,10 @@ def test_signed_docker_bundle_interoperability_via_separate_registry_types(
     selection = {
         "harbor_profile_id": source_profile,
         "artifacts": [{
-            "kind": "container-image", "project": source_repo,
-            "repository": "source", "reference": "1.0.0",
+            "kind": "container-image",
+            "project": source_repo if is_harbor_source else None,
+            "repository": "source" if is_harbor_source else f"{source_repo}/source",
+            "reference": "1.0.0",
             "digest": image_digest,
         }],
     }

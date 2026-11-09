@@ -118,8 +118,8 @@ def test_real_source_api_signed_bundle_and_browser_ticket(
     selection = {
         "artifacts": [{
             "kind": "container-image",
-            "project": "htp-e2e",
-            "repository": "source",
+            "project": None,
+            "repository": "htp-e2e/source",
             "reference": "1.0.0",
             "digest": expected,
         }],
@@ -136,9 +136,25 @@ def test_real_source_api_signed_bundle_and_browser_ticket(
         preview = client.post("/api/exports/preview", json=selection, headers=auth)
         assert preview.status_code == 200, preview.text
         assert preview.json()["artifacts"][0]["source_digest"] == expected
-        assert preview.json()["artifacts"][0]["project"] == "htp-e2e"
-        assert preview.json()["artifacts"][0]["repository"] == "source"
+        assert preview.json()["artifacts"][0]["project"] is None
+        assert preview.json()["artifacts"][0]["repository"] == "htp-e2e/source"
         assert preview.json()["artifacts"][0]["size_bytes"] is None
+        # A physical Nexus group member is NOT a Registry v2 namespace.
+        # An ambiguous Harbor-style project prefix must fail before creating
+        # operations or a signed delivery.
+        wrong_prefix = {**selection, "artifacts": [{
+            **selection["artifacts"][0],
+            "project": "htp-e2e",
+            "repository": "source",
+        }]}
+        ambiguous = client.post("/api/exports/preview", json=wrong_prefix, headers=auth)
+        assert ambiguous.status_code == 422, ambiguous.text
+        assert ambiguous.json()["error"]["code"] == "export_selection_invalid"
+        wrong_start = client.post("/api/exports", json=wrong_prefix, headers=auth)
+        assert wrong_start.status_code == 422, wrong_start.text
+        assert wrong_start.json()["error"]["code"] == "export_selection_invalid"
+        assert not list(settings.bundle_outgoing_root.glob("*.htp.tar.gz"))
+
         # Skopeo versions differ: the normal inspect JSON may omit
         # MediaType despite a valid schema2 manifest. Do not invent one.
         assert preview.json()["artifacts"][0]["media_type"] in {

@@ -193,11 +193,20 @@ class ExportOrchestrator:
                         raise ExportOrchestrationError(
                             "export_artifact_unsupported", "Неподдерживаемый SOURCE artifact",
                         )
+                    # Nexus Docker selection is the exact Registry v2 image
+                    # path, not a Harbor project + repository pair. A REST
+                    # Search row's repository identifies the physical group
+                    # member and must NEVER be prefixed to the Docker image.
+                    # Reject ambiguous legacy shape instead of guessing: a
+                    # namespace is part of selection.repository itself.
+                    if selection.project is not None:
+                        raise ExportOrchestrationError(
+                            "export_selection_invalid",
+                            "Для Nexus Docker укажите полный путь image в repository "
+                            "и project=null (имя Nexus member — не Docker namespace)",
+                        )
                     image = ImageReference(
-                        repository=(
-                            f"{selection.project}/{selection.repository}"
-                            if selection.project else selection.repository
-                        ),
+                        repository=selection.repository,
                         reference=selection.reference,
                     )
                     if client is None:
