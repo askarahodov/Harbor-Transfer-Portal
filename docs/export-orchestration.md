@@ -206,6 +206,11 @@ Packaging выполняется в worker thread через `asyncio.to_thread`
 - `export_artifact_kind_changed` — Harbor классифицирует artifact иначе;
 - `export_artifact_unsupported` — неподдерживаемый type;
 - `export_aborted` — artifact остановлен fail-fast policy;
+- `export_artifact_internal_error` — неожиданное исключение во время фактической
+  выгрузки конкретного Helm/Docker артефакта: именно текущий artifact получает
+  `FAILED`, остальные `export_aborted`. В публичный status не передаются
+  строка исключения или пути/credentials; traceback пишется только в backend
+  log с `operation_id` и `artifact_id` для расследования;
 - `export_not_ready` — bundle запрошен до `COMPLETED`;
 - `export_bundle_expired` — completed publication удалена штатной retention policy; API отвечает `410 Gone`;
 - `export_bundle_missing` — completed delivery неожиданно отсутствует на диске до истечения retention;
@@ -271,18 +276,25 @@ Regression suite покрывает:
 - frontend selection/preview/progress/reload/ready flow.
 
 
-## Nexus SOURCE preview (в разработке, #430)
+## Nexus SOURCE: Docker v2 и обычный Helm HTTP
 
-Для профиля `registry_type=nexus` SOURCE preview проверяет указанный Docker
-`project/repository:tag` через registry transport, не вызывая Harbor API.
-Полученный digest сравнивается с digest, выбранным оператором; изменение
-или удаление исходного тега блокирует подготовку операции. Перед публикацией
-bundle materializer дополнительно сверяет digest с ожидаемым. Размер
-Nexus image на этапе preview считается неизвестным, а не оценивается по
-неполной информации.
+Интеграционный кандидат в [Draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451)
+поддерживает Nexus Docker v2 с раздельным connector URL, строгим
+`repository:tag`, повторной проверкой pinned digest, подписанным Offline
+Bundle и browser download. Для Nexus Helm поддерживаются **обычные HTTP
+`index.yaml` и `.tgz`**, включая read-only SOURCE и hosted-only TARGET
+Components upload; **Nexus Helm OCI не поддерживается**. Несколько
+репозиториев, service identity и ACL нужно проверять по отдельности.
 
-Legacy Helm charts на Nexus 3.69 OSS не поддерживаются: сервер возвращает
-`nexus_legacy_helm_unsupported`. Нельзя использовать успешный Docker v2
-inspect как доказательство поддержки Helm OCI. До завершения #432
-(provenance в подписанном манифесте), полного SOURCE/TARGET E2E и региональной
-приёмки выпуск Nexus export в production запрещён.
+При неожиданной ошибке materialization оператор сверяет `operation_id`,
+`artifact_id` и серверный traceback; публичный
+`export_artifact_internal_error` лишь локализует сбой, но сам по себе
+не объясняет первопричину. Для инцидента #422 от 2026-11-03 необходимы
+фактический deployed Portal SHA и обезличенный production traceback;
+см. [региональный runbook](nexus-regional-acceptance-runbook.md).
+
+Тесты disposable Nexus 3.69/3.70 + Harbor Core не означают завершение
+региональной приёмки. Реальные корпоративные TLS/CA/proxy, per-repo ACL,
+физический подписанный SOURCE→TARGET handoff и approvals остаются
+открытыми по #434/#436. **Release DRAFT / NO-GO**, без merge в
+`main` и без production deployment.
