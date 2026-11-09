@@ -158,8 +158,8 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
     selection = {
         "artifacts": [{
             "kind": "container-image",
-            "project": "htp-e2e",
-            "repository": "source",
+            "project": None,
+            "repository": "htp-e2e/source",
             "reference": "1.0.0",
             "digest": digest,
         }],
