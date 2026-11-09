@@ -188,8 +188,7 @@ async function searchAcrossPages(next = false): Promise<void> {
   if (!search) return
   for (let page = 1; page < 8; page += 1) {
     if (profile !== props.profileId || search !== query.value.trim()
-        || repoBusy.value || !cursor.value || error.value
-        || repositories.value.length >= 20) return
+        || repoBusy.value || !cursor.value || error.value) return
     await readCatalog(true)
   }
 }
