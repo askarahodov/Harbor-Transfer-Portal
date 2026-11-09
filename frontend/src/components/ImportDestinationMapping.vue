@@ -250,8 +250,9 @@ onMounted(() => {
       <div>
         <h4 id="destination-preview-title">Что получится</h4>
         <p class="section-help">
-          TARGET reference рассчитывается сразу из выбранных правил. Проверка Harbor ниже подтвердит
-          существование проекта, право записи и состояние NEW / SAME / CONFLICT.
+          TARGET reference рассчитывается из выбранных правил. Проверка TARGET ниже определит
+          доступность назначения и состояние NEW / SAME / CONFLICT. Для Nexus право push/upload
+          не подтверждается read-only preflight и проверяется при фактическом импорте.
         </p>
       </div>
 
@@ -378,6 +379,21 @@ onMounted(() => {
       </div>
     </div>
     <div
+      v-else-if="wizard.destinationPlan?.valid && wizard.destinationPlan.artifacts.some((item) => item.write_permission_verified !== true)"
+      class="mapping-message mapping-message--warning"
+      role="status"
+    >
+      <ShieldAlert :size="18" aria-hidden="true" />
+      <div>
+        <strong>TARGET доступен, право записи не подтверждено.</strong>
+        <span>
+          Read-only проверка Nexus или старого плана не доказывает push/upload ACL.
+          При импорте сервер проверит фактическую запись и digest.
+          Уточните права сервисного пользователя для конкретного hosted repository.
+        </span>
+      </div>
+    </div>
+    <div
       v-else-if="wizard.destinationPlan?.valid"
       class="mapping-message mapping-message--success"
       role="status"
@@ -386,7 +402,7 @@ onMounted(() => {
       <div>
         <strong>TARGET проверен.</strong>
         <span>
-          Проекты и права записи подтверждены. Состояния NEW / SAME / CONFLICT актуальны для этой проверки.
+          Доступность назначения и права записи подтверждены. Состояния NEW / SAME / CONFLICT актуальны для этой проверки.
         </span>
       </div>
     </div>
@@ -405,7 +421,7 @@ onMounted(() => {
     <div v-if="auth.canStartTransfers" class="mapping-actions">
       <div class="mapping-actions__help">
         <strong>Проверка безопасна.</strong>
-        <span>Portal проверит проекты, права и существующие artifacts. Import не запускается.</span>
+        <span>Portal проверит доступность и существующие artifacts. Для Nexus права push/upload подтверждаются только при фактической записи. Import не запускается.</span>
       </div>
       <button
         class="button button--primary"
