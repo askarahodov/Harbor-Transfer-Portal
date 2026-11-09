@@ -51,6 +51,17 @@ repository-specific push/upload ACL. В destination plan поле `write_allowed
 запись с последующей проверкой digest/receipt подтверждает успешный импорт.
 Для production GO нужна отдельно подтверждённая региональная ACL-матрица.
 
+### Отказ в правах TARGET push
+
+Если TARGET Docker connector отвечает на read-only preflight, но service identity
+не может выполнить push в конкретный repository, операция import завершается
+ошибкой `nexus_permission_denied` (из известных Skopeo 403/access denied).
+Это **не** `nexus_auth_failed` (401/некорректная аутентификация) и **не**
+завершённый перенос. Backend не должен публиковать исходный stderr с URL,
+учётными данными или деталями токена, не должен проводить post-write digest
+verification после неуспешного push и не должен выдавать успешный receipt.
+Проверка доступности и состояния TARGET не равна проверке ACL на запись.
+
 ### Проверка соединения с пустым Docker hosted repository
 
 Для Nexus Docker проверка Portal обращается к **корневому `/v2/`**

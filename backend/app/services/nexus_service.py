@@ -787,9 +787,23 @@ class NexusService:
     ) -> None:
         stderr = _redact(result.stderr, security.redact_values)
         lowered = stderr.casefold()
-        auth_markers = ("unauthorized", "authentication required", "denied")
+        # A readable /v2/ endpoint does not prove repository-specific push ACL.
+        # Keep a denied write distinguishable from invalid credentials, without
+        # returning Skopeo stderr (which can contain URLs or identity details).
+        permission_markers = (
+            "status code: 403",
+            "403 forbidden",
+            "requested access to the resource is denied",
+            "requested access to resource is denied",
+            "access denied",
+            "permission denied",
+        )
+        auth_markers = ("unauthorized", "authentication required", "status code: 401")
         include_diagnostic = False
-        if any(marker in lowered for marker in auth_markers):
+        if any(marker in lowered for marker in permission_markers):
+            code = "nexus_permission_denied"
+            message = "Недостаточно прав для операции с выбранным Nexus repository"
+        elif any(marker in lowered for marker in auth_markers):
             code = "nexus_auth_failed"
             message = "Nexus отклонил аутентификацию"
         elif any(marker in lowered for marker in ("x509", "certificate", "tls handshake")):
