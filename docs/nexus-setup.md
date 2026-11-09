@@ -284,6 +284,35 @@ Ed25519 signature, schema 1.1 и signed handoff для ранее
 Destination plan — существующие прямые пути загрузки не
 гарантируют корректность отдельной проверки write ACL.
 
+### Предварительный TARGET preview до выбора Harbor project
+
+SOURCE Nexus Docker может содержать корневой image `node:18-alpine`.
+Его signed manifest правильно задаёт `repository=node`, но Harbor
+TARGET принимает его только после назначения проекта, например
+`test/node:18-alpine`. Поэтому при `READY` предварительный
+preview **не обращается к `docker://harbor/node`** и сообщает
+`UNKNOWN` с пояснением «выберите Harbor TARGET project».
+Это **не ошибка проверки подписи** и **не разрешение записи**.
+Сначала создайте Destination plan, выберите `test` и нажмите
+«Проверить TARGET»; только тогда проверяются точный Harbor
+`test/node` digest, push ACL, `NEW/SAME/CONFLICT` и запрет
+несогласованной перезаписи. Нельзя трактовать предварительный
+`UNKNOWN` как `NEW` и обходить Destination plan.
+
+В новых preview Nexus SOURCE отображается как подписанный
+`source.registry` из Bundle schema 1.1. Для legacy Harbor v1.0
+остаётся `source.harbor`, а старые сохранённые preview без новых
+полей по-прежнему читаются.
+
+Оператор провёл локальный функциональный Nexus Pro SOURCE →
+Harbor 2.14.0 TARGET на одном компьютере: `node:18-alpine`,
+TARGET `test/node`, Bundle/Handoff SHA-256 и Ed25519 verified,
+план NEW/write_allowed, `COMPLETED/VERIFIED`, скачанный receipt,
+а SHA-256 manifest проверен независимо через Harbor Registry v2
+и совпал с SOURCE digest. Это **локальный функциональный E2E**;
+физическую независимость контуров, доверенный носитель и региональные
+подписи по-прежнему необходимо принять отдельно.
+
 ### Локальный Nexus SOURCE → Harbor TARGET на одном компьютере
 
 Это полезный **функциональный smoke-test**, но не доказательство
