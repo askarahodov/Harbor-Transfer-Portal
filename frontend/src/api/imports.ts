@@ -127,6 +127,7 @@ export type ImportDestinationArtifactPlan = {
   final_reference: string | null
   project_exists: boolean
   write_allowed: boolean
+  write_permission_verified?: boolean | null
   target_digest: string | null
   classification: ImportPreviewState
   error_code: string | null
