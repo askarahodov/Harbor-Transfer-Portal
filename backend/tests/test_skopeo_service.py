@@ -173,7 +173,7 @@ def test_export_builds_exact_secure_argv_and_preserves_digest(tmp_path: Path) ->
         "inspect",
         "--no-tags",
         "--format",
-        '{"Digest":{{json .Digest}},"Architecture":{{json .Architecture}},"Os":{{json .Os}}}',
+        '{"Digest":{{printf "%q" .Digest}},"Architecture":{{printf "%q" .Architecture}},"Os":{{printf "%q" .Os}}}',
         "--authfile",
         auth_file,
         "--tls-verify=true",
