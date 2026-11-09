@@ -444,6 +444,8 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 final_reference=final_reference,
                 project_exists=True,
                 write_allowed=True,
+                # Nexus v2 preflight cannot establish repository-specific push rights.
+                write_permission_verified=not isinstance(validator, NexusDestinationValidator),
                 target_digest=inspected.digest,
                 classification=classification,
             )
@@ -514,6 +516,8 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 final_reference=final_reference,
                 project_exists=True,
                 write_allowed=True,
+                # Nexus hosted Helm read/identity does not prove upload ACL.
+                write_permission_verified=not isinstance(helm, NexusHelmAdapter),
                 target_digest=inspected.digest,
                 classification=classification,
             )

@@ -273,6 +273,8 @@ def test_nexus_signed_source_to_target_api_import_and_idempotent_replay(tmp_path
         assert planned["valid"] is True, planned
         assert planned["artifacts"][0]["target_repository"] == "htp-e2e-target/source"
         assert planned["artifacts"][0]["classification"] == "NEW"
+        assert planned["artifacts"][0]["write_allowed"] is True
+        assert planned["artifacts"][0]["write_permission_verified"] is False
         execute = target_client.post(
             f"/api/imports/{operation_id}/execute",
             headers=headers,
