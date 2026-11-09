@@ -232,7 +232,8 @@ digest подтверждаются только точным Docker v2 inspect 
 
 Исправление применяется одинаково к Nexus и Harbor:
 `skopeo inspect --no-tags --format` сохраняет только компактные
-`Digest`, `Architecture`, `Os`; inspect SOURCE, OCI payload и
+`Digest`, `Architecture`, `Os` с безопасным экранированием
+через Go `printf %q` (включая Skopeo 1.9.3); inspect SOURCE, OCI payload и
 TARGET не зависят от длины списка тегов. Повышать
 `SKOPEO_OUTPUT_LIMIT_BYTES` для обхода дефекта не нужно.
 При реальном повторном тесте используйте тот же `node:18-alpine`
