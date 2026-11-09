@@ -225,7 +225,7 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(
         assert operation.error_message == "Внутренняя ошибка обработки артефакта при экспорте"
         log_records = [
             record for record in caplog.records
-            if record.message == "unexpected export artifact materialization failure"
+            if record.getMessage() == "unexpected export artifact materialization failure"
         ]
         assert log_records
         assert log_records[0].operation_id == operation.id
@@ -270,9 +270,9 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(
     )
     assert operation.bundle_filename is None
     assert operation.bundle_sha256 is None
-    assert operation.bundle_handoff_filename is None
-    assert not list((data / "outgoing").glob("*")) if (data / "outgoing").exists() else True
-    assert not (data / "tmp" / "operations" / str(operation.id)).exists()
+    assert operation.handoff_filename is None
+    assert not any((data / "outgoing").glob("*"))
+    assert not (data / "tmp" / "operations" / f"operation-{operation.id}").exists()
     assert not (
         data / "packages" / "export-operations" / f"operation-{operation.id}"
     ).exists()
