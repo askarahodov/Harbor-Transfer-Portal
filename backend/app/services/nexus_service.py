@@ -28,10 +28,10 @@ _TAG_PATTERN = r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}"
 _PERSISTED_DIAGNOSTIC_LIMIT = 512
 _SAFE_LOCALE_ENV = ("LANG", "LC_ALL", "LC_CTYPE")
 # Fixed-size JSON fields: never serialize RepoTags, layers or environment.
-# Go template json() escapes strings; Skopeo's format flag supports it.
+# Go template built-in printf("%q") quotes/escapes fields even in Skopeo 1.9.3.
 _COMPACT_INSPECT_FORMAT = (
-    '{"Digest":{{json .Digest}},"Architecture":{{json .Architecture}},'
-    '"Os":{{json .Os}}}'
+    '{"Digest":{{printf "%q" .Digest}},"Architecture":{{printf "%q" .Architecture}},'
+    '"Os":{{printf "%q" .Os}}}'
 )
 
 
