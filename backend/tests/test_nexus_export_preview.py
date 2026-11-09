@@ -46,8 +46,8 @@ def _nexus_orchestrator(tmp_path: Path, digest: str = IMAGE_DIGEST):
 def _image() -> ExportArtifactSelection:
     return ExportArtifactSelection(
         kind=ArtifactKind.CONTAINER_IMAGE,
-        project="team",
-        repository="app",
+        project=None,
+        repository="team/app",
         reference="1.0.0",
         digest=IMAGE_DIGEST,
     )
@@ -172,8 +172,8 @@ def test_nexus_mixed_preview_reuses_one_docker_client(
     orchestrator, profile_id, harbor, client = _nexus_orchestrator(tmp_path)
     second = ExportArtifactSelection(
         kind=ArtifactKind.CONTAINER_IMAGE,
-        project="team",
-        repository="worker",
+        project=None,
+        repository="team/worker",
         reference="v2",
         digest=IMAGE_DIGEST,
     )
@@ -245,12 +245,12 @@ def test_nexus_prepare_binds_exact_selected_profile_and_repository(
 
 
 def test_nexus_repository_with_namespace_keeps_full_path(tmp_path: Path) -> None:
-    """Registry namespace must not be dropped: project + repository is the Docker path."""
+    """A Docker namespace is part of the complete path, never a Nexus project."""
     orchestrator, profile_id, _harbor, client = _nexus_orchestrator(tmp_path)
     selection = ExportArtifactSelection(
         kind=ArtifactKind.CONTAINER_IMAGE,
-        project="0702",
-        repository="centos7",
+        project=None,
+        repository="0702/centos7",
         reference="kcptun",
         digest=IMAGE_DIGEST,
     )
@@ -259,3 +259,49 @@ def test_nexus_repository_with_namespace_keeps_full_path(tmp_path: Path) -> None
     assert result[0].project is None
     inspected = client.inspect_image.await_args.args[0]
     assert inspected.repository == "0702/centos7"
+
+
+@pytest.mark.parametrize("member_or_namespace", ["timeweb-proxy", "0702"])
+def test_nexus_docker_refuses_ambiguous_project_prefix_before_inspection(
+    tmp_path: Path, member_or_namespace: str,
+) -> None:
+    """Physical group members are not v2 image prefixes; nested paths use repository."""
+    orchestrator, profile_id, _harbor, client = _nexus_orchestrator(tmp_path)
+    selected = ExportArtifactSelection(
+        kind=ArtifactKind.CONTAINER_IMAGE,
+        project=member_or_namespace,
+        repository="node",
+        reference="18-alpine",
+        digest=IMAGE_DIGEST,
+    )
+    with pytest.raises(ExportOrchestrationError) as error:
+        orchestrator.preview((selected,), harbor_profile_id=profile_id)
+    assert error.value.code == "export_selection_invalid"
+    assert "project=null" in error.value.message
+    with pytest.raises(ExportOrchestrationError) as start_error:
+        orchestrator._prepare_export_operation(
+            (selected,), None, "operator", None, profile_id,
+        )
+    assert start_error.value.code == "export_selection_invalid"
+    client.inspect_image.assert_not_awaited()
+    assert orchestrator.operation_manager.get_operation(1) is None
+
+
+def test_nexus_root_docker_member_identity_is_not_prepended_to_v2_image(
+    tmp_path: Path,
+) -> None:
+    """Even when Search says 'timeweb-proxy', the v2 name is exactly 'node'."""
+    orchestrator, profile_id, _harbor, client = _nexus_orchestrator(tmp_path)
+    selected = ExportArtifactSelection(
+        kind=ArtifactKind.CONTAINER_IMAGE,
+        project=None,
+        repository="node",
+        reference="18-alpine",
+        digest=IMAGE_DIGEST,
+    )
+    preview = orchestrator.preview((selected,), harbor_profile_id=profile_id)
+    assert preview[0].full_repository == "node"
+    assert preview[0].project is None
+    inspected = client.inspect_image.await_args.args[0]
+    assert inspected.repository == "node"
+    assert inspected.reference == "18-alpine"
