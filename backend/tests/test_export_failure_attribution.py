@@ -66,6 +66,8 @@ class FakeHelmService:
     async def pull_chart(self, chart, destination: Path) -> HelmPullResult:  # type: ignore[no-untyped-def]
         self.calls.append((chart.repository, chart.name, chart.version))
         if self.fail_unexpected:
+            destination.mkdir(parents=True, exist_ok=True)
+            (destination / "partial-chart.tgz").write_bytes(b"unpublished")
             raise RuntimeError("password=CHART-SECRET-NEVER-PUBLIC")
         if self.fail_with_nexus_http:
             raise NexusHelmHttpError(
@@ -94,6 +96,8 @@ class FailingSkopeoService:
     async def export_image(self, image: ImageReference, _destination: Path):  # type: ignore[no-untyped-def]
         self.calls.append(image)
         if self.fail_unexpected:
+            _destination.mkdir(parents=True, exist_ok=True)
+            (_destination / "partial-image").write_bytes(b"unpublished")
             raise RuntimeError("authorization=IMAGE-SECRET-NEVER-PUBLIC")
         raise SkopeoServiceError(
             "skopeo_command_failed",
