@@ -243,8 +243,8 @@ def test_real_mixed_docker_and_classic_helm_signed_bundle_to_target(
         "harbor_profile_id": source_profile,
         "artifacts": [
             {
-                "kind": "container-image", "project": "htp-e2e",
-                "repository": "source", "reference": "1.0.0",
+                "kind": "container-image", "project": None,
+                "repository": "htp-e2e/source", "reference": "1.0.0",
                 "digest": image_digest,
             },
             {
