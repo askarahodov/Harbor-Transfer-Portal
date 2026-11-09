@@ -480,7 +480,9 @@ class NexusDiscoveryService:
                             False, (), "Некорректный ответ Nexus REST Search API"
                         )
                     if len(data["items"]) > 1000:
-                        return DiscoveryResult(False, (), "Слишком большая страница Nexus REST Search")
+                        return DiscoveryResult(
+                            False, (), "Слишком большая страница Nexus REST Search"
+                        )
                     allowed, scope_error = await self._rest_scope_for_rows(
                         client, auth, data["items"],
                     )
