@@ -42,6 +42,25 @@ TLS-политика берётся из effective Harbor settings (#12):
 - `false` передаётся только если admin явно отключил verification;
 - автоматического fallback на `--tls-verify=false` нет.
 
+## Компактный inspect для многотеговых Docker repositories
+
+SOURCE/OCI/TARGET `skopeo inspect` в Nexus и Harbor теперь использует
+`--no-tags --format` с JSON-выводом только `Digest`, `Architecture`
+и `Os`. Это не изменяет вычисление `Digest`: в команде Skopeo
+используется тот же manifest инспектируемого `image:tag`, но
+огромный `RepoTags` не загружается и не сериализуется в stdout.
+`skopeo inspect` с обычным выводом мог возвращать >65 536 байт
+для одного `node:18-alpine`, из-за чего обрезанный JSON ошибочно
+попадал в операторский `registry_inspection_failed`. Ограничение
+`SKOPEO_OUTPUT_LIMIT_BYTES` не повышалось, а pipe по-прежнему полностью
+дренируется. Если даже компактный результат когда-нибудь превысит лимит,
+проверка возвращает отдельный безопасный код `skopeo_output_truncated`
+(либо `nexus_output_truncated` для Nexus), не `invalid_output`.
+
+Нужны реальные `image:tag`, доступный Docker connector и права read.
+Компактный inspect не меняет проверку digest source/payload/target,
+`skopeo copy --all --preserve-digests`, TLS/CA или подписанный handoff.
+
 ## Export
 
 `export_image()` выполняет последовательность:
