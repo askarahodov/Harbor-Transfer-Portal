@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -44,6 +45,8 @@ from app.services.operation_manager import (
 )
 from app.services.registry_client import RegistryClient, create_registry_client
 from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoServiceError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -533,6 +536,7 @@ class ExportOrchestrator:
                     NexusHelmHttpError,
                     HarborSettingsError,
                     ExportOrchestrationError,
+                    OperationTaskFailure,
                 ) as exc:
                     context.set_artifact_status(
                         artifact_id,
@@ -547,6 +551,30 @@ class ExportOrchestrator:
                         "Export bundle прерван после ошибки другого артефакта",
                     )
                     raise OperationTaskFailure(exc.code, exc.message) from exc
+                except Exception as exc:
+                    # Preserve the failed artifact's identity even for an unknown
+                    # materializer exception. The traceback is restricted to server
+                    # logs; never expose its message (which may contain secrets).
+                    logger.exception(
+                        "unexpected export artifact materialization failure artifact_id=%s",
+                        artifact_id,
+                        extra={"operation_id": context.operation_id, "artifact_id": artifact_id},
+                    )
+                    safe_code = "export_artifact_internal_error"
+                    safe_message = "Внутренняя ошибка обработки артефакта при экспорте"
+                    context.set_artifact_status(
+                        artifact_id,
+                        ArtifactStatus.FAILED,
+                        error_code=safe_code,
+                        error_message=safe_message,
+                    )
+                    self._fail_artifacts(
+                        context,
+                        (*materialized_artifact_ids, *artifact_ids[index + 1 :]),
+                        "export_aborted",
+                        "Export bundle прерван после ошибки другого артефакта",
+                    )
+                    raise OperationTaskFailure(safe_code, safe_message) from exc
                 package_inputs.append(package_input)
                 materialized_artifact_ids.append(artifact_id)
                 context.set_progress(current=index + 1, total=len(artifact_ids))

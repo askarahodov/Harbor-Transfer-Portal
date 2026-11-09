@@ -613,12 +613,16 @@ def test_unexpected_export_error_does_not_expose_secret_and_aborts_artifacts(
     operation = manager.get_operation(asyncio.run(scenario()))
     assert operation is not None
     assert operation.status is OperationStatus.FAILED
-    assert operation.error_code == "operation_worker_failed"
+    assert operation.error_code == "export_artifact_internal_error"
+    assert operation.error_message == "Внутренняя ошибка обработки артефакта при экспорте"
     assert "private-token" not in (operation.error_message or "")
     assert [artifact.error_code for artifact in operation.artifacts] == [
-        "export_aborted",
+        "export_artifact_internal_error",
         "export_aborted",
     ]
+    assert "private-token" not in " ".join(
+        artifact.error_message or "" for artifact in operation.artifacts
+    )
     assert all(artifact.status is ArtifactStatus.FAILED for artifact in operation.artifacts)
     assert _outgoing_is_empty(settings)
 
