@@ -20,7 +20,7 @@ from app.services.export_orchestrator import ExportOrchestrator
 from app.services.harbor_client import HarborArtifact
 from app.services.helm_oci_service import HelmPackageMetadata, HelmPullResult
 from app.services.nexus_helm_http import NexusHelmHttpError
-from app.services.operation_manager import OperationManager
+from app.services.operation_manager import OperationManager, OperationTaskFailure
 from app.services.skopeo_service import ImageReference, SkopeoServiceError
 
 CHART_DIGEST = "sha256:" + "a" * 64
@@ -89,12 +89,17 @@ class FakeHelmService:
 
 
 class FailingSkopeoService:
-    def __init__(self, *, fail_unexpected: bool = False) -> None:
+    def __init__(
+        self, *, fail_unexpected: bool = False, fail_with_operation_task: bool = False,
+    ) -> None:
         self.calls: list[ImageReference] = []
         self.fail_unexpected = fail_unexpected
+        self.fail_with_operation_task = fail_with_operation_task
 
     async def export_image(self, image: ImageReference, _destination: Path):  # type: ignore[no-untyped-def]
         self.calls.append(image)
+        if self.fail_with_operation_task:
+            raise OperationTaskFailure("export_prechecked_failure", "Сбой проверки экспорта")
         if self.fail_unexpected:
             _destination.mkdir(parents=True, exist_ok=True)
             (_destination / "partial-image").write_bytes(b"unpublished")
@@ -156,7 +161,10 @@ def _selections() -> tuple[ExportArtifactSelection, ...]:
 
 @pytest.mark.parametrize(
     "failure_mode",
-    ["skopeo_typed", "helm_typed", "skopeo_unexpected", "helm_unexpected"],
+    [
+        "skopeo_typed", "helm_typed", "skopeo_unexpected", "helm_unexpected",
+        "skopeo_operation_task",
+    ],
 )
 def test_mixed_export_keeps_root_failure_on_actual_artifact(
     tmp_path: Path, failure_mode: str, caplog: pytest.LogCaptureFixture,
@@ -191,7 +199,10 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(
         fail_with_nexus_http=failure_mode == "helm_typed",
         fail_unexpected=failure_mode == "helm_unexpected",
     )
-    skopeo = FailingSkopeoService(fail_unexpected=failure_mode == "skopeo_unexpected")
+    skopeo = FailingSkopeoService(
+        fail_unexpected=failure_mode == "skopeo_unexpected",
+        fail_with_operation_task=failure_mode == "skopeo_operation_task",
+    )
     package_service = BundlePackageService(settings)
     orchestrator = ExportOrchestrator(
         session_factory,
@@ -222,6 +233,7 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(
     helm_failure = failure_mode.startswith("helm")
     expected_code = (
         "export_artifact_internal_error" if unexpected else
+        "export_prechecked_failure" if failure_mode == "skopeo_operation_task" else
         "helm_index_unavailable" if helm_failure else "skopeo_command_failed"
     )
     assert operation.error_code == expected_code
@@ -263,6 +275,8 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(
         assert "Synthetic Helm HTTP retrieval failure" in (artifacts[0].error_message or "")
     elif failure_mode == "skopeo_typed":
         assert "synthetic copy failure" in (artifacts[1].error_message or "")
+    elif failure_mode == "skopeo_operation_task":
+        assert artifacts[1].error_message == "Сбой проверки экспорта"
     if unexpected:
         public = "\\n".join(
             [operation.error_message or ""]
