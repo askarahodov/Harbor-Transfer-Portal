@@ -759,9 +759,9 @@ def test_search_pagination_fail_closed_and_bounded(token, code, calls):
             search_requests.append(req)
             cursor = req.url.params.get("continuationToken")
             next_cursor = (
-                "first" if cursor is None
+                token if token.startswith("unsafe")
+                else "first" if cursor is None
                 else "first" if token == "repeated"
-                else token if token.startswith("unsafe")
                 else f"page-{len(search_requests)}"
             )
             return httpx.Response(200, json={
