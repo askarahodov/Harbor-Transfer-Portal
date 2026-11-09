@@ -537,6 +537,7 @@ class ExportOrchestrator:
                     NexusHelmHttpError,
                     HarborSettingsError,
                     ExportOrchestrationError,
+                    OperationTaskFailure,
                 ) as exc:
                     context.set_artifact_status(
                         artifact_id,
