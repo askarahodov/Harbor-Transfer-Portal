@@ -53,6 +53,13 @@ repository-specific push/upload ACL. В destination plan поле `write_allowed
 
 ### Отказ в правах TARGET push
 
+При read-only TARGET Docker connector preflight HTTP `401` означает
+`nexus_auth_failed`, а HTTP `403` — `nexus_permission_denied`.
+Оба ответа блокируют построение разрешённого destination plan;
+публичный ответ не содержит исходный HTTP body, заголовки challenge
+или service credentials. Успешный GET `/v2/` **не подтверждает**
+разрешение на push конкретного repository.
+
 Если TARGET Docker connector отвечает на read-only preflight, но service identity
 не может выполнить push в конкретный repository, операция import завершается
 ошибкой `nexus_permission_denied` (из известных Skopeo 403/access denied).
