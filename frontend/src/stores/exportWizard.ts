@@ -648,8 +648,8 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     return operation.value !== null
   }
 
-  async function loadHarborProfiles(): Promise<boolean> {
-    const loaded = await harborProfilesStore.load()
+  async function loadHarborProfiles(force = false): Promise<boolean> {
+    const loaded = await harborProfilesStore.load(force)
     if (!loaded && harborProfilesError.value) {
       error.value = harborProfilesError.value
     }
@@ -690,7 +690,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     busy.value = 'initialize'
     clearError()
     try {
-      const profilesReady = await loadHarborProfiles()
+      const profilesReady = await loadHarborProfiles(true)
       if (!profilesReady) return
       const resumed = await resumeSavedOperation()
       if (!resumed) {
