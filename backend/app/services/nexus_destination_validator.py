@@ -104,10 +104,17 @@ class NexusDestinationValidator:
                 False, False, "nexus_registry_connection_failed",
                 "Не удалось подключиться к TARGET Nexus Docker v2",
             )
-        if response.status_code in {401, 403}:
+        if response.status_code == 401:
             return DestinationCapability(
                 False, False, "nexus_auth_failed",
                 "Nexus отклонил учётные данные для TARGET",
+            )
+        if response.status_code == 403:
+            # A repository-specific denial is not evidence of invalid credentials.
+            # Keep it distinct, without exposing response text or ACL details.
+            return DestinationCapability(
+                False, False, "nexus_permission_denied",
+                "Недостаточно прав для доступа к TARGET Nexus Docker connector",
             )
         if response.status_code != 200:
             return DestinationCapability(
