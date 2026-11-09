@@ -397,6 +397,34 @@ describe('NexusDockerBrowser', () => {
     wrapper.unmount()
   })
 
+  it('continues searching beyond the first populated catalogue page', async () => {
+    vi.useFakeTimers()
+    const firstPage = Array.from({ length: 25 }, (_, index) => `unrelated/image-${index}`)
+    vi.mocked(exportsApi.listNexusRepositories).mockImplementation(
+      async (_id, search, cursor) => {
+        if (!search) {
+          return { available: true, items: ['alpine'], message: null,
+            truncated: false, next_cursor: null }
+        }
+        if (!cursor) {
+          return { available: true, items: firstPage, message: null,
+            truncated: true, next_cursor: 'page-2' }
+        }
+        return { available: true, items: ['team/redis'], message: null,
+          truncated: false, next_cursor: null }
+      },
+    )
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]').setValue('redis')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushPromises()
+    expect(exportsApi.listNexusRepositories).toHaveBeenCalledWith('proxy-id', 'redis', 'page-2')
+    expect(wrapper.text()).toContain('team/redis')
+    expect(wrapper.text()).toContain('прочитано страниц: 2')
+    wrapper.unmount()
+  })
+
   it('does not leak or show old profile results after profile change', async () => {
     let resolveOld!: (value: Awaited<ReturnType<typeof exportsApi.listNexusRepositories>>) => void
     vi.mocked(exportsApi.listNexusRepositories)
