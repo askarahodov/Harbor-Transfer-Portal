@@ -16,7 +16,7 @@ from app.services.nexus_destination_validator import NexusDestinationValidator
         (200, {"Docker-Distribution-API-Version": "registry/2.0"}, None),
         (200, {}, "nexus_url_invalid"),
         (401, {"WWW-Authenticate": 'Basic realm="Nexus"'}, "nexus_auth_failed"),
-        (403, {}, "nexus_auth_failed"),
+        (403, {}, "nexus_permission_denied"),
         (302, {"Location": "https://other.example.invalid/"}, "nexus_registry_connection_failed"),
         (404, {}, "nexus_registry_connection_failed"),
     ],
@@ -58,7 +58,10 @@ async def test_docker_target_preflight_is_read_only_and_fail_closed(
     assert result.project_exists is (expected is None)
     assert result.write_allowed is (expected is None)
     assert result.error_code == expected
+    if status == 403:
+        assert result.message == "Недостаточно прав для доступа к TARGET Nexus Docker connector"
     assert "sensitive-password-not-for-logs" not in (result.message or "")
+    assert "WWW-Authenticate" not in (result.message or "")
 
 
 @pytest.mark.asyncio
