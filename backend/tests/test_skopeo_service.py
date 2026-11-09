@@ -171,6 +171,9 @@ def test_export_builds_exact_secure_argv_and_preserves_digest(tmp_path: Path) ->
     assert inspect_argv == (
         "skopeo",
         "inspect",
+        "--no-tags",
+        "--format",
+        '{"Digest":{{json .Digest}},"Architecture":{{json .Architecture}},"Os":{{json .Os}}}',
         "--authfile",
         auth_file,
         "--tls-verify=true",
