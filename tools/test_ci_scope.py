@@ -57,6 +57,19 @@ class CiScopeTest(TestCase):
             Scope(docs=True),
         )
 
+    def test_ai_agent_root_docs_run_documentation_gate(self):
+        root = self._root()
+        for path in ("AGENTS.md", "ROADMAP.md"):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    classify_paths([path], root=root),
+                    Scope(docs=True),
+                )
+        self.assertEqual(
+            classify_paths(["AGENTS.md", "ROADMAP.md"], root=root),
+            Scope(docs=True),
+        )
+
     def test_backend_only_runs_backend(self):
         root = self._root()
         self.assertEqual(
