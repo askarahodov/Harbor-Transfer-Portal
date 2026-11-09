@@ -46,7 +46,6 @@ from app.services.operation_manager import (
 from app.services.registry_client import RegistryClient, create_registry_client
 from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoServiceError
 
-
 logger = logging.getLogger(__name__)
 
 
