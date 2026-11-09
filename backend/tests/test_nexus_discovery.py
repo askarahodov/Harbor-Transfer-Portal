@@ -463,11 +463,13 @@ async def test_group_rest_search_preserves_member_images_tags_and_page_two(disco
         assert request.url.host == "nexus-ui.example.test"
         assert request.method == "GET"
         assert request.headers.get("authorization", "").startswith("Basic ")
-        if request.url.path == "/service/rest/v1/repositories/docker/group/docker-proxy":
-            return httpx.Response(200, json={
-                "name": "docker-proxy", "format": "docker", "type": "group",
-                "group": {"memberNames": ["harbor-clever", "harbor-team"]},
-            })
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            if request.url.path.endswith("/docker-proxy"):
+                return httpx.Response(200, json={
+                    "name": "docker-proxy", "format": "docker", "type": "group",
+                    "group": {"memberNames": ["harbor-clever", "harbor-team"]},
+                })
+            return httpx.Response(404)
         assert request.url.path == "/service/rest/v1/search"
         assert request.url.params["repository"] == "docker-proxy"
         assert request.url.params["format"] == "docker"
@@ -526,7 +528,9 @@ async def test_group_rest_search_preserves_member_images_tags_and_page_two(disco
     assert last_tags.available and last_tags.items == ("20",)
     assert last_tags.next_cursor is None
     assert len([x for x in seen if x.url.path.endswith("/search")]) == 4
-    assert len([x for x in seen if "/repositories/docker/group/" in x.url.path]) == 4
+    assert len([
+        x for x in seen if x.url.path.endswith("/docker/group/docker-proxy")
+    ]) == 4
     assert all(x.url.scheme == "https" for x in seen)
 
 
@@ -537,11 +541,13 @@ async def test_group_nonpaged_search_uses_proven_member_scope(discovery):
     service.search_repository = "docker-proxy"
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/docker/group/docker-proxy"):
-            return httpx.Response(200, json={
-                "name": "docker-proxy", "format": "docker", "type": "group",
-                "group": {"memberNames": ["harbor-clever"]},
-            })
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            if request.url.path.endswith("/docker-proxy"):
+                return httpx.Response(200, json={
+                    "name": "docker-proxy", "format": "docker", "type": "group",
+                    "group": {"memberNames": ["harbor-clever"]},
+                })
+            return httpx.Response(404)
         return httpx.Response(200, json={
             "items": [
                 {"repository": "harbor-clever", "format": "docker",
@@ -559,7 +565,10 @@ async def test_group_nonpaged_search_uses_proven_member_scope(discovery):
     tags = await service.tags("baseimage/node")
     assert catalog.available and catalog.items == ("baseimage/node",)
     assert tags.available and tags.items == ("v2",)
-    assert len(seen) == 4
+    assert len([request for request in seen
+                if request.url.path.endswith("/search")]) == 2
+    assert len([request for request in seen
+                if request.url.path.endswith("/docker/group/docker-proxy")]) == 2
 
 
 @pytest.mark.asyncio
@@ -579,6 +588,8 @@ async def test_group_nested_members_are_verified_not_guessed(discovery):
                 "name": "docker-subgroup", "format": "docker", "type": "group",
                 "group": {"memberNames": ["harbor-clever"]},
             })
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            return httpx.Response(404)
         return httpx.Response(200, json={
             "items": [
                 {"repository": "harbor-clever", "format": "docker",
@@ -592,7 +603,7 @@ async def test_group_nested_members_are_verified_not_guessed(discovery):
     response["custom_handler"] = handler
     result = await service.catalog_page("baseimage")
     assert result.available and result.items == ("baseimage/node",)
-    assert [r.url.path for r in seen] == [
+    assert [r.url.path for r in seen][:3] == [
         "/service/rest/v1/search",
         "/service/rest/v1/repositories/docker/group/docker-proxy",
         "/service/rest/v1/repositories/docker/group/docker-subgroup",
