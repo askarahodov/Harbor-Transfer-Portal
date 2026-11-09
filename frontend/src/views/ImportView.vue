@@ -426,7 +426,14 @@ onBeforeUnmount(() => {
 
         <dl class="metadata-grid metadata-grid--wide">
           <div><dt>Delivery ID</dt><dd>{{ wizard.preview.source_delivery_id }}</dd></div>
-          <div><dt>SOURCE Harbor</dt><dd>{{ wizard.preview.source_harbor ?? 'нет данных в legacy preview' }}</dd></div>
+          <div>
+            <dt>{{ wizard.preview.source_registry_type === 'nexus' ? 'SOURCE Nexus' : 'SOURCE Harbor' }}</dt>
+            <dd>
+              {{ wizard.preview.source_registry_type === 'nexus'
+                ? (wizard.preview.source_registry ?? '—')
+                : (wizard.preview.source_harbor ?? '—') }}
+            </dd>
+          </div>
           <div><dt>Создан</dt><dd>{{ formatDate(wizard.preview.source_created_at) }}</dd></div>
           <div><dt>Автор</dt><dd>{{ wizard.preview.source_created_by ?? '—' }}</dd></div>
           <div><dt>Portal SOURCE</dt><dd>{{ wizard.preview.source_portal_version ?? '—' }}</dd></div>
