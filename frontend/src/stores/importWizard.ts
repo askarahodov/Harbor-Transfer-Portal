@@ -563,8 +563,8 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     }
   }
 
-  async function loadHarborProfiles(): Promise<boolean> {
-    const loaded = await harborProfilesStore.load()
+  async function loadHarborProfiles(force = false): Promise<boolean> {
+    const loaded = await harborProfilesStore.load(force)
     if (!loaded && harborProfilesError.value) {
       error.value = harborProfilesError.value
     }
@@ -591,7 +591,7 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
     busy.value = 'initialize'
     clearError()
     try {
-      const profilesReady = await loadHarborProfiles()
+      const profilesReady = await loadHarborProfiles(true)
       if (!profilesReady) return
       if (selectedHarborProfileId.value) {
         mappingDraft.value = {
