@@ -18,7 +18,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 import yaml
@@ -34,6 +34,9 @@ _MAX_CHART = 100 * 1024 * 1024
 _MAX_CONFIG = 1024 * 1024
 _MAX_PASSWORD = 16 * 1024
 _MAX_VERSIONS = 500
+_MAX_SEARCH_RESPONSE = 2 * 1024 * 1024
+_MAX_SEARCH_PAGES = 8
+_SEARCH_TOKEN = re.compile(r"[A-Za-z0-9_+/=-]{1,512}\Z")
 
 
 class _UniqueKeysLoader(yaml.SafeLoader):
@@ -299,6 +302,66 @@ def _read_docker(
     checks.append(_check("docker_manifest", "PASS", "digest_verified", 200))
 
 
+def _read_nexus_search(
+    client: httpx.Client, base: str, repository: str,
+    image: str, tag: str, checks: list[dict],
+) -> None:
+    """Check actual REST Search visibility with one approved repo and identity.
+
+    Search is separate from the Docker connector, and response items from any
+    other repository or format never count as evidence. Cursors are bounded
+    and only used as encoded query parameters on the approved HTTPS origin.
+    """
+    cursor: str | None = None
+    seen: set[str] = set()
+    for _ in range(_MAX_SEARCH_PAGES):
+        params = {"repository": repository, "format": "docker", "name": image}
+        if cursor is not None:
+            params["continuationToken"] = cursor
+        url = base + "/service/rest/v1/search?" + urlencode(params)
+        status, payload = _read_limited(client, url, _MAX_SEARCH_RESPONSE)
+        if status in (401, 403):
+            checks.append(_check("nexus_search", "FAIL", "search_access_denied", status))
+            return
+        if status != 200:
+            checks.append(_check("nexus_search", "FAIL", "search_unavailable", status))
+            return
+        try:
+            document = json.loads(payload)
+        except (ValueError, UnicodeError):
+            checks.append(_check("nexus_search", "FAIL", "search_response_invalid"))
+            return
+        if not isinstance(document, dict) or not isinstance(document.get("items"), list):
+            checks.append(_check("nexus_search", "FAIL", "search_response_invalid"))
+            return
+        items = document["items"]
+        if len(items) > 1000 or any(not isinstance(item, dict) for item in items):
+            checks.append(_check("nexus_search", "FAIL", "search_response_invalid"))
+            return
+        if any(
+            item.get("repository") == repository
+            and item.get("format") == "docker"
+            and item.get("name") == image and item.get("version") == tag
+            for item in items
+        ):
+            checks.append(_check("nexus_search", "PASS", "search_image_tag_visible", 200))
+            return
+        next_cursor = document.get("continuationToken")
+        if next_cursor is None:
+            checks.append(_check("nexus_search", "FAIL", "search_image_tag_not_visible", 200))
+            return
+        if (
+            not isinstance(next_cursor, str)
+            or _SEARCH_TOKEN.fullmatch(next_cursor) is None
+            or next_cursor in seen
+        ):
+            checks.append(_check("nexus_search", "FAIL", "search_cursor_invalid"))
+            return
+        seen.add(next_cursor)
+        cursor = next_cursor
+    checks.append(_check("nexus_search", "UNVERIFIED", "search_page_limit_reached"))
+
+
 def _probe(
     entry: dict[str, Any], *,
     client_factory: Any = httpx.Client,
@@ -344,6 +407,25 @@ def _probe(
         if ca is not None and (not isinstance(ca, str) or not Path(ca).is_file()):
             raise ValueError("ca_file_missing")
         username, password = _credential(entry)
+        search_settings: tuple[str, str, str | None, str | None, str | None] | None = None
+        if "search" in entry:
+            search = entry["search"]
+            if artifact_format != "docker" or not isinstance(search, dict):
+                raise ValueError("search_config_invalid")
+            if search.get("repository") != repository:
+                raise ValueError("search_repository_mismatch")
+            _name(entry.get("image"), _IMAGE, "image_invalid")
+            _name(entry.get("tag"), _TAG, "tag_invalid")
+            search_origin = _valid_origin(search.get("endpoint"))
+            search_ca = search.get("ca_file")
+            if search_ca is not None and (
+                not isinstance(search_ca, str) or not Path(search_ca).is_file()
+            ):
+                raise ValueError("ca_file_missing")
+            search_user, search_password = _credential(search)
+            search_settings = (
+                search_origin, repository, search_ca, search_user, search_password,
+            )
         args = {
             "verify": ca if ca else True, "timeout": httpx.Timeout(15),
             "follow_redirects": False, "trust_env": False,
@@ -382,6 +464,33 @@ def _probe(
                                          response.status_code))
                     return record
                 _read_docker(client, origin, entry, checks)
+                if search_settings is not None:
+                    search_origin, search_repository, search_ca, search_user, search_password = (
+                        search_settings
+                    )
+                    search_args = {
+                        "verify": search_ca if search_ca else True,
+                        "timeout": httpx.Timeout(15),
+                        "follow_redirects": False, "trust_env": False,
+                        "auth": (
+                            httpx.BasicAuth(search_user, search_password)
+                            if search_user is not None else None
+                        ),
+                    }
+                    try:
+                        with client_factory(**search_args) as search_client:
+                            _read_nexus_search(
+                                search_client, search_origin, search_repository,
+                                entry["image"], entry["tag"], checks,
+                            )
+                    except (httpx.HTTPError, OSError, UnicodeError, ValueError) as exc:
+                        code = (
+                            "search_response_too_large"
+                            if isinstance(exc, ValueError)
+                            and str(exc) == "response_too_large"
+                            else "search_connection_or_ca_failed"
+                        )
+                        checks.append(_check("nexus_search", "FAIL", code))
             else:
                 _read_helm(client, origin, entry, checks)
     except ValueError as exc:
@@ -393,6 +502,7 @@ def _probe(
             "service_identity_incomplete", "password_file_permissions_invalid",
             "password_file_too_large", "password_file_empty", "ca_file_missing",
             "id_invalid", "contour_invalid", "format_invalid", "kind_invalid",
+            "search_config_invalid", "search_repository_mismatch",
             "response_too_large",
         }
         code = str(exc)
