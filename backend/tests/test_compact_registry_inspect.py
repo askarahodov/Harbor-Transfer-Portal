@@ -39,8 +39,8 @@ from app.services.skopeo_service import (
 
 DIGEST = "sha256:" + "a" * 64
 FORMAT = (
-    '{"Digest":{{json .Digest}},"Architecture":{{json .Architecture}},'
-    '"Os":{{json .Os}}}'
+    '{"Digest":{{printf "%q" .Digest}},"Architecture":{{printf "%q" .Architecture}},'
+    '"Os":{{printf "%q" .Os}}}'
 )
 # Mimics the operator's image with a huge tag list; the default inspect
 # payload is more than 65,536 bytes, while these three fields are tiny.
