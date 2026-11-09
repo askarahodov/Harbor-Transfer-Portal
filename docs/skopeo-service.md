@@ -46,7 +46,9 @@ TLS-политика берётся из effective Harbor settings (#12):
 
 SOURCE/OCI/TARGET `skopeo inspect` в Nexus и Harbor теперь использует
 `--no-tags --format` с JSON-выводом только `Digest`, `Architecture`
-и `Os`. Это не изменяет вычисление `Digest`: в команде Skopeo
+и `Os`. Шаблон использует встроенный Go `printf %q`, совместимый
+с Skopeo 1.9.3 в контейнерном smoke-test (в отличие от более
+новой template-функции `json`). Это не изменяет вычисление `Digest`: в команде Skopeo
 используется тот же manifest инспектируемого `image:tag`, но
 огромный `RepoTags` не загружается и не сериализуется в stdout.
 `skopeo inspect` с обычным выводом мог возвращать >65 536 байт
