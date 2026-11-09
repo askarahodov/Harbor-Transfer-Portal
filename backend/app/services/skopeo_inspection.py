@@ -20,4 +20,4 @@ COMPACT_INSPECT_FLAGS = ("--no-tags", "--format", COMPACT_INSPECT_FORMAT)
 
 def is_output_truncated(stdout: str) -> bool:
     """Recognize the runner's synthetic overflow marker (never accept partial JSON)."""
-    return stdout.endswith("\n[output truncated]")
+    return stdout.rstrip().endswith("[output truncated]")
