@@ -221,6 +221,28 @@ repository identity и доступ должны соответствовать 
 с `next_cursor` — перейдите к следующей. Настоящая доступность и
 digest подтверждаются только точным Docker v2 inspect по connector.
 
+### Docker inspect: большой список RepoTags
+
+При локальном тесте Nexus group `docker-proxy` подтверждены
+постраничный каталог и теги. Оператор заметил, что
+`node:18-alpine` успешно проверяется напрямую через Docker v2
+(совпадают HTTP `Docker-Content-Digest` и SHA-256 манифеста), но
+прежний `skopeo inspect` выдавал более 65 536 байт из-за
+`RepoTags`, а Portal сообщал `registry_inspection_failed`.
+
+Исправление применяется одинаково к Nexus и Harbor:
+`skopeo inspect --no-tags --format` сохраняет только компактные
+`Digest`, `Architecture`, `Os` с безопасным экранированием
+через Go `printf %q` (включая Skopeo 1.9.3); inspect SOURCE, OCI payload и
+TARGET не зависят от длины списка тегов. Повышать
+`SKOPEO_OUTPUT_LIMIT_BYTES` для обхода дефекта не нужно.
+При реальном повторном тесте используйте тот же `node:18-alpine`
+через выбранный `docker-proxy` профиль, убедитесь в получении
+`sha256` и сравните с Docker v2 manifest digest. При
+`nexus_output_truncated` сохраните обезличенную диагностику
+(без credentials/cookies); этот код означает лимит stdout, а не
+плохую подпись или отсутствие образа. Не отключайте TLS verification.
+
 ### После редактирования профиля: актуальность поиска Nexus
 
 После заполнения `Nexus UI HTTPS URL` и `Имя Docker repository` нажмите
