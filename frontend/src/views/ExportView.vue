@@ -668,7 +668,7 @@ onBeforeUnmount(() => {
             <p>В Nexus Browse путь <code>docker-proxy / v2 / baseimage</code> означает образ <code>baseimage</code> внутри Docker repository <code>docker-proxy</code>. Проверьте образ и tag напрямую — полный каталог для этого не нужен. Harbor API и Helm OCI не используются.</p>
             <NexusDockerBrowser
               v-if="wizard.selectedHarborProfileId"
-              :key="wizard.selectedHarborProfileId"
+              :key="JSON.stringify([wizard.selectedHarborProfileId, wizard.selectedHarborProfile?.nexus_search_url, wizard.selectedHarborProfile?.nexus_search_repository])"
               :profile-id="wizard.selectedHarborProfileId"
               :nexus-repository="wizard.selectedHarborProfile?.nexus_search_repository"
               :rest-search-configured="Boolean(wizard.selectedHarborProfile?.nexus_search_url && wizard.selectedHarborProfile?.nexus_search_repository)"
