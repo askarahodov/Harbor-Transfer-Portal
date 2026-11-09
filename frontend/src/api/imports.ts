@@ -86,6 +86,8 @@ export type ImportPreview = {
   bundle_filename: string | null
   intake_mode: ImportIntakeMode | null
   source_harbor: string | null
+  source_registry_type?: 'harbor' | 'nexus' | null
+  source_registry?: string | null
   source_portal_version: string | null
   source_created_at: string | null
   source_created_by: string | null

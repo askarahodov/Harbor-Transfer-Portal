@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -61,6 +62,10 @@ class ImportPreviewResponse(BaseModel):
     bundle_filename: str | None = None
     intake_mode: ImportIntakeMode | None = None
     source_harbor: str | None = None
+    # Optional v1.1 Nexus provenance from the verified, signed manifest.
+    # Preserve legacy preview compatibility with missing fields.
+    source_registry_type: Literal["harbor", "nexus"] | None = None
+    source_registry: str | None = None
     source_portal_version: str | None = None
     source_created_at: datetime | None = None
     source_created_by: str | None = None
