@@ -218,6 +218,7 @@ def test_harbor_root_image_plan_uses_full_repository_push_scope(
     assert plan.artifacts[0].target_repository == target_name
     assert plan.artifacts[0].final_reference == f"harbor.target.local/{target_name}:18-alpine"
     assert plan.artifacts[0].write_allowed is True
+    assert plan.artifacts[0].write_permission_verified is True
     assert plan.artifacts[0].classification == ImportPreviewState.NEW
     assert validator.calls == [("test", target_name)]
     assert skopeo.inspected == [(target_name, "18-alpine")]
