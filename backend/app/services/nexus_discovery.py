@@ -181,6 +181,101 @@ class NexusDiscoveryService:
             return await self._rest_page(repository, search, cursor)
         return await self._docker_page(repository, search, cursor)
 
+    async def _rest_scope_for_rows(
+        self,
+        client: httpx.AsyncClient,
+        auth: httpx.BasicAuth | None,
+        rows: list[object],
+    ) -> tuple[set[str], str | None]:
+        """Verify Nexus Docker group membership before accepting member search rows.
+
+        Nexus Search may return the *underlying member* as item.repository
+        even when the query names a group. Never trust the repository query
+        parameter alone as a boundary: resolve group membership from Nexus
+        configuration on the same authenticated HTTPS origin. No group
+        privileges => no widening of the scoped search results.
+        """
+        selected = self.search_repository
+        assert selected is not None
+        allowed = {selected}
+        foreign = {
+            item["repository"]
+            for item in rows
+            if isinstance(item, dict)
+            and isinstance(item.get("repository"), str)
+            and item["repository"] != selected
+            and item.get("format") in (None, "docker")
+        }
+        if not foreign:
+            return allowed, None
+
+        base = (self.search_url or "").rstrip("/")
+        denied = (
+            "Невозможно подтвердить участников Nexus Docker group через "
+            "repositories API. Проверьте права сервисной учётной записи "
+            "или выберите отдельный Docker connector; точный image:tag "
+            "по-прежнему доступен."
+        )
+
+        async def group_members(name: str) -> tuple[str, ...] | None:
+            response = await client.get(
+                base + "/service/rest/v1/repositories/docker/group/" + quote(name, safe=""),
+                auth=auth,
+            )
+            if response.status_code == 404:
+                return None  # regular hosted/proxy repository, not a group
+            if response.status_code != 200 or len(response.content) > 1024 * 1024:
+                raise ValueError("group config unavailable")
+            data = response.json()
+            if (
+                not isinstance(data, dict)
+                or data.get("name") != name
+                or data.get("format") != "docker"
+                or data.get("type") != "group"
+                or not isinstance(data.get("group"), dict)
+            ):
+                raise ValueError("invalid group config")
+            members = data["group"].get("memberNames")
+            if (
+                not isinstance(members, list)
+                or len(members) > 64
+                or not all(
+                    isinstance(member, str)
+                    and _NEXUS_REPO.fullmatch(member) is not None
+                    for member in members
+                )
+            ):
+                raise ValueError("invalid group members")
+            return tuple(members)
+
+        try:
+            members = await group_members(selected)
+            if members is None:
+                return allowed, None  # no group: strict repository scope remains
+            allowed.update(members)
+            # Nexus groups can contain other groups. Expand only when the
+            # returned repositories are not already proven direct members.
+            # Bound the fanout, depth and cycles; never infer a member from
+            # user input or an untrusted REST Search row.
+            queue = [(name, 1) for name in members]
+            seen = {selected}
+            requests = 1
+            while foreign - allowed and queue and requests < 17:
+                name, depth = queue.pop(0)
+                if name in seen or depth > 3:
+                    continue
+                seen.add(name)
+                requests += 1
+                nested = await group_members(name)
+                if nested is None:
+                    continue
+                allowed.update(nested)
+                queue.extend((member, depth + 1) for member in nested)
+        except (httpx.HTTPError, ValueError, TypeError):
+            return {selected}, denied
+
+        return allowed, None
+
     async def _rest_page(
         self, repository: str | None, search: str, cursor: str | None,
     ) -> DiscoveryResult:
@@ -222,16 +317,23 @@ class NexusDiscoveryService:
                         False, (), "REST Search недоступен; используйте точный repository:tag"
                     )
                 data = response.json()
+                if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+                    return DiscoveryResult(False, (), "Некорректный ответ Nexus REST Search API")
+                rows = data["items"]
+                if len(rows) > 1000:
+                    return DiscoveryResult(False, (), "Слишком большая страница Nexus REST Search")
+                allowed, scope_error = await self._rest_scope_for_rows(client, auth, rows)
         except (httpx.HTTPError, ValueError, TypeError):
             return DiscoveryResult(False, (), "Не удалось получить страницу Nexus REST Search")
-        if not isinstance(data, dict) or not isinstance(data.get("items"), list):
-            return DiscoveryResult(False, (), "Некорректный ответ Nexus REST Search API")
-        rows = data["items"]
-        if len(rows) > 1000:
-            return DiscoveryResult(False, (), "Слишком большая страница Nexus REST Search")
+        if scope_error:
+            return DiscoveryResult(False, (), scope_error)
         found: set[str] = set()
         for item in rows:
-            if not isinstance(item, dict) or item.get("repository") != self.search_repository:
+            if (
+                not isinstance(item, dict)
+                or item.get("repository") not in allowed
+                or item.get("format") not in (None, "docker")
+            ):
                 continue
             name, version = item.get("name"), item.get("version")
             if not isinstance(name, str) or _REPOSITORY.fullmatch(name) is None:
@@ -377,13 +479,21 @@ class NexusDiscoveryService:
                         return DiscoveryResult(
                             False, (), "Некорректный ответ Nexus REST Search API"
                         )
+                    if len(data["items"]) > 1000:
+                        return DiscoveryResult(False, (), "Слишком большая страница Nexus REST Search")
+                    allowed, scope_error = await self._rest_scope_for_rows(
+                        client, auth, data["items"],
+                    )
+                    if scope_error:
+                        return DiscoveryResult(False, (), scope_error)
                     for item in data["items"]:
                         if not isinstance(item, dict):
                             continue
                         name = item.get("name")
                         version = item.get("version")
                         if (
-                            item.get("repository") != self.search_repository
+                            item.get("repository") not in allowed
+                            or item.get("format") not in (None, "docker")
                             or not isinstance(name, str)
                             or _REPOSITORY.fullmatch(name) is None
                         ):
