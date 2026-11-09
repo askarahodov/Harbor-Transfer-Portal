@@ -229,10 +229,13 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(
         assert operation.error_message == "Внутренняя ошибка обработки артефакта при экспорте"
         log_records = [
             record for record in caplog.records
-            if record.getMessage() == "unexpected export artifact materialization failure"
+            if record.getMessage().startswith(
+                "unexpected export artifact materialization failure artifact_id="
+            )
         ]
         assert log_records
         assert log_records[0].operation_id == operation.id
+        assert f"artifact_id={log_records[0].artifact_id}" in log_records[0].getMessage()
         assert log_records[0].artifact_id == (
             min(item.id for item in operation.artifacts)
             if helm_failure else
