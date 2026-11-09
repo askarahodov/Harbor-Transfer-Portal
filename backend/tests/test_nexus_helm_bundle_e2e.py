@@ -151,6 +151,8 @@ def test_real_helm_signed_browser_handoff_to_target_receipt(tmp_path: Path) -> N
         assert planned["valid"] is True, planned
         assert planned["artifacts"][0]["target_repository"] == "htp-helm-target"
         assert planned["artifacts"][0]["classification"] == "NEW"
+        assert planned["artifacts"][0]["write_allowed"] is True
+        assert planned["artifacts"][0]["write_permission_verified"] is False
         execute = client.post(
             f"/api/imports/{operation_id}/execute", headers=headers,
             json={"destination_plan_id": planned["plan_id"],
