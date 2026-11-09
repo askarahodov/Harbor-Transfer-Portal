@@ -623,3 +623,196 @@ def test_preflight_never_emits_untrusted_parser_exception_text(monkeypatch):
     result = _probe(_anonymous_docker("docker-source"))
     assert result["checks"][0]["code"] == "endpoint_invalid"
     assert "private-secret-in-exception" not in json.dumps(result)
+
+
+def test_read_only_search_page_two_uses_separate_identity_and_scoped_repository(
+    tmp_path,
+):
+    """REST Search must not reuse Docker credentials or trust another repo's hit."""
+    import base64
+
+    secret = tmp_path / "search-password"
+    secret.write_text("search-secret", encoding="utf-8")
+    secret.chmod(0o600)
+    calls: list[httpx.Request] = []
+    search_calls: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(req)
+        if req.url.host == "nexus-ui.example.test":
+            search_calls.append(req)
+            assert req.method == "GET"
+            assert req.url.path == "/service/rest/v1/search"
+            assert req.url.params["repository"] == "docker-proxy"
+            assert req.url.params["format"] == "docker"
+            assert req.url.params["name"] == "baseimage"
+            assert req.headers.get("authorization") == (
+                "Basic " + base64.b64encode(b"search-reader:search-secret").decode()
+            )
+            if "continuationToken" not in req.url.params:
+                return httpx.Response(200, json={
+                    "items": [
+                        {"repository": "other-private", "format": "docker",
+                         "name": "baseimage", "version": "1.0.0"},
+                        *[{"repository": "docker-proxy", "format": "docker",
+                           "name": f"other-{i}", "version": "1.0.0"}
+                          for i in range(25)],
+                    ],
+                    "continuationToken": "NEXT+1/==",
+                })
+            assert req.url.params["continuationToken"] == "NEXT+1/=="
+            return httpx.Response(200, json={"items": [
+                {"repository": "docker-proxy", "format": "docker",
+                 "name": "baseimage", "version": "1.0.0"},
+            ], "continuationToken": None})
+        assert req.url.host == "docker-proxy.example.test"
+        assert req.headers.get("authorization") is None
+        if req.url.path == "/v2/":
+            return httpx.Response(200, headers={
+                "Docker-Distribution-API-Version": "registry/2.0",
+            })
+        assert req.method == "HEAD"
+        return httpx.Response(200, headers={"Docker-Content-Digest": DIGEST})
+
+    def factory(**kwargs):
+        assert kwargs["follow_redirects"] is False
+        assert kwargs["trust_env"] is False
+        assert kwargs["verify"] is True
+        return httpx.Client(transport=httpx.MockTransport(handler), **kwargs)
+
+    probe = _anonymous_docker("docker-proxy")
+    probe["image"] = "baseimage"
+    probe["search"] = {
+        "endpoint": "https://nexus-ui.example.test",
+        "repository": "docker-proxy",
+        "username": "search-reader",
+        "password_file": str(secret),
+    }
+    report = run_document(_document([probe]), client_factory=factory)
+    assert report["preflight_status"] == "PASS"
+    assert report["release_verdict"] == "NO-GO"
+    assert [x["code"] for x in report["entries"][0]["checks"]] == [
+        "docker_v2_reachable", "auth_or_anonymous_ok", "digest_verified",
+        "search_image_tag_visible",
+    ]
+    assert len(search_calls) == 2
+    assert all(req.method in {"GET", "HEAD"} for req in calls)
+    assert "search-secret" not in json.dumps(report)
+
+
+@pytest.mark.parametrize("response,expected", [
+    (httpx.Response(403, text="private-repo-secret"), "search_access_denied"),
+    (httpx.Response(302, headers={
+        "Location": "https://attacker.invalid/steal",
+    }), "search_unavailable"),
+    (httpx.Response(200, text="<html>sign-in</html>"), "search_response_invalid"),
+    (httpx.Response(200, json={"items": [
+        {"repository": "someone-else", "format": "docker",
+         "name": "team/app", "version": "1.0.0"},
+        {"repository": "docker-source", "format": "helm",
+         "name": "team/app", "version": "1.0.0"},
+    ]}), "search_image_tag_not_visible"),
+])
+def test_search_denial_redirect_invalid_response_and_foreign_repository_isolated(
+    response, expected,
+):
+    urls: list[str] = []
+
+    def handler(req):
+        urls.append(str(req.url))
+        if req.url.host == "nexus-ui.example.test":
+            return response
+        if req.url.path == "/v2/":
+            return httpx.Response(200, headers={
+                "Docker-Distribution-API-Version": "registry/2.0",
+            })
+        return httpx.Response(200, headers={"Docker-Content-Digest": DIGEST})
+
+    def factory(**kwargs):
+        assert kwargs["follow_redirects"] is False
+        return httpx.Client(transport=httpx.MockTransport(handler), **kwargs)
+
+    denied = _anonymous_docker("docker-source")
+    denied["search"] = {
+        "endpoint": "https://nexus-ui.example.test",
+        "repository": "docker-source",
+    }
+    allowed = _anonymous_docker("docker-allowed")
+    report = run_document(_document([denied, allowed]), client_factory=factory)
+    assert report["preflight_status"] == "FAIL"
+    assert report["entries"][0]["checks"][-1]["code"] == expected
+    assert report["entries"][1]["checks"][-1]["code"] == "digest_verified"
+    assert "private-repo-secret" not in json.dumps(report)
+    assert not any("attacker.invalid" in url for url in urls)
+
+
+@pytest.mark.parametrize("token,code,calls", [
+    ("repeated", "search_cursor_invalid", 2),
+    ("unsafe\nHeader: secret", "search_cursor_invalid", 1),
+    ("all-pages", "search_page_limit_reached", 8),
+])
+def test_search_pagination_fail_closed_and_bounded(token, code, calls):
+    search_requests: list[httpx.Request] = []
+
+    def handler(req):
+        if req.url.host == "nexus-ui.example.test":
+            search_requests.append(req)
+            cursor = req.url.params.get("continuationToken")
+            next_cursor = (
+                "first" if cursor is None
+                else "first" if token == "repeated"
+                else token if token.startswith("unsafe")
+                else f"page-{len(search_requests)}"
+            )
+            return httpx.Response(200, json={
+                "items": [], "continuationToken": next_cursor,
+            })
+        if req.url.path == "/v2/":
+            return httpx.Response(200, headers={
+                "Docker-Distribution-API-Version": "registry/2.0",
+            })
+        return httpx.Response(200, headers={"Docker-Content-Digest": DIGEST})
+
+    def factory(**kwargs):
+        assert kwargs["trust_env"] is False
+        return httpx.Client(transport=httpx.MockTransport(handler), **kwargs)
+
+    probe = _anonymous_docker("docker-source")
+    probe["search"] = {
+        "endpoint": "https://nexus-ui.example.test",
+        "repository": "docker-source",
+    }
+    report = run_document(_document([probe]), client_factory=factory)
+    assert report["entries"][0]["checks"][-1]["code"] == code
+    assert report["entries"][0]["checks"][-1]["status"] == (
+        "UNVERIFIED" if token == "all-pages" else "FAIL"
+    )
+    assert len(search_requests) == calls
+    assert all(r.url.host == "nexus-ui.example.test" for r in search_requests)
+    assert "secret" not in json.dumps(report)
+
+
+@pytest.mark.parametrize("search,expected", [
+    ({"endpoint": "https://nexus-ui.example.test",
+      "repository": "other-repository"}, "search_repository_mismatch"),
+    ({"endpoint": "https://user:password@nexus-ui.example.test",
+      "repository": "docker-source"}, "endpoint_invalid"),
+    ({"endpoint": "https://nexus-ui.example.test?token=secret",
+      "repository": "docker-source"}, "endpoint_invalid"),
+    (["unsafe"], "search_config_invalid"),
+])
+def test_invalid_search_configuration_prevents_all_network_calls(search, expected):
+    attempts = []
+
+    def factory(**kwargs):
+        attempts.append(kwargs)
+        raise AssertionError("invalid search config must not open HTTP client")
+
+    probe = _anonymous_docker("docker-source")
+    probe["search"] = search
+    report = run_document(_document([probe]), client_factory=factory)
+    assert report["preflight_status"] == "FAIL"
+    assert report["entries"][0]["checks"][0]["code"] == expected
+    assert attempts == []
+    assert "password" not in json.dumps(report)
+    assert "secret" not in json.dumps(report)
