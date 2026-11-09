@@ -148,7 +148,10 @@ def test_verified_nexus_source_provenance_is_shown_not_mislabeled_harbor(
     orchestrator._verified_preview = verified
     monkeypatch.setattr(
         orchestrator, "_get_import_operation",
-        lambda _id: SimpleNamespace(bundle_filename="nexus.htp.tar.gz", import_intake_mode="incoming"),
+        lambda _id: SimpleNamespace(
+            bundle_filename="nexus.htp.tar.gz",
+            import_intake_mode="incoming",
+        ),
     )
     persisted: list[ImportPreviewResponse] = []
     monkeypatch.setattr(
