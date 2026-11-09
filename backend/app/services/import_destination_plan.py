@@ -357,11 +357,17 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
         # Nexus Helm hosted repositories are not OCI namespace/chart paths:
         # the configured destination is the repository, while chart name is
         # carried separately in the signed Helm artifact descriptor.
-        target_repository = (
-            target_project
-            if item.artifact_type == "helm-chart" and isinstance(helm, NexusHelmAdapter)
-            else target_project + (f"/{suffix}" if suffix else "")
-        )
+        if item.artifact_type == "helm-chart" and isinstance(helm, NexusHelmAdapter):
+            # Nexus hosted Helm receives a repository name, not an OCI path.
+            target_repository = target_project
+        elif item.artifact_type == "container-image" and not suffix:
+            # Root-level Docker source image "node" has no Harbor project
+            # segment. Preserve that image name under the selected TARGET
+            # Harbor project: registry scope must be "test/node", not "test".
+            # A token for "repository:test" is not a push grant for an image.
+            target_repository = f"{target_project}/{source_project}"
+        else:
+            target_repository = target_project + (f"/{suffix}" if suffix else "")
         if item.artifact_type == "container-image":
             return await self._plan_image(
                 base,
