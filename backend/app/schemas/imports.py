@@ -148,6 +148,9 @@ class ImportDestinationArtifactPlanResponse(BaseModel):
     final_reference: str | None = None
     project_exists: bool = False
     write_allowed: bool = False
+    # None: older plan without write ACL evidence; False: read-only preflight only.
+    # True: destination write authorization checked by a permission-aware validator.
+    write_permission_verified: bool | None = None
     target_digest: str | None = None
     classification: ImportPreviewState
     error_code: str | None = None
