@@ -338,6 +338,8 @@ async def test_rest_search_discards_foreign_acl_results_even_if_server_ignores_f
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            return httpx.Response(404)
         return httpx.Response(200, json={
             "items": [
                 {"repository": "docker-hosted", "name": "team/allowed", "version": "v1"},
@@ -358,8 +360,10 @@ async def test_rest_search_discards_foreign_acl_results_even_if_server_ignores_f
     assert names.available and names.items == ("team/allowed",)
     assert tags.available and tags.items == ("v1",)
     assert foreign.available and foreign.items == ()
-    assert len(requests) == 3
-    assert all(r.url.params["repository"] == "docker-hosted" for r in requests)
+    search_requests = [r for r in requests if r.url.path.endswith("/search")]
+    assert len(search_requests) == 3
+    assert all(r.url.params["repository"] == "docker-hosted" for r in search_requests)
+    assert len(requests) == 6
 
 
 @pytest.mark.asyncio
@@ -456,6 +460,8 @@ async def test_paged_rest_search_keeps_scoping_and_exposes_continuation(discover
     service.search_repository = "docker-proxy"
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            return httpx.Response(404)
         if "continuationToken" not in request.url.params:
             return httpx.Response(200, json={
                 "items": [
@@ -479,8 +485,10 @@ async def test_paged_rest_search_keeps_scoping_and_exposes_continuation(discover
     second = await service.catalog_page(cursor=first.next_cursor)
     assert second.items == ("bitnami/redis",)
     assert second.next_cursor is None
-    assert len(seen) == 2
-    assert all(r.url.params["repository"] == "docker-proxy" for r in seen)
+    search_requests = [r for r in seen if r.url.path.endswith("/search")]
+    assert len(search_requests) == 2
+    assert len(seen) == 3
+    assert all(r.url.params["repository"] == "docker-proxy" for r in search_requests)
     assert "secret" not in first.items + second.items
 
 
@@ -517,6 +525,8 @@ async def test_paged_rest_tags_follow_token_without_leaking_other_repositories(d
     service.search_repository = "docker-proxy"
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            return httpx.Response(404)
         if "continuationToken" not in request.url.params:
             return httpx.Response(200, json={
                 "items": [
@@ -537,7 +547,7 @@ async def test_paged_rest_tags_follow_token_without_leaking_other_repositories(d
     assert first.items == ("v1",)
     second = await service.tags_page("team/app", cursor=first.next_cursor)
     assert second.items == ("v2",)
-    assert len(seen) == 2
+    assert len(seen) == 3
 
 
 @pytest.mark.asyncio
