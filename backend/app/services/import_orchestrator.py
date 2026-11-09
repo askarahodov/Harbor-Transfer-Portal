@@ -479,6 +479,7 @@ class ImportOrchestrator:
             artifacts=await self.artifact_classifier.classify(
                 verified.manifest.artifacts,
                 harbor_profile_id=profile.id,
+                target_registry_type=profile.registry_type,
             ),
         )
         self._persist_preview(operation_id, preview)
