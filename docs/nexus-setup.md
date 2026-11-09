@@ -183,6 +183,44 @@ import → receipt с проверкой SHA-256, запретом overwrite и 
 `repository:tag` вручную. Поиск не предоставляет гарантии полного
 инвентаря и не заменяет проверку разрешений.
 
+### REST Search для Docker group (Nexus 3.69 и выше)
+
+Если профиль использует Docker v2 **group connector**, например
+`docker-proxy`, REST Search с `repository=docker-proxy` может возвращать
+компоненты, чей `item.repository` обозначает **физический member
+repository**, например `harbor-clever`. Проверка только на строку
+`item.repository == docker-proxy` ошибочно скрывала все такие образы
+и теги, в том числе при `paged=true` с непустым `next_cursor`.
+
+Portal теперь проверяет список members для **именно настроенной группы**
+через read-only запрос
+`GET /service/rest/v1/repositories/docker/group/<group-name>` на
+**том же Nexus UI HTTPS origin** с сервисной учётной записью профиля.
+Принимаются только результаты формата Docker из подтверждённых прямых
+members или вложенных groups; чужие, некорректные и неатрибутированные
+строки исключаются. Раскрытие вложенных групп ограничено глубиной 3 и
+17 запросами конфигурации, без переходов на внешние адреса. Пагинация
+остаётся ограниченной; отсутствие совпадений при непустом курсоре не
+равно отсутствию образа.
+
+**Права:** отдельное право чтения сведений о group через Nexus
+repositories API может не входить в роль с `nx-search-read`.
+При HTTP 401/403, неверной структуре group или недоступности metadata
+Portal **не ослабляет границу** и показывает диагностическое
+`available=false` вместо пустой таблицы, когда Search возвращает
+неподтверждённые member rows. Оператору потребуется разрешённое
+read-only право на конфигурацию group либо **отдельный профиль на
+физический proxy/hosted repository с соответствующим Docker v2 connector**.
+Нельзя просто подставлять имя member в group-профиль: URL connector,
+repository identity и доступ должны соответствовать друг другу.
+
+Проверять обе функции:
+`/api/registry/source/nexus/repositories?profile_id=<ID>&paged=true&search=node`
+и `/api/registry/source/nexus/tags?profile_id=<ID>&paged=true&repository=node`
+при известном точном Docker image. Первая страница может быть пустой
+с `next_cursor` — перейдите к следующей. Настоящая доступность и
+digest подтверждаются только точным Docker v2 inspect по connector.
+
 ### После редактирования профиля: актуальность поиска Nexus
 
 После заполнения `Nexus UI HTTPS URL` и `Имя Docker repository` нажмите

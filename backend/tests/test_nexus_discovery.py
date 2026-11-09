@@ -338,6 +338,8 @@ async def test_rest_search_discards_foreign_acl_results_even_if_server_ignores_f
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            return httpx.Response(404)
         return httpx.Response(200, json={
             "items": [
                 {"repository": "docker-hosted", "name": "team/allowed", "version": "v1"},
@@ -358,8 +360,10 @@ async def test_rest_search_discards_foreign_acl_results_even_if_server_ignores_f
     assert names.available and names.items == ("team/allowed",)
     assert tags.available and tags.items == ("v1",)
     assert foreign.available and foreign.items == ()
-    assert len(requests) == 3
-    assert all(r.url.params["repository"] == "docker-hosted" for r in requests)
+    search_requests = [r for r in requests if r.url.path.endswith("/search")]
+    assert len(search_requests) == 3
+    assert all(r.url.params["repository"] == "docker-hosted" for r in search_requests)
+    assert len(requests) == 6
 
 
 @pytest.mark.asyncio
@@ -450,12 +454,207 @@ async def test_paged_docker_catalog_exposes_later_pages_beyond_first_hundred(dis
 
 
 @pytest.mark.asyncio
+async def test_group_rest_search_preserves_member_images_tags_and_page_two(discovery):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "nexus-ui.example.test"
+        assert request.method == "GET"
+        assert request.headers.get("authorization", "").startswith("Basic ")
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            if request.url.path.endswith("/docker-proxy"):
+                return httpx.Response(200, json={
+                    "name": "docker-proxy", "format": "docker", "type": "group",
+                    "group": {"memberNames": ["harbor-clever", "harbor-team"]},
+                })
+            return httpx.Response(404)
+        assert request.url.path == "/service/rest/v1/search"
+        assert request.url.params["repository"] == "docker-proxy"
+        assert request.url.params["format"] == "docker"
+        if request.url.params.get("name") == "node":
+            if request.url.params.get("continuationToken"):
+                return httpx.Response(200, json={
+                    "items": [
+                        {"repository": "harbor-team", "format": "docker",
+                         "name": "node", "version": "20"},
+                        {"repository": "another-company", "format": "docker",
+                         "name": "node", "version": "private"},
+                    ],
+                    "continuationToken": None,
+                })
+            return httpx.Response(200, json={
+                "items": [
+                    {"repository": "harbor-clever", "format": "docker",
+                     "name": "node", "version": "18"},
+                    {"repository": "harbor-clever", "format": "helm",
+                     "name": "node", "version": "unsafe"},
+                    {"repository": "another-company", "format": "docker",
+                     "name": "node", "version": "secret"},
+                ],
+                "continuationToken": "tag-p2",
+            })
+        if request.url.params.get("continuationToken"):
+            return httpx.Response(200, json={
+                "items": [
+                    {"repository": "harbor-clever", "format": "docker",
+                     "name": "node", "version": "18"},
+                    {"repository": "another-company", "format": "docker",
+                     "name": "private", "version": "latest"},
+                ],
+                "continuationToken": None,
+            })
+        return httpx.Response(200, json={
+            "items": [
+                {"repository": "harbor-team", "format": "docker",
+                 "name": f"other/image-{i:03d}", "version": "v1"}
+                for i in range(50)
+            ],
+            "continuationToken": "image-p2",
+        })
+
+    response["custom_handler"] = handler
+    first = await service.catalog_page("node")
+    assert first.available and first.items == ()
+    assert first.truncated and first.next_cursor == "image-p2"
+    second = await service.catalog_page("node", first.next_cursor)
+    assert second.available and second.items == ("node",)
+    assert second.next_cursor is None
+    first_tags = await service.tags_page("node")
+    assert first_tags.available and first_tags.items == ("18",)
+    assert first_tags.next_cursor == "tag-p2"
+    last_tags = await service.tags_page("node", cursor=first_tags.next_cursor)
+    assert last_tags.available and last_tags.items == ("20",)
+    assert last_tags.next_cursor is None
+    assert len([x for x in seen if x.url.path.endswith("/search")]) == 4
+    assert len([
+        x for x in seen if x.url.path.endswith("/docker/group/docker-proxy")
+    ]) == 4
+    assert all(x.url.scheme == "https" for x in seen)
+
+
+@pytest.mark.asyncio
+async def test_group_nonpaged_search_uses_proven_member_scope(discovery):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            if request.url.path.endswith("/docker-proxy"):
+                return httpx.Response(200, json={
+                    "name": "docker-proxy", "format": "docker", "type": "group",
+                    "group": {"memberNames": ["harbor-clever"]},
+                })
+            return httpx.Response(404)
+        return httpx.Response(200, json={
+            "items": [
+                {"repository": "harbor-clever", "format": "docker",
+                 "name": "baseimage/node", "version": "v2"},
+                {"repository": "not-in-group", "format": "docker",
+                 "name": "baseimage/private", "version": "secret"},
+                {"repository": "harbor-clever", "format": "helm",
+                 "name": "baseimage/chart", "version": "v1"},
+            ],
+            "continuationToken": None,
+        })
+
+    response["custom_handler"] = handler
+    catalog = await service.catalog("baseimage")
+    tags = await service.tags("baseimage/node")
+    assert catalog.available and catalog.items == ("baseimage/node",)
+    assert tags.available and tags.items == ("v2",)
+    assert len([request for request in seen
+                if request.url.path.endswith("/search")]) == 2
+    assert len([request for request in seen
+                if request.url.path.endswith("/docker/group/docker-proxy")]) == 2
+
+
+@pytest.mark.asyncio
+async def test_group_nested_members_are_verified_not_guessed(discovery):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/docker/group/docker-proxy"):
+            return httpx.Response(200, json={
+                "name": "docker-proxy", "format": "docker", "type": "group",
+                "group": {"memberNames": ["docker-subgroup"]},
+            })
+        if request.url.path.endswith("/docker/group/docker-subgroup"):
+            return httpx.Response(200, json={
+                "name": "docker-subgroup", "format": "docker", "type": "group",
+                "group": {"memberNames": ["harbor-clever"]},
+            })
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            return httpx.Response(404)
+        return httpx.Response(200, json={
+            "items": [
+                {"repository": "harbor-clever", "format": "docker",
+                 "name": "baseimage/node", "version": "v1"},
+                {"repository": "foreign", "format": "docker",
+                 "name": "other/private", "version": "v1"},
+            ],
+            "continuationToken": None,
+        })
+
+    response["custom_handler"] = handler
+    result = await service.catalog_page("baseimage")
+    assert result.available and result.items == ("baseimage/node",)
+    assert [r.url.path for r in seen][:3] == [
+        "/service/rest/v1/search",
+        "/service/rest/v1/repositories/docker/group/docker-proxy",
+        "/service/rest/v1/repositories/docker/group/docker-subgroup",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,payload", [
+    (403, None),
+    (200, {"name": "wrong", "format": "docker", "type": "group",
+           "group": {"memberNames": ["harbor-clever"]}}),
+    (200, {"name": "docker-proxy", "format": "docker", "type": "group",
+           "group": {"memberNames": ["../private"]}}),
+])
+async def test_group_scope_denied_or_malformed_fails_closed(
+    discovery, status: int, payload: dict | None,
+) -> None:
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/docker/group/docker-proxy"):
+            return httpx.Response(status, json=payload) if payload else httpx.Response(status)
+        return httpx.Response(200, json={
+            "items": [
+                {"repository": "harbor-clever", "name": "baseimage/node",
+                 "format": "docker", "version": "v1"},
+            ],
+            "continuationToken": None,
+        })
+
+    response["custom_handler"] = handler
+    for result in (await service.catalog_page("baseimage"),
+                   await service.tags_page("baseimage/node")):
+        assert not result.available
+        assert result.items == ()
+        assert "учётной записи" in (result.message or "")
+        assert "sensitive-do-not-expose" not in (result.message or "")
+    assert len(seen) == 4
+
+
+@pytest.mark.asyncio
 async def test_paged_rest_search_keeps_scoping_and_exposes_continuation(discovery):
     service, seen, response = discovery
     service.search_url = "https://nexus-ui.example.test"
     service.search_repository = "docker-proxy"
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            return httpx.Response(404)
         if "continuationToken" not in request.url.params:
             return httpx.Response(200, json={
                 "items": [
@@ -479,8 +678,10 @@ async def test_paged_rest_search_keeps_scoping_and_exposes_continuation(discover
     second = await service.catalog_page(cursor=first.next_cursor)
     assert second.items == ("bitnami/redis",)
     assert second.next_cursor is None
-    assert len(seen) == 2
-    assert all(r.url.params["repository"] == "docker-proxy" for r in seen)
+    search_requests = [r for r in seen if r.url.path.endswith("/search")]
+    assert len(search_requests) == 2
+    assert len(seen) == 3
+    assert all(r.url.params["repository"] == "docker-proxy" for r in search_requests)
     assert "secret" not in first.items + second.items
 
 
@@ -517,6 +718,8 @@ async def test_paged_rest_tags_follow_token_without_leaking_other_repositories(d
     service.search_repository = "docker-proxy"
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/service/rest/v1/repositories/docker/group/"):
+            return httpx.Response(404)
         if "continuationToken" not in request.url.params:
             return httpx.Response(200, json={
                 "items": [
@@ -537,7 +740,7 @@ async def test_paged_rest_tags_follow_token_without_leaking_other_repositories(d
     assert first.items == ("v1",)
     second = await service.tags_page("team/app", cursor=first.next_cursor)
     assert second.items == ("v2",)
-    assert len(seen) == 2
+    assert len(seen) == 3
 
 
 @pytest.mark.asyncio
