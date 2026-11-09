@@ -19,15 +19,16 @@ from urllib.parse import urlsplit
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.services.skopeo_inspection import COMPACT_INSPECT_FLAGS, is_output_truncated
 from app.services.harbor_profiles import HarborProfileService
 from app.services.harbor_settings import EffectiveHarborSettings, HarborSettingsService
+from app.services.skopeo_inspection import COMPACT_INSPECT_FLAGS, is_output_truncated
 
 _DIGEST_PATTERN = r"sha256:[a-f0-9]{64}"
 _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
 _TAG_PATTERN = r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}"
 _PERSISTED_DIAGNOSTIC_LIMIT = 512
 _SAFE_LOCALE_ENV = ("LANG", "LC_ALL", "LC_CTYPE")
+
 
 class NexusPhase(StrEnum):
     INSPECTING_SOURCE = "inspecting_source"
