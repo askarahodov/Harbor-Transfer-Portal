@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Literal
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -52,11 +53,32 @@ class ImportArtifactClassifier:
         artifacts: Sequence[ContainerImageArtifact | HelmChartArtifact],
         *,
         harbor_profile_id: str | None = None,
+        target_registry_type: Literal["harbor", "nexus"] | None = None,
     ) -> list[ImportArtifactPreviewResponse]:
         result: list[ImportArtifactPreviewResponse] = []
         for index, artifact in enumerate(artifacts):
             with self.session_factory() as session:
                 if isinstance(artifact, ContainerImageArtifact):
+                    if target_registry_type == "harbor" and "/" not in artifact.repository:
+                        # A root Docker name ("node") has no Harbor project yet.
+                        # "docker://harbor/node" is not a valid target mapping.
+                        # Never classify this provisional identity as ERROR/NEW:
+                        # the destination plan verifies the mapped "test/node"
+                        # with exact push scope and digest before any mutation.
+                        result.append(ImportArtifactPreviewResponse(
+                            index=index,
+                            artifact_type=artifact.type,
+                            repository=artifact.repository,
+                            reference=artifact.reference,
+                            expected_digest=artifact.source_digest,
+                            payload_size=artifact.payload_size,
+                            classification=ImportPreviewState.UNKNOWN,
+                            message=(
+                                "Для корневого Docker image сначала выберите Harbor "
+                                "TARGET project и проверьте Destination plan"
+                            ),
+                        ))
+                        continue
                     client = self._create_registry_client(session, harbor_profile_id)
                     result.append(await self._classify_image(index, artifact, client))
                 else:
