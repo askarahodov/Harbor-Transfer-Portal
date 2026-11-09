@@ -450,14 +450,11 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     digest: string,
   ): boolean {
     if (!isNexus.value || !selectedHarborProfileId.value) return false
-    const separator = repositoryPath.indexOf('/')
-    // Nexus Docker v2 allows both root names (baseimage) and nested names
-    // (cbl-mariner/base/redis). Unlike Harbor, the first path segment is not
-    // necessarily a project. A null project preserves root-level image identity.
-    const project = separator === -1 ? null : repositoryPath.slice(0, separator)
-    const repository = separator === -1 ? repositoryPath : repositoryPath.slice(separator + 1)
-    if ((project !== null && !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(project)) ||
-        !/^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/.test(repository) ||
+    // Nexus Docker image identity is its FULL Registry v2 path, whether
+    // root-level (node) or nested (baseimage/nodejs/app). Neither the Nexus
+    // group nor a physical member repository is a Harbor-style project.
+    const repository = repositoryPath
+    if (!/^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/.test(repository) ||
         !/^sha256:[a-f0-9]{64}$/.test(digest)) {
       error.value = {
         code: 'registry_reference_invalid',
@@ -467,7 +464,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     }
     const item: SelectedExportArtifact = {
       kind: 'container-image',
-      project,
+      project: null,
       repository,
       reference,
       digest,
