@@ -310,6 +310,36 @@ HEAD может дать \`401\` — это \`UNVERIFIED\`, **не** proof не�
 релиза. Результаты самостоятельного запуска вне разрешённой сети
 не являются evidence регионального контура.
 
+### Опциональная автоматическая проверка Nexus REST Search для Docker
+
+В Docker probe можно добавить объект `search` из
+[`nexus-regional-preflight.example.json`](nexus-regional-preflight.example.json)
+с **отдельным HTTPS Nexus UI origin**, точным `repository`,
+совпадающим с Docker probe, и самостоятельными `username`,
+`password_file`, `ca_file` для REST Search. Не используйте
+Docker connector URL вместо UI origin и не рассчитывайте на
+автоматическую передачу Docker credentials. Если нужно проверить
+одно и то же service identity, оператор явно указывает его файлы.
+
+Read-only запрос
+`GET /service/rest/v1/search?repository=...&format=docker&name=...`
+ищет только известный `image:tag` и продолжает до восьми страниц.
+Совпадением считается лишь точный `repository`, `format=docker`,
+`name=image`, `version=tag`. Чужие репозитории и Helm не считаются
+доказательством, даже если image/tag совпадают. HTTP 401/403,
+ошибочный ответ, циклический или небезопасный cursor, отсутствие
+image:tag дают отдельные диагностические коды; лимит страниц —
+`UNVERIFIED`, а не ложный `PASS`. Запросы строго GET без redirect
+или ambient proxy; каждая страница ограничена 2 MiB.
+Отчёт не содержит URL, raw JSON, токенов и credentials.
+
+Это **не** доказательство полной parity Nexus UI Browse ↔ Search,
+прав Docker push/write, а также не региональный GO. Без объекта
+`search` эта проверка вовсе не выполняется, даже при
+`preflight_status=PASS`. Реальные права `nx-search-read`,
+кеш/индексацию proxy и расхождения дерева Browse с REST Search
+оператор фиксирует отдельно в ACL/evidence матрице.
+
 ## 5. Отдельные пер-репозиторные матрицы ACL
 
 | Проверка для каждого repository | SOURCE | TARGET |

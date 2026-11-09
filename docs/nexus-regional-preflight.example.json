@@ -19,6 +19,27 @@
       "expected_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     {
+      "id": "source-docker-proxy",
+      "contour": "SOURCE",
+      "format": "docker",
+      "kind": "proxy",
+      "repository": "docker-proxy",
+      "endpoint": "https://approved-docker-proxy-connector.example.internal",
+      "username": "service-docker-reader",
+      "password_file": "/secure/path/docker-service-password",
+      "ca_file": "/secure/path/region-ca.pem",
+      "image": "baseimage",
+      "tag": "1.0.0",
+      "expected_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "search": {
+        "endpoint": "https://approved-nexus-ui.example.internal",
+        "repository": "docker-proxy",
+        "username": "service-nexus-search-reader",
+        "password_file": "/secure/path/nexus-search-password",
+        "ca_file": "/secure/path/region-ca.pem"
+      }
+    },
+    {
       "id": "source-helm-hosted",
       "contour": "SOURCE",
       "format": "helm",
