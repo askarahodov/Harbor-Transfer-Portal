@@ -56,12 +56,17 @@ class FakeHarborClient:
 
 
 class FakeHelmService:
-    def __init__(self, *, fail_with_nexus_http: bool = False) -> None:
+    def __init__(
+        self, *, fail_with_nexus_http: bool = False, fail_unexpected: bool = False,
+    ) -> None:
         self.calls: list[tuple[str, str, str]] = []
         self.fail_with_nexus_http = fail_with_nexus_http
+        self.fail_unexpected = fail_unexpected
 
     async def pull_chart(self, chart, destination: Path) -> HelmPullResult:  # type: ignore[no-untyped-def]
         self.calls.append((chart.repository, chart.name, chart.version))
+        if self.fail_unexpected:
+            raise RuntimeError("password=CHART-SECRET-NEVER-PUBLIC")
         if self.fail_with_nexus_http:
             raise NexusHelmHttpError(
                 "helm_index_unavailable",
@@ -82,11 +87,14 @@ class FakeHelmService:
 
 
 class FailingSkopeoService:
-    def __init__(self) -> None:
+    def __init__(self, *, fail_unexpected: bool = False) -> None:
         self.calls: list[ImageReference] = []
+        self.fail_unexpected = fail_unexpected
 
     async def export_image(self, image: ImageReference, _destination: Path):  # type: ignore[no-untyped-def]
         self.calls.append(image)
+        if self.fail_unexpected:
+            raise RuntimeError("authorization=IMAGE-SECRET-NEVER-PUBLIC")
         raise SkopeoServiceError(
             "skopeo_command_failed",
             "Skopeo завершился с ошибкой: synthetic copy failure",
@@ -142,9 +150,12 @@ def _selections() -> tuple[ExportArtifactSelection, ...]:
     )
 
 
-@pytest.mark.parametrize("helm_http_failure", [False, True])
+@pytest.mark.parametrize(
+    "failure_mode",
+    ["skopeo_typed", "helm_typed", "skopeo_unexpected", "helm_unexpected"],
+)
 def test_mixed_export_keeps_root_failure_on_actual_artifact(
-    tmp_path: Path, helm_http_failure: bool
+    tmp_path: Path, failure_mode: str, caplog: pytest.LogCaptureFixture,
 ) -> None:
     private_key, trusted_dir = _write_keys(tmp_path)
     data = tmp_path / "data"
@@ -172,8 +183,11 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(
     session_factory = create_session_factory(engine)
     manager = OperationManager(session_factory, settings)
     harbor = FakeHarborClient()
-    helm = FakeHelmService(fail_with_nexus_http=helm_http_failure)
-    skopeo = FailingSkopeoService()
+    helm = FakeHelmService(
+        fail_with_nexus_http=failure_mode == "helm_typed",
+        fail_unexpected=failure_mode == "helm_unexpected",
+    )
+    skopeo = FailingSkopeoService(fail_unexpected=failure_mode == "skopeo_unexpected")
     package_service = BundlePackageService(settings)
     orchestrator = ExportOrchestrator(
         session_factory,
@@ -200,9 +214,26 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(
     operation = manager.get_operation(asyncio.run(scenario()))
     assert operation is not None
     assert operation.status is OperationStatus.FAILED
-    assert operation.error_code == (
-        "helm_index_unavailable" if helm_http_failure else "skopeo_command_failed"
+    unexpected = failure_mode.endswith("unexpected")
+    helm_failure = failure_mode.startswith("helm")
+    expected_code = (
+        "export_artifact_internal_error" if unexpected else
+        "helm_index_unavailable" if helm_failure else "skopeo_command_failed"
     )
+    assert operation.error_code == expected_code
+    if unexpected:
+        assert operation.error_message == "Внутренняя ошибка обработки артефакта при экспорте"
+        log_records = [
+            record for record in caplog.records
+            if record.message == "unexpected export artifact materialization failure"
+        ]
+        assert log_records
+        assert log_records[0].operation_id == operation.id
+        assert log_records[0].artifact_id == (
+            min(item.id for item in operation.artifacts)
+            if helm_failure else
+            sorted(item.id for item in operation.artifacts)[1]
+        )
 
     artifacts = sorted(operation.artifacts, key=lambda item: item.id)
     assert [artifact.repository for artifact in artifacts] == [
@@ -215,18 +246,33 @@ def test_mixed_export_keeps_root_failure_on_actual_artifact(
         ArtifactStatus.FAILED,
         ArtifactStatus.FAILED,
     ]
-    assert [artifact.error_code for artifact in artifacts] == (
-        ["helm_index_unavailable", "export_aborted", "export_aborted"]
-        if helm_http_failure
-        else ["export_aborted", "skopeo_command_failed", "export_aborted"]
+    expected_artifact_codes = (
+        [expected_code, "export_aborted", "export_aborted"]
+        if helm_failure else ["export_aborted", expected_code, "export_aborted"]
     )
-    if helm_http_failure:
+    assert [artifact.error_code for artifact in artifacts] == expected_artifact_codes
+    assert [artifact.error_code for artifact in artifacts].count(expected_code) == 1
+    if failure_mode == "helm_typed":
         assert "Synthetic Helm HTTP retrieval failure" in (artifacts[0].error_message or "")
-    else:
+    elif failure_mode == "skopeo_typed":
         assert "synthetic copy failure" in (artifacts[1].error_message or "")
+    if unexpected:
+        public = "\\n".join(
+            [operation.error_message or ""]
+            + [item.error_message or "" for item in artifacts]
+        )
+        assert "CHART-SECRET-NEVER-PUBLIC" not in public
+        assert "IMAGE-SECRET-NEVER-PUBLIC" not in public
+        assert "operation_worker_failed" not in public
     assert helm.calls == [("helm/admin", "admin", "1.0.0-build184")]
     assert [(call.repository, call.reference) for call in skopeo.calls] == (
-        [] if helm_http_failure else [("clever/admin-api", "1.8.0-build549")]
+        [] if helm_failure else [("clever/admin-api", "1.8.0-build549")]
     )
     assert operation.bundle_filename is None
     assert operation.bundle_sha256 is None
+    assert operation.bundle_handoff_filename is None
+    assert not list((data / "outgoing").glob("*")) if (data / "outgoing").exists() else True
+    assert not (data / "tmp" / "operations" / str(operation.id)).exists()
+    assert not (
+        data / "packages" / "export-operations" / f"operation-{operation.id}"
+    ).exists()
