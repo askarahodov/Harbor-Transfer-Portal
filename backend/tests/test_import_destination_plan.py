@@ -185,6 +185,77 @@ def _environment(
     return settings, session_factory, manager, skopeo, helm, validator, orchestrator, operation_id
 
 
+@pytest.mark.parametrize(
+    ("source_name", "target_name"),
+    [
+        ("node", "test/node"),
+        ("source-team/app/api", "test/app/api"),
+    ],
+)
+def test_harbor_root_image_plan_uses_full_repository_push_scope(
+    tmp_path: Path, source_name: str, target_name: str,
+) -> None:
+    (
+        _settings_value, session_factory, _manager, skopeo, _helm,
+        validator, orchestrator, operation_id,
+    ) = _environment(tmp_path)
+    with session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        preview = _preview(operation_id)
+        image = preview.artifacts[0].model_copy(
+            update={"repository": source_name, "reference": "18-alpine"},
+        )
+        preview.artifacts = [image]
+        operation.import_preview_json = preview.model_dump_json()
+        session.commit()
+
+    request = ImportDestinationPlanRequest(container_image_project="test")
+    plan = asyncio.run(orchestrator.build_destination_plan(operation_id, request))
+    assert plan.valid is True
+    assert len(plan.artifacts) == 1
+    assert plan.artifacts[0].target_project == "test"
+    assert plan.artifacts[0].target_repository == target_name
+    assert plan.artifacts[0].final_reference == f"harbor.target.local/{target_name}:18-alpine"
+    assert plan.artifacts[0].write_allowed is True
+    assert plan.artifacts[0].classification == ImportPreviewState.NEW
+    assert validator.calls == [("test", target_name)]
+    assert skopeo.inspected == [(target_name, "18-alpine")]
+    assert ("test", "test") not in validator.calls
+
+
+def test_harbor_root_image_denied_push_prevents_import_execute(tmp_path: Path) -> None:
+    validator = FakeDestinationValidator(denied_repositories={"test/node"})
+    (
+        _settings_value, session_factory, _manager, skopeo, _helm,
+        _validator, orchestrator, operation_id,
+    ) = _environment(tmp_path, validator=validator)
+    with session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        preview = _preview(operation_id)
+        preview.artifacts = [
+            preview.artifacts[0].model_copy(update={"repository": "node"}),
+        ]
+        operation.import_preview_json = preview.model_dump_json()
+        session.commit()
+
+    plan = asyncio.run(orchestrator.build_destination_plan(
+        operation_id, ImportDestinationPlanRequest(container_image_project="test"),
+    ))
+    assert plan.valid is False
+    assert plan.artifacts[0].target_repository == "test/node"
+    assert plan.artifacts[0].error_code == "import_destination_write_forbidden"
+    assert validator.calls == [("test", "test/node")]
+    assert skopeo.inspected == []
+    with pytest.raises(ImportOrchestrationError) as exc_info:
+        asyncio.run(orchestrator.start_import(
+            operation_id, actor_username="operator",
+            destination_plan_id=plan.plan_id, overwrite_conflicts=False,
+        ))
+    assert exc_info.value.code == "import_destination_plan_invalid"
+
+
 def test_mixed_bundle_resolves_separate_image_and_helm_projects(tmp_path: Path) -> None:
     (
         _settings_value,

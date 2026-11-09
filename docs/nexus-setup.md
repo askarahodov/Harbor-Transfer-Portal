@@ -253,6 +253,37 @@ UI сохраняет каноническое имя целиком, backend о
 `project` по-прежнему обязателен. Для Nexus Helm HTTP имя
 Helm repository остаётся в `project` и не затронуто.
 
+### Harbor TARGET: корневой Docker image и точный scope push
+
+Для исходного `node:18-alpine` из Nexus группа/физический member
+(`docker-proxy`, `timeweb-proxy`) не являются частью имени образа.
+При выборе TARGET Harbor project `test` окончательный Docker repository
+должен быть **`test/node`**, а Registry JWT scope —
+`repository:test/node:pull,push`. Сам по себе
+`repository:test:pull,push` не подтверждает запись конкретного
+образа: Harbor может выдать `actions: []` для project-only scope,
+хотя `test/node` доступен на push.
+
+Destination plan обязан проверять **тот же** repository, который будет
+использован при TARGET inspect и execute. Невалидные project-only
+или cross-project области отклоняются без сетевого запроса; при
+отсутствии `push` на точном `test/node` план остаётся
+`write_allowed=false`, execute блокируется. Для обычных Harbor
+SOURCE путей (`source-team/app/api`) замена project на `test`
+сохраняет суффикс `app/api` и даёт `test/app/api`; Helm OCI и
+Nexus Helm HTTP не используют project-only Docker token scope.
+
+Локально пользователь подтвердил `READY`, корректный checksum,
+Ed25519 signature, schema 1.1 и signed handoff для ранее
+созданного Nexus Bundle. Это **не** подтверждает получение
+в Harbor именно этого image digest или наличие TARGET receipt:
+для успешного функционального испытания сохраните
+состояния `COMPLETED/VERIFIED`, целевой manifest digest и
+идентификатор receipt. Если импорт всё же прошёл альтернативным
+маршрутом, сравните его destination `test/node` с актуальным
+Destination plan — существующие прямые пути загрузки не
+гарантируют корректность отдельной проверки write ACL.
+
 ### Локальный Nexus SOURCE → Harbor TARGET на одном компьютере
 
 Это полезный **функциональный smoke-test**, но не доказательство
