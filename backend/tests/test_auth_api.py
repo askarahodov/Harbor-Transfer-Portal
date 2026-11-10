@@ -3,6 +3,7 @@ from pathlib import Path
 
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from jwt import decode, encode
 from sqlalchemy import select
 
 from alembic import command
@@ -155,3 +156,99 @@ def test_disabled_user_token_is_rejected(tmp_path: Path) -> None:
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 401
+
+
+def _signed_idle_token(*, user_id: int, minutes_idle: int, exp_minutes_ahead: int = 30) -> str:
+    now = datetime.now(UTC)
+    return encode(
+        {
+            "sub": str(user_id),
+            "iat": now - timedelta(minutes=minutes_idle),
+            "exp": now + timedelta(minutes=exp_minutes_ahead),
+            "last_activity": (now - timedelta(minutes=minutes_idle)).isoformat(),
+            "type": "access",
+        },
+        JWT_SECRET,
+        algorithm="HS256",
+    )
+
+
+def test_auth_activity_renews_35_minute_active_session_for_full_idle_window(
+    tmp_path: Path,
+) -> None:
+    client = _client_with_users(
+        tmp_path,
+        jwt_access_token_minutes=30,
+        jwt_inactivity_timeout_minutes=60,
+    )
+    with client.app.state.session_factory() as session:
+        user = UserRepository(session).get_by_username("viewer")
+        assert user is not None
+        user_id = user.id
+
+    old_token = _signed_idle_token(user_id=user_id, minutes_idle=35)
+    # Background read must not extend the session or issue a replacement token.
+    passive = client.get("/api/auth/me", headers={"Authorization": f"Bearer {old_token}"})
+    assert passive.status_code == 200
+    assert "x-new-access-token" not in passive.headers
+
+    activity = client.post(
+        "/api/auth/activity",
+        headers={"Authorization": f"Bearer {old_token}"},
+    )
+    assert activity.status_code == 204
+    assert activity.headers["cache-control"] == "no-store"
+    renewed = activity.headers["x-new-access-token"]
+    payload = decode(renewed, JWT_SECRET, algorithms=["HS256"])
+    assert payload["sub"] == str(user_id)
+    assert payload["exp"] - payload["iat"] >= 60 * 60
+    assert datetime.fromisoformat(payload["last_activity"]) > (
+        datetime.now(UTC) - timedelta(minutes=1)
+    )
+    renewed_read = client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {renewed}"}
+    )
+    assert renewed_read.status_code == 200
+
+
+def test_idle_session_expires_after_60_minutes_even_if_jwt_exp_is_future(
+    tmp_path: Path,
+) -> None:
+    client = _client_with_users(tmp_path)
+    with client.app.state.session_factory() as session:
+        user = UserRepository(session).get_by_username("viewer")
+        assert user is not None
+        user_id = user.id
+    stale = _signed_idle_token(user_id=user_id, minutes_idle=61, exp_minutes_ahead=30)
+    headers = {"Authorization": f"Bearer {stale}"}
+    assert client.get("/api/auth/me", headers=headers).status_code == 401
+    assert client.post("/api/auth/activity", headers=headers).status_code == 401
+
+
+def test_inactivity_limit_uses_server_configuration_not_hardcoded_hour(
+    tmp_path: Path,
+) -> None:
+    client = _client_with_users(tmp_path, jwt_inactivity_timeout_minutes=15)
+    with client.app.state.session_factory() as session:
+        user = UserRepository(session).get_by_username("viewer")
+        assert user is not None
+        user_id = user.id
+    stale = _signed_idle_token(user_id=user_id, minutes_idle=16)
+    assert (
+        client.post("/api/auth/activity", headers={"Authorization": f"Bearer {stale}"}).status_code
+        == 401
+    )
+
+
+def test_activity_cannot_renew_disabled_user(tmp_path: Path) -> None:
+    client = _client_with_users(tmp_path)
+    token = _login(client, "viewer", "viewer-password-123")
+    with client.app.state.session_factory() as session:
+        user = UserRepository(session).get_by_username("viewer")
+        assert user is not None
+        user.is_active = False
+        session.commit()
+    assert (
+        client.post("/api/auth/activity", headers={"Authorization": f"Bearer {token}"}).status_code
+        == 401
+    )

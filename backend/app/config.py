@@ -148,7 +148,7 @@ class Settings(BaseSettings):
     operation_shutdown_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
 
     jwt_secret: SecretStr | None = None
-    jwt_access_token_minutes: int = Field(default=30, ge=1, le=1440)
+    jwt_access_token_minutes: int = Field(default=60, ge=1, le=1440)
     jwt_inactivity_timeout_minutes: int = Field(default=60, ge=1, le=1440)
     login_rate_limit_window_seconds: int = Field(default=300, ge=1, le=86400)
     login_rate_limit_username_max_failures: int = Field(default=5, ge=1, le=100)
