@@ -179,7 +179,9 @@ Packaging выполняется в worker thread через `asyncio.to_thread`
 - packaging не запускается либо owned publication удаляется;
 - operation завершается `FAILED`.
 
-Ошибка package verification/signature также не оставляет owned readiness sidecar.
+Ошибка package verification/signature также не оставляет owned readiness sidecar. Ошибки preflight/packaging завершают все ещё не завершённые export artifact rows как `export_aborted`; при любом неуспехе ранее опубликованные archive, sidecar и signed handoff удаляются вместе, а bundle metadata очищаются.
+
+Результаты успешного нового SOURCE→TARGET E2E не устанавливают историческую первопричину инцидента #422 от 03.11.2026 без traceback или точного воспроизведения на развёрнутом тогда SHA.
 
 ## Stable error semantics
 
@@ -191,6 +193,8 @@ Packaging выполняется в worker thread через `asyncio.to_thread`
 - `export_artifact_kind_changed` — Harbor классифицирует artifact иначе;
 - `export_artifact_unsupported` — неподдерживаемый type;
 - `export_aborted` — artifact остановлен fail-fast policy;
+- `export_artifact_internal_error` — неожиданный сбой обработки конкретного артефакта: он получает `FAILED`, остальные — `export_aborted`. Публичный статус не содержит текст исключения/секреты; traceback в backend logs связывается с `operation_id` и `artifact_id`;
+
 - `export_not_ready` — bundle запрошен до `COMPLETED`;
 - `export_bundle_expired` — completed publication удалена штатной retention policy; API отвечает `410 Gone`;
 - `export_bundle_missing` — completed delivery неожиданно отсутствует на диске до истечения retention;
