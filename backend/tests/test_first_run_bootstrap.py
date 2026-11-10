@@ -32,7 +32,7 @@ def test_first_run_requires_password_change_and_revokes_old_tokens(tmp_path: Pat
         assert client.get("/api/auth/me", headers=headers).json()["must_change_password"] is True
         assert client.get("/api/users", headers=headers).status_code == 403
         assert client.get("/api/users", headers=headers).json()["error"]["message"] == "password_change_required"
-        assert client.get("/api/settings", headers=headers).status_code == 403
+        assert client.get("/api/settings/harbor", headers=headers).status_code == 403
         assert client.post("/api/auth/activity", headers=headers).status_code == 204
         assert client.post("/api/auth/change-password", headers=headers, json={
             "current_password": "wrong",
