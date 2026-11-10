@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -43,6 +44,8 @@ from app.services.operation_manager import (
 )
 from app.services.registry_client import RegistryClient
 from app.services.skopeo_service import SkopeoService, SkopeoServiceError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -165,10 +168,23 @@ class ExportOrchestrator:
                     comment=comment,
                     harbor_profile_id=bound_profile_id,
                 )
-            except (ExportOrchestrationError, HarborSettingsError, NexusServiceError) as exc:
-                # Profile/configuration errors can also occur before the artifact loop.
-                # They are operational failures, not unexpected worker crashes.
+            except (
+                ExportOrchestrationError,
+                HarborSettingsError,
+                NexusServiceError,
+                OperationTaskFailure,
+            ) as exc:
+                # Preserve typed failures from preflight, materialization and packaging.
+                self._abort_unfinished_artifacts(context, artifact_ids)
+                self._clear_bundle_metadata(context.operation_id)
+                self._cleanup_published_delivery(delivery_id)
                 raise OperationTaskFailure(exc.code, exc.message) from exc
+            except Exception:
+                # OperationManager logs the traceback; public errors remain sanitized.
+                self._abort_unfinished_artifacts(context, artifact_ids)
+                self._clear_bundle_metadata(context.operation_id)
+                self._cleanup_published_delivery(delivery_id)
+                raise
 
         try:
             self.operation_manager.submit(operation_id, worker)
@@ -404,6 +420,7 @@ class ExportOrchestrator:
                     NexusServiceError,
                     HarborSettingsError,
                     ExportOrchestrationError,
+                    OperationTaskFailure,
                 ) as exc:
                     context.set_artifact_status(
                         artifact_id,
@@ -418,6 +435,29 @@ class ExportOrchestrator:
                         "Export bundle прерван после ошибки другого артефакта",
                     )
                     raise OperationTaskFailure(exc.code, exc.message) from exc
+                except Exception as exc:
+                    # Record the actual artifact identity only in restricted backend logs.
+                    # Exception text may carry credentials and must not reach the API.
+                    logger.exception(
+                        "unexpected export artifact materialization failure artifact_id=%s",
+                        artifact_id,
+                        extra={"operation_id": context.operation_id, "artifact_id": artifact_id},
+                    )
+                    safe_code = "export_artifact_internal_error"
+                    safe_message = "Внутренняя ошибка обработки артефакта при экспорте"
+                    context.set_artifact_status(
+                        artifact_id,
+                        ArtifactStatus.FAILED,
+                        error_code=safe_code,
+                        error_message=safe_message,
+                    )
+                    self._fail_artifacts(
+                        context,
+                        (*materialized_artifact_ids, *artifact_ids[index + 1 :]),
+                        "export_aborted",
+                        "Export bundle прерван после ошибки другого артефакта",
+                    )
+                    raise OperationTaskFailure(safe_code, safe_message) from exc
                 package_inputs.append(package_input)
                 materialized_artifact_ids.append(artifact_id)
                 context.set_progress(current=index + 1, total=len(artifact_ids))
@@ -722,6 +762,28 @@ class ExportOrchestrator:
     def _cleanup_helm_root(self, path: Path) -> None:
         """Compatibility hook; workspace ownership lives in the materializer."""
         self.artifact_materializer.cleanup_helm_root(path)
+
+    def _abort_unfinished_artifacts(
+        self, context: OperationContext, artifact_ids: Sequence[int]
+    ) -> None:
+        """Abort remaining artifacts without overwriting the primary failure."""
+        operation = self.operation_manager.get_operation(context.operation_id)
+        if operation is None:
+            return
+        by_id = {artifact.id: artifact for artifact in operation.artifacts}
+        for artifact_id in artifact_ids:
+            artifact = by_id.get(artifact_id)
+            if artifact is None or artifact.status not in (
+                ArtifactStatus.PENDING,
+                ArtifactStatus.RUNNING,
+            ):
+                continue
+            context.set_artifact_status(
+                artifact_id,
+                ArtifactStatus.FAILED,
+                error_code="export_aborted",
+                error_message="Export bundle прерван; артефакт не опубликован",
+            )
 
     @staticmethod
     def _fail_artifacts(
