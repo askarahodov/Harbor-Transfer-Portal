@@ -29,20 +29,34 @@ afterEach(() => {
 })
 
 describe('interactive sliding session', () => {
-  it('renews only on real user events, throttled to five minutes', async () => {
+  it('renews only on real user events, throttled to thirty seconds', async () => {
     cleanup = installSessionActivityTracking()
     document.dispatchEvent(new Event('pointerdown'))
     expect(clientMocks.post).toHaveBeenCalledExactlyOnceWith('/auth/activity')
     await Promise.resolve()
     await Promise.resolve()
 
-    vi.advanceTimersByTime(4 * 60 * 1000)
+    vi.advanceTimersByTime(29 * 1000)
     document.dispatchEvent(new Event('keydown'))
     expect(clientMocks.post).toHaveBeenCalledTimes(1)
 
-    vi.advanceTimersByTime(60 * 1000)
+    vi.advanceTimersByTime(1000)
     document.dispatchEvent(new Event('scroll'))
     expect(clientMocks.post).toHaveBeenCalledTimes(2)
+  })
+
+  it('counts non-bubbling scroll from nested panels as user activity', () => {
+    cleanup = installSessionActivityTracking()
+    const panel = document.createElement('div')
+    const inner = document.createElement('div')
+    panel.appendChild(inner)
+    document.body.appendChild(panel)
+    try {
+      inner.dispatchEvent(new Event('scroll', { bubbles: false }))
+      expect(clientMocks.post).toHaveBeenCalledExactlyOnceWith('/auth/activity')
+    } finally {
+      panel.remove()
+    }
   })
 
   it('does not keep a session alive merely because the page remains open', () => {
