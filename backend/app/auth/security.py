@@ -127,11 +127,13 @@ def create_export_download_token(
     operation_id: int,
     secret: str,
     lifetime_seconds: int,
+    token_version: int = 0,
 ) -> str:
     now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
         "operation_id": operation_id,
+        "ver": token_version,
         "iat": now,
         "exp": now + timedelta(seconds=lifetime_seconds),
         "type": "export-download",
@@ -154,3 +156,21 @@ def decode_export_download_token(
         return int(payload["sub"])
     except (InvalidTokenError, KeyError, TypeError, ValueError) as exc:
         raise ValueError("invalid export download token") from exc
+
+
+
+def read_export_download_token_version(
+    token: str, secret: str, *, expected_operation_id: int
+) -> int:
+    """Bind a cookie download ticket to the session revision that issued it."""
+    decode_export_download_token(
+        token, secret, expected_operation_id=expected_operation_id
+    )
+    try:
+        payload = decode(token, secret, algorithms=["HS256"])
+        version = payload.get("ver", 0)
+        if type(version) is not int or version < 0:
+            raise ValueError("invalid download ticket version")
+        return version
+    except (InvalidTokenError, TypeError, ValueError) as exc:
+        raise ValueError("invalid download ticket version") from exc
