@@ -7,12 +7,12 @@ import { useRuntimeStore, type PortalContour } from '@/stores/runtime'
 
 import { createAppRouter, installAuthGuards } from './index'
 
-function guardedRouter(role?: UserRole, contour: PortalContour = 'SOURCE') {
+function guardedRouter(role?: UserRole, contour: PortalContour = 'SOURCE', mustChangePassword = false) {
   const pinia = createPinia()
   const auth = useAuthStore(pinia)
   const runtime = useRuntimeStore(pinia)
   auth.initialized = true
-  auth.user = role ? { id: 1, username: role, role, is_active: true } : null
+  auth.user = role ? { id: 1, username: role, role, is_active: true, must_change_password: mustChangePassword } : null
   runtime.setContour(contour)
   const router = createAppRouter(createMemoryHistory())
   installAuthGuards(router, pinia)
@@ -20,7 +20,7 @@ function guardedRouter(role?: UserRole, contour: PortalContour = 'SOURCE') {
 }
 
 describe('router', () => {
-  it.each(['/login', '/', '/export', '/import', '/history', '/users', '/settings'])(
+  it.each(['/login', '/change-password', '/', '/export', '/import', '/history', '/users', '/settings'])(
     'resolves %s',
     async (path) => {
       const router = createAppRouter(createMemoryHistory())
@@ -37,6 +37,24 @@ describe('router', () => {
 
     expect(router.currentRoute.value.name).toBe('login')
     expect(router.currentRoute.value.query.redirect).toBe('/history')
+  })
+
+  it('forces first-login users into non-bypassable change-password route', async () => {
+    const router = guardedRouter('admin', 'SOURCE', true)
+    await router.push('/users')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('change-password')
+    await router.push('/login')
+    expect(router.currentRoute.value.name).toBe('change-password')
+    await router.push('/export')
+    expect(router.currentRoute.value.name).toBe('change-password')
+  })
+
+  it('prevents returning to change-password after rotation', async () => {
+    const router = guardedRouter('admin')
+    await router.push('/change-password')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('dashboard')
   })
 
   it('blocks viewer from transfer and admin routes', async () => {

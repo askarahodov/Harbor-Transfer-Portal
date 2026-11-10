@@ -17,6 +17,7 @@ export type CurrentUser = {
   username: string
   role: UserRole
   is_active: boolean
+  must_change_password?: boolean
 }
 
 type LoginResponse = {
@@ -37,7 +38,9 @@ function parseCurrentUser(value: unknown): CurrentUser {
     typeof candidate.id !== 'number' ||
     typeof candidate.username !== 'string' ||
     !isUserRole(candidate.role) ||
-    typeof candidate.is_active !== 'boolean'
+    typeof candidate.is_active !== 'boolean' ||
+    (candidate.must_change_password !== undefined &&
+      typeof candidate.must_change_password !== 'boolean')
   ) {
     throw new Error('Invalid current user response')
   }
@@ -46,6 +49,9 @@ function parseCurrentUser(value: unknown): CurrentUser {
     username: candidate.username,
     role: candidate.role,
     is_active: candidate.is_active,
+    ...(typeof candidate.must_change_password === 'boolean'
+      ? { must_change_password: candidate.must_change_password }
+      : {}),
   }
 }
 
@@ -111,6 +117,19 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function changePassword(currentPassword: string, newPassword: string): Promise<boolean> {
+    try {
+      await apiClient.post('/auth/change-password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      })
+      resetSession()
+      return true
+    } catch {
+      return false
+    }
+  }
+
   function logout(): void {
     loginErrorCode.value = null
     resetSession()
@@ -126,6 +145,7 @@ export const useAuthStore = defineStore('auth', () => {
     canManageSettings,
     bootstrapSession,
     login,
+    changePassword,
     logout,
   }
 })

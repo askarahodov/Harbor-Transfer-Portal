@@ -127,6 +127,8 @@ def update_user(
         changed_fields.append("is_active")
     if payload.password is not None:
         user.password_hash = hash_password(payload.password)
+        user.token_version += 1
+        user.must_change_password = False
         changed_fields.append("password")
 
     if changed_fields:

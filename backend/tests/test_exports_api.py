@@ -254,6 +254,63 @@ def test_download_ticket_allows_native_browser_stream_without_bearer(tmp_path: P
     assert response.content == b"large-bundle-stream-path"
 
 
+def test_password_change_revokes_old_bearer_and_download_ticket(tmp_path: Path) -> None:
+    app, user_ids = _app_with_users(tmp_path, PortalContour.SOURCE)
+    operation_id, _archive, _digest = _completed_export(app, user_ids["operator"])
+
+    with TestClient(app) as client:
+        original_token = _login(client, "operator")
+        headers = _auth(original_token)
+        ticket = client.post(
+            f"/api/exports/{operation_id}/download-ticket", headers=headers
+        )
+        assert ticket.status_code == 200
+        assert client.get(f"/api/exports/{operation_id}/download").status_code == 200
+
+        changed = client.post(
+            "/api/auth/change-password",
+            headers=headers,
+            json={
+                "current_password": "operator-password-123",
+                "new_password": "rotated-operator-password-456",
+            },
+        )
+        assert changed.status_code == 204
+        revoked_bearer = client.get(
+            f"/api/exports/{operation_id}/download", headers=headers
+        )
+        revoked_ticket = client.get(f"/api/exports/{operation_id}/download")
+        assert revoked_bearer.status_code == 401
+        assert revoked_ticket.status_code == 401
+
+        fresh_login = client.post(
+            "/api/auth/login",
+            json={"username": "operator", "password": "rotated-operator-password-456"},
+        )
+        assert fresh_login.status_code == 200
+        fresh_token = fresh_login.json()["access_token"]
+        assert client.get(
+            f"/api/exports/{operation_id}/download", headers=_auth(fresh_token)
+        ).status_code == 200
+
+
+def test_logout_revokes_export_download_ticket(tmp_path: Path) -> None:
+    app, user_ids = _app_with_users(tmp_path, PortalContour.SOURCE)
+    operation_id, _archive, _digest = _completed_export(app, user_ids["operator"])
+
+    with TestClient(app) as client:
+        token = _login(client, "operator")
+        assert client.post(
+            f"/api/exports/{operation_id}/download-ticket",
+            headers=_auth(token),
+        ).status_code == 200
+        assert client.post("/api/auth/logout", headers=_auth(token)).status_code == 204
+        assert client.get(
+            f"/api/exports/{operation_id}/download", headers=_auth(token)
+        ).status_code == 401
+        assert client.get(f"/api/exports/{operation_id}/download").status_code == 401
+
+
 def test_download_ticket_ignores_spoofed_https_forwarding_header(tmp_path: Path) -> None:
     app, user_ids = _app_with_users(
         tmp_path,

@@ -4,9 +4,9 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.auth.rate_limit import LoginRateLimitDecision, LoginRateLimiter
-from app.auth.security import create_access_token, verify_login_password
+from app.auth.security import create_access_token, hash_password, verify_login_password
 from app.db.repositories import AuditEventRepository, UserRepository
-from app.schemas.auth import CurrentUserResponse, LoginRequest, TokenResponse
+from app.schemas.auth import ChangePasswordRequest, CurrentUserResponse, LoginRequest, TokenResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -94,6 +94,7 @@ def login(
     token = create_access_token(
         user_id=user.id,
         secret=jwt_secret,
+        token_version=user.token_version,
         lifetime_minutes=max(
             settings.jwt_access_token_minutes,
             settings.jwt_inactivity_timeout_minutes,
@@ -109,6 +110,7 @@ def me(user: CurrentUserDep) -> CurrentUserResponse:
         username=user.username,
         role=user.role,
         is_active=user.is_active,
+        must_change_password=user.must_change_password,
     )
 
 
@@ -129,9 +131,44 @@ def renew_active_session(
     response.headers["X-New-Access-Token"] = create_access_token(
         user_id=user.id,
         secret=secret.get_secret_value(),
+        token_version=user.token_version,
         lifetime_minutes=max(
             settings.jwt_access_token_minutes,
             settings.jwt_inactivity_timeout_minutes,
         ),
     )
     response.headers["Cache-Control"] = "no-store"
+
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: ChangePasswordRequest,
+    user: CurrentUserDep,
+    session: SessionDep,
+) -> Response:
+    if not verify_login_password(payload.current_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_current_password"
+        )
+    if payload.new_password == "admin" or payload.new_password == payload.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_new_password"
+        )
+    user.password_hash = hash_password(payload.new_password)
+    user.must_change_password = False
+    user.token_version += 1
+    AuditEventRepository(session).create(
+        actor=user, event_type="auth.password.changed",
+        metadata={"self_service": True, "tokens_revoked": True},
+    )
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(user: CurrentUserDep, session: SessionDep) -> Response:
+    user.token_version += 1
+    AuditEventRepository(session).create(actor=user, event_type="auth.logout")
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT, headers={"Cache-Control": "no-store"})
