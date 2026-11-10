@@ -205,7 +205,10 @@ def test_auth_activity_renews_35_minute_active_session_for_full_idle_window(
     assert datetime.fromisoformat(payload["last_activity"]) > (
         datetime.now(UTC) - timedelta(minutes=1)
     )
-    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {renewed}"}).status_code == 200
+    renewed_read = client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {renewed}"}
+    )
+    assert renewed_read.status_code == 200
 
 
 def test_idle_session_expires_after_60_minutes_even_if_jwt_exp_is_future(
