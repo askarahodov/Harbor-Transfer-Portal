@@ -123,7 +123,9 @@ async def test_parallel_preview_workers_keep_verified_results_isolated(monkeypat
         bundle_filename=f"{operation_id}.htp.tar.gz",
         import_intake_mode="incoming",
     )
-    orchestrator._assert_operation_profile = lambda _operation: SimpleNamespace(id="profile")
+    orchestrator._assert_operation_profile = lambda _operation: SimpleNamespace(
+        id="profile", registry_type="harbor"
+    )
     orchestrator.persistence = SimpleNamespace(persist_verified_signer=lambda *_args: None)
 
     class Package:
@@ -223,7 +225,6 @@ def test_verified_nexus_source_provenance_is_shown_not_mislabeled_harbor(
     )
     orchestrator = object.__new__(ImportPreviewProjectionOrchestrator)
     orchestrator.settings = SimpleNamespace(import_allow_overwrite=False)
-    orchestrator._verified_preview = verified
     monkeypatch.setattr(
         orchestrator, "_get_import_operation",
         lambda _id: SimpleNamespace(
@@ -246,7 +247,11 @@ def test_verified_nexus_source_provenance_is_shown_not_mislabeled_harbor(
         verified_at=datetime.now(UTC),
         artifacts=[],
     )
-    orchestrator._persist_preview(42, preview)
+    token = _preview_capture.set([verified])
+    try:
+        orchestrator._persist_preview(42, preview)
+    finally:
+        _preview_capture.reset(token)
     [enriched] = persisted
     assert enriched.source_harbor is None
     assert enriched.source_registry_type == "nexus"
