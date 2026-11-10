@@ -336,6 +336,8 @@ class DocumentationContractTests(unittest.TestCase):
         development = self.read("docs/development.md")
         contributing = self.read("CONTRIBUTING.md")
         offline = self.read("deploy/offline/README.md")
+        roadmap = self.read("ROADMAP.md")
+        docs_map = self.read("docs/README.md")
         for text in (readme, development):
             self.assertIn("run.sh", text)
             self.assertIn("run.cmd", text)
@@ -344,6 +346,15 @@ class DocumentationContractTests(unittest.TestCase):
         self.assertIn("tools/dev.py setup", development)
         self.assertIn("source launcher", offline)
         self.assertIn("run.cmd", contributing)
+        for text in (roadmap, docs_map):
+            self.assertIn("run.sh", text)
+            self.assertIn("run.cmd", text)
+            self.assertIn("admin/admin", text)
+            self.assertIn("#481", text)
+            self.assertIn("#482", text)
+            self.assertNotIn("ещё не в baseline", text)
+            self.assertNotIn("Не используйте `admin/admin`", text)
+            self.assertNotIn("Не описывайте ещё не реализованный", text)
 
 if __name__ == "__main__":
     unittest.main()
