@@ -66,10 +66,14 @@ class HarborArtifactsPage(BaseModel):
 
 
 class HarborSelectableProfileResponse(BaseModel):
+    registry_type: str = "harbor"
     id: str
     name: str
     url: str
     is_default: bool = False
+    # Safe connector binding metadata, never the service account credentials.
+    nexus_search_url: str | None = None
+    nexus_search_repository: str | None = None
 
 
 class HarborSelectableProfilesResponse(BaseModel):

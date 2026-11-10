@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -26,6 +27,12 @@ _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9
 _TAG_PATTERN = r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}"
 _PERSISTED_DIAGNOSTIC_LIMIT = 512
 _SAFE_LOCALE_ENV = ("LANG", "LC_ALL", "LC_CTYPE")
+# Fixed-size JSON fields: never serialize RepoTags, layers or environment.
+# Go template built-in printf("%q") quotes/escapes fields even in Skopeo 1.9.3.
+_COMPACT_INSPECT_FORMAT = (
+    '{"Digest":{{printf "%q" .Digest}},"Architecture":{{printf "%q" .Architecture}},'
+    '"Os":{{printf "%q" .Os}}}'
+)
 
 
 class NexusPhase(StrEnum):
@@ -146,6 +153,19 @@ class AsyncioCommandRunner:
         self.temp_root = temp_root.resolve() if temp_root is not None else None
 
     @staticmethod
+    def _terminate_process_group(process: asyncio.subprocess.Process) -> None:
+        pid = getattr(process, "pid", None)
+        if pid is not None:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+                return
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                pass
+        process.kill()
+
+    @staticmethod
     def _environment(root: Path) -> dict[str, str]:
         home = root / "home"
         config_home = root / "xdg-config"
@@ -196,6 +216,7 @@ class AsyncioCommandRunner:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(root),
                 env=self._environment(root),
+                start_new_session=True,
             )
             if process.stdout is None or process.stderr is None:
                 process.kill()
@@ -206,17 +227,35 @@ class AsyncioCommandRunner:
             try:
                 await asyncio.wait_for(process.wait(), timeout_seconds)
             except TimeoutError as exc:
-                process.kill()
+                # Skopeo/Nexus may spawn helpers that inherit stderr pipes.
+                # Kill the whole process group so pipe readers do not remain
+                # blocked forever after the parent process exits.
+                self._terminate_process_group(process)
                 await process.wait()
-                await asyncio.gather(stdout_task, stderr_task)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(stdout_task, stderr_task), timeout=5
+                    )
+                except TimeoutError:
+                    stdout_task.cancel()
+                    stderr_task.cancel()
                 raise NexusServiceError(
                     "nexus_timeout",
                     "Операция Nexus превысила допустимое время выполнения",
                 ) from exc
             except asyncio.CancelledError:
-                process.kill()
+                # Skopeo/Nexus may spawn helpers that inherit stderr pipes.
+                # Kill the whole process group so pipe readers do not remain
+                # blocked forever after the parent process exits.
+                self._terminate_process_group(process)
                 await process.wait()
-                await asyncio.gather(stdout_task, stderr_task)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(stdout_task, stderr_task), timeout=5
+                    )
+                except TimeoutError:
+                    stdout_task.cancel()
+                    stderr_task.cancel()
                 raise
 
             stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
@@ -401,6 +440,9 @@ class NexusService:
                 (
                     self.settings.skopeo_binary,
                     "inspect",
+                    "--no-tags",
+                    "--format",
+                    _COMPACT_INSPECT_FORMAT,
                     *self._registry_flags("inspect", nexus, security),
                     self._docker_transport(image, nexus),
                 ),
@@ -429,6 +471,9 @@ class NexusService:
             (
                 self.settings.skopeo_binary,
                 "inspect",
+                "--no-tags",
+                "--format",
+                _COMPACT_INSPECT_FORMAT,
                 *self._registry_flags("inspect", nexus, security),
                 self._docker_transport(image, nexus),
             ),
@@ -441,6 +486,9 @@ class NexusService:
             (
                 self.settings.skopeo_binary,
                 "inspect",
+                "--no-tags",
+                "--format",
+                _COMPACT_INSPECT_FORMAT,
                 self._oci_transport(payload_path),
             ),
             _SecurityContext(Path(), None, None, ()),
@@ -682,6 +730,11 @@ class NexusService:
 
     @staticmethod
     def _parse_inspection(payload: str) -> ImageInspection:
+        if payload.rstrip().endswith("[output truncated]"):
+            raise NexusServiceError(
+                "nexus_output_truncated",
+                "Вывод inspect превысил настроенный лимит байт",
+            )
         try:
             data = json.loads(payload)
         except json.JSONDecodeError as exc:
@@ -734,9 +787,23 @@ class NexusService:
     ) -> None:
         stderr = _redact(result.stderr, security.redact_values)
         lowered = stderr.casefold()
-        auth_markers = ("unauthorized", "authentication required", "denied")
+        # A readable /v2/ endpoint does not prove repository-specific push ACL.
+        # Keep a denied write distinguishable from invalid credentials, without
+        # returning Skopeo stderr (which can contain URLs or identity details).
+        permission_markers = (
+            "status code: 403",
+            "403 forbidden",
+            "requested access to the resource is denied",
+            "requested access to resource is denied",
+            "access denied",
+            "permission denied",
+        )
+        auth_markers = ("unauthorized", "authentication required", "status code: 401")
         include_diagnostic = False
-        if any(marker in lowered for marker in auth_markers):
+        if any(marker in lowered for marker in permission_markers):
+            code = "nexus_permission_denied"
+            message = "Недостаточно прав для операции с выбранным Nexus repository"
+        elif any(marker in lowered for marker in auth_markers):
             code = "nexus_auth_failed"
             message = "Nexus отклонил аутентификацию"
         elif any(marker in lowered for marker in ("x509", "certificate", "tls handshake")):

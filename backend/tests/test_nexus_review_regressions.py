@@ -12,6 +12,8 @@ import pytest
 from app.services.nexus_service import (
     CommandResult,
     HelmChartReference,
+    ImageInspection,
+    ImageReference,
     NexusService,
     NexusServiceError,
     _SecurityContext,
@@ -119,3 +121,55 @@ async def test_push_refuses_force_overwrite(service: NexusService, tmp_path: Pat
             allow_existing=True,
         )
     service._run_checked.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected_code"),
+    [
+        ("unauthorized: authentication required (status code: 401)", "nexus_auth_failed"),
+        ("denied: requested access to the resource is denied", "nexus_permission_denied"),
+        ("request failed: 403 Forbidden", "nexus_permission_denied"),
+        ("access denied: status code: 403", "nexus_permission_denied"),
+    ],
+)
+def test_nexus_command_error_distinguishes_authentication_from_repository_acl(
+    tmp_path: Path, diagnostic: str, expected_code: str,
+) -> None:
+    private_value = "private-token-should-not-leak"
+    security = _SecurityContext(tmp_path, None, None, (private_value,))
+    result = CommandResult(1, "", diagnostic + " " + private_value)
+    with pytest.raises(NexusServiceError) as caught:
+        NexusService._raise_command_error(result, security)
+    assert caught.value.code == expected_code
+    assert private_value not in caught.value.message
+    assert diagnostic not in caught.value.message
+
+
+@pytest.mark.asyncio
+async def test_nexus_import_denied_push_never_claims_verified_target(
+    service: NexusService, tmp_path: Path,
+) -> None:
+    expected = "sha256:" + "a" * 64
+    payload = service.payload_root / "verified"
+    service._validate_import_path = MagicMock(return_value=payload)
+    service._inspect_oci = AsyncMock(return_value=ImageInspection(digest=expected))
+    service._inspect_registry = AsyncMock()
+    service._run_checked.side_effect = NexusServiceError(
+        "nexus_permission_denied",
+        "Недостаточно прав для операции с выбранным Nexus repository",
+    )
+
+    with pytest.raises(NexusServiceError) as caught:
+        await service.import_image(
+            payload,
+            ImageReference("test/restricted", "1.0.0"),
+            expected_digest=expected,
+        )
+
+    assert caught.value.code == "nexus_permission_denied"
+    commands = service._run_checked.await_args_list
+    assert len(commands) == 1
+    command = commands[0].args[0]
+    assert command[:2] == ("skopeo", "copy")
+    assert command[-1].endswith("/test/restricted:1.0.0")
+    service._inspect_registry.assert_not_awaited()

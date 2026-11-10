@@ -80,6 +80,8 @@ def test_cancel_during_packaging_waits_and_removes_ready_files(tmp_path: Path) -
         helm_workspace_root=data / "packages",
         bundle_payload_root=data,
         bundle_outgoing_root=data / "outgoing",
+        bundle_signing_private_key_file=data / "keys" / "source-private.pem",
+        bundle_trusted_public_keys_dir=data / "keys" / "trusted",
     )
     KeyManagementService(settings).generate_signing_private_key()
 

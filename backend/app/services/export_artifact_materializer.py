@@ -19,6 +19,7 @@ from app.services.helm_oci_service import (
     HelmOciService,
     HelmServiceError,
 )
+from app.services.nexus_helm_http import NexusHelmAdapter
 from app.services.operation_manager import OperationTaskFailure
 from app.services.registry_client import RegistryClient, create_registry_client
 from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoServiceError
@@ -135,8 +136,15 @@ class ExportArtifactMaterializer:
         elif path.exists():
             shutil.rmtree(path)
 
-    def _helm_service(self, session: Session, profile_id: str | None) -> HelmOciService:
-        return HelmOciService(session, self.settings, harbor_profile_id=profile_id)
+    def _helm_service(
+        self, session: Session, profile_id: str | None
+    ) -> HelmOciService | NexusHelmAdapter:
+        from app.services.harbor_profiles import HarborProfileService
+
+        profile = HarborProfileService(session, self.settings).operation_snapshot(profile_id)
+        if profile.registry_type == "nexus":
+            return NexusHelmAdapter(session, self.settings, profile.id)
+        return HelmOciService(session, self.settings, harbor_profile_id=profile.id)
 
     @staticmethod
     def _helm_reference(item: ResolvedExportArtifact) -> HelmChartReference:

@@ -662,8 +662,6 @@ class OperationManager:
             operation.error_message = message
             self._fail_running_artifacts(session, operation, code, message)
             if operation.type is OperationType.EXPORT:
-                # Worker disk/preflight failures can precede the artifact loop.
-                # A terminal failed export must not retain PENDING artifacts.
                 pending = session.scalars(
                     select(ArtifactResult).where(
                         ArtifactResult.operation_id == operation.id,

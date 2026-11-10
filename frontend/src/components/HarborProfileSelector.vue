@@ -28,6 +28,10 @@ const selectedProfile = computed(
   () => props.profiles.find((profile) => profile.id === props.modelValue) ?? null,
 )
 
+function registryLabel(profile: HarborProfileOption): string {
+  return profile.registry_type === 'nexus' ? 'Nexus · Docker v2' : 'Harbor'
+}
+
 function host(value: string): string {
   try {
     return new URL(value).host
@@ -56,7 +60,7 @@ function change(event: Event): void {
       </option>
       <option v-else-if="profiles.length === 0" value="" disabled>Нет доступных profiles</option>
       <option v-for="profile in profiles" :key="profile.id" :value="profile.id">
-        {{ profile.name }} · {{ host(profile.url) }}
+        {{ registryLabel(profile) }} · {{ profile.name }} · {{ host(profile.url) }}
       </option>
     </select>
     <small v-if="locked && !modelValue">
@@ -64,13 +68,13 @@ function change(event: Event): void {
     </small>
     <small v-else-if="selectedProfile">
       <template v-if="locked">
-        Закреплён за operation: <strong>{{ selectedProfile.name }}</strong> · {{ host(selectedProfile.url) }}
+        Закреплён за operation: <strong>{{ registryLabel(selectedProfile) }} · {{ selectedProfile.name }}</strong> · {{ host(selectedProfile.url) }}
       </template>
       <template v-else-if="hint">
-        {{ hint }}
+        {{ registryLabel(selectedProfile) }} · {{ hint }}
       </template>
       <template v-else>
-        {{ selectedProfile.name }} · {{ selectedProfile.url }}
+        {{ registryLabel(selectedProfile) }} · {{ selectedProfile.name }} · {{ selectedProfile.url }}
       </template>
     </small>
   </div>

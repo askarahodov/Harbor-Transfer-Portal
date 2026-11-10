@@ -10,6 +10,15 @@ import {
 
 const HARBOR_PROFILE_STORAGE_KEY = 'htp.harbor.profile-id'
 
+function normalizedProfile(profile: HarborProfileOption): HarborProfileOption {
+  // Old selectable DTOs did not contain registry_type. Keep their Harbor
+  // meaning without guessing Nexus from a URL or name.
+  return {
+    ...profile,
+    registry_type: profile.registry_type === 'nexus' ? 'nexus' : 'harbor',
+  }
+}
+
 function storageOrNull(): Storage | null {
   return typeof window === 'undefined' ? null : window.sessionStorage
 }
@@ -48,13 +57,13 @@ export const useHarborProfilesStore = defineStore('harbor-profiles', () => {
     error.value = null
     try {
       const response = await listHarborProfiles()
-      profiles.value = response.items
+      profiles.value = response.items.map(normalizedProfile)
       const fallback = chooseFallback()
       if (!fallback) {
         selectedId.value = null
         error.value = {
           code: 'harbor_profile_required',
-          message: 'Нет доступных Harbor profiles. Обратитесь к администратору.',
+          message: 'Нет доступных профилей Harbor/Nexus. Обратитесь к администратору.',
         }
         return false
       }
@@ -64,7 +73,7 @@ export const useHarborProfilesStore = defineStore('harbor-profiles', () => {
     } catch (requestError) {
       profiles.value = []
       selectedId.value = null
-      error.value = apiErrorInfo(requestError, 'Не удалось загрузить доступные Harbor profiles.')
+      error.value = apiErrorInfo(requestError, 'Не удалось загрузить доступные профили Harbor/Nexus.')
       return false
     } finally {
       loading.value = false
