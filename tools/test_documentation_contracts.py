@@ -134,7 +134,10 @@ class DocumentationContractTests(unittest.TestCase):
         offline = self.read("deploy/offline/README.md")
         testing = self.read("docs/testing.md")
 
-        self.assertIn("Windows CMD — canonical path", deploy)
+        self.assertIn("Linux — запуск исходного checkout", deploy)
+        self.assertIn("Windows CMD:", deploy)
+        self.assertIn("./run.sh", deploy)
+        self.assertIn("run.cmd", deploy)
         self.assertIn("bundle + .sha256 + signed .htp-handoff.json download", deploy)
         self.assertIn("полного delivery triplet", deploy)
 
@@ -336,6 +339,9 @@ class DocumentationContractTests(unittest.TestCase):
         development = self.read("docs/development.md")
         contributing = self.read("CONTRIBUTING.md")
         offline = self.read("deploy/offline/README.md")
+        deployment = self.read("deploy/README.md")
+        roadmap = self.read("ROADMAP.md")
+        docs_map = self.read("docs/README.md")
         for text in (readme, development):
             self.assertIn("run.sh", text)
             self.assertIn("run.cmd", text)
@@ -344,6 +350,20 @@ class DocumentationContractTests(unittest.TestCase):
         self.assertIn("tools/dev.py setup", development)
         self.assertIn("source launcher", offline)
         self.assertIn("run.cmd", contributing)
+        self.assertIn("run.sh", deployment)
+        self.assertIn("run.cmd", deployment)
+        self.assertIn("admin/admin", deployment)
+        self.assertIn("password_change_required", deployment)
+        self.assertNotIn("BOOTSTRAP_ADMIN_PASSWORD", deployment)
+        for text in (roadmap, docs_map):
+            self.assertIn("run.sh", text)
+            self.assertIn("run.cmd", text)
+            self.assertIn("admin/admin", text)
+            self.assertIn("#481", text)
+            self.assertIn("#482", text)
+            self.assertNotIn("ещё не в baseline", text)
+            self.assertNotIn("Не используйте `admin/admin`", text)
+            self.assertNotIn("Не описывайте ещё не реализованный", text)
 
 if __name__ == "__main__":
     unittest.main()
