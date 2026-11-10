@@ -48,7 +48,7 @@ Backend Harbor Transfer Portal уже использует локальных п
 подписанному `last_activity`; время `exp` нового токена не может быть
 меньше idle timeout. Пассивные API-запросы не продлевают сессию.
 Только явное `POST /api/auth/activity`, вызываемое после пользовательских
-событий с throttle 5 минут, подписывает JWT с новым `last_activity`
+событий с throttle 30 секунд, подписывает JWT с новым `last_activity`
 и передаёт его через `X-New-Access-Token`.
 
 После полного часа без подтверждённой активности `/auth/activity` и
