@@ -6,7 +6,7 @@
 
 | Тема | Источник | Граница завершения |
 | --- | --- | --- |
-| Исторический инцидент фонового экспорта | [#422](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422) | Исправления кода уже в \`main\`, но traceback и deployed SHA инцидента 03.11.2026 отсутствуют |
+| Исторический инцидент фонового экспорта | [#422](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422) | Исправления кода уже в `main`, но traceback и deployed SHA инцидента 03.11.2026 отсутствуют |
 | Harbor ↔ Nexus физическая передача | [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434) | Реальный изолированный SOURCE/TARGET handoff, receipt и operator evidence |
 | Nexus региональная приёмка | [#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436) | Реальные TLS/CA, ACL, версии, согласования; отсутствие конкурентных TARGET writers |
 | Nexus contract/integration | [#414](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/414) и [Draft #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451) | Disposable E2E зелёный, но региональный **NO-GO** |
@@ -15,7 +15,7 @@
 
 ## Что НЕ является открытым планом
 
-- Отдельная ветка \`feat/nexus-support\` как путь к релизу: используется Draft #451, не удалённый старый план.
+- Отдельная ветка `feat/nexus-support` как путь к релизу: используется Draft #451, не удалённый старый план.
 - «Обновление last_activity на каждом API-запросе»: фоновые запросы **не должны** продлевать сессию. Текущий механизм привязан к действиям пользователя, см. [ADR-004](adr/ADR-004-auth-session.md).
 - Старый список ручных задач с номерами без Issue: повторное создание ведёт к дублированию работы.
 
