@@ -21,7 +21,7 @@
 
 - **Поддерживается в `main`:** Harbor SOURCE/TARGET, signed Offline Bundle v1, browser/physical handoff, verify-before-import, роли, сессия по **действиям** пользователя, история и аудит.
 - **Реализовано в отдельной тестовой ветке, но не выпущено:** Nexus Docker v2 + classic Helm HTTP ([Draft #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451)); CI/disposable E2E успешны, **региональный NO-GO** до [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
-- **В работе:** безопасный первый запуск и однокомандная установка ([#481](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/481), [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482)). Не используйте `admin/admin` как действующий порядок запуска до их слияния и тестирования.
+- **В `main`:** безопасный первый запуск исходного checkout ([#481](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/481), [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482)): Linux `./run.sh`, Windows CMD `run.cmd`, автоматическая подготовка `.env` и сохранение `JWT_SECRET`; на пустой базе временный `admin/admin` с обязательной сменой пароля от 12 символов. Это не замена offline release kit, а для переноса нужен реальный Harbor profile.
 - **Историческая неопределённость:** исправление ошибки экспорта внедрено, но первопричина инцидента 03.11.2026 не доказана ([#422](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422)).
 
 ## Нормативные источники и порядок доверия
