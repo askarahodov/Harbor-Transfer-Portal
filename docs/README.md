@@ -1,252 +1,71 @@
-# Карта документации Harbor Transfer Portal
+# Документация Harbor Transfer Portal
 
-Этот файл помогает быстро выбрать **правильный источник**: пользовательскую инструкцию, эксплуатационный guide, архитектурный документ, нормативный contract или исторический reference.
+Это **карта актуальных источников**, а не ещё одно руководство на сотни страниц. Документация на русском; имена API/полей/команд оставлены в исходном виде. В запущенном Portal доступна офлайн по `/docs/` (Docsify), без runtime CDN.
 
-Документация проекта ведётся на русском языке; API fields, environment variables, enum, paths и CLI commands сохраняются в исходном виде.
+## Найдите свой сценарий
 
-## Локальный Docsify portal
+| Ваша задача | Откройте |
+| --- | --- |
+| Работа с экспортом/импортом | [User guide](user-guide.md) |
+| Пользователи, ключи, политики, резервные копии | [Admin guide](admin-guide.md) |
+| Запуск source checkout (Windows/Linux) | [Development](development.md) |
+| Установка готового offline kit | [Offline installation](../deploy/offline/README.md) |
+| Диагностика ошибок | [Troubleshooting](troubleshooting.md) |
+| Оценка безопасности | [Security](security.md) |
+| Архитектура и сопровождение | [Architecture](architecture.md), [Testing](testing.md) |
+| Текущий backlog и release decision | [ROADMAP](../ROADMAP.md), [GitHub Issues](https://github.com/askarahodov/Harbor-Transfer-Portal/issues) |
 
-После запуска frontend вся эта Markdown-документация доступна как локальный web-site по
-`/docs/` на том же host/port, что и Portal. Например, для стандартной development
-конфигурации: `http://127.0.0.1:8080/docs/`.
+Быстрый обзор продукта — [паспорт](project-passport.md). Главная страница репозитория — [README](../README.md). Правила участия — [CONTRIBUTING](../CONTRIBUTING.md).
 
-Docsify и search plugin упакованы во frontend image; runtime не обращается к CDN. Markdown
-файлы в репозитории остаются единственным source of truth, а Docsify только отображает их.
-Инструкция по запуску, структуре sidebar и добавлению контекстных ссылок из UI:
-[docsify.md](docsify.md).
+## Статус возможностей — не путать ветки
 
-## С чего начать по роли
+- **Поддерживается в `main`:** Harbor SOURCE/TARGET, signed Offline Bundle v1, browser/physical handoff, verify-before-import, роли, сессия по **действиям** пользователя, история и аудит.
+- **Реализовано в отдельной тестовой ветке, но не выпущено:** Nexus Docker v2 + classic Helm HTTP ([Draft #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451)); CI/disposable E2E успешны, **региональный NO-GO** до [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
+- **В работе:** безопасный первый запуск и однокомандная установка ([#481](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/481), [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482)). Не используйте `admin/admin` как действующий порядок запуска до их слияния и тестирования.
+- **Историческая неопределённость:** исправление ошибки экспорта внедрено, но первопричина инцидента 03.11.2026 не доказана ([#422](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422)).
 
-| Вы работаете как… | Начните здесь |
-|---|---|
-| operator / viewer | [user-guide.md](user-guide.md) |
-| administrator | [admin-guide.md](admin-guide.md) |
-| installer / platform engineer | [../deploy/offline/README.md](../deploy/offline/README.md) |
-| support / incident responder | [troubleshooting.md](troubleshooting.md) |
-| security reviewer | [security.md](security.md) |
-| developer / architect | [development.md](development.md), [architecture.md](architecture.md), затем component docs |
-| contributor | [development.md](development.md), [../CONTRIBUTING.md](../CONTRIBUTING.md) и [testing.md](testing.md) |
-| руководитель / новый участник проекта | [project-passport.md](project-passport.md) |
+## Нормативные источники и порядок доверия
 
-Root [README](../README.md) — пользовательская входная страница продукта с кратким flow и отдельной developer-секцией.
+1. **Формат/подпись:** [Offline Bundle v1](offline-bundle-v1.md), `docs/schema/` и protocol tests. Текстовые примеры не переопределяют schema.
+2. **Принятые решения:** [ADR registry](decisions.md), [ADR-004](adr/ADR-004-auth-session.md), [ADR-005](adr/ADR-005-harbor-secrets-tls.md), [ADR-008](adr/ADR-008-frontend-ui-kit.md), [ADR-009](adr/ADR-009-oci-layout-payload.md).
+3. **Текущее поведение:** code/tests + [Architecture](architecture.md) + специализированные инструкции.
+4. **Установка:** [deploy/README](../deploy/README.md) (source Compose), [offline kit](../deploy/offline/README.md) (готовая поставка). Это разные сценарии.
+5. **История и прошлые планы:** исходные design notes не считаются рабочей документацией.
 
-## Статусы документов
+## Каталог: операции и protocol
 
-| Статус | Значение |
-|---|---|
-| **Нормативный** | Определяет совместимый contract; изменение требует protocol/schema/ADR решения. |
-| **Актуальный** | Описывает текущую реализацию/архитектуру/эксплуатацию и меняется вместе с кодом. |
-| **Частично реализовано** | Содержит текущую основу и явно отделённые незавершённые части. |
-| **Запланировано** | Описывает будущую работу и не означает доступную функцию. |
-| **Исторический** | Сохраняется как design reference, но не определяет current runtime/protocol behavior. |
+- [User guide](user-guide.md), [Export orchestration](export-orchestration.md), [Import orchestration](import-orchestration.md)
+- [Browser transport](browser-transport.md), [Physical handoff](physical-handoff.md), [Destination plan integrity](destination-plan-integrity.md)
+- [Package service](package-service.md), [Skopeo service](skopeo-service.md), [Helm OCI service](helm-oci-service.md)
+- [Operation manager](operation-manager.md), [Deterministic import retry](deterministic-import-retry.md)
+- [Offline Bundle v1](offline-bundle-v1.md), [Reports/receipts](reports-receipts.md)
 
-Если два current-source документа противоречат друг другу, это documentation defect.
+## Каталог: интерфейс и эксплуатация
 
-## Приоритет источников
+- [Dashboard](dashboard.md), [Frontend](frontend.md), [History UI](history-ui.md), [History/Audit API](history-audit-api.md)
+- [Settings](settings.md), [Admin user management](admin-user-management.md), [Harbor profiles](harbor-profiles.md), [Harbor browse API](harbor-browse-api.md)
+- [Runtime mode](runtime-mode.md), [Universal mode key isolation](universal-mode-key-isolation.md)
+- [Key management](key-management.md), [Transfer policies](transfer-policies.md), [Storage retention](storage-retention.md)
+- [Offline lifecycle](offline-lifecycle.md), [Structured logging](structured-logging.md), [Troubleshooting](troubleshooting.md)
+- [Deployment](../deploy/README.md), [Offline install kit](../deploy/offline/README.md)
+- [Testing/CI](testing.md), [Docsify shell](docsify.md), [Release notes 1.0.0](release-notes-v1.0.0.md), [CHANGELOG](../CHANGELOG.md)
 
-При расхождении используйте следующий порядок:
+## Nexus — отдельно от baseline
 
-1. Bundle compatibility — `offline-bundle-v1.md` + JSON Schema + protocol tests;
-2. принятое архитектурное решение — соответствующий ADR;
-3. current architecture/status — `architecture.md` + code/tests;
-4. feature/component behavior — специализированный component/API/frontend doc + code/tests;
-5. offline release/install — `../deploy/offline/README.md` + release scripts/qualification tests;
-6. development/runtime Compose — `../deploy/README.md` + Compose/Dockerfiles/`.env.example`;
-7. administration — `admin-guide.md` + deployment/security sources;
-8. user flow — `user-guide.md` + current frontend/backend transfer behavior;
-9. diagnostics — `troubleshooting.md` + affected component/security source;
-10. historical design documents не переопределяют current sources.
+- [Сравнение с Harbor](registry-comparison.md) — матрица с честным разделением `main`/Draft.
+- [Nexus setup](nexus-setup.md) — подготовка **тестового кандидата**, не production-инструкция.
+- [Региональная приёмка](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/integration/nexus-oss-release-candidate-451/docs/nexus-regional-acceptance-runbook.md) — runbook из Draft #451.
 
-## Пользовательская и эксплуатационная документация
+## Исторический материал (не source of truth)
 
-| Документ | Для чего | Статус |
-|---|---|---|
-| [project-passport.md](project-passport.md) | простое описание продукта, ролей и целевого процесса | актуальный product overview |
-| [development.md](development.md) | source build/run на Windows и Linux, Docker Desktop/Engine boundary | актуальный developer workflow |
-| [user-guide.md](user-guide.md) | пошаговый browser flow SOURCE → physical transfer → TARGET | актуальный |
-| [admin-guide.md](admin-guide.md) | bootstrap, Harbor, users/policies/keys, lifecycle, limits | актуальный |
-| [settings.md](settings.md) | фактический admin Settings UI: Harbor profiles/readiness/keys/policies/retention/mapping | актуальный |
-| [runtime-mode.md](runtime-mode.md) | persistent SOURCE/TARGET role, switch, restart, migration, backup/restore | актуальный runtime/admin contract |
-| [key-management.md](key-management.md) | SOURCE signing identity и TARGET trusted-key lifecycle | актуальный |
-| [transfer-policies.md](transfer-policies.md) | admin-managed transfer policies и limits | актуальный |
-| [troubleshooting.md](troubleshooting.md) | symptom → cause → diagnostic → safe resolution | актуальный |
-| [../deploy/offline/README.md](../deploy/offline/README.md) | versioned offline kit install/backup/restore/upgrade/uninstall | актуальный release/install guide |
-| [../deploy/README.md](../deploy/README.md) | development/runtime Compose deployment | актуальный development/runtime guide |
-| [release-notes-v1.0.0.md](release-notes-v1.0.0.md) | release identity, scope и ограничения v1.0.0 | актуальный release artifact |
+[Исходный дизайн](harbor-transfer-portal.md) и [первоначальное Nexus ТЗ](nexus-integration-task.md) сведены к коротким страницам-ссылкам на pinned Git history. Старые скрипты-генераторы, устаревшие протоколы, оценки и ASCII-макеты больше не копируются в текущие руководства. [Deferred work](deferred-tasks.md) теперь только перенаправляет в живые Issues.
 
-## Архитектура, protocol и component docs
-
-| Документ | Роль | Статус |
-|---|---|---|
-| [architecture.md](architecture.md) | components, boundaries, data flows, current implementation state | актуальный |
-| [frontend.md](frontend.md) | Vue architecture, role routing, SOURCE/TARGET wizard | актуальный |
-| [export-orchestration.md](export-orchestration.md) | SOURCE export backend/API/publication/download contract | актуальный |
-| [import-orchestration.md](import-orchestration.md) | TARGET intake/verify/preview/conflict/import/receipt contract | актуальный |
-| [offline-bundle-v1.md](offline-bundle-v1.md) | Bundle v1 signing/checksum/archive contract | **нормативный** |
-| `schema/` | machine-readable Bundle schemas | **нормативный** |
-| [package-service.md](package-service.md) | Bundle build/verify implementation boundary | актуальный |
-| [operation-manager.md](operation-manager.md) | background execution/progress/cancel/restart | актуальный |
-| [storage-retention.md](storage-retention.md) | lifecycle и bounded cleanup transfer payload storage | актуальный |
-| [skopeo-service.md](skopeo-service.md) | container transfer service | актуальный |
-| [helm-oci-service.md](helm-oci-service.md) | Helm OCI transfer service | актуальный |
-| [harbor-browse-api.md](harbor-browse-api.md) | Harbor browse projection/policies | актуальный |
-| [harbor-profiles.md](harbor-profiles.md) | multi-Harbor management, explicit workflow selection и immutable operation binding | актуальный end-to-end contract |
-| [history-audit-api.md](history-audit-api.md) | history/audit backend API | актуальный |
-| [history-ui.md](history-ui.md) | user-facing history UX | актуальный |
-| [reports-receipts.md](reports-receipts.md) | CSV/PDF reports и immutable import receipt | актуальный |
-| [security.md](security.md) | security/trust model и known v1 limitations | актуальный |
-| [testing.md](testing.md) | scoped test selection, integration/acceptance gates и CI policy | актуальный |
-| [decisions.md](decisions.md) | ADR registry | актуальный registry |
-
-Дополнительные специализированные current-source документы:
-
-- [browser-transport.md](browser-transport.md) — browser upload/download transport boundaries;
-- [dashboard.md](dashboard.md) — Dashboard behavior;
-- [destination-plan-integrity.md](destination-plan-integrity.md) — destination-plan integrity guarantees;
-- [deterministic-import-retry.md](deterministic-import-retry.md) — deterministic import retry semantics;
-- [offline-lifecycle.md](offline-lifecycle.md) — backup/restore/upgrade/uninstall semantics;
-- [structured-logging.md](structured-logging.md) — structured logging contract;
-- [universal-mode-key-isolation.md](universal-mode-key-isolation.md) — key/trust isolation for universal runtime mode;
-- [admin-user-management.md](admin-user-management.md) — user management details;
-- [settings.md](settings.md) — admin Settings screen и связанные server-side controls.
-
-## Historical source
-
-[harbor-transfer-portal.md](harbor-transfer-portal.md) — исходная постановка, ранние UI concepts и design plan. Документ сохранён как **исторический reference** и не определяет current runtime, protocol или security behavior.
-
-## Текущий transfer flow
-
-### SOURCE
-
-Основные источники:
-
-- [user-guide.md](user-guide.md) — operator/viewer browser flow;
-- [runtime-mode.md](runtime-mode.md) — runtime role и safe switch;
-- [harbor-browse-api.md](harbor-browse-api.md) — выбор metadata из local Harbor;
-- [export-orchestration.md](export-orchestration.md) — validation, OperationManager, Skopeo/Helm, publication, download;
-- [frontend.md](frontend.md) — wizard, reload/poll/cancel, browser download ticket;
-- [key-management.md](key-management.md) — SOURCE signing identity;
-- [offline-bundle-v1.md](offline-bundle-v1.md) — переносимый normative contract.
-
-### TARGET
-
-Основные источники:
-
-- [user-guide.md](user-guide.md) — intake, verification, preview/conflict, import, receipt/history/report;
-- [runtime-mode.md](runtime-mode.md) — runtime role и safe switch;
-- [import-orchestration.md](import-orchestration.md) — upload/discovery, verify-before-mutation, preview, execute, receipt;
-- [key-management.md](key-management.md) — TARGET trusted keys и overlap rotation;
-- [offline-bundle-v1.md](offline-bundle-v1.md) — normative verification contract;
-- [frontend.md](frontend.md) — intake/verification, conflict decisions и persistent result flow.
-
-TARGET UI не выполняет самостоятельную cryptographic validation: checksum/schema/signature indicators являются projection успешного backend verifier. `CONFLICT` не overwrite-ится по умолчанию, а `UNKNOWN/ERROR` блокируют mutation.
-
-## Offline release и qualification v1.0.0
-
-Offline release workflow **реализован и квалифицирован**. В контролируемой build/release среде создаются versioned backend/frontend images и immutable installation archive; закрытый контур загружает уже собранные images и запускает их без online build/pull.
-
-Основные sources:
-
-- [../deploy/offline/README.md](../deploy/offline/README.md) — установка и lifecycle;
-- [runtime-mode.md](runtime-mode.md) — bootstrap role, switch/restart/migration/backup-restore semantics;
-- [offline-lifecycle.md](offline-lifecycle.md) — backup/restore/upgrade/uninstall;
-- [release-notes-v1.0.0.md](release-notes-v1.0.0.md) и [../CHANGELOG.md](../CHANGELOG.md) — release identity/changes;
-- [testing.md](testing.md) — clean-host и isolated transfer qualification gates.
-
-CI qualification покрывает:
-
-- clean-host installation одного и того же archive в SOURCE/TARGET role;
-- сохранение persistent state после rerun/restart/restore;
-- отсутствие runtime pull/build зависимости;
-- isolated SOURCE → signed bundle → physical boundary → TARGET flow;
-- Skopeo/Helm integration, receipt/history/report;
-- replay skip, conflict default-deny и tamper rejection до registry mutation;
-- согласованность release version между OCI labels, installation metadata и `/api/health`.
-
-Задачи **#27** (documentation set) и **#28** (offline release kit/final acceptance) завершены. Current-source документы не должны описывать их как future work.
-
-## Автоматическая проверка документации
-
-Локальный gate:
+## Как проверять изменения документации
 
 ```bash
 make docs-check
 ```
 
-Он запускает два независимых слоя проверки:
+Этот gate запускает link checker и documentation contract tests; Markdown links не должны уходить за пределы репозитория, Docsify sidebar ссылается на существующие pages, fenced code blocks текущих документов имеют language tag. CI запускает documentation gate по `tools/ci_scope.py`.
 
-1. **Markdown link checker** — проверяет repository-local targets без сетевых запросов;
-2. **documentation contract tests** — фиксируют ключевые current-state утверждения в entry
-   guides и не дают вернуть известные stale contracts.
-
-Link checker проверяет:
-
-- target file существует;
-- local link не выходит за repository root;
-- Docsify `_sidebar.md` использует разрешённые site-root Markdown targets, например
-  `/docs/dashboard.md`, и каждый такой target существует;
-- absolute Markdown links вне Docsify sidebar запрещены;
-- links внутри fenced code block не считаются реальными docs links;
-- external `http(s)`, `mailto`, `tel`, `data` links не crawl-ятся;
-- pure `#anchor` не требует file lookup.
-
-Documentation contract tests отдельно проверяют, в частности:
-
-- актуальный History lifecycle contract;
-- explicit/immutable Harbor profile selection вместо старого global active-Harbor
-  утверждения;
-- отсутствие конфликта `/docs/` между Docsify и якобы опубликованным OpenAPI UI;
-- Windows CMD/Python launcher как поддерживаемый путь без обязательного PowerShell/WSL;
-- physical delivery triplet с signed `.htp-handoff.json`;
-- multi-Harbor и русскоязычный release note contract;
-- Docsify navigation/code extension contract и отсутствие runtime CDN dependency;
-- explicit language tag у fenced code blocks во всех current-source Markdown docs.
-
-Live packaging/routing `/docs/` дополнительно проверяется Compose smoke: Markdown endpoints
-должны реально отдаваться как static files, отсутствующий docs path не должен
-проваливаться в Vue SPA fallback, а vendored Docsify extensions/Prism grammars должны
-фактически присутствовать в final frontend image.
-
-Path-aware CI включает documentation gate; результат входит в общий `quality-gate`.
-
-## Правило documentation impact
-
-| Изменение | Минимальный impact |
-|---|---|
-| Bundle schema/protocol | protocol doc + schema + tests + ADR при несовместимости |
-| Architecture/service boundary | architecture + specialized doc + ADR при значимом решении |
-| Background lifecycle/restart/cancel | architecture + operation-manager + affected UX docs |
-| Auth/security/secret handling | security + deployment/admin docs + ADR при необходимости |
-| Environment/config | `.env.example` + deployment/admin docs |
-| Frontend flow | frontend + user guide/current-state docs |
-| Operation/history/report state | architecture + user/admin/troubleshooting docs |
-| Stable user-facing error code | troubleshooting + affected guide/component doc |
-| CI/test policy | testing + workflow docs |
-| Release/install | offline deployment + admin + release notes/checklist |
-
-## Как документировать незавершённую функцию
-
-Допустимые формулировки:
-
-- `реализовано` — behavior существует и проверяется;
-- `реализовано как service primitive` — low-level capability есть, end-to-end flow ещё нет;
-- `scaffold / в разработке` — route/view/structure существует без полного behavior;
-- `запланировано` — реализации нет.
-
-Наличие route, mockup, issue или service class не является доказательством завершённого user scenario.
-
-## Review checklist документационного PR
-
-Перед merge проверить:
-
-- commands, paths, env names и endpoints существуют;
-- fenced code blocks имеют explicit language tag и не маскируют многострочные команды inline code;
-- SOURCE/TARGET не перепутаны;
-- нет real secrets/credentials/private keys;
-- planned behavior не описано как implemented;
-- normative protocol не переопределён prose example;
-- historical doc не используется как current source;
-- `make docs-check` зелёный, включая link checker и documentation contract tests;
-- security recommendation не ослабляет TLS/signature/path/RBAC controls;
-- current-state assertions согласованы с code/tests и закрытыми release tasks;
-- CI выбрал gates по фактическому blast radius.
+При каждом изменении code/API/config обновите соответствующий guide в том же PR. Проверяйте отличия SOURCE/TARGET, значения `main`/Draft, безопасные error codes, существование команд и отсутствие secret/internal DNS. Результат независимого code review и зелёного CI не подменяет реальную региональную приёмку.
