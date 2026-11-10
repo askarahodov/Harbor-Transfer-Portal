@@ -57,6 +57,42 @@ describe('api client session transport', () => {
     expect(unauthorized).toHaveBeenCalledTimes(1)
   })
 
+  it('stores an activity renewal only for the currently authenticated request', async () => {
+    storeAccessToken('before-renewal')
+    const adapter = vi.fn(async (config: InternalAxiosRequestConfig) => ({
+      data: {},
+      status: 204,
+      statusText: 'No Content',
+      headers: { 'x-new-access-token': 'after-renewal' },
+      config,
+    }))
+
+    await apiClient.post('/auth/activity', undefined, { adapter })
+    expect(readAccessToken()).toBe('after-renewal')
+  })
+
+  it('never restores a logged-out session from a delayed activity response', async () => {
+    storeAccessToken('old-session')
+    let resolveResponse: ((value: AxiosResponse) => void) | undefined
+    const adapter = vi.fn(
+      (config: InternalAxiosRequestConfig) =>
+        new Promise<AxiosResponse>((resolve) => {
+          resolveResponse = (response) => resolve({ ...response, config })
+        }),
+    )
+    const request = apiClient.post('/auth/activity', undefined, { adapter })
+    await vi.waitFor(() => expect(resolveResponse).toBeDefined())
+    clearAccessToken()
+    resolveResponse?.({
+      data: {},
+      status: 204,
+      statusText: 'No Content',
+      headers: { 'x-new-access-token': 'stale-new-session' },
+    } as AxiosResponse)
+    await request
+    expect(readAccessToken()).toBeNull()
+  })
+
   it('does not treat a tokenless login 401 as an expired session', async () => {
     clearAccessToken()
     const unauthorized = vi.fn()
