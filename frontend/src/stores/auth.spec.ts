@@ -92,6 +92,30 @@ describe('auth store', () => {
     expect(clientMocks.clearAccessToken).toHaveBeenCalled()
   })
 
+  it('rotates the password and clears the old bearer after success', async () => {
+    const auth = useAuthStore()
+    auth.user = { ...currentUser, must_change_password: true }
+    auth.initialized = true
+    clientMocks.post.mockResolvedValue({ status: 204 })
+
+    expect(await auth.changePassword('admin', 'a-new-secure-password-123')).toBe(true)
+    expect(clientMocks.post).toHaveBeenCalledWith('/auth/change-password', {
+      current_password: 'admin',
+      new_password: 'a-new-secure-password-123',
+    })
+    expect(auth.isAuthenticated).toBe(false)
+    expect(clientMocks.clearAccessToken).toHaveBeenCalled()
+  })
+
+  it('keeps the current session on failed password rotation', async () => {
+    const auth = useAuthStore()
+    auth.user = { ...currentUser, must_change_password: true }
+    clientMocks.post.mockRejectedValue(new Error('current password rejected'))
+
+    expect(await auth.changePassword('wrong', 'new-strong-password-123')).toBe(false)
+    expect(auth.isAuthenticated).toBe(true)
+  })
+
   it('clears active state when the API client reports an authenticated 401', () => {
     const auth = useAuthStore()
     auth.user = currentUser

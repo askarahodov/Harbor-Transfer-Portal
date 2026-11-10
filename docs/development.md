@@ -1,6 +1,6 @@
 # Разработка и локальный запуск на Windows и Linux
 
-**Статус:** актуальный developer workflow для source checkout. До закрытия [#481](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/481) и [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482) это **ручной workflow**: `.env` и первичный local admin требуют настройки. Однокомандный запуск без предварительной подготовки пока не является подтверждённым contract.
+**Статус:** актуальный developer workflow для source checkout. До закрытия [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482) это **ручной workflow** подготовки `.env`; администратор с обязательной сменой пароля теперь создаётся автоматически на пустой базе. Однокомандный запуск без предварительной подготовки пока не является подтверждённым contract.
 
 Harbor Transfer Portal использует одинаковые Linux container images на обеих поддерживаемых host OS:
 
@@ -22,7 +22,7 @@ Application runtime использует обычную Compose bridge network �
 
 Для изменения frontend вне Docker дополнительно нужен Node.js 22.
 
-Создайте локальную конфигурацию из `.env.example`. Реальные secrets в Git не добавляются.
+Создайте локальную конфигурацию из `.env.example`. Реальные secrets в Git не добавляются. На новой пустой базе доступен одноразовый вход `admin/admin`: портал требует заменить пароль (не короче 12 символов), после чего нужно войти заново. JWT_SECRET при отсутствии значения генерируется backend и хранится в persistent volume.
 
 ### Linux
 

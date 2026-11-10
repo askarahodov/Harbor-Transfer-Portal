@@ -38,10 +38,7 @@ REM Отредактируйте .env: PORTAL_CONTOUR, HARBOR_URL, HARBOR_USER, 
 REM 2. Собрать и запустить
 docker compose up -d --build --force-recreate
 
-REM 3. Создать админа при первом запуске
-set "BOOTSTRAP_ADMIN_PASSWORD=ваш-пароль-12+"
-docker compose exec -T -e "BOOTSTRAP_ADMIN_PASSWORD=%BOOTSTRAP_ADMIN_PASSWORD%" backend python -m app.auth.cli --username admin
-set "BOOTSTRAP_ADMIN_PASSWORD="
+REM 3. На новой базе войти admin/admin и обязательно сменить пароль в UI
 
 REM 4. Открыть Portal и документацию
 start "" http://localhost:8080/
@@ -62,10 +59,7 @@ cp .env.example .env
 # 2. Собрать и запустить
 docker compose up -d --build --force-recreate
 
-# 3. Создать админа при первом запуске
-export BOOTSTRAP_ADMIN_PASSWORD="ваш-пароль-12+"
-docker compose exec -T -e BOOTSTRAP_ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD" backend python -m app.auth.cli --username admin
-unset BOOTSTRAP_ADMIN_PASSWORD
+# 3. На новой базе войти admin/admin и обязательно сменить пароль в UI
 
 # 4. Portal:        http://localhost:8080/
 #    Документация: http://localhost:8080/docs/
@@ -79,9 +73,11 @@ unset BOOTSTRAP_ADMIN_PASSWORD
 | `HARBOR_URL` | URL legacy/default локального Harbor | `https://harbor.local` |
 | `HARBOR_USER` | Service account legacy/default Harbor | `transfer-bot` |
 | `HARBOR_PASSWORD` | Пароль legacy/default Harbor | `secret` |
-| `JWT_SECRET` | Случайный секрет ≥32 символа | `openssl rand -base64 48` |
+| `JWT_SECRET` | Необязателен: backend генерирует и сохраняет секрет на persistent volume, если значение отсутствует | Не включать в Git |
 
 После bootstrap дополнительные именованные Harbor profiles управляются через **Настройки → Harbor profiles**. Новый Export/Import workflow выбирает нужный enabled profile явно; legacy/default Harbor сохраняется для backward compatibility.
+
+При **первом запуске только с пустой базой** создаётся временный `admin/admin`; до обязательной смены пароля защищённые API-операции запрещены. После смены пароля войдите снова; существующие пользователи при перезапуске не перезаписываются. Не публикуйте bootstrap HTTP вне loopback/TLS терминатора.
 
 ### Полезные команды
 

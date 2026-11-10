@@ -59,9 +59,14 @@ def get_current_user(
         response.headers["X-New-Access-Token"] = new_token
 
     user = UserRepository(session).get(user_id)
-    if user is None or not user.is_active or user.token_version != read_access_token_version(
-        credentials.credentials, jwt_secret
-    ):
+    try:
+        token_version = read_access_token_version(credentials.credentials, jwt_secret)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid or expired token",
+        ) from exc
+    if user is None or not user.is_active or user.token_version != token_version:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid or expired token",

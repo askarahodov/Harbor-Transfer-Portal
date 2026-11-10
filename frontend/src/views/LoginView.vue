@@ -47,7 +47,7 @@ async function submit(): Promise<void> {
 
   const authenticated = await auth.login(username.value, password.value)
   if (authenticated) {
-    await router.replace(redirectAfterLogin())
+    await router.replace(auth.user?.must_change_password ? '/change-password' : redirectAfterLogin())
     return
   }
 

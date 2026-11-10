@@ -127,17 +127,9 @@ GET /healthz
 
 Backend entrypoint применяет Alembic migrations до запуска API.
 
-Создайте первый local admin, передавая password только как временную environment variable процесса:
+На пустой пользовательской базе backend автоматически создаёт временного администратора `admin/admin`. Первый вход **не открывает административные функции**: вместо них портал принудительно требует смены пароля на уникальный (не короче 12 символов). После сохранения новый вход обязателен; прежние JWT становятся недействительными. При рестарте пароль не сбрасывается, если база уже содержит пользователей.
 
-```bash
-export BOOTSTRAP_ADMIN_PASSWORD='replace-with-a-strong-password'
-docker compose --env-file .env -f compose.yaml exec -T \
-  -e BOOTSTRAP_ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD" \
-  backend python -m app.auth.cli --username admin
-unset BOOTSTRAP_ADMIN_PASSWORD
-```
-
-После этого входите через web UI по настроенному HTTPS endpoint. Local HTTP используйте только как явный bootstrap/diagnostic mode.
+Если в Compose не задан JWT_SECRET, backend сохраняет случайный секрет внутри persistent volume `/app/data/secrets/jwt-secret` и повторно использует его при рестарте. Не переносите секрет между контурами и не размещайте его в Git. Первоначальный HTTP-доступ — только loopback/диагностика; remote authenticated UI требует HTTPS.
 
 ## 5. Local users и RBAC
 
