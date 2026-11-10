@@ -736,6 +736,8 @@ Worker получил неожиданное исключение. В persisted 
 
 `operation_worker_failed` требует developer investigation, если нет очевидной инфраструктурной причины.
 
+**После исправлений #475/#477:** ожидаемые ошибки export preflight/профиля и сбои обработки отдельного артефакта должны иметь типизированный code (`harbor_unavailable`, `export_source_not_found`, `export_artifact_internal_error` и др.). Остальные артефакты в неуспешном комплекте получают `export_aborted`; частичный bundle не публикуется. Если UI всё ещё показывает общий `operation_worker_failed`, сохраните `operation_id`, deployed commit SHA, время, sanitized backend traceback и проверьте версию установки. Не объявляйте историческую причину инцидента [#422](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422) доказанной на основании нового успешного E2E.
+
 ## 18. Login не работает
 
 ### Симптом

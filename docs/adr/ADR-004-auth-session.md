@@ -28,7 +28,7 @@ Backend Harbor Transfer Portal уже использует локальных п
 1. Access token хранится только в `sessionStorage` текущей browser session. Пароль не сохраняется нигде во frontend state/storage.
 2. Axios добавляет `Authorization: Bearer …` только при наличии token.
 3. При bootstrap наличие token само по себе не означает аутентифицированную сессию: frontend вызывает `GET /api/auth/me` и строит user/role state только из успешного ответа backend.
-4. Любой authenticated API response `401` удаляет token и текущего пользователя. Автоматический retry с тем же token запрещён, чтобы не создавать redirect/retry loop.
+4. `401` удаляет token/user **только если запрос использовал текущий bearer token**; старый ответ после renewal или безтокенного login не сбрасывает новую сессию. Автоматический retry с тем же token запрещён.
 5. `403` не очищает сессию: это отказ в конкретном действии, а не признак истёкшей аутентификации.
 6. Route guards защищают все private routes. `/export` и `/import` допускают `operator|admin`, `/settings` — только `admin`. Viewer остаётся read-only.
 7. Navigation скрывает недоступные действия для UX, но backend RBAC остаётся окончательным security control.
@@ -56,15 +56,16 @@ Backend Harbor Transfer Portal уже использует локальных п
 продолжает работать сколь угодно долго, пока есть разрешённые действия
 и поступают обновления сессии. После deployment старый уже истёкший JWT
 нельзя безопасно обновить — пользователь войдёт повторно один раз.
-Ошибки/поздние ответы не должны восстанавливать сессию после logout.
+Поздний успешный refresh response не должен восстанавливать сессию после logout; поздний `401` от старого JWT не должен завершать уже обновлённую сессию.
 
 ## Проверка
 
 Обязательные frontend tests покрывают:
 
 - session bootstrap через `/auth/me`;
-- bearer header и очистку session на `401` без retry;
+- bearer header, очистку session на `401` текущего JWT без retry и игнорирование stale `401`;
 - generic invalid-credentials UX;
 - route guard для unauthenticated пользователя;
 - role matrix viewer/operator/admin для navigation и routes;
-- password visibility control и базовую keyboard semantics формы.
+- password visibility control и базовую keyboard semantics формы;
+- activity-only renewal, 60-минутный inactivity window и отсутствие продления от фоновых запросов.

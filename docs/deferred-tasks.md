@@ -1,45 +1,21 @@
-# Отложенные задачи (Deferred)
+# Отложенная работа и границы релиза
 
-Статус: **На рассмотрении / Отложено** — не в текущем спринте, требующих уточнения требований или ресурсов.
+Этот файл **не является отдельным backlog**. Он фиксирует только принцип: актуальные статусы, владельцы, зависимости и приоритеты живут в [GitHub Issues](https://github.com/askarahodov/Harbor-Transfer-Portal/issues), а инженерные gate — в [ROADMAP](../ROADMAP.md). Старые пронумерованные планы и оценки удалены, потому что дублировали и искажали реальные состояния.
 
----
+## Что ещё не подтверждено
 
-## 2. Миграция feature branch в main (PR для ревью)
+| Тема | Источник | Граница завершения |
+| --- | --- | --- |
+| Исторический инцидент фонового экспорта | [#422](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422) | Исправления кода уже в `main`, но traceback и deployed SHA инцидента 03.11.2026 отсутствуют |
+| Harbor ↔ Nexus физическая передача | [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434) | Реальный изолированный SOURCE/TARGET handoff, receipt и operator evidence |
+| Nexus региональная приёмка | [#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436) | Реальные TLS/CA, ACL, версии, согласования; отсутствие конкурентных TARGET writers |
+| Nexus contract/integration | [#414](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/414) и [Draft #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451) | Disposable E2E зелёный, но региональный **NO-GO** |
+| First-run bootstrap | [#481](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/481) | Только после безопасной обязательной смены bootstrap-пароля |
+| Упрощение Windows/Linux установки | [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482) | Зависит от #481; не считать one-command install уже работающим |
 
-**Причина откладывания:** Требует согласования с командой, code review, возможно — squash/merge strategy.
+## Что НЕ является открытым планом
 
-**Что готово:** `feat/nexus-support` полностью синхронизирован с `main`, все тесты проходят.
+- «Обновление last_activity на каждом API-запросе»: фоновые запросы **не должны** продлевать сессию. Текущий механизм привязан к действиям пользователя, см. [ADR-004](adr/ADR-004-auth-session.md).
+- Старый список ручных задач с номерами без Issue: повторное создание ведёт к дублированию работы.
 
-**Следующий шаг:** Создать PR на GitHub, назначить reviewers.
-
----
-
-## 3. Файн-тюнинг авторизации
-
-**Причина откладывания:** Текущая реализация sliding session (1 час бездействия) работает. Дополнительные улучшения требуют уточнения threat model и UX требований.
-
-**Кандидаты на будущее:**
-- Refresh tokens / rotating tokens (увеличить безопасность при компрометации access token)
-- Обновление `last_activity` при **каждом** запросе (сейчас обновляется только при refresh токена)
-- WebSocket / SSE уведомления за 5 минут до истечения сессии
-- Remember me / long-lived sessions с отдельным refresh token storage
-
----
-
-## 5. Production hardening
-
-**Причина откладывания:** Требует инфраструктурных решений (Prometheus, Grafana, alerting stack) и согласования SLA/SLO.
-
-**Кандидаты:**
-- Rate limiting на все API endpoints (помимо login)
-- Audit logging для Nexus операций (кто, когда, что делал)
-- Metrics/Prometheus экспорт (latency, error rates, queue sizes)
-- Distributed tracing (OpenTelemetry/Jaeger)
-- Автоматические бэкапы SQLite + point-in-time recovery
-- Chaos engineering / failure injection тесты
-
----
-
-## Как вернуть в работу
-
-Каждую задачу можно активировать, создав issue в GitHub с label `deferred` и назначив milestone. Приоритет пересматривается на планировании следующего спринта.
+Для новой работы создайте GitHub Issue с критериями приёмки и ссылками на протокол, безопасность или UI-документацию.

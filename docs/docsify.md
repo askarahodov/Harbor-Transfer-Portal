@@ -21,30 +21,11 @@ Documentation: http://127.0.0.1:8080/docs/
 Если изменён `PORTAL_HTTP_BIND` или `PORTAL_HTTP_PORT`, используется тот же host/port,
 что и для Portal, с добавлением `/docs/`.
 
-## Запуск на Linux
+## Запуск и доступ
 
-После подготовки `.env`:
+Docsify поставляется внутри frontend image и **не требует отдельного запуска**. Для Linux и Windows используйте одну нормативную инструкцию по развёртыванию исходников — [development.md](development.md). Для закрытого контура используйте [offline install kit](../deploy/offline/README.md). Эти инструкции не следует дублировать здесь: детали первого запуска и bootstrap могут меняться в задачах #481/#482.
 
-```bash
-docker compose up -d --build --force-recreate
-```
-
-Откройте `http://127.0.0.1:8080/docs/`.
-
-Canonical developer workflow также описан в [development.md](development.md).
-
-## Запуск на Windows через CMD
-
-PowerShell для просмотра документации не требуется. В каталоге репозитория после
-подготовки `.env`:
-
-```bat
-docker compose up -d --build --force-recreate
-start "" http://127.0.0.1:8080/docs/
-```
-
-Docker Desktop должен работать в Linux containers mode, как описано в
-[development.md](development.md).
+После запуска откройте `http://127.0.0.1:8080/docs/` при стандартных настройках. Windows использует Docker Desktop в режиме Linux containers; PowerShell/WSL для просмотра документов не обязателен.
 
 ## Offline boundary
 
@@ -74,13 +55,14 @@ Repository-level страницы (`README`, `CONTRIBUTING`, deployment guides) 
 
 Навигация группирует:
 
-- пользовательскую и административную документацию;
+- начало работы и диагностику;
 - SOURCE/TARGET transfer flow;
-- Harbor/runtime;
-- эксплуатацию и безопасность;
-- архитектуру и ADR;
-- repository-level README/CONTRIBUTING/CHANGELOG;
-- исторический reference.
+- администрирование;
+- развёртывание и сопровождение;
+- архитектуру, решения и границы Nexus;
+- README/CONTRIBUTING/CHANGELOG.
+
+Исторические документы и узкие component references доступны из [карты документации](README.md), но не загромождают sidebar.
 
 Top-level groups после render превращаются в keyboard-accessible toggle buttons с
 `aria-expanded` / `aria-controls`. Активная group всегда остаётся раскрытой, а
