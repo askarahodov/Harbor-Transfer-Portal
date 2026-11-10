@@ -11,6 +11,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.api.router import api_router
+from app.auth.bootstrap import bootstrap_first_run_admin
 from app.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
 from app.services.correlated_operation_manager import CorrelatedOperationManager
@@ -48,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with session_factory() as session:
             RuntimeModeService(session, resolved_settings).initialize()
             TransferPolicyService(session, resolved_settings).apply_persisted_at_startup()
+            bootstrap_first_run_admin(session)
         reconcile_incomplete_export_publications(session_factory, resolved_settings)
         await operation_manager.startup()
         await asyncio.to_thread(
