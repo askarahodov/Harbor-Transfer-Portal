@@ -66,6 +66,6 @@
 make docs-check
 ```
 
-Этот gate запускает link checker и documentation contract tests; Markdown links не должны уходить за пределы репозитория, Docsify sidebar ссылается на существующие pages, fenced code blocks текущих документов имеют language tag. CI запускает documentation gate по `tools/ci_scope.py`.
+Gate содержит два независимых слоя: **Markdown link checker** проверяет локальные ссылки и разрешённые Docsify **site-root Markdown targets**; **documentation contract tests** фиксируют runtime/UX/security и запрещают возврат устаревших описаний. Markdown links не должны выходить за пределы репозитория, code fences имеют явный language tag. Дополнительно **Compose smoke** проверяет реальную раздачу Markdown/assets через `/docs/` и отсутствие Vue SPA fallback для несуществующих путей. CI запускает documentation gate по `tools/ci_scope.py`.
 
 При каждом изменении code/API/config обновите соответствующий guide в том же PR. Проверяйте отличия SOURCE/TARGET, значения `main`/Draft, безопасные error codes, существование команд и отсутствие secret/internal DNS. Результат независимого code review и зелёного CI не подменяет реальную региональную приёмку.
