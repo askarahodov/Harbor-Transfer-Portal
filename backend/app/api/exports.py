@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 
+from app.api.operation_authorization import authorize_operation
 from app.auth.dependencies import CredentialsDep, SessionDep, require_roles
 from app.auth.security import (
     create_export_download_token,
@@ -99,19 +100,21 @@ def _authorize_operation(
     operation_id: int,
     actor: User,
 ) -> None:
-    operation = orchestrator.operation_manager.get_operation(operation_id)
-    if operation is None or operation.type is not OperationType.EXPORT:
-        raise _api_error(
+    authorize_operation(
+        orchestrator.operation_manager.get_operation(operation_id),
+        OperationType.EXPORT,
+        actor,
+        not_found=_api_error(
             status.HTTP_404_NOT_FOUND,
             "export_operation_not_found",
             "Export-операция не найдена",
-        )
-    if actor.role is not UserRole.ADMIN and operation.actor_user_id != actor.id:
-        raise _api_error(
+        ),
+        forbidden=_api_error(
             status.HTTP_403_FORBIDDEN,
             "export_forbidden",
             "Operator может получать только собственный export bundle",
-        )
+        ),
+    )
 
 
 def _jwt_secret(request: Request) -> str:

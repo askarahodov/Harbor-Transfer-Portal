@@ -64,3 +64,8 @@ Thumbs.db
 # Local scripts (not committed)
 scripts/take-screenshots.js
 node_modules/
+
+# Local agent tooling and test leftovers
+.kilo/
+.retry-extract/
+backend/.retry-extract/

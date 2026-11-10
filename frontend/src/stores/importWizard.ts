@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore, storeToRefs } from 'pinia'
 
 import {
@@ -99,6 +99,18 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
   const error = ref<ApiErrorInfo | null>(null)
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let pollRequestActive = false
+  let mappingRevision = 0
+  let validationRevision = 0
+  let mappingSnapshot = JSON.stringify(mappingDraft.value)
+
+  watch(mappingDraft, (draft) => {
+    const snapshot = JSON.stringify(draft)
+    if (snapshot === mappingSnapshot) return
+    mappingSnapshot = snapshot
+    mappingRevision++
+    mappingDirty.value = true
+    overwriteConfirmed.value = false
+  }, { deep: true, flush: 'sync' })
 
   const sourceProjects = computed(() => {
     const projects = new Set<string>()
@@ -204,6 +216,8 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
   }
 
   function resetMapping(): void {
+    validationRevision++
+    if (busy.value === 'destination-plan') busy.value = null
     mappingDraft.value = emptyMappingRequest()
     destinationPlan.value = null
     mappingDirty.value = true
@@ -245,27 +259,44 @@ export const useImportWizardStore = defineStore('import-wizard', () => {
 
   async function validateDestinationPlan(): Promise<boolean> {
     if (!operation.value || !preview.value || operation.value.status !== 'READY') return false
+    const requestRevision = ++validationRevision
+    const draftRevision = mappingRevision
+    const operationId = operation.value.id
+    const isCurrent = () =>
+      requestRevision === validationRevision &&
+      draftRevision === mappingRevision &&
+      operation.value?.id === operationId &&
+      operation.value.status === 'READY' &&
+      preview.value?.operation_id === operationId
+    mappingDirty.value = true
+    overwriteConfirmed.value = false
     busy.value = 'destination-plan'
     clearError()
     try {
       const profileId =
         operation.value.harbor_profile_id ?? selectedHarborProfileId.value ?? null
-      const plan = await buildImportDestinationPlan(operation.value.id, {
+      const plan = await buildImportDestinationPlan(operationId, {
         ...mappingDraft.value,
+        project_mappings: { ...mappingDraft.value.project_mappings },
+        artifact_overrides: mappingDraft.value.artifact_overrides.map((item) => ({ ...item })),
         harbor_profile_id: profileId,
       })
+      if (!isCurrent()) return false
       destinationPlan.value = plan
       mappingDirty.value = false
       overwriteConfirmed.value = false
       return plan.valid
     } catch (requestError) {
+      if (!isCurrent()) return false
       error.value = apiErrorInfo(
         requestError,
         'Не удалось проверить TARGET Harbor. Проверьте доступность Harbor, проекты назначения и права записи.',
       )
       return false
     } finally {
-      busy.value = null
+      if (requestRevision === validationRevision && busy.value === 'destination-plan') {
+        busy.value = null
+      }
     }
   }
 

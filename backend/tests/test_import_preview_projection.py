@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from app.domain.bundle import BundleManifest, BundleSource, ContainerImageArtifact, OperationStatus
 from app.schemas.imports import ImportPreviewResponse
 from app.services.bundle_package_service import BundleVerificationResult
 from app.services.import_orchestrator import ImportOrchestrator
-from app.services.import_preview_projection import ImportPreviewProjectionOrchestrator
+from app.services.import_preview_projection import (
+    ImportPreviewProjectionOrchestrator,
+    _CapturingBundlePackageService,
+    _preview_capture,
+)
 
 
 def _verified_result() -> BundleVerificationResult:
@@ -42,19 +51,10 @@ def _verified_result() -> BundleVerificationResult:
     )
 
 
-def test_projection_uses_authoritative_base_preview_worker() -> None:
-    assert "_preview_worker" not in ImportPreviewProjectionOrchestrator.__dict__
-    assert (
-        ImportPreviewProjectionOrchestrator._preview_worker
-        is ImportOrchestrator._preview_worker
-    )
-
-
 def test_persist_preview_enriches_verified_manifest_and_policy(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     verified = _verified_result()
     orchestrator = object.__new__(ImportPreviewProjectionOrchestrator)
     orchestrator.settings = SimpleNamespace(import_allow_overwrite=True)
-    orchestrator._verified_preview = verified
 
     operation = SimpleNamespace(
         bundle_filename="bundle.htp.tar.gz",
@@ -80,7 +80,12 @@ def test_persist_preview_enriches_verified_manifest_and_policy(monkeypatch) -> N
         artifacts=[],
     )
 
-    orchestrator._persist_preview(41, preview)
+    token = _preview_capture.set([verified])
+    try:
+        orchestrator._persist_preview(41, preview)
+        assert _preview_capture.get() == []
+    finally:
+        _preview_capture.reset(token)
 
     assert len(persisted) == 1
     enriched = persisted[0]
@@ -95,7 +100,80 @@ def test_persist_preview_enriches_verified_manifest_and_policy(monkeypatch) -> N
     assert enriched.signature_verified is True
     assert enriched.schema_verified is True
     assert enriched.overwrite_allowed is True
-    assert orchestrator._verified_preview is None
+
+
+@pytest.mark.asyncio
+async def test_parallel_preview_workers_keep_verified_results_isolated(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    first = _verified_result()
+    second = replace(
+        first,
+        archive_sha256="e" * 64,
+        manifest=first.manifest.model_copy(
+            update={"source": first.manifest.source.model_copy(update={"harbor": "other.local"})}
+        ),
+    )
+    results = {1: first, 2: second}
+    orchestrator = object.__new__(ImportPreviewProjectionOrchestrator)
+    orchestrator.settings = SimpleNamespace(import_allow_overwrite=False)
+    orchestrator._bundle_paths = lambda operation_id: (Path(str(operation_id)), None)
+    orchestrator._get_import_operation = lambda operation_id: SimpleNamespace(
+        bundle_sha256=results[operation_id].archive_sha256,
+        bundle_filename=f"{operation_id}.htp.tar.gz",
+        import_intake_mode="incoming",
+    )
+    orchestrator._assert_operation_profile = lambda _operation: SimpleNamespace(id="profile")
+    orchestrator.persistence = SimpleNamespace(persist_verified_signer=lambda *_args: None)
+
+    class Package:
+        def verify_bundle(self, archive, **_kwargs):  # type: ignore[no-untyped-def]
+            return results[int(archive.name)]
+
+    orchestrator.package_factory = lambda: _CapturingBundlePackageService(
+        Package(), orchestrator._capture_verified_preview
+    )
+    both_classifying = asyncio.Event()
+    entered = 0
+
+    async def classify(_artifacts, **_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal entered
+        entered += 1
+        if entered == 2:
+            both_classifying.set()
+        await asyncio.wait_for(both_classifying.wait(), timeout=5)
+        return []
+
+    orchestrator.artifact_classifier = SimpleNamespace(classify=classify)
+    persisted = {}
+    monkeypatch.setattr(
+        ImportOrchestrator,
+        "_persist_preview",
+        lambda _self, operation_id, preview: persisted.update({operation_id: preview}),
+    )
+    context = SimpleNamespace(transition=lambda _status: None)
+    await asyncio.gather(
+        orchestrator._preview_worker(context, 1),
+        orchestrator._preview_worker(context, 2),
+    )
+    assert persisted[1].source_harbor == "harbor.source.local"
+    assert persisted[2].source_harbor == "other.local"
+    assert _preview_capture.get() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [RuntimeError, asyncio.CancelledError])
+async def test_preview_capture_is_reset_on_failure_or_cancellation(monkeypatch, error) -> None:  # type: ignore[no-untyped-def]
+    orchestrator = object.__new__(ImportPreviewProjectionOrchestrator)
+
+    async def fail(_self, _context, _operation_id):  # type: ignore[no-untyped-def]
+        orchestrator._capture_verified_preview(_verified_result())
+        raise error()
+
+    monkeypatch.setattr(ImportOrchestrator, "_preview_worker", fail)
+    with pytest.raises(error):
+        await orchestrator._preview_worker(SimpleNamespace(), 1)
+    assert _preview_capture.get() is None
+    orchestrator._capture_verified_preview(_verified_result())
+    assert _preview_capture.get() is None
 
 
 def test_old_persisted_preview_shape_remains_readable() -> None:

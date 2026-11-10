@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
+from app.api.operation_authorization import authorize_operation
 from app.auth.dependencies import SessionDep, require_roles
 from app.db.models import User, UserRole
 from app.db.repositories import AuditEventRepository
@@ -154,19 +155,21 @@ def _authorize_operation(
     operation_id: int,
     actor: User,
 ) -> None:
-    operation = orchestrator.operation_manager.get_operation(operation_id)
-    if operation is None or operation.type is not OperationType.IMPORT:
-        raise _api_error(
+    authorize_operation(
+        orchestrator.operation_manager.get_operation(operation_id),
+        OperationType.IMPORT,
+        actor,
+        not_found=_api_error(
             status.HTTP_404_NOT_FOUND,
             "import_operation_not_found",
             "Import-операция не найдена",
-        )
-    if actor.role is not UserRole.ADMIN and operation.actor_user_id != actor.id:
-        raise _api_error(
+        ),
+        forbidden=_api_error(
             status.HTTP_403_FORBIDDEN,
             "import_forbidden",
             "Operator может управлять только собственными import operations",
-        )
+        ),
+    )
 
 
 def _decode_browser_metadata_header(request: Request, name: str) -> bytes | None:
