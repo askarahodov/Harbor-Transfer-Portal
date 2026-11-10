@@ -1,10 +1,11 @@
 import { apiClient, readAccessToken } from '@/api/client'
 
 // A real browser interaction, not silent API polling, advances the inactivity window.
-// 5-minute throttling avoids a request per mouse/keyboard event while active use
-// continues to renew well before the server's 60-minute idle deadline.
-const ACTIVITY_SYNC_INTERVAL_MS = 5 * 60 * 1000
-const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'scroll', 'touchstart'] as const
+// The server permits idle windows as short as one minute. A 30-second
+// upper bound keeps the activity proof ahead of even that smallest setting,
+// without a continuous timer or renewal from background API polling.
+const ACTIVITY_SYNC_INTERVAL_MS = 30 * 1000
+const ACTIVITY_EVENTS = ['pointerdown', 'pointermove', 'keydown', 'scroll', 'touchstart'] as const
 
 export function installSessionActivityTracking(): () => void {
   let lastAttemptAt = Number.NEGATIVE_INFINITY
@@ -24,10 +25,10 @@ export function installSessionActivityTracking(): () => void {
   }
 
   for (const name of ACTIVITY_EVENTS) {
-    document.addEventListener(name, onActivity, { passive: true })
+    document.addEventListener(name, onActivity, { passive: true, capture: true })
   }
 
   return () => {
-    for (const name of ACTIVITY_EVENTS) document.removeEventListener(name, onActivity)
+    for (const name of ACTIVITY_EVENTS) document.removeEventListener(name, onActivity, true)
   }
 }
