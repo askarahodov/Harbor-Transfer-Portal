@@ -13,7 +13,10 @@ depends_on = None
 def upgrade() -> None:
     with op.batch_alter_table("users") as batch:
         batch.add_column(
-            sa.Column("must_change_password", sa.Boolean(), nullable=False, server_default=sa.false())
+            sa.Column(
+                "must_change_password", sa.Boolean(), nullable=False,
+                server_default=sa.false(),
+            )
         )
         batch.add_column(
             sa.Column("token_version", sa.Integer(), nullable=False, server_default="0")
