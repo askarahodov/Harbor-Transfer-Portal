@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextvars import ContextVar
 from typing import Any, cast
 
 from app.domain.imports import ImportIntakeMode
@@ -14,7 +15,11 @@ from app.services.bundle_package_service import (
     BundleVerificationResult,
 )
 from app.services.import_orchestrator import ImportIntakeResult, ImportOrchestrator
-from app.services.operation_manager import OperationTaskFailure
+from app.services.operation_manager import OperationContext, OperationTaskFailure
+
+_preview_capture: ContextVar[list[BundleVerificationResult] | None] = ContextVar(
+    "import_preview_capture", default=None
+)
 
 
 class _CapturingBundlePackageService:
@@ -51,7 +56,6 @@ class ImportPreviewProjectionOrchestrator(ImportOrchestrator):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._verified_preview: BundleVerificationResult | None = None
         base_factory = self.package_factory
 
         def capturing_factory() -> BundlePackageService:
@@ -86,17 +90,27 @@ class ImportPreviewProjectionOrchestrator(ImportOrchestrator):
         finally:
             self.settings = runtime_settings
 
+    async def _preview_worker(self, context: OperationContext, operation_id: int) -> None:
+        token = _preview_capture.set([])
+        try:
+            await super()._preview_worker(context, operation_id)
+        finally:
+            _preview_capture.reset(token)
+
     def _capture_verified_preview(self, result: BundleVerificationResult) -> None:
-        self._verified_preview = result
+        capture = _preview_capture.get()
+        if capture is not None:
+            capture.append(result)
 
     def _persist_preview(self, operation_id: int, preview: ImportPreviewResponse) -> None:
-        verified = self._verified_preview
-        if verified is None:
+        capture = _preview_capture.get()
+        if not capture:
             raise OperationTaskFailure(
                 "import_preview_projection_missing",
                 "Verifier result отсутствует при сохранении import preview",
             )
 
+        verified = capture.pop()
         operation = self._get_import_operation(operation_id)
         intake_mode = None
         if operation.import_intake_mode is not None:
@@ -119,7 +133,4 @@ class ImportPreviewProjectionOrchestrator(ImportOrchestrator):
                 "overwrite_allowed": self.settings.import_allow_overwrite,
             }
         )
-        try:
-            super()._persist_preview(operation_id, enriched)
-        finally:
-            self._verified_preview = None
+        super()._persist_preview(operation_id, enriched)

@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -27,7 +28,7 @@ from app.services.helm_oci_service import (
     HelmPullResult,
     HelmServiceError,
 )
-from app.services.operation_manager import OperationManager, OperationTaskFailure
+from app.services.operation_manager import OperationContext, OperationManager, OperationTaskFailure
 from app.services.skopeo_service import ExportResult
 
 IMAGE_DIGEST = "sha256:" + "a" * 64
@@ -669,3 +670,41 @@ def test_manager_disk_preflight_failure_aborts_pending_export_artifacts(
         "export_aborted",
     ]
     assert _outgoing_is_empty(settings)
+
+@pytest.mark.parametrize("failing_cleanup", ["helm", "operation"])
+def test_completed_export_keeps_signed_delivery_when_workspace_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failing_cleanup: str,
+) -> None:
+    settings, manager, _harbor, _package_service, orchestrator = _environment(tmp_path)
+
+    def fail_cleanup(*_args: object) -> None:
+        raise OSError("simulated post-completion cleanup failure")
+
+    if failing_cleanup == "helm":
+        monkeypatch.setattr(orchestrator, "_cleanup_helm_root", fail_cleanup)
+    else:
+        monkeypatch.setattr(OperationContext, "cleanup_workspace", fail_cleanup)
+
+    async def scenario() -> int:
+        await manager.startup()
+        started = await orchestrator.start_export(
+            _selections(),
+            actor_user_id=None,  # type: ignore[arg-type]
+            actor_username="operator",
+            comment=None,
+        )
+        await manager.wait(started.operation_id)
+        await manager.shutdown()
+        return started.operation_id
+
+    operation = manager.get_operation(asyncio.run(scenario()))
+    assert operation is not None
+    assert operation.status is OperationStatus.COMPLETED
+    assert all(artifact.status is ArtifactStatus.VERIFIED for artifact in operation.artifacts)
+    assert operation.bundle_filename is not None
+    assert operation.handoff_filename is not None
+    assert (settings.bundle_outgoing_root / operation.bundle_filename).is_file()
+    assert (settings.bundle_outgoing_root / (operation.bundle_filename + ".sha256")).is_file()
+    assert (settings.bundle_outgoing_root / operation.handoff_filename).is_file()

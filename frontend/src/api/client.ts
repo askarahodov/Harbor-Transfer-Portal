@@ -45,17 +45,34 @@ apiClient.interceptors.request.use((config) => {
 
 apiClient.interceptors.response.use(
   (response) => {
-    // Handle token refresh from backend
+    // Never resurrect a logged-out session or overwrite a newer token when
+    // a delayed refresh response belongs to a previous authenticated request.
     const newToken = response.headers['x-new-access-token']
-    if (newToken) {
+    const sentAuthorization = AxiosHeaders.from(response.config.headers).get('Authorization')
+    const currentToken = readAccessToken()
+    if (
+      typeof newToken === 'string' &&
+      currentToken &&
+      sentAuthorization === `Bearer ${currentToken}`
+    ) {
       storeAccessToken(newToken)
     }
     return response
   },
   (error: unknown) => {
-    if (axios.isAxiosError(error) && error.response?.status === 401 && readAccessToken()) {
-      clearAccessToken()
-      unauthorizedHandler?.()
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      // In-flight requests can outlive a renewal or a subsequent login.
+      // Only a 401 for the *current* bearer may invalidate the session.
+      // A late 401 from an older token (or tokenless login) must not log
+      // out an already refreshed or newly authenticated user.
+      const currentToken = readAccessToken()
+      const sentAuthorization = error.config
+        ? AxiosHeaders.from(error.config.headers).get('Authorization')
+        : null
+      if (currentToken && sentAuthorization === `Bearer ${currentToken}`) {
+        clearAccessToken()
+        unauthorizedHandler?.()
+      }
     }
     return Promise.reject(error)
   },

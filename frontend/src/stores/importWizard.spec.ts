@@ -291,6 +291,88 @@ describe('import wizard store', () => {
     expect(store.error?.message).toContain('Не удалось проверить TARGET Harbor')
   })
 
+  it('rejects a validation response after the mapping changes in flight', async () => {
+    let resolvePlan!: (plan: ImportDestinationPlan) => void
+    const planSpy = vi.spyOn(importsApi, 'buildImportDestinationPlan').mockImplementation(
+      () => new Promise((resolve) => { resolvePlan = resolve }),
+    )
+    const executeSpy = vi.spyOn(importsApi, 'executeImport')
+    const store = useImportWizardStore()
+    store.operation = operation('READY')
+    store.preview = preview()
+    store.setDefaultProject('container-image', 'target')
+
+    const validation = store.validateDestinationPlan()
+    store.setDefaultProject('container-image', 'other')
+    resolvePlan(destinationPlan())
+
+    expect(await validation).toBe(false)
+    expect(planSpy).toHaveBeenCalledWith(51, expect.objectContaining({ container_image_project: 'target' }))
+    expect(store.mappingDirty).toBe(true)
+    expect(store.confirmedPlanReady).toBe(false)
+    expect(await store.execute(false)).toBe(false)
+    expect(executeSpy).not.toHaveBeenCalled()
+  })
+
+  it('revokes a confirmed plan while revalidating and after a failed retry', async () => {
+    let rejectPlan!: (error: Error) => void
+    vi.spyOn(importsApi, 'buildImportDestinationPlan')
+      .mockResolvedValueOnce(destinationPlan())
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPlan = reject }))
+    const executeSpy = vi.spyOn(importsApi, 'executeImport')
+    const store = useImportWizardStore()
+    store.operation = operation('READY')
+    store.preview = preview()
+    expect(await store.validateDestinationPlan()).toBe(true)
+
+    const validation = store.validateDestinationPlan()
+    expect(store.canExecuteDefault).toBe(false)
+    expect(await store.execute(false)).toBe(false)
+    rejectPlan(new Error('TARGET unavailable'))
+    expect(await validation).toBe(false)
+    expect(store.destinationPlan?.plan_id).toBe(PLAN_ID)
+    expect(store.confirmedPlanReady).toBe(false)
+    expect(await store.execute(false)).toBe(false)
+    expect(executeSpy).not.toHaveBeenCalled()
+  })
+
+  it('ignores an older validation response after a newer request succeeds', async () => {
+    let resolveOld!: (plan: ImportDestinationPlan) => void
+    vi.spyOn(importsApi, 'buildImportDestinationPlan')
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
+      .mockResolvedValueOnce(destinationPlan('NEW', 'new-plan'))
+    const store = useImportWizardStore()
+    store.operation = operation('READY')
+    store.preview = preview()
+
+    const oldValidation = store.validateDestinationPlan()
+    expect(await store.validateDestinationPlan()).toBe(true)
+    resolveOld(destinationPlan())
+    expect(await oldValidation).toBe(false)
+    expect(store.destinationPlan?.plan_id).toBe('new-plan')
+    expect(store.confirmedPlanReady).toBe(true)
+  })
+
+  it('invalidates a plan on direct nested draft edits and ignores responses after reset', async () => {
+    let resolvePlan!: (plan: ImportDestinationPlan) => void
+    vi.spyOn(importsApi, 'buildImportDestinationPlan')
+      .mockResolvedValueOnce(destinationPlan())
+      .mockImplementationOnce(() => new Promise((resolve) => { resolvePlan = resolve }))
+    const store = useImportWizardStore()
+    store.operation = operation('READY')
+    store.preview = preview()
+    expect(await store.validateDestinationPlan()).toBe(true)
+    store.mappingDraft.project_mappings.project = 'other'
+    expect(store.confirmedPlanReady).toBe(false)
+
+    const validation = store.validateDestinationPlan()
+    store.reset()
+    resolvePlan(destinationPlan())
+    expect(await validation).toBe(false)
+    expect(store.destinationPlan).toBeNull()
+    expect(store.busy).toBeNull()
+  })
+
   it('blocks conflict by default but can safely skip existing and import only missing artifacts', async () => {
     sessionStorage.setItem('htp.import.operation-id', '51')
     vi.spyOn(importsApi, 'getOperation')

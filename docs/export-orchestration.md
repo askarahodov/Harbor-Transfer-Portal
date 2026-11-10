@@ -194,7 +194,9 @@ Packaging выполняется в worker thread через `asyncio.to_thread`
 - packaging не запускается либо owned publication удаляется;
 - operation завершается `FAILED`.
 
-Ошибка package verification/signature также не оставляет owned readiness sidecar.
+Ошибка package verification/signature также не оставляет owned readiness sidecar. Ошибки preflight/packaging завершают все ещё не завершённые export artifact rows как `export_aborted`; при любом неуспехе ранее опубликованные archive, sidecar и signed handoff удаляются вместе, а bundle metadata очищаются.
+
+Результаты успешного нового SOURCE→TARGET E2E не устанавливают историческую первопричину инцидента #422 от 03.11.2026 без traceback или точного воспроизведения на развёрнутом тогда SHA.
 
 ## Stable error semantics
 
