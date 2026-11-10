@@ -564,12 +564,15 @@ class BundlePackageService:
         archive: tarfile.TarFile,
         archive_size: int,
     ) -> _ArchiveInspection:
-        members = tuple(archive.getmembers())
-        if len(members) > self.settings.bundle_max_member_count:
-            raise BundlePackageError(
-                "bundle_member_limit_exceeded",
-                "Bundle содержит слишком много archive members",
-            )
+        collected: list[tarfile.TarInfo] = []
+        for member in archive:
+            if len(collected) >= self.settings.bundle_max_member_count:
+                raise BundlePackageError(
+                    "bundle_member_limit_exceeded",
+                    "Bundle содержит слишком много archive members",
+                )
+            collected.append(member)
+        members = tuple(collected)
         try:
             validate_archive_members(members)
         except ValueError as exc:

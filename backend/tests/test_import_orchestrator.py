@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import os
 import shutil
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -330,6 +331,126 @@ def test_signed_mixed_bundle_imports_and_writes_receipt(tmp_path: Path) -> None:
     assert operation.import_storage_key is not None
     assert not (settings.import_staging_root / operation.import_storage_key).exists()
     assert not (settings.bundle_extract_root / f"import-{operation_id}").exists()
+
+
+@pytest.mark.parametrize("shutdown", [False, True])
+@pytest.mark.parametrize("fail_verification", [False, True])
+def test_cancel_waits_for_extraction_thread(
+    tmp_path: Path, shutdown: bool, fail_verification: bool
+) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    settings, manager, skopeo, helm, orchestrator = _target_environment(tmp_path, trusted_dir)
+    settings.operation_shutdown_timeout_seconds = 0.01
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingPackage:
+        def verify_bundle(self, _archive, *, sidecar_path, extract_to):  # type: ignore[no-untyped-def]
+            extract_to.mkdir(parents=True, exist_ok=True)
+            started.set()
+            assert release.wait(5)
+            extract_to.mkdir(parents=True, exist_ok=True)
+            (extract_to / "late-write").write_bytes(b"payload")
+            if fail_verification:
+                raise RuntimeError("verification failed after cancellation")
+            return None
+
+    async def scenario() -> None:
+        operation_id = await _upload_and_preview(
+            manager, orchestrator, bundle.archive_path.read_bytes()
+        )
+        orchestrator.package_factory = lambda: BlockingPackage()  # type: ignore[assignment]
+        await orchestrator.start_import(
+            operation_id, actor_username="target-operator", overwrite_conflicts=False
+        )
+        extraction = settings.bundle_extract_root / f"import-{operation_id}"
+        manager.prepare_workspace(operation_id)
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            if shutdown:
+                await manager.shutdown()
+                assert operation_id in manager._tasks
+            cancel = asyncio.create_task(manager.cancel(operation_id))
+            await asyncio.sleep(0)
+            # Deliver a second cancellation while the first one is draining the thread.
+            manager._tasks[operation_id].cancel()
+            await asyncio.sleep(0)
+            # Cancellation is bounded by operation_shutdown_timeout_seconds.
+            await asyncio.wait_for(cancel, timeout=5)
+            assert extraction.is_dir()
+            operation = manager.get_operation(operation_id)
+            assert operation is not None
+            expected_status = OperationStatus.FAILED if shutdown else OperationStatus.CANCELLED
+            assert operation.status is expected_status
+        finally:
+            release.set()
+        operation = manager.get_operation(operation_id)
+        assert operation is not None
+        assert operation.status is expected_status
+        assert skopeo.import_calls == 0
+        assert helm.push_calls == 0
+        # The verification thread outlives the shutdown budget, so its extraction
+        # directory must stay intact instead of being deleted while the thread writes.
+        assert extraction.exists()
+        if not shutdown:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_loop_task_cancellation_does_not_abandon_extraction(tmp_path: Path) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    settings, manager, skopeo, helm, orchestrator = _target_environment(tmp_path, trusted_dir)
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingPackage:
+        def verify_bundle(self, _archive, *, sidecar_path, extract_to):  # type: ignore[no-untyped-def]
+            extract_to.mkdir(parents=True, exist_ok=True)
+            started.set()
+            assert release.wait(5)
+            extract_to.mkdir(parents=True, exist_ok=True)
+            (extract_to / "late-write").write_bytes(b"payload")
+            return None
+
+    async def scenario() -> None:
+        operation_id = await _upload_and_preview(
+            manager, orchestrator, bundle.archive_path.read_bytes()
+        )
+        orchestrator.package_factory = lambda: BlockingPackage()  # type: ignore[assignment]
+        await orchestrator.start_import(
+            operation_id, actor_username="target-operator", overwrite_conflicts=False
+        )
+        extraction = settings.bundle_extract_root / f"import-{operation_id}"
+        workspace = manager.prepare_workspace(operation_id)
+        worker = manager._tasks[operation_id]
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            # Like asyncio.run shutdown, cancel every task directly, including the old
+            # implementation's separate to_thread verification task, if present.
+            for task in asyncio.all_tasks() - {asyncio.current_task()}:
+                task.cancel()
+            for _ in range(3):
+                await asyncio.sleep(0)
+            assert not worker.done()
+            assert extraction.is_dir()
+            assert workspace.is_dir()
+            operation = manager.get_operation(operation_id)
+            assert operation is not None and operation.status is OperationStatus.IMPORTING
+        finally:
+            release.set()
+        await asyncio.gather(worker, return_exceptions=True)
+        operation = manager.get_operation(operation_id)
+        assert operation is not None and operation.status is OperationStatus.CANCELLED
+        assert not extraction.exists()
+        assert not workspace.exists()
+        assert skopeo.import_calls == 0
+        assert helm.push_calls == 0
+        await manager.shutdown()
+
+    asyncio.run(scenario())
 
 
 def test_success_cleanup_keeps_bundle_while_shared_ready_retry_exists(
@@ -707,6 +828,103 @@ def test_incoming_discovery_requires_readiness_sidecar_and_handoff(tmp_path: Pat
     assert not incoming_handoff.exists()
 
 
+@pytest.mark.parametrize("failure", ["sidecar", "handoff", "fsync", "hash", "operation", "cancel"])
+def test_discovery_failure_restores_claimed_handoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    settings, _manager, _skopeo, _helm, orchestrator = _target_environment(tmp_path, trusted_dir)
+    incoming = settings.import_discovery_root
+    incoming.mkdir(parents=True, exist_ok=True)
+    originals = [bundle.archive_path, bundle.sidecar_path, bundle.handoff_path]
+    for path in originals:
+        shutil.copyfile(path, incoming / path.name)
+
+    def fail(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        if failure == "cancel":
+            raise asyncio.CancelledError()
+        raise OSError("injected failure")
+
+    replace = os.replace
+    if failure in {"sidecar", "handoff"}:
+        failed_name = bundle.sidecar_path.name if failure == "sidecar" else bundle.handoff_path.name
+
+        def fail_replace(source, destination):  # type: ignore[no-untyped-def]
+            if Path(source).name == failed_name:
+                fail()
+            replace(source, destination)
+
+        monkeypatch.setattr(os, "replace", fail_replace)
+    elif failure == "fsync":
+        monkeypatch.setattr(orchestrator, "_fsync_directory", fail)
+    elif failure in {"hash", "cancel"}:
+        monkeypatch.setattr(orchestrator, "_sha256_file", fail)
+    else:
+        monkeypatch.setattr(orchestrator, "_create_intake_operation", fail)
+
+    expected = asyncio.CancelledError if failure == "cancel" else OSError
+    with pytest.raises(expected):
+        asyncio.run(orchestrator.discover_ready(actor_user_id=1, actor_username="operator"))
+    for path in originals:
+        assert (incoming / path.name).read_bytes() == path.read_bytes()
+    assert not any(settings.import_staging_root.iterdir())
+
+
+@pytest.mark.parametrize("restore_failure", ["conflict", "symlink", "io_error"])
+def test_discovery_failed_restore_preserves_staged_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, restore_failure: str
+) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    settings, _manager, _skopeo, _helm, orchestrator = _target_environment(tmp_path, trusted_dir)
+    incoming = settings.import_discovery_root
+    incoming.mkdir(parents=True, exist_ok=True)
+    originals = [bundle.archive_path, bundle.sidecar_path, bundle.handoff_path]
+    for path in originals:
+        shutil.copyfile(path, incoming / path.name)
+    archive = incoming / bundle.archive_path.name
+
+    def fail_hash(_path: Path) -> str:
+        if restore_failure == "conflict":
+            archive.write_bytes(b"another delivery")
+        elif restore_failure == "symlink":
+            archive.symlink_to(incoming / "missing")
+        raise OSError("hash failed")
+
+    monkeypatch.setattr(orchestrator, "_sha256_file", fail_hash)
+    if restore_failure == "io_error":
+        link = os.link
+
+        def fail_link(source, destination, **kwargs):  # type: ignore[no-untyped-def]
+            if Path(destination) == archive:
+                raise OSError("restore failed")
+            link(source, destination, **kwargs)
+
+        monkeypatch.setattr(os, "link", fail_link)
+
+    with pytest.raises(OSError, match="hash failed") as exc_info:
+        asyncio.run(orchestrator.discover_ready(actor_user_id=1, actor_username="operator"))
+    staged = list(settings.import_staging_root.iterdir())
+    assert len(staged) == 1
+    assert (staged[0] / archive.name).read_bytes() == bundle.archive_path.read_bytes()
+    assert str(staged[0] / archive.name) in " ".join(exc_info.value.__notes__)
+    if restore_failure == "conflict":
+        assert archive.read_bytes() == b"another delivery"
+    elif restore_failure == "symlink":
+        assert archive.is_symlink()
+    else:
+        assert not archive.exists()
+    if restore_failure in {"conflict", "symlink"}:
+        # An occupied incoming name means the whole delivery stays in staging so a
+        # mixed set can never become discoverable.
+        leftovers = {path.name for path in staged[0].iterdir()}
+        assert leftovers == {path.name for path in originals}
+    else:
+        for path in originals[1:]:
+            assert (incoming / path.name).read_bytes() == path.read_bytes()
+
+
 def test_bundle_change_after_preview_fails_before_import(tmp_path: Path) -> None:
     private_key, trusted_dir = _write_keys(tmp_path)
     bundle = _build_bundle(tmp_path, private_key, trusted_dir)
@@ -723,11 +941,7 @@ def test_bundle_change_after_preview_fails_before_import(tmp_path: Path) -> None
         )
         operation = manager.get_operation(operation_id)
         assert operation is not None and operation.import_storage_key is not None
-        archive = (
-            settings.import_staging_root
-            / operation.import_storage_key
-            / "bundle.htp.tar.gz"
-        )
+        archive = settings.import_staging_root / operation.import_storage_key / "bundle.htp.tar.gz"
         with archive.open("ab") as handle:
             handle.write(b"tampered-after-preview")
         await orchestrator.start_import(

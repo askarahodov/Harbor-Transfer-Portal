@@ -8,7 +8,6 @@ import shutil
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
@@ -232,12 +231,11 @@ class OperationManager:
         if tasks:
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*tasks, return_exceptions=True),
+                    asyncio.shield(asyncio.gather(*tasks, return_exceptions=True)),
                     timeout=self.settings.operation_shutdown_timeout_seconds,
                 )
             except TimeoutError:
                 logger.error("operation workers did not stop before shutdown timeout")
-        self._tasks.clear()
 
     def create_operation(
         self,
@@ -338,10 +336,33 @@ class OperationManager:
 
         worker_token = secrets.token_hex(24)
         self._claim_worker(operation_id, worker_token)
+        started = False
+
+        async def run() -> None:
+            nonlocal started
+            started = True
+            await self._run_worker(operation_id, worker_token, worker)
+
+        def finish(completed: asyncio.Task[None]) -> None:
+            try:
+                if not started and completed.cancelled():
+                    try:
+                        if self._shutting_down:
+                            cleanup = self._handle_shutdown_interruption(operation_id)
+                        else:
+                            self._mark_cancelled(operation_id)
+                            cleanup = True
+                    finally:
+                        self._release_worker(operation_id, worker_token)
+                    if cleanup:
+                        self.cleanup_workspace(operation_id)
+            finally:
+                self._forget_task(operation_id, completed)
+
         try:
             loop = asyncio.get_running_loop()
             task = loop.create_task(
-                self._run_worker(operation_id, worker_token, worker),
+                run(),
                 name=f"operation-{operation_id}",
             )
         except RuntimeError as exc:
@@ -352,7 +373,7 @@ class OperationManager:
             ) from exc
 
         self._tasks[operation_id] = task
-        task.add_done_callback(partial(self._forget_task, operation_id))
+        task.add_done_callback(finish)
         return OperationHandle(operation_id=operation_id)
 
     async def wait(self, operation_id: int) -> None:
