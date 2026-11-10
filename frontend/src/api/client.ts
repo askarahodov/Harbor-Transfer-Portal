@@ -45,9 +45,16 @@ apiClient.interceptors.request.use((config) => {
 
 apiClient.interceptors.response.use(
   (response) => {
-    // Handle token refresh from backend
+    // Never resurrect a logged-out session or overwrite a newer token when
+    // a delayed refresh response belongs to a previous authenticated request.
     const newToken = response.headers['x-new-access-token']
-    if (newToken) {
+    const sentAuthorization = AxiosHeaders.from(response.config.headers).get('Authorization')
+    const currentToken = readAccessToken()
+    if (
+      typeof newToken === 'string' &&
+      currentToken &&
+      sentAuthorization === `Bearer ${currentToken}`
+    ) {
       storeAccessToken(newToken)
     }
     return response
