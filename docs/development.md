@@ -1,6 +1,6 @@
 # Разработка и локальный запуск на Windows и Linux
 
-**Статус:** актуальный developer workflow для source checkout. До закрытия [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482) это **ручной workflow** подготовки `.env`; администратор с обязательной сменой пароля теперь создаётся автоматически на пустой базе. Однокомандный запуск без предварительной подготовки пока не является подтверждённым contract.
+**Статус:** актуальный cross-platform source launcher. `run.sh`/`run.cmd` запускают Portal без Python на host; `tools/dev.py` — необязательный developer CLI на Python 3.12.
 
 Harbor Transfer Portal использует одинаковые Linux container images на обеих поддерживаемых host OS:
 
@@ -16,36 +16,46 @@ Application runtime использует обычную Compose bridge network �
 На обеих ОС:
 
 - Git;
-- Python 3.12;
 - Docker с Compose v2;
 - доступ к разрешённым build sources для Docker build.
 
-Для изменения frontend вне Docker дополнительно нужен Node.js 22.
+Для Python developer CLI дополнительно нужен Python 3.12. Для изменения frontend вне Docker нужен Node.js 22.
 
-Создайте локальную конфигурацию из `.env.example`. Реальные secrets в Git не добавляются. На новой пустой базе доступен одноразовый вход `admin/admin`: портал требует заменить пароль (не короче 12 символов), после чего нужно войти заново. JWT_SECRET при отсутствии значения генерируется backend и хранится в persistent volume.
+Скрипты создают `.env` из `.env.example`, только если его ещё нет, и сохраняют существующие настройки при повторном старте. Реальные secrets в Git не добавляются. На пустой базе доступен временный вход `admin/admin`: смена пароля от 12 символов обязательна, старые токены отзываются. `run.sh`/`run.cmd` используют генерацию JWT_SECRET в backend persistent volume; `tools/dev.py setup` дополнительно может записать локальный секрет непосредственно в `.env`.
 
 ### Linux
 
+Быстрый старт без Python на хосте:
+
 ```bash
-cp .env.example .env
+./run.sh
+```
+
+Необязательный developer CLI (Python 3.12):
+
+```bash
+python3 tools/dev.py setup
 python3 tools/dev.py doctor
-python3 tools/dev.py build
 python3 tools/dev.py up
 ```
 
 ### Windows CMD — canonical path
 
-Для Windows source build/run PowerShell не требуется. В обычном `cmd.exe`:
+Быстрый старт в обычном `cmd.exe`, без PowerShell и WSL:
 
 ```bat
-copy /Y .env.example .env
+run.cmd
+```
+
+Необязательный developer CLI (если установлен Python 3.12):
+
+```bat
+py -3 tools/dev.py setup
 py -3 tools/dev.py doctor
-py -3 tools/dev.py build
 py -3 tools/dev.py up
 ```
 
-`tools/dev.py` — основной cross-platform launcher. Он не зависит от shell-specific
-features и подходит для окружений, где запуск `.ps1` запрещён локальной политикой.
+Оба коротких скрипта запускают `docker compose up -d --build --force-recreate`. Запуск на Windows требует Docker Desktop в Linux containers mode. `tools/dev.py` не зависит от shell-specific features.
 
 ### Windows PowerShell — optional convenience
 
@@ -53,7 +63,6 @@ features и подходит для окружений, где запуск `.ps
 же `tools/dev.py`:
 
 ```powershell
-Copy-Item .env.example .env
 .\dev.ps1 doctor
 .\dev.ps1 build
 .\dev.ps1 up
@@ -66,9 +75,11 @@ Copy-Item .env.example .env
 
 | Команда | Назначение |
 |---|---|
-| `doctor` | проверяет Git, Docker, Compose и наличие `.env` |
+| `setup` | идемпотентно создаёт `.env` и локальный `JWT_SECRET`, ничего не перезаписывая |
+| `bootstrap` | явно проверяет временный локальный вход `admin/admin` (не выполняется автоматически при каждом запуске) |
+| `doctor` | проверяет Git, Docker, Compose и состояние `.env`, объясняет fallback JWT в volume |
 | `build` | собирает backend/frontend Docker images из текущего Git revision |
-| `up` | выполняет build и `--force-recreate` локального stack |
+| `up` | автоматически запускает `setup` при отсутствии `.env`, затем build и `--force-recreate` локального stack |
 | `down` | останавливает stack без удаления persistent volume |
 | `logs` | показывает Compose logs |
 | `compose-config` | валидирует итоговую Compose configuration |

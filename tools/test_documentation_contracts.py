@@ -331,5 +331,19 @@ class DocumentationContractTests(unittest.TestCase):
         self.assertIn("Compose smoke", docs_map)
 
 
+    def test_first_run_documentation_matches_supported_launchers(self) -> None:
+        readme = self.read("README.md")
+        development = self.read("docs/development.md")
+        contributing = self.read("CONTRIBUTING.md")
+        offline = self.read("deploy/offline/README.md")
+        for text in (readme, development):
+            self.assertIn("run.sh", text)
+            self.assertIn("run.cmd", text)
+            self.assertIn("admin/admin", text)
+            self.assertNotIn("BOOTSTRAP_ADMIN_PASSWORD", text)
+        self.assertIn("tools/dev.py setup", development)
+        self.assertIn("source launcher", offline)
+        self.assertIn("run.cmd", contributing)
+
 if __name__ == "__main__":
     unittest.main()

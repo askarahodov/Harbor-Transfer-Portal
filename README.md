@@ -18,61 +18,44 @@
 
 ### Требования
 
-- Docker Engine + Docker Compose v2 на Linux **или** Docker Desktop в режиме Linux containers на Windows 10/11;
 - Git;
-- доступ к разрешённым build sources для первичной source-сборки.
+- Docker Engine + Docker Compose v2 на Linux или Docker Desktop в режиме **Linux containers** на Windows 10/11;
+- доступ к разрешённым Docker build sources для первого source-запуска.
 
-WSL, Git Bash, GNU Make и выполнение PowerShell scripts для обычного Docker Compose запуска на Windows не требуются. Расширенный developer workflow описан в [docs/development.md](docs/development.md).
+**Python, WSL, GNU Make, Git Bash и PowerShell не требуются** для обычного запуска из исходного репозитория.
 
 ### Windows 10/11 — CMD
 
-В обычном `cmd.exe`:
+Откройте обычный `cmd.exe`:
 
 ```bat
-REM 1. Клонировать и настроить
 git clone https://github.com/askarahodov/Harbor-Transfer-Portal.git
 cd Harbor-Transfer-Portal
-copy /Y .env.example .env
-REM Отредактируйте .env: PORTAL_CONTOUR, HARBOR_URL, HARBOR_USER, HARBOR_PASSWORD, JWT_SECRET
-
-REM 2. Собрать и запустить
-docker compose up -d --build --force-recreate
-
-REM 3. На новой базе войти admin/admin и обязательно сменить пароль в UI
-
-REM 4. Открыть Portal и документацию
-start "" http://localhost:8080/
-start "" http://localhost:8080/docs/
+run.cmd
 ```
-
-Если локальная политика запрещает запуск `.ps1`, ничего обходить не требуется: команды выше используют только CMD и Docker Compose.
 
 ### Linux
 
 ```bash
-# 1. Клонировать и настроить
 git clone https://github.com/askarahodov/Harbor-Transfer-Portal.git
 cd Harbor-Transfer-Portal
-cp .env.example .env
-# Отредактируйте .env: PORTAL_CONTOUR, HARBOR_URL, HARBOR_USER, HARBOR_PASSWORD, JWT_SECRET
-
-# 2. Собрать и запустить
-docker compose up -d --build --force-recreate
-
-# 3. На новой базе войти admin/admin и обязательно сменить пароль в UI
-
-# 4. Portal:        http://localhost:8080/
-#    Документация: http://localhost:8080/docs/
+./run.sh
 ```
 
-### Обязательные переменные в `.env`
+Оба скрипта сохраняют существующий `.env`, при необходимости создают его из `.env.example` и выполняют `docker compose up -d --build --force-recreate`. Секрет JWT при отсутствии значения безопасно генерируется backend и повторно используется из persistent volume; в Git он не попадает. При **первой установке на пустую базу** войдите `admin/admin` и обязательно установите новый пароль от 12 символов. До смены пароля административные и transfer API недоступны. После смены войдите с новым паролем.
+
+Откройте Portal по адресу `http://127.0.0.1:8080/` или локальную документацию `http://127.0.0.1:8080/docs/`. URL рассчитан на локальный bootstrap; для удалённых браузеров нужен одобренный HTTPS-терминатор. Адрес и порт могут быть изменены через `.env`. Изначальный `HARBOR_URL` является placeholder: добавьте действительный локальный Harbor profile через **Настройки**, прежде чем переносить артефакты.
+
+Разработческий Python launcher: `python3 tools/dev.py setup`, `python3 tools/dev.py doctor`, `python3 tools/dev.py up` (Windows: `py -3`). Он необязателен для `run.sh`/`run.cmd`. Подробнее: [docs/development.md](docs/development.md).
+
+### Конфигурация `.env` и Harbor
 
 | Переменная | Описание | Пример |
 |---|---|---|
 | `PORTAL_CONTOUR` | initial runtime role: `SOURCE` или `TARGET` | `SOURCE` |
-| `HARBOR_URL` | URL legacy/default локального Harbor | `https://harbor.local` |
-| `HARBOR_USER` | Service account legacy/default Harbor | `transfer-bot` |
-| `HARBOR_PASSWORD` | Пароль legacy/default Harbor | `secret` |
+| `HARBOR_URL` | Необязательный legacy fallback; настройте локальный Harbor profile через UI | `https://harbor.local.example` |
+| `HARBOR_USER` | Необязательный legacy fallback service account | `transfer-bot` |
+| `HARBOR_PASSWORD` | Необязательный legacy fallback, предпочтительно file-backed secret или UI | Не храните в Git |
 | `JWT_SECRET` | Необязателен: backend генерирует и сохраняет секрет на persistent volume, если значение отсутствует | Не включать в Git |
 
 После bootstrap дополнительные именованные Harbor profiles управляются через **Настройки → Harbor profiles**. Новый Export/Import workflow выбирает нужный enabled profile явно; legacy/default Harbor сохраняется для backward compatibility.
