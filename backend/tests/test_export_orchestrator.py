@@ -504,6 +504,7 @@ def test_profile_resolution_failure_during_export_keeps_actionable_error(
     ]
     assert _outgoing_is_empty(settings)
 
+
 def test_preflight_profile_failure_aborts_all_artifacts_without_partial_bundle(
     tmp_path: Path,
 ) -> None:
