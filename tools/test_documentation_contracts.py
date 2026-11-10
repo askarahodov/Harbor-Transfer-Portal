@@ -309,7 +309,7 @@ class DocumentationContractTests(unittest.TestCase):
         security = self.read("docs/security.md")
         adr = self.read("docs/adr/ADR-004-auth-session.md")
         self.assertIn("текущего", security)
-        self.assertIn("старого JWT", security)
+        self.assertIn("предыдущего JWT", security)
         self.assertNotIn("Любой authenticated API response", adr)
         self.assertIn("только если запрос использовал текущий bearer token", adr)
         self.assertIn("activity-only renewal", adr)
