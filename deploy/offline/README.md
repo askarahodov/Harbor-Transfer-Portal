@@ -1,5 +1,7 @@
 # Harbor Transfer Portal — offline install kit
 
+**Граница установки:** корневые `run.sh` и `run.cmd` предназначены только для запуска из исходного checkout с Docker build. Они **не заменяют** подписанный offline release kit в закрытом контуре. Offline installer выполняет `docker load` и Compose `--no-build --pull never`; на Linux используйте штатный `install.sh`, не source launcher. Windows-native offline lifecycle не заявлен.
+
 Этот каталог является шаблоном release payload для закрытого контура. Финальный kit создаётся из **уже собранных release images** в контролируемой build/release среде:
 
 ```bash
