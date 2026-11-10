@@ -167,7 +167,9 @@ def _authorize_download_request(
             user_id, _ = check_and_refresh_token(
                 credentials.credentials,
                 secret,
-                inactivity_timeout_minutes=request.app.state.settings.jwt_inactivity_timeout_minutes,
+                inactivity_timeout_minutes=(
+                    request.app.state.settings.jwt_inactivity_timeout_minutes
+                ),
                 lifetime_minutes=request.app.state.settings.jwt_access_token_minutes,
             )
             token_version = read_access_token_version(credentials.credentials, secret)
