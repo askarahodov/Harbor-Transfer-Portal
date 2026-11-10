@@ -1,6 +1,6 @@
 # Разработка и локальный запуск на Windows и Linux
 
-**Статус:** актуальный developer workflow для source checkout.
+**Статус:** актуальный developer workflow для source checkout. До закрытия [#481](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/481) и [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482) это **ручной workflow**: `.env` и первичный local admin требуют настройки. Однокомандный запуск без предварительной подготовки пока не является подтверждённым contract.
 
 Harbor Transfer Portal использует одинаковые Linux container images на обеих поддерживаемых host OS:
 
