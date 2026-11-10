@@ -1006,11 +1006,17 @@ class ImportOrchestrator:
         try:
             os.link(destination, source, follow_symlinks=False)
         except OSError as exc:
-            if exc.errno not in _NO_HARDLINK_ERRNOS:
-                raise
-            # Filesystems such as FAT/exFAT or hardened policies reject hard links.
-            # rename() with a pre-check keeps the previous no-clobber semantics.
-            os.rename(destination, source)
+            if exc.errno in _NO_HARDLINK_ERRNOS:
+                # A preceding lstat is not an atomic no-clobber guarantee:
+                # os.rename() may overwrite an incoming file created by another
+                # writer in the gap. On filesystems that prohibit hardlinks,
+                # leave the original in staging for controlled recovery.
+                raise OSError(
+                    errno.EOPNOTSUPP,
+                    "atomic no-clobber restore is unavailable; delivery retained in staging",
+                    str(source),
+                ) from exc
+            raise
         else:
             destination.unlink()
 
