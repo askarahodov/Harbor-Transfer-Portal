@@ -60,9 +60,19 @@ apiClient.interceptors.response.use(
     return response
   },
   (error: unknown) => {
-    if (axios.isAxiosError(error) && error.response?.status === 401 && readAccessToken()) {
-      clearAccessToken()
-      unauthorizedHandler?.()
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      // In-flight requests can outlive a renewal or a subsequent login.
+      // Only a 401 for the *current* bearer may invalidate the session.
+      // A late 401 from an older token (or tokenless login) must not log
+      // out an already refreshed or newly authenticated user.
+      const currentToken = readAccessToken()
+      const sentAuthorization = error.config
+        ? AxiosHeaders.from(error.config.headers).get('Authorization')
+        : null
+      if (currentToken && sentAuthorization === `Bearer ${currentToken}`) {
+        clearAccessToken()
+        unauthorizedHandler?.()
+      }
     }
     return Promise.reject(error)
   },
