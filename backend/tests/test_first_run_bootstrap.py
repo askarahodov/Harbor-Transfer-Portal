@@ -31,7 +31,10 @@ def test_first_run_requires_password_change_and_revokes_old_tokens(tmp_path: Pat
         headers = {"Authorization": f"Bearer {token}"}
         assert client.get("/api/auth/me", headers=headers).json()["must_change_password"] is True
         assert client.get("/api/users", headers=headers).status_code == 403
-        assert client.get("/api/users", headers=headers).json()["error"]["message"] == "password_change_required"
+        assert (
+            client.get("/api/users", headers=headers).json()["error"]["message"]
+            == "password_change_required"
+        )
         assert client.get("/api/settings/harbor", headers=headers).status_code == 403
         assert client.post("/api/auth/activity", headers=headers).status_code == 204
         assert client.post("/api/auth/change-password", headers=headers, json={
@@ -54,7 +57,9 @@ def test_first_run_requires_password_change_and_revokes_old_tokens(tmp_path: Pat
         })
         assert new_login.status_code == 200
         new_headers = {"Authorization": f"Bearer {new_login.json()['access_token']}"}
-        assert client.get("/api/auth/me", headers=new_headers).json()["must_change_password"] is False
+        assert (
+            client.get("/api/auth/me", headers=new_headers).json()["must_change_password"] is False
+        )
         assert client.get("/api/users", headers=new_headers).status_code == 200
         with app.state.session_factory() as session:
             events = list(session.scalars(select(AuditEvent).order_by(AuditEvent.id)))

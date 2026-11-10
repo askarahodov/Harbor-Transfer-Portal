@@ -16,6 +16,7 @@ describe('first-login password change', () => {
     await router.isReady()
     const auth = useAuthStore(pinia)
     const change = vi.spyOn(auth, 'changePassword').mockResolvedValue(true)
+    const replace = vi.spyOn(router, 'replace')
     const wrapper = mount(ChangePasswordView, { global: { plugins: [pinia, router] } })
 
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
@@ -26,6 +27,6 @@ describe('first-login password change', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(change).toHaveBeenCalledWith('admin', 'new-admin-password-123')
-    expect(router.currentRoute.value.path).toBe('/login')
+    expect(replace).toHaveBeenCalledWith('/login')
   })
 })

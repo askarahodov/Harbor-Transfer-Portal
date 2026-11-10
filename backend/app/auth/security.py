@@ -41,7 +41,9 @@ def verify_login_password(password: str, password_hash: str | None) -> bool:
     return verify_password(password, password_hash or _DUMMY_PASSWORD_HASH)
 
 
-def create_access_token(*, user_id: int, secret: str, lifetime_minutes: int, token_version: int = 0) -> str:
+def create_access_token(
+    *, user_id: int, secret: str, lifetime_minutes: int, token_version: int = 0
+) -> str:
     now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
