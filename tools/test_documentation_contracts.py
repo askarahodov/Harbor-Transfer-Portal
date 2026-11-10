@@ -134,7 +134,10 @@ class DocumentationContractTests(unittest.TestCase):
         offline = self.read("deploy/offline/README.md")
         testing = self.read("docs/testing.md")
 
-        self.assertIn("Windows CMD — canonical path", deploy)
+        self.assertIn("Linux — запуск исходного checkout", deploy)
+        self.assertIn("Windows CMD:", deploy)
+        self.assertIn("./run.sh", deploy)
+        self.assertIn("run.cmd", deploy)
         self.assertIn("bundle + .sha256 + signed .htp-handoff.json download", deploy)
         self.assertIn("полного delivery triplet", deploy)
 
