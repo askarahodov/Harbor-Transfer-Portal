@@ -336,6 +336,7 @@ class DocumentationContractTests(unittest.TestCase):
         development = self.read("docs/development.md")
         contributing = self.read("CONTRIBUTING.md")
         offline = self.read("deploy/offline/README.md")
+        deployment = self.read("deploy/README.md")
         roadmap = self.read("ROADMAP.md")
         docs_map = self.read("docs/README.md")
         for text in (readme, development):
@@ -346,6 +347,11 @@ class DocumentationContractTests(unittest.TestCase):
         self.assertIn("tools/dev.py setup", development)
         self.assertIn("source launcher", offline)
         self.assertIn("run.cmd", contributing)
+        self.assertIn("run.sh", deployment)
+        self.assertIn("run.cmd", deployment)
+        self.assertIn("admin/admin", deployment)
+        self.assertIn("password_change_required", deployment)
+        self.assertNotIn("BOOTSTRAP_ADMIN_PASSWORD", deployment)
         for text in (roadmap, docs_map):
             self.assertIn("run.sh", text)
             self.assertIn("run.cmd", text)
