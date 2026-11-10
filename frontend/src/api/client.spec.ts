@@ -101,6 +101,7 @@ describe('api client session transport', () => {
     const adapter = vi.fn(
       (config: InternalAxiosRequestConfig) =>
         new Promise<AxiosResponse>((_resolve, reject) => {
+          expect(config.url).toBe('/auth/me')
           rejectOldRequest = (error) => reject(error)
         }),
     )
@@ -130,6 +131,7 @@ describe('api client session transport', () => {
     const adapter = vi.fn(
       (config: InternalAxiosRequestConfig) =>
         new Promise<AxiosResponse>((_resolve, reject) => {
+          expect(config.url).toBe('/auth/login')
           rejectLogin = (error) => reject(error)
         }),
     )
