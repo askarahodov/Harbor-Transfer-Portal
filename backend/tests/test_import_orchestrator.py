@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import os
 import shutil
@@ -923,6 +924,55 @@ def test_discovery_failed_restore_preserves_staged_files(
     else:
         for path in originals[1:]:
             assert (incoming / path.name).read_bytes() == path.read_bytes()
+
+
+@pytest.mark.parametrize("concurrent_writer", [False, True])
+def test_restore_without_hardlinks_never_overwrites_a_racing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, concurrent_writer: bool
+) -> None:
+    private_key, trusted_dir = _write_keys(tmp_path)
+    bundle = _build_bundle(tmp_path, private_key, trusted_dir)
+    settings, _manager, _skopeo, _helm, orchestrator = _target_environment(
+        tmp_path, trusted_dir
+    )
+    incoming = settings.import_discovery_root
+    incoming.mkdir(parents=True, exist_ok=True)
+    originals = [bundle.archive_path, bundle.sidecar_path, bundle.handoff_path]
+    for path in originals:
+        shutil.copyfile(path, incoming / path.name)
+
+    def unsafe_link(_source, target, **_kwargs):  # type: ignore[no-untyped-def]
+        if concurrent_writer and Path(target).name == bundle.handoff_path.name:
+            Path(target).write_bytes(b"unrelated-concurrent-handoff")
+        raise OSError(errno.EOPNOTSUPP, "hardlinks disabled")
+
+    def forbidden_rename(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        pytest.fail("unsafe os.rename fallback must never be attempted")
+
+    monkeypatch.setattr(os, "link", unsafe_link)
+    monkeypatch.setattr(os, "rename", forbidden_rename)
+
+    def fail_hash(_path: Path) -> str:
+        raise OSError("simulated discovery failure")
+
+    monkeypatch.setattr(orchestrator, "_sha256_file", fail_hash)
+    with pytest.raises(OSError, match="simulated discovery failure") as error:
+        asyncio.run(orchestrator.discover_ready(actor_user_id=1, actor_username="operator"))
+
+    staged = list(settings.import_staging_root.iterdir())
+    assert len(staged) == 1
+    assert {p.name for p in staged[0].iterdir()} == {p.name for p in originals}
+    for path in originals:
+        assert (staged[0] / path.name).read_bytes() == path.read_bytes()
+    if concurrent_writer:
+        assert (incoming / bundle.handoff_path.name).read_bytes() == (
+            b"unrelated-concurrent-handoff"
+        )
+    else:
+        assert not (incoming / bundle.handoff_path.name).exists()
+    assert "atomic no-clobber restore is unavailable" in " ".join(
+        error.value.__notes__
+    )
 
 
 def test_bundle_change_after_preview_fails_before_import(tmp_path: Path) -> None:
