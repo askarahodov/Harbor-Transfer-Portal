@@ -432,6 +432,20 @@ operation ID, таймштампы и редактированные логи б
 
 Классический Helm hosted обычно предоставляет index.yaml и tarball через HTTP. Даже если Helm-чарты физически хранятся в Nexus, это не делает его OCI registry. Если в Nexus настроено несколько Docker и обычных Helm репозиториев, их доступность проверяется отдельно для каждой сервисной учётной записи. Разрешение на список репозиториев не эквивалентно разрешению читать chart/image или публиковать на TARGET.
 
+### Региональный контур: Docker v2 через отдельный vhost
+
+Доступ к Docker Registry v2 может быть опубликован не на UI-хосте Nexus (`https://nexus.<domain>`), а на отдельном виртуальном хосте, который reverse proxy направляет в Docker connector. Подтверждённый пример регионального контура:
+
+~~~text
+UI            https://nexus.softrust.ru           -> /v2/ = 404 (не registry)
+Docker v2     https://docker-all-nexus.softrust.ru -> /v2/ = 401 + Bearer realm
+~~~
+
+Проверка корректности адреса профиля: запрос `GET <NEXUS_URL>/v2/` без credentials должен вернуть **HTTP 401** с заголовком
+`www-authenticate: Bearer realm="<NEXUS_URL>/v2/token"`. Если приходит **404**, URL указывает на UI или на `/repository/<name>`, а не на корень Docker v2 — профиль в Portal будет отвечать `registry_error`. Чтобы не ошибиться, используйте жестовую проверку **Settings → Harbor Profiles → Проверить подключение**: успешный ответ — `registry_connection_ok`.
+
+Для доступа к образам в proxy-репозитории путь к образу включает имя репозитория Nexus, например `harbor-clever/appointment-api`.
+
 ## Проверка совместимости в GitHub Actions
 
 Workflow: **Actions → Nexus legacy Docker v2 E2E**, файл [.github/workflows/nexus-legacy-e2e.yml](../.github/workflows/nexus-legacy-e2e.yml).

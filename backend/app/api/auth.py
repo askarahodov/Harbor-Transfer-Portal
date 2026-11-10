@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from app.auth.dependencies import CurrentUserDep, SessionDep
 from app.auth.rate_limit import LoginRateLimitDecision, LoginRateLimiter
@@ -94,7 +94,10 @@ def login(
     token = create_access_token(
         user_id=user.id,
         secret=jwt_secret,
-        lifetime_minutes=settings.jwt_access_token_minutes,
+        lifetime_minutes=max(
+            settings.jwt_access_token_minutes,
+            settings.jwt_inactivity_timeout_minutes,
+        ),
     )
     return TokenResponse(access_token=token)
 
@@ -107,3 +110,28 @@ def me(user: CurrentUserDep) -> CurrentUserResponse:
         role=user.role,
         is_active=user.is_active,
     )
+
+
+@router.post("/activity", status_code=status.HTTP_204_NO_CONTENT)
+def renew_active_session(
+    user: CurrentUserDep,
+    request: Request,
+    response: Response,
+) -> None:
+    """Renew only after explicit user interaction; passive API polling is not activity."""
+    settings = request.app.state.settings
+    secret = settings.jwt_secret
+    if secret is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="authentication is not configured",
+        )
+    response.headers["X-New-Access-Token"] = create_access_token(
+        user_id=user.id,
+        secret=secret.get_secret_value(),
+        lifetime_minutes=max(
+            settings.jwt_access_token_minutes,
+            settings.jwt_inactivity_timeout_minutes,
+        ),
+    )
+    response.headers["Cache-Control"] = "no-store"

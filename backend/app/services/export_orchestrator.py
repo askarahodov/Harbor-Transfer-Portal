@@ -48,6 +48,8 @@ from app.services.skopeo_service import ImageReference, SkopeoService, SkopeoSer
 
 logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(slots=True)
 class ExportOrchestrationError(Exception):
@@ -629,9 +631,25 @@ class ExportOrchestrator:
                 self._cleanup_published_delivery(delivery_id)
                 raise
         finally:
-            self._cleanup_helm_root(helm_root)
             if completed:
-                context.cleanup_workspace()
+                # The delivery is already terminal COMPLETED and published.
+                # Best-effort temporary cleanup must never roll it back.
+                try:
+                    self._cleanup_helm_root(helm_root)
+                except Exception:
+                    logger.exception(
+                        "export post-completion Helm workspace cleanup failed",
+                        extra={"operation_id": context.operation_id},
+                    )
+                try:
+                    context.cleanup_workspace()
+                except Exception:
+                    logger.exception(
+                        "export post-completion operation workspace cleanup failed",
+                        extra={"operation_id": context.operation_id},
+                    )
+            else:
+                self._cleanup_helm_root(helm_root)
 
     async def _build_bundle_cancellation_safe(
         self,

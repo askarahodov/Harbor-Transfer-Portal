@@ -361,6 +361,49 @@ def test_member_limit_is_enforced_before_payload_read(tmp_path: Path) -> None:
     assert exc.value.code == "bundle_member_limit_exceeded"
 
 
+@pytest.mark.parametrize("cached", [False, True])
+def test_member_limit_stops_iteration_with_pax_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cached: bool
+) -> None:
+    service = BundlePackageService(_settings(tmp_path, max_members=4))
+    path = tmp_path / "many-members.tar.gz"
+    with tarfile.open(path, "w:gz", format=tarfile.PAX_FORMAT) as archive:
+        for index in range(12):
+            member = tarfile.TarInfo(f"images/{index}-" + "a" * 150)
+            archive.addfile(member, io.BytesIO(b""))
+
+    with tarfile.open(path, "r:gz") as archive:
+        if cached:
+            archive.getmembers()
+        original_iter = tarfile.TarFile.__iter__
+        yielded: list[tarfile.TarInfo] = []
+
+        def counted_iter(bundle: tarfile.TarFile):  # type: ignore[no-untyped-def]
+            for member in original_iter(bundle):
+                yielded.append(member)
+                yield member
+
+        monkeypatch.setattr(tarfile.TarFile, "__iter__", counted_iter)
+        with pytest.raises(BundlePackageError) as exc:
+            service._inspect_archive(archive, path.stat().st_size)
+
+        assert exc.value.code == "bundle_member_limit_exceeded"
+        assert len(yielded) == 5
+        if not cached:
+            assert len(archive.members) == 5
+
+
+def test_member_limit_accepts_exactly_the_limit(tmp_path: Path) -> None:
+    service, built = _build(tmp_path)
+    with tarfile.open(built.archive_path, "r:gz") as archive:
+        count = len(archive.getmembers())
+    limited = BundlePackageService(
+        service.settings.model_copy(update={"bundle_max_member_count": count})
+    )
+
+    limited.verify_bundle(built.archive_path)
+
+
 def test_private_key_permissions_are_rejected(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     os.chmod(settings.bundle_signing_private_key_file, 0o644)

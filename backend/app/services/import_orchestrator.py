@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import errno
+import functools
 import hashlib
 import json
+import logging
 import os
 import secrets
 import shutil
@@ -10,6 +14,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -65,6 +70,21 @@ from app.services.skopeo_service import (
     SkopeoServiceError,
     TargetState,
 )
+
+_NO_HARDLINK_ERRNOS = {
+    errno.EPERM,
+    errno.EOPNOTSUPP,
+    errno.ENOTSUP,
+    errno.EMLINK,
+    errno.ENOSYS,
+}
+
+logger = logging.getLogger(__name__)
+
+
+def _consume_future_outcome(future: asyncio.Future[Any]) -> None:
+    if not future.cancelled():
+        future.exception()
 
 
 @dataclass(slots=True)
@@ -275,16 +295,15 @@ class ImportOrchestrator:
             claimed_archive = storage_dir / archive.name
             claimed_sidecar = storage_dir / sidecar.name
             claimed_handoff = storage_dir / handoff.name
+            claimed: list[tuple[Path, Path]] = []
             try:
-                os.replace(archive, claimed_archive)
-                try:
-                    os.replace(sidecar, claimed_sidecar)
-                    os.replace(handoff, claimed_handoff)
-                except Exception:
-                    if claimed_sidecar.exists():
-                        os.replace(claimed_sidecar, sidecar)
-                    os.replace(claimed_archive, archive)
-                    raise
+                for source, destination in (
+                    (archive, claimed_archive),
+                    (sidecar, claimed_sidecar),
+                    (handoff, claimed_handoff),
+                ):
+                    os.replace(source, destination)
+                    claimed.append((destination, source))
                 self._fsync_directory(storage_dir)
                 sha256 = await asyncio.to_thread(self._sha256_file, claimed_archive)
                 operation_id = self._create_intake_operation(
@@ -298,8 +317,8 @@ class ImportOrchestrator:
                     size_bytes=size,
                     harbor_profile_id=harbor_profile_id,
                 )
-            except Exception:
-                shutil.rmtree(storage_dir, ignore_errors=True)
+            except BaseException as exc:
+                self._restore_claimed_delivery(exc, claimed, storage_dir)
                 raise
             self._submit_preview(operation_id)
             ready.append(
@@ -526,14 +545,28 @@ class ImportOrchestrator:
 
         extraction = self.extract_root / f"import-{operation_id}"
         self._remove_path(extraction)
+        extraction_owned = False
         try:
             try:
-                verified = await asyncio.to_thread(
-                    self.package_factory().verify_bundle,
-                    archive,
-                    sidecar_path=sidecar,
-                    extract_to=extraction,
+                loop = asyncio.get_running_loop()
+                verify_future = loop.run_in_executor(
+                    None,
+                    contextvars.copy_context().run,
+                    functools.partial(
+                        self.package_factory().verify_bundle,
+                        archive,
+                        sidecar_path=sidecar,
+                        extract_to=extraction,
+                    ),
                 )
+                try:
+                    verified = await asyncio.shield(verify_future)
+                except asyncio.CancelledError:
+                    # Keep draining the executor thread: it may still be writing into
+                    # extraction, and the shutdown timeout must stay the upper bound.
+                    await self._wait_for_abandoned_verification(verify_future)
+                    extraction_owned = verify_future.done()
+                    raise
             except BundlePackageError as exc:
                 raise OperationTaskFailure(exc.code, exc.message) from exc
             if (
@@ -549,6 +582,7 @@ class ImportOrchestrator:
                     "import_extract_failed",
                     "Verified bundle не был извлечён",
                 )
+            extraction_owned = True
 
             artifacts = operation.artifacts
             if len(artifacts) != len(verified.manifest.artifacts):
@@ -702,7 +736,13 @@ class ImportOrchestrator:
             context.transition(OperationStatus.COMPLETED)
             self._cleanup_storage_if_unreferenced(operation_id)
         finally:
-            self._remove_path(extraction)
+            if extraction_owned:
+                self._remove_path(extraction)
+            else:
+                logger.warning(
+                    "import verification still writing; extraction retained",
+                    extra={"operation_id": operation_id, "path": str(extraction)},
+                )
 
     async def _preflight_target(
         self,
@@ -885,12 +925,115 @@ class ImportOrchestrator:
                 "Не удалось сохранить browser handoff metadata",
             ) from exc
 
+    async def _wait_for_abandoned_verification(
+        self,
+        verify_future: asyncio.Future[Any],
+    ) -> None:
+        """Drain a cancelled verification without exceeding the shutdown budget.
+
+        Executor threads cannot be interrupted, so the worker keeps waiting for the
+        real filesystem work to finish. Once the shutdown budget is exhausted the
+        wait is abandoned; the extraction directory is then left for manual cleanup
+        instead of being deleted under a thread that may still write into it.
+        """
+        budget = max(float(self.settings.operation_shutdown_timeout_seconds), 0.0)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + budget
+        while not verify_future.done():
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                verify_future.add_done_callback(_consume_future_outcome)
+                logger.error("import verification did not finish within shutdown budget")
+                return
+            try:
+                await asyncio.wait_for(asyncio.shield(verify_future), timeout=remaining)
+            except TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                return
+
     def _prepare_storage_dir(self, storage_key: str) -> Path:
         self.staging_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.staging_root, 0o700)
         storage_dir = self.staging_root / storage_key
         storage_dir.mkdir(mode=0o700)
         return storage_dir
+
+    def _restore_claimed_delivery(
+        self,
+        error: BaseException,
+        claimed: list[tuple[Path, Path]],
+        storage_dir: Path,
+    ) -> None:
+        if not claimed:
+            self._prune_claimed_dir(storage_dir, [])
+            return
+        busy = [source for _, source in claimed if self._is_occupied(source)]
+        if busy:
+            error.add_note(
+                "Delivery retained in staging because incoming names are occupied: "
+                f"{', '.join(str(path) for path in busy)}; staged: "
+                f"{', '.join(str(destination) for destination, _ in claimed)}"
+            )
+            self._prune_claimed_dir(storage_dir, [destination for destination, _ in claimed])
+            return
+
+        failed: set[Path] = set()
+        for destination, source in reversed(claimed):
+            try:
+                self._restore_file(destination, source)
+            except OSError as restore_error:
+                failed.add(destination)
+                error.add_note(
+                    f"Could not restore {source}; retained {destination}: {restore_error}"
+                )
+        if failed:
+            error.add_note(
+                "Delivery retained in staging after partial restore: "
+                f"{', '.join(str(path) for path in sorted(failed))}"
+            )
+        self._prune_claimed_dir(storage_dir, sorted(failed))
+
+    @staticmethod
+    def _is_occupied(path: Path) -> bool:
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return True
+        return True
+
+    def _restore_file(self, destination: Path, source: Path) -> None:
+        if self._is_occupied(source):
+            raise FileExistsError(errno.EEXIST, "restore target already exists", str(source))
+        try:
+            os.link(destination, source, follow_symlinks=False)
+        except OSError as exc:
+            if exc.errno in _NO_HARDLINK_ERRNOS:
+                # A preceding lstat is not an atomic no-clobber guarantee:
+                # os.rename() may overwrite an incoming file created by another
+                # writer in the gap. On filesystems that prohibit hardlinks,
+                # leave the original in staging for controlled recovery.
+                raise OSError(
+                    errno.EOPNOTSUPP,
+                    "atomic no-clobber restore is unavailable; delivery retained in staging",
+                    str(source),
+                ) from exc
+            raise
+        else:
+            destination.unlink()
+
+    @staticmethod
+    def _prune_claimed_dir(storage_dir: Path, retained: list[Path]) -> None:
+        if retained:
+            return
+        try:
+            storage_dir.rmdir()
+        except OSError:
+            pass
 
     def _require_target(self) -> None:
         if self.settings.portal_contour is not PortalContour.TARGET:

@@ -53,70 +53,52 @@ def check_and_refresh_token(
     inactivity_timeout_minutes: int,
     lifetime_minutes: int,
 ) -> tuple[int, str | None]:
-    """
-    Decode token, check inactivity timeout, and optionally refresh.
+    """Validate the signed JWT and its idle window, without silently extending it.
 
-    Returns:
-        tuple[user_id, new_token | None]
-
-    If token is valid and not expired by inactivity, returns (user_id, None).
-    If token is valid but inactive for too long, raises ValueError.
-    If token is valid and should be refreshed (approaching inactivity timeout),
-        returns (user_id, new_token).
+    Background polling and API requests must not count as human activity.
+    Only the explicit authenticated /auth/activity endpoint renews the session.
+    The legacy tuple return shape is kept for existing auth dependencies.
     """
     try:
         payload = decode(token, secret, algorithms=["HS256"])
         if payload.get("type") != "access":
             raise ValueError("invalid token type")
-
-        int(payload["sub"])  # validate subject before timeout checks
-
-        # Check inactivity timeout
-        last_activity_str = payload.get("last_activity")
-        if last_activity_str is None:
-            # Legacy token without last_activity - treat as expired
-            raise ValueError("token missing last_activity")
-
-        last_activity = datetime.fromisoformat(last_activity_str)
-        now = datetime.now(UTC)
-        inactive_duration = now - last_activity
-
-        if inactive_duration > timedelta(minutes=60):  # hard limit: 1 hour absolute max
-            raise ValueError("token expired by absolute timeout")
-
-        inactivity_timeout = timedelta(minutes=60)  # 1 hour inactivity timeout
-        if inactive_duration > inactivity_timeout:
-            raise ValueError("token expired by inactivity timeout")
-
-        # Check if we should refresh (e.g., within 10 minutes of inactivity timeout)
-        refresh_threshold = timedelta(minutes=10)
-        if (inactivity_timeout - inactive_duration) < refresh_threshold:
-            # Refresh the token
-            new_token = create_access_token(
-                user_id=int(payload["sub"]),
-                secret="",  # will be replaced by caller
-                lifetime_minutes=30,
-            )
-            return int(payload["sub"]), new_token
-
-        return int(payload["sub"]), None
-
-    except (InvalidTokenError, KeyError, TypeError, ValueError) as exc:
-        raise ValueError("invalid access token") from exc
-
-
-def refresh_access_token(token: str, secret: str, lifetime_minutes: int) -> str:
-    """Refresh an existing valid token, preserving user_id and updating last_activity."""
-    try:
-        payload = decode(token, secret, algorithms=["HS256"])
-        if payload.get("type") != "access":
-            raise ValueError("invalid token type")
-
         user_id = int(payload["sub"])
-        return create_access_token(user_id=user_id, secret=secret, lifetime_minutes=30)
-    except (InvalidTokenError, KeyError, TypeError, ValueError) as exc:
+        last_activity_raw = payload["last_activity"]
+        if not isinstance(last_activity_raw, str):
+            raise ValueError("invalid last_activity")
+        last_activity = datetime.fromisoformat(last_activity_raw)
+        if last_activity.tzinfo is None:
+            raise ValueError("last_activity must be timezone-aware")
+        now = datetime.now(UTC)
+        idle_duration = now - last_activity
+        if idle_duration < timedelta(0) or idle_duration >= timedelta(
+            minutes=inactivity_timeout_minutes
+        ):
+            raise ValueError("session expired by inactivity")
+        return user_id, None
+    except (InvalidTokenError, KeyError, TypeError, ValueError, OverflowError) as exc:
         raise ValueError("invalid access token") from exc
 
+
+def refresh_access_token(
+    token: str,
+    secret: str,
+    lifetime_minutes: int,
+    inactivity_timeout_minutes: int = 60,
+) -> str:
+    """Renew only a valid active JWT, signed with the configured secret."""
+    user_id, _ = check_and_refresh_token(
+        token,
+        secret,
+        inactivity_timeout_minutes=inactivity_timeout_minutes,
+        lifetime_minutes=lifetime_minutes,
+    )
+    return create_access_token(
+        user_id=user_id,
+        secret=secret,
+        lifetime_minutes=max(lifetime_minutes, inactivity_timeout_minutes),
+    )
 
 def create_export_download_token(
     *,

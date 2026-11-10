@@ -133,3 +133,115 @@ def test_shutdown_fails_worker_cancelled_while_waiting_for_slot(tmp_path: Path) 
     assert queued.status is OperationStatus.FAILED
     assert queued.error_code == "operation_interrupted_shutdown"
     assert queued.worker_token is None
+
+
+@pytest.mark.parametrize("action", ["cancel", "shutdown", "task_cancel"])
+def test_cancel_before_worker_first_runs(tmp_path: Path, action: str) -> None:
+    manager = _manager(tmp_path)
+    operation_id = manager.create_operation(
+        operation_type=OperationType.EXPORT,
+        actor_user_id=None,
+        actor_username="operator",
+    )
+    workspace = manager.prepare_workspace(operation_id)
+    started = False
+
+    async def worker(_context: OperationContext) -> None:
+        nonlocal started
+        started = True
+
+    async def scenario() -> None:
+        await manager.startup()
+        manager.submit(operation_id, worker)
+        if action == "shutdown":
+            await manager.shutdown()
+        elif action == "task_cancel":
+            task = manager._tasks[operation_id]
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await manager.shutdown()
+        else:
+            await manager.cancel(operation_id)
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+    operation = _operation(manager, operation_id)
+    assert not started
+    assert operation.status is (
+        OperationStatus.FAILED if action == "shutdown" else OperationStatus.CANCELLED
+    )
+    assert operation.error_code == (
+        "operation_interrupted_shutdown" if action == "shutdown" else "operation_cancelled"
+    )
+    assert operation.finished_at is not None
+    assert operation.worker_token is None
+    assert operation.worker_started_at is None
+    assert operation.heartbeat_at is None
+    assert not workspace.exists()
+
+
+def test_shutdown_before_ready_worker_first_runs_preserves_workspace(tmp_path: Path) -> None:
+    manager = _manager(tmp_path)
+    operation_id = manager.create_operation(
+        operation_type=OperationType.IMPORT,
+        actor_user_id=None,
+        actor_username="operator",
+    )
+    with manager.session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        operation.status = OperationStatus.READY
+        session.commit()
+    workspace = manager.prepare_workspace(operation_id)
+
+    async def worker(_context: OperationContext) -> None:
+        pytest.fail("worker must not start")
+
+    async def scenario() -> None:
+        await manager.startup()
+        manager.submit(operation_id, worker)
+        await manager.shutdown()
+
+    asyncio.run(scenario())
+    operation = _operation(manager, operation_id)
+    assert operation.status is OperationStatus.READY
+    assert operation.worker_token is None
+    assert operation.worker_started_at is None
+    assert operation.heartbeat_at is None
+    assert workspace.is_dir()
+
+
+def test_cancel_worker_waiting_for_slot(tmp_path: Path) -> None:
+    manager = _manager(tmp_path)
+    first_id = manager.create_operation(
+        operation_type=OperationType.EXPORT, actor_user_id=None, actor_username="first"
+    )
+    queued_id = manager.create_operation(
+        operation_type=OperationType.EXPORT, actor_user_id=None, actor_username="queued"
+    )
+    workspace = manager.prepare_workspace(queued_id)
+
+    async def scenario() -> None:
+        started = asyncio.Event()
+
+        async def first_worker(_context: OperationContext) -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        async def queued_worker(_context: OperationContext) -> None:
+            pytest.fail("queued worker must not start")
+
+        await manager.startup()
+        manager.submit(first_id, first_worker)
+        await started.wait()
+        manager.submit(queued_id, queued_worker)
+        await asyncio.sleep(0)
+        await manager.cancel(queued_id)
+        queued = _operation(manager, queued_id)
+        assert queued.status is OperationStatus.CANCELLED
+        assert queued.worker_token is None
+        assert not workspace.exists()
+        await manager.cancel(first_id)
+        await manager.shutdown()
+
+    asyncio.run(scenario())
