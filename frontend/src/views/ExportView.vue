@@ -338,16 +338,27 @@ onBeforeUnmount(() => {
 
       <HarborProfileSelector
         id="export-harbor-profile"
-        label="SOURCE Harbor profile"
+        label="SOURCE registry profile"
         :profiles="wizard.harborProfiles"
         :model-value="wizard.operation && !wizard.operation.harbor_profile_id ? null : wizard.selectedHarborProfileId"
         :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
         :locked="wizard.harborProfileLocked"
-        hint="Browse, preview и export будут закреплены за выбранным Harbor."
+        hint="Harbor доступен в этом workflow; для Nexus требуется отдельная квалифицируемая реализация."
         @update:model-value="wizard.selectHarborProfile"
       />
 
-      <section v-if="wizard.step === 1" class="wizard-card" aria-labelledby="selection-title">
+      <section v-if="wizard.step === 1 && wizard.isNexusSelected" class="wizard-card" aria-labelledby="nexus-not-ready-title">
+        <div class="notice notice--warning" role="status">
+          <AlertTriangle :size="22" aria-hidden="true" />
+          <div>
+            <h2 id="nexus-not-ready-title">Nexus выбран, но Harbor export wizard не поддерживает Nexus.</h2>
+            <p>Этот мастер использует Harbor REST API. Nexus Docker v2 проверяйте отдельно в настройках профиля — кнопкой «Проверить Docker Registry v2». Успешная проверка подключения ещё не разрешает экспорт или импорт Nexus.</p>
+            <p>Полная реализация Nexus SOURCE/TARGET находится в Draft PR #451 и до региональной приёмки имеет статус NO-GO. Для текущего Harbor export выберите профиль с типом Harbor.</p>
+          </div>
+        </div>
+      </section>
+
+      <section v-else-if="wizard.step === 1" class="wizard-card" aria-labelledby="selection-title">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Шаг 1 из 4</p>
