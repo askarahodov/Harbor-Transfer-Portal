@@ -50,7 +50,7 @@ class NexusRepositoryInventory:
 class NexusDiscoveryService:
     def __init__(self, session: Session, settings: Settings, profile_id: str) -> None:
         profile = HarborProfileService(session, settings).operation_snapshot(profile_id)
-        if profile.registry_type != "nexus":
+        if profile.registry_type != "nexus" or profile.nexus_format != "docker":
             raise HarborSettingsError("registry_type_mismatch", "Требуется Nexus Docker v2")
         effective = HarborSettingsService(session, settings).resolve_profile(profile.id)
         url = effective.url or ""
