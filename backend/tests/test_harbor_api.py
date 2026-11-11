@@ -220,6 +220,7 @@ def test_authenticated_selector_exposes_only_safe_enabled_profile_metadata(
                 "id": "a" * 32,
                 "name": "Harbor A",
                 "url": "https://harbor-a.local",
+                "registry_type": "harbor",
                 "is_default": False,
             }
         ]
@@ -243,6 +244,22 @@ def test_browse_passes_explicit_profile_id_to_harbor_client(
     monkeypatch.setattr(HarborProfileService, "build_client", build_client)
     client, token = _client(tmp_path, configured=True)
     profile_id = "b" * 32
+    original_get = HarborProfileService.get
+
+    def get_profile(service, selected_id: str):
+        if selected_id == profile_id:
+            return HarborProfile(
+                id=profile_id,
+                name="Harbor B",
+                url="https://harbor-b.local",
+                username=None,
+                verify_tls=True,
+                enabled=True,
+                registry_type="harbor",
+            )
+        return original_get(service, selected_id)
+
+    monkeypatch.setattr(HarborProfileService, "get", get_profile)
 
     response = client.get(
         "/api/harbor/projects",
