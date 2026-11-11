@@ -48,9 +48,9 @@ function response<T>(data: T): AxiosResponse<T> {
   }
 }
 
-async function mountSettings() {
+async function mountSettings(overrides: Partial<typeof transferSettings> = {}) {
   vi.spyOn(apiClient, 'get').mockImplementation((url) => {
-    if (url === '/settings/transfer') return Promise.resolve(response(transferSettings))
+    if (url === '/settings/transfer') return Promise.resolve(response({ ...transferSettings, ...overrides }))
     if (url === '/settings/harbor/profiles') return Promise.resolve(response({
           items: [
             {
@@ -104,8 +104,8 @@ describe('Harbor settings view', () => {
     expect(wrapper.text()).toContain('Текущее значение: настроено')
     expect(wrapper.text()).toContain('SOURCE')
     expect(wrapper.get('#transfer-concurrency').element).toHaveProperty('value', '2')
-    expect(wrapper.get('#transfer-export-retention-days').element).toHaveProperty('value', '7')
-    expect(wrapper.get('#transfer-import-retention-days').element).toHaveProperty('value', '7')
+    expect(wrapper.get('#transfer-export-retention-value').element).toHaveProperty('value', '7')
+    expect(wrapper.get('#transfer-import-retention-value').element).toHaveProperty('value', '7')
     expect(wrapper.get('#transfer-cleanup-interval-minutes').element).toHaveProperty('value', '60')
     expect(wrapper.get('#destination-image-project').element).toHaveProperty('value', 'docker-default')
     expect(wrapper.get('#destination-helm-project').element).toHaveProperty('value', 'helm-default')
@@ -248,8 +248,8 @@ describe('Harbor settings view', () => {
       }),
     )
 
-    await wrapper.get('#transfer-export-retention-days').setValue(10)
-    await wrapper.get('#transfer-import-retention-days').setValue(3)
+    await wrapper.get('#transfer-export-retention-value').setValue(10)
+    await wrapper.get('#transfer-import-retention-value').setValue(3)
     await wrapper.get('#transfer-cleanup-interval-minutes').setValue(15)
     await wrapper.get('.transfer-form').trigger('submit')
     await flushPromises()
@@ -262,9 +262,83 @@ describe('Harbor settings view', () => {
         storage_cleanup_interval_seconds: 15 * 60,
       }),
     )
-    expect(wrapper.get('#transfer-export-retention-days').element).toHaveProperty('value', '10')
-    expect(wrapper.get('#transfer-import-retention-days').element).toHaveProperty('value', '3')
+    expect(wrapper.get('#transfer-export-retention-value').element).toHaveProperty('value', '10')
+    expect(wrapper.get('#transfer-import-retention-value').element).toHaveProperty('value', '3')
     expect(wrapper.get('#transfer-cleanup-interval-minutes').element).toHaveProperty('value', '15')
+  })
+
+
+  it('renders fractional days as whole hours and preserves exact seconds on an unrelated save', async () => {
+    const settings = {
+      export_bundle_retention_seconds: 36 * 60 * 60,
+      import_bundle_retention_seconds: 60 * 60,
+    }
+    const wrapper = await mountSettings(settings)
+    expect(wrapper.get('#transfer-export-retention-value').element).toHaveProperty('value', '36')
+    expect(wrapper.get('select[aria-label="Единица хранения SOURCE"]').element).toHaveProperty('value', 'hours')
+    expect(wrapper.get('#transfer-import-retention-value').element).toHaveProperty('value', '1')
+    expect(wrapper.get('select[aria-label="Единица хранения TARGET"]').element).toHaveProperty('value', 'hours')
+
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(
+      response({ ...transferSettings, ...settings }),
+    )
+    await wrapper.get('.transfer-form').trigger('submit')
+    await flushPromises()
+
+    expect(patch).toHaveBeenCalledWith(
+      '/settings/transfer',
+      expect.objectContaining({
+        export_bundle_retention_seconds: 36 * 60 * 60,
+        import_bundle_retention_seconds: 60 * 60,
+      }),
+    )
+    wrapper.unmount()
+  })
+
+  it('preserves uncommon minute/second policies without rounding to whole days', async () => {
+    const settings = {
+      export_bundle_retention_seconds: 90 * 60,
+      import_bundle_retention_seconds: 3601,
+    }
+    const wrapper = await mountSettings(settings)
+    expect(wrapper.get('#transfer-export-retention-value').element).toHaveProperty('value', '90')
+    expect(wrapper.get('select[aria-label="Единица хранения SOURCE"]').element).toHaveProperty('value', 'minutes')
+    expect(wrapper.get('#transfer-import-retention-value').element).toHaveProperty('value', '3601')
+    expect(wrapper.get('select[aria-label="Единица хранения TARGET"]').element).toHaveProperty('value', 'seconds')
+
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(response({
+      ...transferSettings, ...settings,
+    }))
+    await wrapper.get('.transfer-form').trigger('submit')
+    await flushPromises()
+    expect(patch).toHaveBeenCalledWith(
+      '/settings/transfer',
+      expect.objectContaining(settings),
+    )
+    wrapper.unmount()
+  })
+
+  it('converts whole days into integer hours and prevents fractional durations', async () => {
+    const wrapper = await mountSettings()
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(response(transferSettings))
+    await wrapper.get('select[aria-label="Единица хранения SOURCE"]').setValue('hours')
+    expect(wrapper.get('#transfer-export-retention-value').element).toHaveProperty('value', '168')
+    expect(wrapper.get('select[aria-label="Единица хранения SOURCE"]').element).toHaveProperty('value', 'hours')
+
+    await wrapper.get('#transfer-export-retention-value').setValue(36)
+    await wrapper.get('.transfer-form').trigger('submit')
+    await flushPromises()
+    expect(patch).toHaveBeenCalledWith(
+      '/settings/transfer',
+      expect.objectContaining({ export_bundle_retention_seconds: 36 * 3600 }),
+    )
+    await wrapper.get('#transfer-export-retention-value').setValue(1.5)
+    patch.mockClear()
+    await wrapper.get('.transfer-form').trigger('submit')
+    await flushPromises()
+    expect(patch).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('должен быть целым числом')
+    wrapper.unmount()
   })
 
   it('saves normalized destination defaults and project mappings', async () => {
