@@ -61,6 +61,7 @@ def _export_error(exc: ExportOrchestrationError) -> HTTPException:
         "export_source_not_found": status.HTTP_404_NOT_FOUND,
         "export_operation_not_found": status.HTTP_404_NOT_FOUND,
         "export_artifact_unsupported": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "nexus_requires_registry_workflow": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "operation_insufficient_disk": status.HTTP_507_INSUFFICIENT_STORAGE,
         "harbor_not_configured": status.HTTP_503_SERVICE_UNAVAILABLE,
         "harbor_ca_unavailable": status.HTTP_503_SERVICE_UNAVAILABLE,

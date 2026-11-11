@@ -402,4 +402,42 @@ describe('HarborProfilesPanel', () => {
     wrapper.unmount()
   })
 
+
+  it('offers only Docker Registry v2 probe for Nexus, never the Harbor REST check', async () => {
+    const nexus = {
+      ...secondProfile,
+      name: 'Regional Nexus',
+      registry_type: 'nexus' as const,
+      url: 'https://nexus.example.test',
+      verify_tls: false,
+    }
+    vi.spyOn(apiClient, 'get').mockResolvedValue(response({ items: [defaultProfile, nexus] }))
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue(response({
+      ok: true,
+      code: 'registry_connection_ok',
+      message: 'Docker Registry v2 доступен',
+      version: null,
+    }))
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+    const row = wrapper.findAll('.profile-row').find((item) => item.text().includes('Regional Nexus'))
+    if (!row) throw new Error('Nexus profile row not found')
+
+    expect(row.text()).toContain('Nexus · Docker v2')
+    expect(row.text()).toContain('TLS off')
+    expect(row.text()).not.toContain('Проверить (Harbor API)')
+    const button = row.findAll('button').find((item) => item.text() === 'Проверить Docker Registry v2')
+    if (!button) throw new Error('Docker v2 button not found')
+    await button.trigger('click')
+    await flushPromises()
+    expect(post).toHaveBeenCalledWith(
+      `/settings/harbor/profiles/${nexus.id}/test-registry`,
+      {},
+      { timeout: 60000 },
+    )
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('Docker Registry v2 доступен')
+    wrapper.unmount()
+  })
+
 })

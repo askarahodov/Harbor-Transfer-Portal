@@ -7,6 +7,30 @@ Harbor Transfer Portal может хранить несколько именов
 управляет profile metadata/secrets в **Настройки**, а operator/admin выбирает конкретный
 Harbor непосредственно в SOURCE Export или TARGET Import.
 
+## Различие Harbor и Nexus в текущем `main`
+
+Registry profile содержит явный `registry_type=harbor|nexus`. Название профиля или адрес
+не используются для определения типа. Администратор может хранить Nexus Docker connector
+как профиль, но **Harbor-only SOURCE export wizard в `main` не умеет экспортировать Nexus**.
+Он теперь показывает явное сообщение о невозможности такого экспорта вместо запросов к
+`/api/v2.0/systeminfo` и `/api/v2.0/projects` Nexus-сервера. Harbor-only API и preview
+отклоняют Nexus профиль с типизированным `nexus_requires_registry_workflow`. Полный Nexus
+SOURCE/TARGET workflow остаётся в [Draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451)
+под региональными release gates: **NO-GO** для рабочего развёртывания.
+
+Для сохранённого Nexus профиля в Настройках используется только кнопка
+**«Проверить Docker Registry v2»**. Она выполняет read-only `GET /v2/` с обработкой
+аутентификационного challenge, **не** ищет фиктивный `library/busybox:latest` и **не**
+вызывает Harbor REST API. Проверка пустого registry не требует наличия image/tag и не
+утверждает, что конкретный репозиторий доступен на чтение или запись. Ответы `401/403`,
+неверный connector, TLS/CA ошибки и неподдерживаемые auth realms возвращают безопасные
+типизированные ошибки.
+
+Проверка использует сохранённый профиль, включая явное `verify_tls=false` на HTTPS,
+если он уже так настроен; **она сама не меняет настройку**. При `verify_tls=false`
+сертификат сервера не аутентифицируется, поэтому это не подтверждение доверенного
+production TLS. Не передавайте service credentials через незашифрованный HTTP.
+
 ## Текущий end-to-end contract :id=current-contract
 
 Для нового browser workflow действует следующая схема:

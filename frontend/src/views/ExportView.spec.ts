@@ -407,4 +407,36 @@ describe('SOURCE export wizard view', () => {
     wrapper.unmount()
   })
 
+
+  it('shows an explicit Nexus staging boundary instead of empty Harbor project selector', async () => {
+    mockHappyPath()
+    vi.mocked(exportsApi.listHarborProfiles).mockResolvedValue({
+      items: [
+        { id: 'default', name: 'Default Harbor', url: 'https://harbor.local', is_default: true },
+        { id: 'nexus', name: 'Nexus Docker', url: 'https://nexus.example.test', is_default: false, registry_type: 'nexus' },
+      ],
+    })
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    vi.mocked(exportsApi.getHarborConnection).mockClear()
+    vi.mocked(exportsApi.listHarborProjects).mockClear()
+    await wrapper.get('#export-harbor-profile').setValue('nexus')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Nexus выбран, но Harbor export wizard не поддерживает Nexus')
+    expect(wrapper.text()).toContain('Docker Registry v2')
+    expect(wrapper.text()).toContain('NO-GO')
+    expect(wrapper.find('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(false)
+    expect(exportsApi.getHarborConnection).not.toHaveBeenCalled()
+    expect(exportsApi.listHarborProjects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
 })

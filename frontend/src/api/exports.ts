@@ -78,6 +78,7 @@ export type HarborProfileOption = {
   id: string
   name: string
   url: string
+  registry_type?: 'harbor' | 'nexus'
   is_default: boolean
 }
 
