@@ -224,7 +224,6 @@ def test_authenticated_selector_exposes_only_safe_enabled_profile_metadata(
                 "url": "https://harbor-a.local",
                 "registry_type": "harbor",
                 "is_default": False,
-                "registry_type": "harbor",
                 "nexus_format": "docker",
                 "nexus_search_url": None,
                 "nexus_search_repository": None,
