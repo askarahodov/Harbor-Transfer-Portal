@@ -582,3 +582,139 @@ def test_nexus_profile_connection_api_checks_v2_without_harbor_or_image(
     assert calls[0]["url"] == "https://docker.nexus.example.test"
     assert "busybox" not in response.text
     assert "Nexus (version unknown)" not in response.text
+
+
+def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_setting(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Helm uses index.yaml, not Docker /v2/, and keeps saved TLS behavior."""
+    import httpx
+
+    client, app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Nexus Helm Team",
+            "url": "https://nexus.example.test",
+            "username": "svc-helm",
+            "verify_tls": False,
+            "enabled": True,
+            "registry_type": "nexus",
+            "nexus_format": "helm",
+            "nexus_search_repository": "helm-team",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+    assert created.json()["nexus_format"] == "helm"
+    assert created.json()["nexus_search_repository"] == "helm-team"
+    assert created.json()["verify_tls"] is False
+    assert client.put(
+        f"/api/settings/harbor/profiles/{profile_id}/credential",
+        json={"secret": PROFILE_SECRET},
+        headers=headers,
+    ).status_code == 200
+
+    with app.state.session_factory() as session:
+        profile = HarborProfileService(session, app.state.settings).get(profile_id)
+        assert profile.nexus_format == "helm"
+        assert profile.nexus_search_repository == "helm-team"
+
+    selectable = client.get("/api/harbor/profiles", headers=_auth(tokens["operator"]))
+    assert selectable.status_code == 200
+    selected = next(p for p in selectable.json()["items"] if p["id"] == profile_id)
+    assert selected["nexus_format"] == "helm"
+
+    requests = []
+    verifies = []
+    real_async_client = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/repository/helm-team/index.yaml":
+            return httpx.Response(200, text="apiVersion: v1\\nentries: {}\\n")
+        return httpx.Response(404)
+
+    def factory(**kwargs):
+        verifies.append(kwargs["verify"])
+        assert kwargs["follow_redirects"] is False
+        assert kwargs["trust_env"] is False
+        return real_async_client(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", factory)
+    response = client.post(
+        f"/api/settings/harbor/profiles/{profile_id}/test-registry", headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "code": "helm_repository_connection_ok",
+        "message": "Helm HTTP index.yaml доступен",
+        "version": None,
+    }
+    assert verifies == [False]
+    assert [str(req.url.path) for req in requests] == [
+        "/repository/helm-team/index.yaml"
+    ]
+    assert PROFILE_SECRET not in response.text
+    assert all(req.url.host == "nexus.example.test" for req in requests)
+
+    wrong_repo = client.get(
+        f"/api/registry/source/nexus/helm/charts?profile_id={profile_id}&repository=other",
+        headers=_auth(tokens["operator"]),
+    )
+    assert wrong_repo.status_code == 422
+    assert wrong_repo.json()["error"]["code"] == "helm_repository_mismatch"
+
+    wrong_docker = client.post(
+        "/api/registry/source/inspect",
+        json={"profile_id": profile_id, "repository": "busybox", "reference": "latest"},
+        headers=_auth(tokens["operator"]),
+    )
+    assert wrong_docker.status_code == 409
+    assert wrong_docker.json()["error"]["code"] == "registry_type_mismatch"
+
+
+def test_nexus_helm_profile_rejects_invalid_or_cross_repository_configuration(
+    tmp_path: Path,
+) -> None:
+    client, _app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    base = {
+        "name": "Nexus Helm",
+        "url": "https://nexus.example.test",
+        "registry_type": "nexus",
+        "nexus_format": "helm",
+        "verify_tls": False,
+    }
+    for updates, code in (
+        ({}, "nexus_helm_repository_required"),
+        ({"url": "http://nexus.example.test", "nexus_search_repository": "helm-a"},
+         "nexus_helm_url_invalid"),
+        ({"url": "https://nexus.example.test/repository/helm-a",
+          "nexus_search_repository": "helm-a"}, None),
+        ({"nexus_search_repository": "helm-a",
+          "nexus_search_url": "https://other.example.test"}, "nexus_helm_search_url_invalid"),
+        ({"nexus_search_repository": "helm-a", "nexus_format": "bad"}, None),
+    ):
+        response = client.post("/api/settings/harbor/profiles", json={**base, **updates},
+                               headers=headers)
+        assert response.status_code == 422
+        if code is not None:
+            assert response.json()["error"]["code"] == code
+
+    docker = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Existing Docker",
+            "url": "https://docker.example.test",
+            "registry_type": "nexus",
+            "verify_tls": False,
+        },
+        headers=headers,
+    )
+    assert docker.status_code == 201
+    assert docker.json()["nexus_format"] == "docker"
+    assert docker.json()["verify_tls"] is False
