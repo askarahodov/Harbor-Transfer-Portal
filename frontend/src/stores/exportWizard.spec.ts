@@ -464,4 +464,127 @@ describe('export wizard store', () => {
     expect(store.operation?.status).toBe('CANCELLED')
     expect(store.bundle).toBeNull()
   })
+
+  it('can start a new export after a completed operation loses its archive or sidecar', async () => {
+    sessionStorage.setItem('htp.export.operation-id', '42')
+    vi.spyOn(exportsApi, 'getOperation').mockResolvedValue(operation('COMPLETED'))
+    vi.spyOn(exportsApi, 'getExportBundle').mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 500,
+        data: {
+          detail: {
+            code: 'export_bundle_missing',
+            message: 'Готовый export bundle или его checksum sidecar отсутствует',
+          },
+        },
+      },
+    })
+    const store = useExportWizardStore()
+
+    await store.initialize()
+
+    expect(store.step).toBe(3)
+    expect(store.operation?.status).toBe('COMPLETED')
+    expect(store.canCancel).toBe(false)
+    expect(store.canStartNewExport).toBe(true)
+    expect(store.completedBundleUnavailable).toBe(true)
+    expect(store.error?.code).toBe('export_bundle_missing')
+    // Resuming an existing operation skips the initial Harbor browse.
+    expect(exportsApi.listHarborProjects).not.toHaveBeenCalled()
+
+    await store.startNewExport()
+
+    expect(store.step).toBe(1)
+    expect(store.operation).toBeNull()
+    expect(store.bundle).toBeNull()
+    expect(store.error).toBeNull()
+    expect(store.canStartNewExport).toBe(false)
+    expect(sessionStorage.getItem('htp.export.operation-id')).toBeNull()
+    expect(exportsApi.getHarborConnection).toHaveBeenCalledWith('default')
+    expect(exportsApi.listHarborProjects).toHaveBeenCalledWith(1, 25, '', 'default')
+    expect(store.projects).toEqual([{ name: 'team', public: false }])
+  })
+
+  it('recovers an unavailable completed bundle when a later readiness check succeeds', async () => {
+    sessionStorage.setItem('htp.export.operation-id', '42')
+    vi.spyOn(exportsApi, 'getOperation').mockResolvedValue(operation('COMPLETED'))
+    vi.spyOn(exportsApi, 'getExportBundle')
+      .mockRejectedValueOnce({
+        isAxiosError: true,
+        response: {
+          status: 410,
+          data: { detail: { code: 'export_bundle_expired', message: 'Срок хранения истёк' } },
+        },
+      })
+      .mockResolvedValueOnce({
+        operation_id: 42,
+        delivery_id: 'DELIVERY-20260911-ABCDEF',
+        archive_name: 'DELIVERY-20260911-ABCDEF.htp.tar.gz',
+        archive_size: 8192,
+        sha256: 'b'.repeat(64),
+        download_url: '/api/exports/42/download',
+      })
+    const store = useExportWizardStore()
+
+    await store.resumeSavedOperation()
+    expect(store.canStartNewExport).toBe(true)
+    expect(store.error?.code).toBe('export_bundle_expired')
+
+    await store.refreshOperation(42)
+    expect(store.step).toBe(4)
+    expect(store.bundle?.archive_size).toBe(8192)
+    expect(store.error).toBeNull()
+    expect(store.canStartNewExport).toBe(false)
+  })
+
+  it('ignores a stale status response after resetting the wizard', async () => {
+    const response = deferred<Operation>()
+    sessionStorage.setItem('htp.export.operation-id', '42')
+    vi.spyOn(exportsApi, 'getOperation').mockReturnValue(response.promise)
+    const bundleSpy = vi.spyOn(exportsApi, 'getExportBundle')
+    const store = useExportWizardStore()
+
+    const pendingResume = store.resumeSavedOperation()
+    store.reset()
+    response.resolve(operation('COMPLETED'))
+    await pendingResume
+
+    expect(store.step).toBe(1)
+    expect(store.operation).toBeNull()
+    expect(store.bundle).toBeNull()
+    expect(store.error).toBeNull()
+    expect(bundleSpy).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem('htp.export.operation-id')).toBeNull()
+  })
+
+
+  it('never calls Harbor endpoints for selected Nexus and supports Harbor recovery', async () => {
+    vi.mocked(exportsApi.listHarborProfiles).mockResolvedValue({
+      items: [
+        { id: 'default', name: 'Default Harbor', url: 'https://harbor.local', is_default: true, registry_type: 'harbor' },
+        { id: 'nexus', name: 'Nexus Docker', url: 'https://nexus.example.test', is_default: false, registry_type: 'nexus' },
+      ],
+    })
+    sessionStorage.setItem('htp.harbor.profile-id', 'nexus')
+    const previewSpy = vi.spyOn(exportsApi, 'previewExport')
+    const store = useExportWizardStore()
+
+    await store.initialize()
+
+    expect(store.isNexusSelected).toBe(true)
+    expect(store.connection).toBeNull()
+    expect(exportsApi.getHarborConnection).not.toHaveBeenCalled()
+    expect(exportsApi.listHarborProjects).not.toHaveBeenCalled()
+    expect(await store.preparePreview()).toBe(false)
+    expect(store.error?.code).toBe('nexus_requires_registry_workflow')
+    expect(previewSpy).not.toHaveBeenCalled()
+
+    await store.selectHarborProfile('default')
+    expect(store.isNexusSelected).toBe(false)
+    expect(store.error).toBeNull()
+    expect(exportsApi.getHarborConnection).toHaveBeenCalledWith('default')
+    expect(exportsApi.listHarborProjects).toHaveBeenCalledWith(1, 25, '', 'default')
+  })
+
 })

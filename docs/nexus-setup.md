@@ -1,8 +1,8 @@
-# Настройка Sonatype Nexus для Harbor Transfer Portal
+# Nexus Repository — подготовка к приёмке (Draft)
 
-## Важно: Docker v2 не означает Helm OCI
+> **Не инструкция для production на `main`.** Nexus реализуется в [Draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451) и остаётся **NO-GO** до [региональной приёмки #436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436). В `main` Nexus profiles и classic Helm HTTP не являются выпускаемой функцией. Не переносите credentials или конфигурацию из корпоративных контуров в Issues/документацию.
 
-В инфраструктуре с **Nexus 3 до 3.94** необходимо различать:
+## 1. Не путайте Docker v2, Helm HTTP и OCI
 
 - **Docker hosted**: обычный Docker Registry HTTP API v2, доступный через отдельный connector (порт или отдельный виртуальный хост). Portal использует Skopeo для экспорта/импорта контейнерных образов. Этот сценарий проверен на **Nexus 3.69.0-02 OSS** и **Nexus 3.70.1**, Docker schema2, в изолированном GitHub Actions.
 - **Helm hosted**: классический Helm chart repository с HTTP-путём `/repository/helm-hosted/index.yaml` и пакетами `.tgz`. В RC реализован отдельный `NexusHelmHttpService` (без OCI), сквозная проверка SOURCE → подписанный Offline Bundle → TARGET receipt пройдена на одноразовом Nexus 3.69. Для реальных серверов ещё необходима проверка ACL, TLS и совместимости версии.
@@ -460,36 +460,44 @@ operation ID, таймштампы и редактированные логи б
 
 Классический Helm hosted обычно предоставляет index.yaml и tarball через HTTP. Даже если Helm-чарты физически хранятся в Nexus, это не делает его OCI registry. Если в Nexus настроено несколько Docker и обычных Helm репозиториев, их доступность проверяется отдельно для каждой сервисной учётной записи. Разрешение на список репозиториев не эквивалентно разрешению читать chart/image или публиковать на TARGET.
 
-### Региональный контур: Docker v2 через отдельный vhost
+## 2. Тестовый Docker hosted
 
-Доступ к Docker Registry v2 может быть опубликован не на UI-хосте Nexus (`https://nexus.<domain>`), а на отдельном виртуальном хосте, который reverse proxy направляет в Docker connector. Подтверждённый пример регионального контура:
+1. Создайте `docker (hosted)` и отдельный Docker HTTP/HTTPS connector; TLS наружу обеспечивает Nexus либо контролируемый reverse proxy.
+2. Проверьте Docker Bearer Token Realm и ответ `GET https://docker-registry.example.invalid/v2/`: без credentials ожидается challenge `401`, с валидными — разрешённый доступ. `403` означает недостаточные права, `404` обычно указывает на ошибочный путь. Конкретный result зависит от proxy/auth configuration.
+3. Выделите минимальные scoped права на нужный repository: чтение для SOURCE, необходимые write privileges для TARGET. Успешный read-only `GET /v2/` **не доказывает** права на push конкретного тега.
+4. Используйте отдельно проверенный профиль с собственными credentials, URL и доверенным CA. Не помещайте private keys, пароли, raw HTTP headers или реальное внутреннее DNS-имя в документацию и CI-артефакты.
 
-~~~text
-UI            https://nexus.softrust.ru           -> /v2/ = 404 (не registry)
-Docker v2     https://docker-all-nexus.softrust.ru -> /v2/ = 401 + Bearer realm
-~~~
+Пример **вымышленного** vhost: `https://docker-registry.example.invalid/v2/` направляется в Docker connector, а `https://nexus-ui.example.invalid/` обслуживает UI. Это **разные** endpoints. Конкретный vhost, CA, proxy headers и Bearer realm необходимо подтвердить на площадке.
 
-Проверка корректности адреса профиля: запрос `GET <NEXUS_URL>/v2/` без credentials должен вернуть **HTTP 401** с заголовком
-`www-authenticate: Bearer realm="<NEXUS_URL>/v2/token"`. Если приходит **404**, URL указывает на UI или на `/repository/<name>`, а не на корень Docker v2 — профиль в Portal будет отвечать `registry_error`. Чтобы не ошибиться, используйте жестовую проверку **Settings → Harbor Profiles → Проверить подключение**: успешный ответ — `registry_connection_ok`.
+## 3. Тестовый classic Helm hosted
 
-Для доступа к образам в proxy-репозитории путь к образу включает имя репозитория Nexus, например `harbor-clever/appointment-api`.
+Настройте отдельный Helm hosted repository с HTTPS-доступом к `index.yaml` и chart `.tgz`, и соответствующими scoped правами upload/download для Components API. Для нескольких репозиториев и разных ролей проверьте каждый endpoint отдельно. Не считайте успешное получение `index.yaml` доказательством возможности публикации.
 
-## Проверка совместимости в GitHub Actions
+## 4. Политики безопасности
 
-Workflow: **Actions → Nexus legacy Docker v2 E2E**, файл [.github/workflows/nexus-legacy-e2e.yml](../.github/workflows/nexus-legacy-e2e.yml).
+- TLS verification остаётся включённым; корпоративный CA должен быть доверенным на стороне Portal и Skopeo/HTTP adapter.
+- Секреты привязаны к выбранному профилю, не смешиваются между SOURCE и TARGET.
+- TARGET `overwrite_conflicts=false` требует **внешней гарантии** отсутствия конкурирующих writer (эксклюзивность или immutable tags/серверный conditional publish). Простая повторная проверка тега до push не атомарна.
+- Для physical handoff нужен полный signed bundle + `.sha256` + signed `.htp-handoff.json`, а после импорта — verified receipt.
 
-Автоматический PR-тест запускает официальный образ **sonatype/nexus3:3.69.0** и дополнительно сверяет HTTP Server header с точной сборкой **Nexus/3.69.0-02 (OSS)**. Затем выполняет тесты Docker hosted v2:
+## 5. Что доказано автоматически
 
-- реальный Skopeo export/import, digest и Docker schema2;
-- неправильные credentials, недоступный connector, несовпадение digest, path traversal;
-- отдельный именованный Nexus profile;
-- HTTPS через тестовый nginx reverse proxy: отказ с недоверенным CA и успешное соединение с CA выбранного профиля.
+- [Combined CI/Quality Gate #42806604173](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42806604173) — SUCCESS.
+- [Nexus legacy Docker v2 + classic Helm HTTP 3.69/3.70 и disposable Harbor Core E2E #42806604136](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42806604136) — SUCCESS.
+- Обе проверки относятся к интегрированному SHA `7b32643bb04226b986d98c6ae015311528df01b6`.
 
-Результат проверки Nexus **3.69.0-02 OSS**: [GitHub Actions #41617019630](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41617019630) — **10/10 passed** (Docker Registry v2, профиль Portal, TLS/CA, ошибки). Ранее Nexus 3.70.1 также прошёл этот набор проверок.
+**Не доказано**: реальные региональные версии и редакции, внутренние TLS/CA/DNS/proxy, per-repo ACL, физическая изоляция, media handoff, контроль внешних writer и sign-off. Для них используйте [региональный runbook в Draft #451](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/integration/nexus-oss-release-candidate-451/docs/nexus-regional-acceptance-runbook.md) и [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
 
-Для проверки **конкретной версии** используйте **Run workflow** и параметр **nexus_version** — опубликованный тег Nexus **3.x до 3.94**. Если тег образа недоступен или эта версия использует другой REST API/настройки, workflow должен завершиться с ошибкой, а не пропускать тесты. Запуск не подключается к корпоративному Nexus: используется одноразовый контейнер на GitHub-hosted runner.
+## 6. Диагностика
 
-### Что НЕ доказывает CI
+| Код / симптом | Что проверять |
+| --- | --- |
+| `nexus_url_invalid`, `nexus_not_configured` | Правильный Docker v2 connector и профиль |
+| `nexus_auth_failed` (401) | Учётные данные и auth challenge |
+| `nexus_permission_denied` (403) | ACL выбранного repository, read/write права |
+| `nexus_tls_failed` | CA, hostname/SAN, цепочка доверия |
+| 404 от `/v2/` | Путь или reverse proxy указывает на UI, а не connector |
+| Helm HTTP error | Путь `index.yaml`, chart `.tgz`, Components API и scoped права |
 
 - Версию, конфигурацию и права доступа реальных корпоративных Nexus, которые не предоставлены.
 - Доверие к корпоративному CA, особенности внутреннего reverse proxy, DNS/Firewall.
