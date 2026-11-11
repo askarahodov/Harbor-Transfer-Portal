@@ -323,7 +323,7 @@ class NexusService:
                     "nexus_profile_disabled",
                     "Выбранный Nexus profile отключён",
                 )
-            if profile.registry_type != "nexus":
+            if profile.registry_type != "nexus" or profile.nexus_format != "docker":
                 raise NexusServiceError(
                     "nexus_profile_invalid_type",
                     "Выбранный profile не является Nexus",
