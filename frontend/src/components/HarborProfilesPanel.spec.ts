@@ -448,4 +448,94 @@ describe('HarborProfilesPanel', () => {
     wrapper.unmount()
   })
 
+
+  it('creates a dedicated Helm HTTP profile and validates its exact repository', async () => {
+    const helm = {
+      ...secondProfile,
+      name: 'Nexus Helm Team',
+      url: 'https://nexus-ui.example.test',
+      registry_type: 'nexus' as const,
+      nexus_format: 'helm' as const,
+      nexus_search_repository: 'helm-team',
+      nexus_search_url: null,
+      verify_tls: false,
+    }
+    vi.spyOn(apiClient, 'get')
+      .mockResolvedValueOnce(response({ items: [defaultProfile] }))
+      .mockResolvedValueOnce(response({ items: [defaultProfile, helm] }))
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue(response(helm, 201))
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+
+    await wrapper.get('input[name="profile-name"]').setValue('Nexus Helm Team')
+    await wrapper.get('.create-form select').setValue('nexus')
+    await wrapper.get('select[aria-label="Формат Nexus repository"]').setValue('helm')
+    await wrapper.get('input[type="url"]').setValue('https://nexus-ui.example.test')
+    await wrapper.get('.create-form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Укажите точное имя Helm HTTP repository')
+    expect(post).not.toHaveBeenCalled()
+
+    const repository = wrapper.findAll('input').find(item =>
+      item.attributes('placeholder') === 'helm-hosted',
+    )
+    if (!repository) throw new Error('Helm repository field missing')
+    await repository.setValue('helm-team')
+    const tls = wrapper.findAll('.create-form input[type="checkbox"]').find(item =>
+      item.element instanceof HTMLInputElement,
+    )
+    if (!tls) throw new Error('TLS checkbox missing')
+    await tls.setValue(false)
+    await wrapper.get('.create-form').trigger('submit')
+    await flushPromises()
+
+    expect(post).toHaveBeenCalledWith('/settings/harbor/profiles',
+      expect.objectContaining({
+        registry_type: 'nexus',
+        nexus_format: 'helm',
+        url: 'https://nexus-ui.example.test',
+        nexus_search_url: null,
+        nexus_search_repository: 'helm-team',
+        verify_tls: false,
+      }),
+    )
+    expect(wrapper.text()).toContain('Nexus · Helm HTTP')
+    wrapper.unmount()
+  })
+
+  it('checks a saved Helm profile through HTTP index, never Harbor or Docker v2', async () => {
+    const helm = {
+      ...secondProfile,
+      name: 'Helm Team',
+      registry_type: 'nexus' as const,
+      nexus_format: 'helm' as const,
+      nexus_search_repository: 'helm-team',
+      url: 'https://nexus-ui.example.test',
+    }
+    vi.spyOn(apiClient, 'get').mockResolvedValue(response({ items: [defaultProfile, helm] }))
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue(response({
+      ok: true, code: 'helm_repository_connection_ok',
+      message: 'Helm HTTP index.yaml доступен', version: null,
+    }))
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+    const row = wrapper.findAll('.profile-row').find(item => item.text().includes('Helm Team'))
+    if (!row) throw new Error('Helm row missing')
+
+    expect(row.text()).toContain('Nexus · Helm HTTP')
+    expect(row.text()).not.toContain('Проверить (Harbor API)')
+    expect(row.text()).not.toContain('Проверить Docker Registry v2')
+    const check = row.findAll('button').find(item => item.text() === 'Проверить Helm HTTP index.yaml')
+    if (!check) throw new Error('Helm probe button missing')
+    await check.trigger('click')
+    await flushPromises()
+    expect(post).toHaveBeenCalledWith(
+      `/settings/harbor/profiles/${helm.id}/test-registry`, {}, { timeout: 60000 },
+    )
+    expect(wrapper.text()).toContain('Helm HTTP index.yaml доступен')
+    wrapper.unmount()
+  })
+
+
 })
