@@ -105,7 +105,7 @@ class NexusHelmHttpService:
         profile = HarborProfileService(session, settings).operation_snapshot(profile_id)
         if profile.registry_type != "nexus":
             raise HarborSettingsError("registry_type_mismatch", "Требуется Nexus Helm HTTP profile")
-        self.allowed_repository = None
+        self.allowed_repository: str | None = None
         if profile.nexus_format == "helm":
             # A dedicated Helm profile uses the Nexus UI origin itself, not the
             # Docker connector. Keep exact repository identity bound to its profile.
