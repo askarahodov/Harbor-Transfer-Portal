@@ -28,6 +28,7 @@ from app.services.harbor_settings import (
     HarborSettingsService,
 )
 from app.services.registry_probe import probe_docker_v2
+from app.services.nexus_helm_http import NexusHelmHttpError, NexusHelmHttpService
 
 router = APIRouter(prefix="/settings/harbor", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
@@ -553,6 +554,27 @@ async def test_registry_profile_connection(
     profile = service.get(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
+
+    if profile.registry_type == "nexus" and profile.nexus_format == "helm":
+        try:
+            result = await NexusHelmHttpService(
+                session, request.app.state.settings, profile.id
+            ).list_charts(profile.nexus_search_repository or "")
+        except (HarborSettingsError, NexusHelmHttpError):
+            return HarborConnectionTestResponse(
+                ok=False, code="helm_repository_invalid",
+                message="Не удалось проверить Helm HTTP repository",
+            )
+        return HarborConnectionTestResponse(
+            ok=result.available,
+            code="helm_connection_ok" if result.available else (
+                result.code or "helm_index_unavailable"
+            ),
+            message=(
+                "Helm HTTP index.yaml доступен"
+                if result.available else result.message or "Helm index.yaml недоступен"
+            ),
+        )
 
     if profile.registry_type == "nexus":
         try:
