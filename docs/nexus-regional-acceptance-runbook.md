@@ -130,6 +130,32 @@ Docker/Helm привилегии и корпоративный TLS/ACL пров�
 оператором отдельно; зелёный disposable E2E не заменяет
 региональное подписанное подтверждение по #436.
 
+### Один Nexus repository — один профиль с явным форматом
+
+Новые Nexus profiles разделяются по `nexus_repository_format`:
+
+- **Docker Registry v2:** `docker`, корневой URL Docker connector конкретного
+  repository; read-only check `GET /v2/`. Не используйте URL Nexus UI для Docker.
+- **Classic Helm HTTP:** `helm_http`, корневой Nexus UI HTTPS origin и обязательное
+  точное `nexus_helm_repository`. Только read-only `GET
+  /service/rest/v1/repositories/<repository>` + `GET
+  /repository/<repository>/index.yaml`; metadata должна подтверждать `format=helm`,
+  `name=<repository>`, `type=hosted|proxy|group`. Отсутствие `index.yaml` может
+  быть допустимо для пустого репозитория, но не доказывает доступ к charts/запись.
+  Helm OCI не используется.
+- Старые Nexus profiles без поля `nexus_repository_format` остаются `legacy`
+  без автоматической миграции, изменения credentials, TLS или implicit привязки к Helm.
+  Для новых Nexus profile оператор обязан выбрать конкретный формат; физический
+  GO/NO-GO зависит от реальной per-repository проверки ACL.
+
+Нельзя использовать Helm profile для Docker inspection/export, Docker profile
+для Helm HTTP операции или один профиль для нескольких Helm repository:
+backend отвергает несоответствие формата/имени до передачи. Строка настроек
+показывает отдельную кнопку проверки **Docker Registry v2** либо **Helm HTTP**.
+Установка `verify_tls=false` сохраняется без автоматического изменения;
+она не доказывает подлинность HTTPS узла, поэтому полноценный production GO
+по-прежнему требует решения security reviewer.
+
 ### Harbor/Nexus UI — действия и старые профили
 
 Список выбора SOURCE профиля включает явный `registry_type`.
