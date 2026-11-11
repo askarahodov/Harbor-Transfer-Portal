@@ -309,7 +309,7 @@ watch(() => wizard.selectedHarborProfileId, () => {
   nexusTagCursor.value = null
   nexusCatalogMessage.value = null
   nexusTagsMessage.value = null
-  if (wizard.isNexus) {
+  if (wizard.isNexus && !wizard.isNexusHelm) {
     void loadNexusInventory()
   }
 })
@@ -663,6 +663,33 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-if="wizard.isNexus" class="nexus-source-workspace">
+          <div v-if="wizard.isNexusHelm" class="nexus-helm-dedicated">
+            <strong>Nexus · Helm HTTP repository (не OCI)</strong>
+            <p>Этот профиль привязан только к Helm repository
+              <strong>{{ wizard.selectedHarborProfile?.nexus_search_repository }}</strong>.
+              Чарты и версии читаются из index.yaml. Docker v2 и Harbor REST здесь не используются.</p>
+            <button
+              class="secondary-button"
+              type="button"
+              :disabled="nexusHelmBusy || !wizard.selectedHarborProfile?.nexus_search_repository"
+              @click="browseHelmRepository(wizard.selectedHarborProfile?.nexus_search_repository ?? '')"
+            >{{ nexusHelmBusy ? 'Загрузка Helm…' : 'Показать Helm charts' }}</button>
+            <p v-if="nexusHelmMessage" role="status">{{ nexusHelmMessage }}</p>
+            <ul v-if="nexusHelmVersions.length" class="nexus-helm-catalog" aria-label="Helm HTTP charts и версии">
+              <li v-for="entry in nexusHelmVersions" :key="entry.name + ':' + entry.version">
+                {{ entry.name }} · {{ entry.version }} · sha256:{{ entry.digest.slice(0, 12) }}
+                <button
+                  class="secondary-button"
+                  type="button"
+                  @click="wizard.addExactNexusHelmChart(
+                    wizard.selectedHarborProfile?.nexus_search_repository ?? '',
+                    entry.name, entry.version, entry.digest
+                  )"
+                >Добавить Helm chart</button>
+              </li>
+            </ul>
+          </div>
+          <template v-else>
           <div>
             <strong>Nexus · Docker Registry v2</strong>
             <p>В Nexus Browse путь <code>docker-proxy / v2 / baseimage</code> означает образ <code>baseimage</code> внутри Docker repository <code>docker-proxy</code>. Проверьте образ и tag напрямую — полный каталог для этого не нужен. Harbor API и Helm OCI не используются.</p>
@@ -814,6 +841,7 @@ onBeforeUnmount(() => {
             </div>
             </details>
           </div>
+          </template>
         </div>
 
         <div v-else class="compact-selector" aria-label="Выбор артефакта Harbor">
