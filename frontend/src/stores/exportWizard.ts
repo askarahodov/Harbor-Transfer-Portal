@@ -81,6 +81,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     error: harborProfilesError,
   } = storeToRefs(harborProfilesStore)
   const isNexus = computed(() => selectedHarborProfile.value?.registry_type === 'nexus')
+  const isNexusHelm = computed(() => isNexus.value && selectedHarborProfile.value?.nexus_format === 'helm')
   const step = ref<ExportWizardStep>(1)
   const connection = ref<HarborConnection | null>(null)
   const projects = ref<HarborProject[]>([])
@@ -728,6 +729,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     selectedHarborProfileId,
     selectedHarborProfile,
     isNexus,
+    isNexusHelm,
     harborProfilesLoading,
     harborProfileLocked,
     projects,
