@@ -635,7 +635,7 @@ def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_se
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         if request.url.path == "/repository/helm-team/index.yaml":
-            return httpx.Response(200, text="apiVersion: v1\\nentries: {}\\n")
+            return httpx.Response(200, text="apiVersion: v1\nentries: {}\n")
         return httpx.Response(404)
 
     def factory(**kwargs):
