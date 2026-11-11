@@ -6,9 +6,11 @@ from fastapi.responses import FileResponse
 from app.api.operation_authorization import authorize_operation
 from app.auth.dependencies import CredentialsDep, SessionDep, require_roles
 from app.auth.security import (
+    check_and_refresh_token,
     create_export_download_token,
-    decode_access_token,
     decode_export_download_token,
+    read_access_token_version,
+    read_export_download_token_version,
 )
 from app.config import BrowserScheme
 from app.db.models import User, UserRole
@@ -60,6 +62,7 @@ def _export_error(exc: ExportOrchestrationError) -> HTTPException:
         "nexus_not_found": status.HTTP_404_NOT_FOUND,
         "export_operation_not_found": status.HTTP_404_NOT_FOUND,
         "export_artifact_unsupported": status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "nexus_requires_registry_workflow": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "operation_insufficient_disk": status.HTTP_507_INSUFFICIENT_STORAGE,
         "harbor_not_configured": status.HTTP_503_SERVICE_UNAVAILABLE,
         "harbor_ca_unavailable": status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -129,13 +132,19 @@ def _jwt_secret(request: Request) -> str:
     return str(secret.get_secret_value())
 
 
-def _active_user(session: SessionDep, user_id: int) -> User:
+def _active_user(session: SessionDep, user_id: int, token_version: int) -> User:
     user = UserRepository(session).get(user_id)
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or user.token_version != token_version:
         raise _api_error(
             status.HTTP_401_UNAUTHORIZED,
             "download_auth_invalid",
             "Download authorization недействительна или истекла",
+        )
+    if user.must_change_password:
+        raise _api_error(
+            status.HTTP_403_FORBIDDEN,
+            "password_change_required",
+            "Требуется обязательная смена пароля",
         )
     if user.role not in {UserRole.ADMIN, UserRole.OPERATOR}:
         raise _api_error(
@@ -157,14 +166,22 @@ def _authorize_download_request(
     secret = _jwt_secret(request)
     if credentials is not None:
         try:
-            user_id = decode_access_token(credentials.credentials, secret)
+            user_id, _ = check_and_refresh_token(
+                credentials.credentials,
+                secret,
+                inactivity_timeout_minutes=(
+                    request.app.state.settings.jwt_inactivity_timeout_minutes
+                ),
+                lifetime_minutes=request.app.state.settings.jwt_access_token_minutes,
+            )
+            token_version = read_access_token_version(credentials.credentials, secret)
         except ValueError as exc:
             raise _api_error(
                 status.HTTP_401_UNAUTHORIZED,
                 "download_auth_invalid",
                 "Download authorization недействительна или истекла",
             ) from exc
-        actor = _active_user(session, user_id)
+        actor = _active_user(session, user_id, token_version)
         _authorize_operation(orchestrator, operation_id, actor)
         return
 
@@ -181,13 +198,18 @@ def _authorize_download_request(
             secret,
             expected_operation_id=operation_id,
         )
+        token_version = read_export_download_token_version(
+            ticket,
+            secret,
+            expected_operation_id=operation_id,
+        )
     except ValueError as exc:
         raise _api_error(
             status.HTTP_401_UNAUTHORIZED,
             "download_auth_invalid",
             "Download ticket недействителен или истёк",
         ) from exc
-    actor = _active_user(session, user_id)
+    actor = _active_user(session, user_id, token_version)
     _authorize_operation(orchestrator, operation_id, actor)
 
 
@@ -287,6 +309,7 @@ def create_download_ticket(
         operation_id=operation_id,
         secret=_jwt_secret(request),
         lifetime_seconds=_EXPORT_DOWNLOAD_TTL_SECONDS,
+        token_version=actor.token_version,
     )
     download_path = f"/api/exports/{operation_id}/download"
     response.set_cookie(

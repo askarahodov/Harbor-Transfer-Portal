@@ -513,6 +513,13 @@ def test_harbor_profile_connection(
 ) -> HarborConnectionTestResponse:
     service = HarborProfileService(session, request.app.state.settings)
     try:
+        profile = service.get(profile_id)
+        if profile.registry_type == "nexus":
+            raise _api_error(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "harbor_api_wrong_registry_type",
+                "Для Nexus используйте проверку Docker Registry v2, а не Harbor API",
+            )
         client = service.build_client(profile_id)
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
