@@ -582,3 +582,107 @@ def test_nexus_profile_connection_api_checks_v2_without_harbor_or_image(
     assert calls[0]["url"] == "https://docker.nexus.example.test"
     assert "busybox" not in response.text
     assert "Nexus (version unknown)" not in response.text
+
+
+def test_nexus_helm_profile_persists_separate_format_and_validates_repository(
+    tmp_path: Path,
+) -> None:
+    client, app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Regional Helm hosted",
+            "url": "https://nexus.example.test",
+            "username": "helm-reader",
+            "verify_tls": False,
+            "registry_type": "nexus",
+            "nexus_format": "helm",
+            "nexus_search_repository": "helm-hosted",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+    assert created.json()["nexus_format"] == "helm"
+    assert created.json()["registry_type"] == "nexus"
+    assert created.json()["verify_tls"] is False
+
+    listed = client.get("/api/settings/harbor/profiles", headers=headers)
+    assert listed.status_code == 200
+    stored = next(item for item in listed.json()["items"] if item["id"] == profile_id)
+    assert stored["nexus_format"] == "helm"
+    assert stored["nexus_search_repository"] == "helm-hosted"
+
+    with app.state.session_factory() as session:
+        profile = HarborProfileService(session, app.state.settings).get(profile_id)
+        assert profile.nexus_format == "helm"
+
+    missing_repo = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Invalid Helm",
+            "url": "https://nexus.example.test",
+            "registry_type": "nexus",
+            "nexus_format": "helm",
+        },
+        headers=headers,
+    )
+    assert missing_repo.status_code == 422
+    assert missing_repo.json()["error"]["code"] == "nexus_helm_repository_required"
+
+    insecure = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "HTTP Helm",
+            "url": "http://nexus.example.test",
+            "registry_type": "nexus",
+            "nexus_format": "helm",
+            "nexus_search_repository": "helm-hosted",
+        },
+        headers=headers,
+    )
+    assert insecure.status_code == 422
+    assert insecure.json()["error"]["code"] == "nexus_helm_https_required"
+
+
+def test_helm_http_profile_probe_is_index_based_and_never_docker_v2(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from app.services.nexus_helm_http import HelmHttpResult
+
+    client, app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    response = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Helm target",
+            "url": "https://nexus.example.test",
+            "registry_type": "nexus",
+            "nexus_format": "helm",
+            "nexus_search_repository": "helm-hosted",
+            "verify_tls": False,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201
+    profile_id = response.json()["id"]
+    observed = []
+
+    async def fake_list(self, repository):
+        observed.append((repository, self.base_url, self.verify))
+        return HelmHttpResult(True, ())
+
+    async def forbidden_docker(*args, **kwargs):
+        raise AssertionError("Helm HTTP profile must not trigger Docker /v2/")
+
+    monkeypatch.setattr("app.services.nexus_helm_http.NexusHelmHttpService.list_charts", fake_list)
+    monkeypatch.setattr("app.api.settings.probe_docker_v2", forbidden_docker)
+    result = client.post(
+        f"/api/settings/harbor/profiles/{profile_id}/test-registry",
+        headers=headers,
+    )
+    assert result.status_code == 200
+    assert result.json()["ok"] is True
+    assert result.json()["code"] == "helm_connection_ok"
+    assert observed == [("helm-hosted", "https://nexus.example.test", False)]
