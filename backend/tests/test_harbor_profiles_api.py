@@ -88,6 +88,7 @@ def test_existing_single_harbor_is_exposed_as_default_profile(tmp_path: Path) ->
                 "id": "default",
                 "name": "Default Harbor",
                 "registry_type": "harbor",
+                "nexus_repository_format": "legacy",
                 "url": "https://legacy.harbor.local",
                 "username": "legacy-user",
                 "verify_tls": True,
@@ -582,3 +583,117 @@ def test_nexus_profile_connection_api_checks_v2_without_harbor_or_image(
     assert calls[0]["url"] == "https://docker.nexus.example.test"
     assert "busybox" not in response.text
     assert "Nexus (version unknown)" not in response.text
+
+
+def test_nexus_helm_http_profile_pins_repository_and_preserves_tls_setting(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from app.services.nexus_helm_http import NexusHelmHttpError, NexusHelmHttpService
+    from app.services.nexus_service import NexusService, NexusServiceError
+    from app.services.registry_probe import ProbeResult
+
+    client, app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+
+    missing = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Incomplete Helm",
+            "url": "https://nexus-ui.example.test",
+            "registry_type": "nexus",
+            "nexus_repository_format": "helm_http",
+            "verify_tls": False,
+        },
+        headers=headers,
+    )
+    assert missing.status_code == 422
+    assert missing.json()["error"]["code"] == "nexus_helm_profile_incomplete"
+
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Regional Helm hosted",
+            "url": "https://nexus-ui.example.test",
+            "registry_type": "nexus",
+            "nexus_repository_format": "helm_http",
+            "nexus_helm_repository": "helm-hosted",
+            "nexus_search_url": "https://nexus-ui.example.test",
+            "verify_tls": False,
+            "username": "helm-operator",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+    assert created.json()["nexus_repository_format"] == "helm_http"
+    assert created.json()["nexus_helm_repository"] == "helm-hosted"
+    assert created.json()["verify_tls"] is False
+
+    observed = []
+
+    async def fake_helm_probe(resolved, repository, *, connect_timeout, read_timeout):
+        observed.append((resolved.url, repository, resolved.verify_tls))
+        return ProbeResult(ok=True, code="helm_repository_ok", message="Helm HTTP доступен")
+
+    async def forbidden_docker(*_args, **_kwargs):
+        raise AssertionError("Docker v2 probe is forbidden for Helm profile")
+
+    monkeypatch.setattr("app.api.settings.probe_helm_http", fake_helm_probe)
+    monkeypatch.setattr("app.api.settings.probe_docker_v2", forbidden_docker)
+    result = client.post(
+        f"/api/settings/harbor/profiles/{profile_id}/test-registry", headers=headers,
+    )
+    assert result.status_code == 200
+    assert result.json()["code"] == "helm_repository_ok"
+    assert observed == [("https://nexus-ui.example.test", "helm-hosted", False)]
+
+    with app.state.session_factory() as session:
+        helm = NexusHelmHttpService(session, app.state.settings, profile_id)
+        assert helm.base_url == "https://nexus-ui.example.test"
+        assert helm._repository("helm-hosted") == "helm-hosted"
+        try:
+            helm._repository("other-repository")
+        except NexusHelmHttpError as exc:
+            assert exc.code == "helm_repository_mismatch"
+        else:
+            raise AssertionError("profile must reject access to unbound Helm repository")
+        try:
+            NexusService(session, app.state.settings, nexus_profile_id=profile_id)._resolve_nexus()
+        except NexusServiceError as exc:
+            assert exc.code == "nexus_profile_invalid_format"
+        else:
+            raise AssertionError("Docker operations must reject a Helm HTTP profile")
+
+    mismatched = client.patch(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        json={"nexus_search_url": "https://foreign.example.test"},
+        headers=headers,
+    )
+    assert mismatched.status_code == 422
+    assert mismatched.json()["error"]["code"] == "nexus_helm_profile_incomplete"
+
+    listed = client.get("/api/settings/harbor/profiles", headers=headers)
+    persisted = next(item for item in listed.json()["items"] if item["id"] == profile_id)
+    assert persisted["nexus_helm_repository"] == "helm-hosted"
+    assert persisted["nexus_repository_format"] == "helm_http"
+
+
+def test_legacy_nexus_profile_does_not_change_format_when_loaded(tmp_path: Path) -> None:
+    client, _app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Existing Nexus",
+            "url": "https://nexus.example.test",
+            "registry_type": "nexus",
+            "verify_tls": False,
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    assert created.json()["nexus_repository_format"] == "legacy"
+    listed = client.get("/api/settings/harbor/profiles", headers=headers)
+    assert next(
+        item for item in listed.json()["items"] if item["id"] == created.json()["id"]
+    )["nexus_repository_format"] == "legacy"
