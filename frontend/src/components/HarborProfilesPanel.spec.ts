@@ -373,6 +373,7 @@ describe('HarborProfilesPanel', () => {
         username: 'svc-b',
         verify_tls: true,
         registry_type: 'nexus',
+        nexus_format: 'docker',
       },
     )
     expect(wrapper.get('.create-form [role="status"]').text()).toContain('Профиль обновлён')
