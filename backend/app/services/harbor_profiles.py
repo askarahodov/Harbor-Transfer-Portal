@@ -41,6 +41,9 @@ class HarborProfile:
     registry_type: Literal["harbor", "nexus"] = "harbor"
     nexus_search_url: str | None = None
     nexus_search_repository: str | None = None
+    # Missing field in old Nexus profiles retains historical mixed protocol behavior.
+    nexus_repository_format: Literal["legacy", "docker", "helm_http"] = "legacy"
+    nexus_helm_repository: str | None = None
 
 
 class HarborProfileService:
@@ -203,6 +206,8 @@ class HarborProfileService:
         registry_type: Literal["harbor", "nexus"] = "harbor",
         nexus_search_url: str | None = None,
         nexus_search_repository: str | None = None,
+        nexus_repository_format: Literal["legacy", "docker", "helm_http"] = "legacy",
+        nexus_helm_repository: str | None = None,
     ) -> HarborProfile:
         normalized_name = self._normalize_name(name)
         validated_url = HarborSettingsService._validated_url(url)
@@ -217,6 +222,10 @@ class HarborProfileService:
                 "registry_type должен быть 'harbor' или 'nexus'",
             )
 
+        self._validate_nexus_format(
+            registry_type, nexus_repository_format, validated_url,
+            nexus_search_url, nexus_helm_repository,
+        )
         profile = HarborProfile(
             id=uuid4().hex,
             name=normalized_name,
@@ -227,6 +236,8 @@ class HarborProfileService:
             registry_type=registry_type,
             nexus_search_url=self._search_url(nexus_search_url),
             nexus_search_repository=self._search_repository(nexus_search_repository),
+            nexus_repository_format=nexus_repository_format,
+            nexus_helm_repository=self._search_repository(nexus_helm_repository),
         )
         profiles.append(profile)
         self._save_additional(profiles)
@@ -247,6 +258,9 @@ class HarborProfileService:
         nexus_search_repository: str | None = None,
         nexus_search_url_set: bool = False,
         nexus_search_repository_set: bool = False,
+        nexus_repository_format: Literal["legacy", "docker", "helm_http"] | None = None,
+        nexus_helm_repository: str | None = None,
+        nexus_helm_repository_set: bool = False,
     ) -> HarborProfile:
         if profile_id == DEFAULT_PROFILE_ID:
             raise HarborSettingsError(
@@ -283,6 +297,19 @@ class HarborProfileService:
                 )
             next_registry_type = registry_type
 
+        next_format = nexus_repository_format or current.nexus_repository_format
+        next_helm_repository = (
+            self._search_repository(nexus_helm_repository)
+            if nexus_helm_repository_set else current.nexus_helm_repository
+        )
+        next_search_url = (
+            self._search_url(nexus_search_url) if nexus_search_url_set
+            else current.nexus_search_url
+        )
+        self._validate_nexus_format(
+            next_registry_type, next_format, next_url, next_search_url,
+            next_helm_repository,
+        )
         updated = replace(
             current,
             name=next_name,
@@ -291,14 +318,13 @@ class HarborProfileService:
             verify_tls=verify_tls if verify_tls is not None else current.verify_tls,
             enabled=next_enabled,
             registry_type=next_registry_type,
-            nexus_search_url=(
-                self._search_url(nexus_search_url) if nexus_search_url_set
-                else current.nexus_search_url
-            ),
+            nexus_search_url=next_search_url,
             nexus_search_repository=(
                 self._search_repository(nexus_search_repository) if nexus_search_repository_set
                 else current.nexus_search_repository
             ),
+            nexus_repository_format=next_format,
+            nexus_helm_repository=next_helm_repository,
         )
         self._save_additional([updated if item.id == current.id else item for item in profiles])
         return updated
@@ -486,6 +512,9 @@ class HarborProfileService:
                 registry_type = str(item.get("registry_type", "harbor"))
                 if registry_type not in ("harbor", "nexus"):
                     raise ValueError("invalid registry_type")
+                nexus_format = item.get("nexus_repository_format", "legacy")
+                if nexus_format not in ("legacy", "docker", "helm_http"):
+                    raise ValueError("invalid Nexus repository format")
                 profile = HarborProfile(
                     id=str(item["id"]),
                     name=self._normalize_name(str(item["name"])),
@@ -498,6 +527,14 @@ class HarborProfileService:
                     nexus_search_repository=self._search_repository(
                         item.get("nexus_search_repository")
                     ),
+                    nexus_repository_format=nexus_format,
+                    nexus_helm_repository=self._search_repository(
+                        item.get("nexus_helm_repository")
+                    ),
+                )
+                self._validate_nexus_format(
+                    profile.registry_type, profile.nexus_repository_format,
+                    profile.url, profile.nexus_search_url, profile.nexus_helm_repository,
                 )
                 if (
                     not profile.id
@@ -529,11 +566,43 @@ class HarborProfileService:
                 "registry_type": item.registry_type,
                 "nexus_search_url": item.nexus_search_url,
                 "nexus_search_repository": item.nexus_search_repository,
+                "nexus_repository_format": item.nexus_repository_format,
+                "nexus_helm_repository": item.nexus_helm_repository,
             }
             for item in sorted(profiles, key=lambda value: value.name.casefold())
         ]
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         self.metadata.set_value(PROFILES_KEY, encoded)
+
+    @staticmethod
+    def _validate_nexus_format(
+        registry_type: str, nexus_format: str, url: str,
+        search_url: str | None, helm_repository: str | None,
+    ) -> None:
+        if registry_type != "nexus":
+            if nexus_format != "legacy" or helm_repository is not None:
+                raise HarborSettingsError(
+                    "nexus_format_invalid", "Формат Nexus разрешён только для Nexus profile",
+                )
+            return
+        if nexus_format not in ("legacy", "docker", "helm_http"):
+            raise HarborSettingsError("nexus_format_invalid", "Неизвестный формат Nexus")
+        if nexus_format == "helm_http":
+            if not url.startswith("https://") or not helm_repository:
+                raise HarborSettingsError(
+                    "nexus_helm_profile_incomplete",
+                    "Для Helm HTTP нужны HTTPS Nexus UI URL и точное имя Helm repository",
+                )
+            if search_url is not None and search_url.rstrip("/") != url.rstrip("/"):
+                raise HarborSettingsError(
+                    "nexus_helm_profile_incomplete",
+                    "Helm HTTP profile должен использовать один Nexus UI HTTPS origin",
+                )
+        elif helm_repository is not None:
+            raise HarborSettingsError(
+                "nexus_helm_profile_incomplete",
+                "Helm repository можно указать только для Helm HTTP profile",
+            )
 
     @staticmethod
     def _search_url(value: str | None) -> str | None:

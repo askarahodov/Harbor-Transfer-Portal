@@ -64,7 +64,12 @@ class NexusDiscoveryService:
         ):
             raise HarborSettingsError("nexus_url_invalid", "Нужен корневой URL Docker v2 connector")
         self.url = url.rstrip("/")
-        self.search_url = profile.nexus_search_url
+        self.nexus_repository_format = profile.nexus_repository_format
+        self.helm_repository = profile.nexus_helm_repository
+        self.search_url = (
+            profile.url if profile.nexus_repository_format == "helm_http"
+            else profile.nexus_search_url
+        )
         self.search_repository = profile.nexus_search_repository
         self.username = effective.username
         self.password = effective.password
@@ -139,12 +144,22 @@ class NexusDiscoveryService:
             "Список ограничен 200 записями" if len(items) > 200 else None,
         )
 
+    def _require_docker(self) -> None:
+        # Legacy unit fixtures construct this service without calling __init__.
+        # All real typed Helm profiles get nexus_repository_format from metadata.
+        if getattr(self, "nexus_repository_format", "legacy") == "helm_http":
+            raise HarborSettingsError(
+                "registry_format_mismatch", "Для Docker каталога выберите Nexus Docker profile",
+            )
+
     async def catalog(self, search: str = "") -> DiscoveryResult:
+        self._require_docker()
         if self.search_url and self.search_repository:
             return await self._search_rest(None, search)
         return await self._get("/v2/_catalog", "repositories", search, _REPOSITORY)
 
     async def tags(self, repository: str, search: str = "") -> DiscoveryResult:
+        self._require_docker()
         if _REPOSITORY.fullmatch(repository) is None:
             raise ValueError("invalid Docker repository")
         if self.search_url and self.search_repository:
@@ -156,11 +171,13 @@ class NexusDiscoveryService:
         self, search: str = "", cursor: str | None = None,
     ) -> DiscoveryResult:
         """One bounded page, with continuation explicitly exposed to the UI."""
+        self._require_docker()
         return await self._browse_page(None, search, cursor)
 
     async def tags_page(
         self, repository: str, search: str = "", cursor: str | None = None,
     ) -> DiscoveryResult:
+        self._require_docker()
         if _REPOSITORY.fullmatch(repository) is None:
             raise ValueError("invalid Docker repository")
         return await self._browse_page(repository, search, cursor)

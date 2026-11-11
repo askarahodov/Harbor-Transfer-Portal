@@ -27,7 +27,7 @@ from app.services.harbor_settings import (
     HarborSettingsError,
     HarborSettingsService,
 )
-from app.services.registry_probe import probe_docker_v2
+from app.services.registry_probe import probe_docker_v2, probe_helm_http
 
 router = APIRouter(prefix="/settings/harbor", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
@@ -104,6 +104,8 @@ def _profile_response(
             AnyHttpUrl(profile.nexus_search_url) if profile.nexus_search_url else None
         ),
         nexus_search_repository=profile.nexus_search_repository,
+        nexus_repository_format=profile.nexus_repository_format,
+        nexus_helm_repository=profile.nexus_helm_repository,
     )
 
 
@@ -314,6 +316,8 @@ def create_harbor_profile(
                 str(payload.nexus_search_url).rstrip("/") if payload.nexus_search_url else None
             ),
             nexus_search_repository=payload.nexus_search_repository,
+            nexus_repository_format=payload.nexus_repository_format,
+            nexus_helm_repository=payload.nexus_helm_repository,
         )
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
@@ -388,6 +392,12 @@ def update_harbor_profile(
                 nexus_search_repository_set=(
                     "nexus_search_repository" in payload.model_fields_set
                 ),
+                nexus_repository_format=(
+                    payload.nexus_repository_format
+                    if "nexus_repository_format" in payload.model_fields_set else None
+                ),
+                nexus_helm_repository=payload.nexus_helm_repository,
+                nexus_helm_repository_set="nexus_helm_repository" in payload.model_fields_set,
             )
             if changed_fields:
                 _audit_profile(
@@ -556,11 +566,18 @@ async def test_registry_profile_connection(
             )
         except HarborSettingsError as exc:
             raise _profile_error(exc) from exc
-        result = await probe_docker_v2(
-            resolved,
-            connect_timeout=request.app.state.settings.harbor_connect_timeout_seconds,
-            read_timeout=request.app.state.settings.harbor_read_timeout_seconds,
-        )
+        if profile.nexus_repository_format == "helm_http":
+            result = await probe_helm_http(
+                resolved, profile.nexus_helm_repository or "",
+                connect_timeout=request.app.state.settings.harbor_connect_timeout_seconds,
+                read_timeout=request.app.state.settings.harbor_read_timeout_seconds,
+            )
+        else:
+            result = await probe_docker_v2(
+                resolved,
+                connect_timeout=request.app.state.settings.harbor_connect_timeout_seconds,
+                read_timeout=request.app.state.settings.harbor_read_timeout_seconds,
+            )
         return HarborConnectionTestResponse(
             ok=result.ok, code=result.code, message=result.message, version=None
         )

@@ -83,6 +83,10 @@ class HarborProfileResponse(BaseModel):
     nexus_search_repository: str | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    nexus_repository_format: Literal["legacy", "docker", "helm_http"] = "legacy"
+    nexus_helm_repository: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class HarborProfilesResponse(BaseModel):
@@ -98,6 +102,8 @@ class HarborProfileCreate(BaseModel):
     registry_type: Literal["harbor", "nexus"] = "harbor"
     nexus_search_url: AnyHttpUrl | None = None
     nexus_search_repository: str | None = Field(default=None, max_length=128)
+    nexus_repository_format: Literal["legacy", "docker", "helm_http"] = "legacy"
+    nexus_helm_repository: str | None = Field(default=None, max_length=128)
 
     @field_validator("url")
     @classmethod
@@ -149,6 +155,8 @@ class HarborProfilePatch(BaseModel):
     registry_type: Literal["harbor", "nexus"] | None = None
     nexus_search_url: AnyHttpUrl | None = None
     nexus_search_repository: str | None = Field(default=None, max_length=128)
+    nexus_repository_format: Literal["legacy", "docker", "helm_http"] | None = None
+    nexus_helm_repository: str | None = Field(default=None, max_length=128)
 
     @field_validator("url")
     @classmethod

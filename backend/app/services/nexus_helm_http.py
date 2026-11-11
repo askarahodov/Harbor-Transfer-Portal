@@ -101,7 +101,13 @@ class NexusHelmHttpService:
 
     def __init__(self, session: Session, settings: Settings, profile_id: str) -> None:
         discovery = NexusDiscoveryService(session, settings, profile_id)
+        if discovery.nexus_repository_format == "docker":
+            raise NexusHelmHttpError(
+                "helm_profile_format_mismatch",
+                "Выбран Docker profile, нужен отдельный Nexus Helm HTTP profile",
+            )
         self.base_url = discovery.search_url or ""
+        self.bound_repository = discovery.helm_repository
         self.username = discovery.username
         self.password = discovery.password
         self.verify = discovery.verify
@@ -127,10 +133,16 @@ class NexusHelmHttpService:
             raise NexusHelmHttpError("helm_url_invalid", "Требуется корневой Nexus UI HTTPS URL")
         return self.base_url.rstrip("/")
 
-    @staticmethod
-    def _repository(repository: str) -> str:
+    def _repository(self, repository: str) -> str:
         if _REPO.fullmatch(repository) is None:
             raise NexusHelmHttpError("helm_repository_invalid", "Некорректное имя Helm repository")
+        # Older E2E/legacy fixtures construct this service without __init__.
+        # Real typed Helm profiles always set bound_repository in __init__.
+        bound_repository = getattr(self, "bound_repository", None)
+        if bound_repository is not None and repository != bound_repository:
+            raise NexusHelmHttpError(
+                "helm_repository_mismatch", "Helm profile закреплён за другим repository",
+            )
         return repository
 
     def _client(self) -> httpx.AsyncClient:

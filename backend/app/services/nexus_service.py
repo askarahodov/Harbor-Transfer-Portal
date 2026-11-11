@@ -328,6 +328,11 @@ class NexusService:
                     "nexus_profile_invalid_type",
                     "Выбранный profile не является Nexus",
                 )
+            if profile.nexus_repository_format == "helm_http":
+                raise NexusServiceError(
+                    "nexus_profile_invalid_format",
+                    "Docker image операции запрещены для Nexus Helm HTTP profile",
+                )
             return HarborSettingsService(self.session, self.settings).resolve_profile(profile.id)
 
         # The legacy installation-wide Nexus registry remains supported.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import ssl
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -206,3 +206,108 @@ async def probe_docker_v2(
         return _result("registry_tls_failed", "Ошибка TLS/CA или конфигурации подключения")
     except httpx.HTTPError:
         return _result("registry_unavailable", "Ошибка обмена с Docker Registry v2")
+
+
+async def probe_helm_http(
+    profile: EffectiveHarborSettings,
+    repository: str,
+    *,
+    connect_timeout: float,
+    read_timeout: float,
+) -> ProbeResult:
+    """Read-only, bounded check of a single classic Nexus Helm HTTP repository.
+
+    GET the exact repository metadata before index.yaml: a Docker/other format,
+    foreign repository, 401/403 or redirect never reports successful Helm access.
+    """
+    if not profile.url or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", repository):
+        return _result("helm_repository_invalid", "Укажите точное имя Helm repository")
+    try:
+        parsed = urlsplit(profile.url)
+        valid = (
+            parsed.scheme == "https"
+            and parsed.hostname is not None
+            and parsed.port != 0
+            and parsed.path in {"", "/"}
+            and not parsed.query and not parsed.fragment
+            and not parsed.username and not parsed.password
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        return _result("helm_url_invalid", "Для Helm нужен корневой Nexus UI HTTPS URL")
+    verify: bool | str = profile.verify_tls
+    if profile.verify_tls and profile.ca_file is not None:
+        verify = str(profile.ca_file)
+    auth = (
+        httpx.BasicAuth(profile.username, profile.password)
+        if profile.username and profile.password else None
+    )
+    url = profile.url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(
+            verify=verify,
+            timeout=httpx.Timeout(
+                connect=connect_timeout, read=read_timeout,
+                write=read_timeout, pool=connect_timeout,
+            ),
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
+            info = await client.get(
+                url + "/service/rest/v1/repositories/" + quote(repository), auth=auth,
+            )
+            if info.status_code in {401, 403}:
+                return _result("helm_repository_denied", "Нет прав на Helm repository")
+            if info.status_code == 404:
+                return _result("helm_repository_missing", "Helm repository не найден")
+            if info.status_code != 200:
+                return _result(
+                    "helm_repository_unavailable", "Nexus не подтвердил Helm repository",
+                )
+            try:
+                identity = info.json()
+            except ValueError:
+                return _result("helm_repository_invalid", "Некорректный ответ Nexus")
+            if (
+                not isinstance(identity, dict)
+                or identity.get("name") != repository
+                or identity.get("format") != "helm"
+                or identity.get("type") not in {"hosted", "proxy", "group"}
+            ):
+                return _result(
+                    "helm_repository_format_mismatch",
+                    "Выбранный Nexus repository не имеет формат Helm HTTP",
+                )
+            async with client.stream(
+                "GET", url + "/repository/" + quote(repository) + "/index.yaml",
+                auth=auth,
+            ) as index:
+                if index.status_code in {401, 403}:
+                    return _result("helm_repository_denied", "Нет прав на Helm index.yaml")
+                if index.status_code == 404:
+                    return _result(
+                        "helm_index_missing",
+                        "Helm repository подтверждён, но index.yaml отсутствует",
+                        True,
+                    )
+                if index.status_code != 200:
+                    return _result("helm_index_unavailable", "Helm index.yaml недоступен")
+                size = 0
+                async for chunk in index.aiter_bytes():
+                    size += len(chunk)
+                    if size > 8 * 1024 * 1024:
+                        return _result("helm_index_too_large", "Helm index.yaml слишком большой")
+            return _result(
+                "helm_repository_ok",
+                "Helm HTTP repository и index.yaml доступны на чтение",
+                True,
+            )
+    except httpx.TimeoutException:
+        return _result("helm_repository_unavailable", "Nexus Helm не ответил вовремя")
+    except httpx.ConnectError as exc:
+        if "certificate" in str(exc).lower() or isinstance(exc.__cause__, ssl.SSLError):
+            return _result("helm_tls_failed", "Ошибка проверки TLS Nexus Helm")
+        return _result("helm_repository_unavailable", "Nexus Helm недоступен")
+    except (httpx.HTTPError, ValueError, OSError, ssl.SSLError):
+        return _result("helm_repository_unavailable", "Не удалось проверить Nexus Helm")
