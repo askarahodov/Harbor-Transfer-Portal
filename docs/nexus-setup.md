@@ -1,5 +1,30 @@
 # Настройка Sonatype Nexus для Harbor Transfer Portal
 
+
+## Раздельные профили Nexus Docker и Helm HTTP (staging #497)
+
+Новый `nexus_format` определяет тип Nexus profile: `docker` или `helm`. Сохранённые
+профили без этого поля остаются **Docker**, без автоматического изменения URL,
+credential или TLS. Для каждого Docker connector и каждого Helm HTTP repository
+создаётся отдельный profile с собственным именем и при необходимости service account.
+
+- **Nexus Docker v2**: URL корневого Docker connector, `GET /v2/`, repository name
+  из соответствующего Docker connector. Helm HTTP index здесь не проверяется.
+- **Nexus Helm HTTP**: URL корня Nexus UI по **HTTPS** и обязательное имя Helm
+  repository (например, `helm-hosted`). Read-only проверка читает
+  `/repository/helm-hosted/index.yaml` с лимитом размера/редиректов, не вызывает
+  OCI или Docker v2. Клиент фиксирует имя repository и отвергает попытку читать
+  другой repository через этот профиль. Права **записи** не следуют из успешного
+  чтения индекса; hosted upload/ACL отдельно проверяются на TARGET.
+
+Опция `verify_tls=false` существующих HTTPS профилей сохраняется; проверка
+не включает и не отключает её самостоятельно. Такое соединение не подтверждает
+подлинность сертификата. Перед production sign-off требуется одобренная политика TLS.
+
+Это развитие Draft Nexus-кандидата, **не** готовый production-релиз. Статусы
+региональной приёмки #434/#436 и release gate остаются NO-GO.
+
+
 ## Важно: Docker v2 не означает Helm OCI
 
 В инфраструктуре с **Nexus 3 до 3.94** необходимо различать:
