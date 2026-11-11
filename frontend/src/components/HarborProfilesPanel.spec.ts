@@ -128,6 +128,8 @@ describe('HarborProfilesPanel', () => {
       username: 'svc-b',
       verify_tls: true,
       registry_type: 'harbor',
+      nexus_repository_format: 'legacy',
+      nexus_helm_repository: null,
       enabled: true,
     })
     expect(put).toHaveBeenCalledWith(
@@ -410,6 +412,7 @@ describe('HarborProfilesPanel', () => {
     const nexus = {
       ...secondProfile,
       registry_type: 'nexus' as const,
+      nexus_repository_format: 'docker' as const,
       name: 'Regional Nexus',
       url: 'https://nexus.example.test',
     }
