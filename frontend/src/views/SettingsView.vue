@@ -50,7 +50,21 @@ type KeyReadiness = {
 
 const MIB = 1024 ** 2
 const DAY_SECONDS = 24 * 60 * 60
+const HOUR_SECONDS = 60 * 60
 const MINUTE_SECONDS = 60
+const RETENTION_UNIT_SECONDS = {
+  days: DAY_SECONDS,
+  hours: HOUR_SECONDS,
+  minutes: MINUTE_SECONDS,
+  seconds: 1,
+} as const
+type RetentionUnit = keyof typeof RETENTION_UNIT_SECONDS
+const retentionUnitOptions: { value: RetentionUnit; label: string }[] = [
+  { value: 'days', label: 'суток' },
+  { value: 'hours', label: 'часов' },
+  { value: 'minutes', label: 'минут' },
+  { value: 'seconds', label: 'секунд' },
+]
 const runtime = useRuntimeStore()
 const settings = ref<HarborSettings | null>(null)
 const transferSettings = ref<TransferSettings | null>(null)
@@ -65,8 +79,10 @@ const extractedMiB = ref(0)
 const memberCount = ref(0)
 const diskReserveMiB = ref(0)
 const maxConcurrent = ref(0)
-const exportRetentionDays = ref(7)
-const importRetentionDays = ref(7)
+const exportRetentionAmount = ref(7)
+const importRetentionAmount = ref(7)
+const exportRetentionUnit = ref<RetentionUnit>('days')
+const importRetentionUnit = ref<RetentionUnit>('days')
 const cleanupIntervalMinutes = ref(60)
 const destinationImageProject = ref('')
 const destinationHelmProject = ref('')
@@ -145,6 +161,36 @@ function applySettings(value: HarborSettings): void {
   verifyTls.value = value.verify_tls
 }
 
+function retentionFields(seconds: number): { amount: number; unit: RetentionUnit } {
+  for (const unit of retentionUnitOptions) {
+    const factor = RETENTION_UNIT_SECONDS[unit.value]
+    if (seconds % factor === 0) return { amount: seconds / factor, unit: unit.value }
+  }
+  return { amount: seconds, unit: 'seconds' }
+}
+
+function retentionSeconds(amount: number, unit: RetentionUnit): number {
+  const seconds = amount * RETENTION_UNIT_SECONDS[unit]
+  if (!Number.isSafeInteger(amount) || !Number.isSafeInteger(seconds)
+    || seconds < HOUR_SECONDS || seconds > 365 * DAY_SECONDS) {
+    throw new Error('Срок хранения должен быть целым числом: от 1 часа до 365 суток.')
+  }
+  return seconds
+}
+
+function retentionUnitCompatible(amount: number, unit: RetentionUnit, nextUnit: RetentionUnit): boolean {
+  return (amount * RETENTION_UNIT_SECONDS[unit]) % RETENTION_UNIT_SECONDS[nextUnit] === 0
+}
+
+function changeRetentionUnit(which: 'export' | 'import', event: Event): void {
+  const nextUnit = (event.target as HTMLSelectElement).value as RetentionUnit
+  const amount = which === 'export' ? exportRetentionAmount : importRetentionAmount
+  const unit = which === 'export' ? exportRetentionUnit : importRetentionUnit
+  if (!retentionUnitCompatible(amount.value, unit.value, nextUnit)) return
+  amount.value = amount.value * RETENTION_UNIT_SECONDS[unit.value] / RETENTION_UNIT_SECONDS[nextUnit]
+  unit.value = nextUnit
+}
+
 function applyTransferSettings(value: TransferSettings): void {
   transferSettings.value = value
   allowOverwrite.value = value.import_allow_overwrite
@@ -154,8 +200,12 @@ function applyTransferSettings(value: TransferSettings): void {
   memberCount.value = value.bundle_max_member_count
   diskReserveMiB.value = value.operation_disk_reserve_bytes / MIB
   maxConcurrent.value = value.operation_max_concurrent
-  exportRetentionDays.value = value.export_bundle_retention_seconds / DAY_SECONDS
-  importRetentionDays.value = value.import_bundle_retention_seconds / DAY_SECONDS
+  const sourceRetention = retentionFields(value.export_bundle_retention_seconds)
+  const targetRetention = retentionFields(value.import_bundle_retention_seconds)
+  exportRetentionAmount.value = sourceRetention.amount
+  importRetentionAmount.value = targetRetention.amount
+  exportRetentionUnit.value = sourceRetention.unit
+  importRetentionUnit.value = targetRetention.unit
   cleanupIntervalMinutes.value = value.storage_cleanup_interval_seconds / MINUTE_SECONDS
   destinationImageProject.value = value.destination_container_image_project ?? ''
   destinationHelmProject.value = value.destination_helm_chart_project ?? ''
@@ -212,8 +262,12 @@ async function saveTransferSettings(): Promise<void> {
       bundle_max_member_count: memberCount.value,
       operation_disk_reserve_bytes: Math.round(diskReserveMiB.value * MIB),
       operation_max_concurrent: maxConcurrent.value,
-      export_bundle_retention_seconds: Math.round(exportRetentionDays.value * DAY_SECONDS),
-      import_bundle_retention_seconds: Math.round(importRetentionDays.value * DAY_SECONDS),
+      export_bundle_retention_seconds: retentionSeconds(
+        exportRetentionAmount.value, exportRetentionUnit.value,
+      ),
+      import_bundle_retention_seconds: retentionSeconds(
+        importRetentionAmount.value, importRetentionUnit.value,
+      ),
       storage_cleanup_interval_seconds: Math.round(
         cleanupIntervalMinutes.value * MINUTE_SECONDS,
       ),
@@ -492,28 +546,56 @@ onMounted(() => {
             </p>
           </div>
           <div class="policy-grid">
-            <label for="transfer-export-retention-days">
-              Готовые SOURCE пакеты, суток
-              <input
-                id="transfer-export-retention-days"
-                v-model.number="exportRetentionDays"
-                type="number"
-                min="0.0416666667"
-                max="365"
-                step="0.0416666667"
-              />
-            </label>
-            <label for="transfer-import-retention-days">
-              Failed/partial TARGET пакеты, суток
-              <input
-                id="transfer-import-retention-days"
-                v-model.number="importRetentionDays"
-                type="number"
-                min="0.0416666667"
-                max="365"
-                step="0.0416666667"
-              />
-            </label>
+            <div class="retention-field">
+              <label for="transfer-export-retention-value">Готовые SOURCE пакеты</label>
+              <div class="retention-controls">
+                <input
+                  id="transfer-export-retention-value"
+                  v-model.number="exportRetentionAmount"
+                  type="number"
+                  :min="Math.ceil(HOUR_SECONDS / RETENTION_UNIT_SECONDS[exportRetentionUnit])"
+                  :max="Math.floor(365 * DAY_SECONDS / RETENTION_UNIT_SECONDS[exportRetentionUnit])"
+                  step="1"
+                />
+                <select
+                  :value="exportRetentionUnit"
+                  aria-label="Единица хранения SOURCE"
+                  @change="changeRetentionUnit('export', $event)"
+                >
+                  <option
+                    v-for="unit in retentionUnitOptions"
+                    :key="unit.value"
+                    :value="unit.value"
+                    :disabled="!retentionUnitCompatible(exportRetentionAmount, exportRetentionUnit, unit.value)"
+                  >{{ unit.label }}</option>
+                </select>
+              </div>
+            </div>
+            <div class="retention-field">
+              <label for="transfer-import-retention-value">Failed/partial TARGET пакеты</label>
+              <div class="retention-controls">
+                <input
+                  id="transfer-import-retention-value"
+                  v-model.number="importRetentionAmount"
+                  type="number"
+                  :min="Math.ceil(HOUR_SECONDS / RETENTION_UNIT_SECONDS[importRetentionUnit])"
+                  :max="Math.floor(365 * DAY_SECONDS / RETENTION_UNIT_SECONDS[importRetentionUnit])"
+                  step="1"
+                />
+                <select
+                  :value="importRetentionUnit"
+                  aria-label="Единица хранения TARGET"
+                  @change="changeRetentionUnit('import', $event)"
+                >
+                  <option
+                    v-for="unit in retentionUnitOptions"
+                    :key="unit.value"
+                    :value="unit.value"
+                    :disabled="!retentionUnitCompatible(importRetentionAmount, importRetentionUnit, unit.value)"
+                  >{{ unit.label }}</option>
+                </select>
+              </div>
+            </div>
             <label for="transfer-cleanup-interval-minutes">
               Проверка очистки, минут
               <input
@@ -617,6 +699,10 @@ onMounted(() => {
 .policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
 .policy-section { display: grid; gap: var(--space-3); margin-top: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
 .policy-section label { display: grid; gap: var(--space-2); }
+.retention-field { display: grid; gap: var(--space-2); }
+.retention-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); }
+.retention-controls input { width: 100%; min-width: 0; }
+.retention-controls select { min-height: 42px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--color-surface); color: var(--color-text); font: inherit; }
 .status { margin: 0; color: var(--color-text-muted); }
 .readiness-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 .readiness-list { display: grid; gap: var(--space-2); margin: 0; padding-left: var(--space-5); }
