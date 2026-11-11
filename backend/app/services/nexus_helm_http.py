@@ -156,7 +156,10 @@ class NexusHelmHttpService:
     def _repository(self, repository: str) -> str:
         if _REPO.fullmatch(repository) is None:
             raise NexusHelmHttpError("helm_repository_invalid", "Некорректное имя Helm repository")
-        if getattr(self, "allowed_repository", None) is not None and repository != self.allowed_repository:
+        if (
+            getattr(self, "allowed_repository", None) is not None
+            and repository != self.allowed_repository
+        ):
             raise NexusHelmHttpError(
                 "helm_repository_mismatch", "Helm repository не совпадает с выбранным профилем"
             )
