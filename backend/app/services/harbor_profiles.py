@@ -223,6 +223,8 @@ class HarborProfileService:
             registry_type != "nexus" and nexus_format != "docker"
         ):
             raise HarborSettingsError("nexus_format_invalid", "Неверный формат Nexus profile")
+        if nexus_format == "helm" and not validated_url.startswith("https://"):
+            raise HarborSettingsError("nexus_helm_https_required", "Helm profile требует HTTPS")
         if nexus_format == "helm" and not nexus_search_repository:
             raise HarborSettingsError(
                 "nexus_helm_repository_required", "Для Helm profile укажите repository"
@@ -305,6 +307,8 @@ class HarborProfileService:
             self._search_repository(nexus_search_repository)
             if nexus_search_repository_set else current.nexus_search_repository
         )
+        if next_nexus_format == "helm" and not next_url.startswith("https://"):
+            raise HarborSettingsError("nexus_helm_https_required", "Helm profile требует HTTPS")
         if next_nexus_format == "helm" and not next_helm_repo:
             raise HarborSettingsError(
                 "nexus_helm_repository_required", "Для Helm profile укажите repository"
