@@ -735,7 +735,7 @@ class ExportOrchestrator:
                 if selected.registry_type == "nexus":
                     raise ExportOrchestrationError(
                         "nexus_requires_registry_workflow",
-                        "Nexus export требует отдельного registry workflow; Harbor API здесь неприменим",
+                        "Для Nexus export требуется отдельный registry workflow, не Harbor API",
                     )
                 return service.build_client(selected.id)
         except HarborSettingsError as exc:
