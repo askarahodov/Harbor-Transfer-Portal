@@ -557,8 +557,12 @@ def test_nexus_profile_uses_docker_v2_probe_with_existing_tls_setting(
     observed = []
 
     async def fake_probe(resolved, *, connect_timeout, read_timeout):
-        observed.append((resolved.url, resolved.verify_tls, resolved.username, bool(resolved.password)))
-        return ProbeResult(ok=True, code="registry_connection_ok", message="Docker Registry v2 доступен")
+        observed.append((
+            resolved.url, resolved.verify_tls, resolved.username, bool(resolved.password)
+        ))
+        return ProbeResult(
+            ok=True, code="registry_connection_ok", message="Docker Registry v2 доступен"
+        )
 
     def forbidden_harbor(*args, **kwargs):
         raise AssertionError("Nexus registry probe must not invoke Harbor client")
