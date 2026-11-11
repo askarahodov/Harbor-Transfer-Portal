@@ -67,6 +67,10 @@ const diskReserveMiB = ref(0)
 const maxConcurrent = ref(0)
 const exportRetentionDays = ref(7)
 const importRetentionDays = ref(7)
+// Backend supports hour-level legacy policies. Show whole days in the UI,
+// but preserve exact seconds unless the operator explicitly edits the field.
+const exportRetentionEdited = ref(false)
+const importRetentionEdited = ref(false)
 const cleanupIntervalMinutes = ref(60)
 const destinationImageProject = ref('')
 const destinationHelmProject = ref('')
@@ -154,8 +158,10 @@ function applyTransferSettings(value: TransferSettings): void {
   memberCount.value = value.bundle_max_member_count
   diskReserveMiB.value = value.operation_disk_reserve_bytes / MIB
   maxConcurrent.value = value.operation_max_concurrent
-  exportRetentionDays.value = value.export_bundle_retention_seconds / DAY_SECONDS
-  importRetentionDays.value = value.import_bundle_retention_seconds / DAY_SECONDS
+  exportRetentionDays.value = Math.ceil(value.export_bundle_retention_seconds / DAY_SECONDS)
+  importRetentionDays.value = Math.ceil(value.import_bundle_retention_seconds / DAY_SECONDS)
+  exportRetentionEdited.value = false
+  importRetentionEdited.value = false
   cleanupIntervalMinutes.value = value.storage_cleanup_interval_seconds / MINUTE_SECONDS
   destinationImageProject.value = value.destination_container_image_project ?? ''
   destinationHelmProject.value = value.destination_helm_chart_project ?? ''
@@ -212,8 +218,12 @@ async function saveTransferSettings(): Promise<void> {
       bundle_max_member_count: memberCount.value,
       operation_disk_reserve_bytes: Math.round(diskReserveMiB.value * MIB),
       operation_max_concurrent: maxConcurrent.value,
-      export_bundle_retention_seconds: Math.round(exportRetentionDays.value * DAY_SECONDS),
-      import_bundle_retention_seconds: Math.round(importRetentionDays.value * DAY_SECONDS),
+      export_bundle_retention_seconds: exportRetentionEdited.value
+        ? exportRetentionDays.value * DAY_SECONDS
+        : transferSettings.value?.export_bundle_retention_seconds,
+      import_bundle_retention_seconds: importRetentionEdited.value
+        ? importRetentionDays.value * DAY_SECONDS
+        : transferSettings.value?.import_bundle_retention_seconds,
       storage_cleanup_interval_seconds: Math.round(
         cleanupIntervalMinutes.value * MINUTE_SECONDS,
       ),
@@ -498,9 +508,11 @@ onMounted(() => {
                 id="transfer-export-retention-days"
                 v-model.number="exportRetentionDays"
                 type="number"
-                min="0.0416666667"
+                min="1"
                 max="365"
-                step="0.0416666667"
+                step="1"
+                required
+                @input="exportRetentionEdited = true"
               />
             </label>
             <label for="transfer-import-retention-days">
@@ -509,9 +521,11 @@ onMounted(() => {
                 id="transfer-import-retention-days"
                 v-model.number="importRetentionDays"
                 type="number"
-                min="0.0416666667"
+                min="1"
                 max="365"
-                step="0.0416666667"
+                step="1"
+                required
+                @input="importRetentionEdited = true"
               />
             </label>
             <label for="transfer-cleanup-interval-minutes">
@@ -527,7 +541,10 @@ onMounted(() => {
             </label>
           </div>
           <p class="status">
-            По умолчанию: SOURCE 7 суток, failed/partial TARGET 7 суток, cleanup каждые 60 минут.
+            Укажите целое число суток от 1 до 365. По умолчанию: SOURCE 7 суток,
+            failed/partial TARGET 7 суток, cleanup каждые 60 минут.
+            Исторические значения менее суток отображаются с округлением вверх, но
+            не меняются до явного редактирования соответствующего поля.
             Изменения применяются без restart backend.
           </p>
         </section>

@@ -1,52 +1,30 @@
-# ROADMAP — инженерные приоритеты и границы релиза
+# ROADMAP — инженерные приоритеты и release gates
 
-> Snapshot на 2026-11-09. **GitHub Issues/PR/CI и actual branch SHA — источник истины о текущем состоянии.** Обновляйте этот документ при смене приоритетов или статуса release; не используйте как доказательство успешной приёмки.
+> Срез на 10 ноября 2026. **Актуальное состояние всегда проверяйте по [GitHub Issues](https://github.com/askarahodov/Harbor-Transfer-Portal/issues), [PR](https://github.com/askarahodov/Harbor-Transfer-Portal/pulls) и CI.** Этот документ не подтверждает production rollout и не заменяет протокол приёмки.
 
-## Product baseline
+## Что работает в `main`
 
-Harbor Transfer Portal v1.0.0 поддерживает локальный **SOURCE → signed offline bundle + SHA-256 sidecar + signed handoff → physical transfer → TARGET verification/import** для Harbor. `main` — release-qualified baseline, но фактический production rollout требует локального approval. Nexus Docker/legacy HTTP Helm добавляется отдельно в [draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451). До подтверждённой региональной приёмки это **NO-GO**, не функция `main`.
+Harbor SOURCE → подписанный Offline Bundle v1 с `.sha256` и signed handoff → физический перенос → TARGET verify/import. Профили Harbor выбираются отдельно для операций; error-path export hardening [#475](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/475), интерактивная 60-минутная idle-сессия [#476](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/476) и fail-closed import recovery [#477](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/477)/[#478](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/478) объединены и прошли CI. Развёртывание конкретного контура требует отдельной проверки и разрешения.
 
-## Активные workstreams (приоритет по безопасности и dependencies)
+Первый запуск исходного checkout уже реализован: `./run.sh` (Linux) или `run.cmd` (Windows CMD) создают `.env` при отсутствии и запускают Compose без Python на хосте. Backend сохраняет автоматически сгенерированный `JWT_SECRET` в persistent volume. На **пустой базе** создаётся временный `admin/admin` с обязательной сменой пароля (не менее 12 символов); до смены защищённые API блокируются, после смены старые токены отзываются. Это **не** установка готового offline release kit и **не** настройка действующего Harbor profile. [#481](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/481) и [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482) завершены; [CI `main` на `a3e3f03e`](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42817246772) — SUCCESS.
 
-| Priority | Issue / workstream | Complete означает | Зависимости и граница |
-| --- | --- | --- | --- |
-| P1 | [#422 — export worker failure](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422) | Исправлена root cause потери причины ошибки; regression tests воспроизводят реальный сбой; scoped CI и независимый review зелёные | Не смешивать с Nexus release; доказательство production incident отдельно |
-| P1 | [#436 — regional Nexus acceptance](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436) | Проверены фактические regional Nexus versions/editions, Docker/Helm repositories/ACL, TLS/CA, offline handoff; evidence и owner sign-off в runbook | Требует доступ из утверждённых сетей и реального оператора; одноразовый CI Nexus не заменяет |
-| P1 | [#434 — Harbor↔Nexus interop](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434) | Реальный SOURCE→TARGET physical handoff и receipt с разрешёнными endpoints, failure cases и operator sign-off | Зависит от внешних контуров и release boundary #451 |
-| P2 | [#414 — Nexus contract/integration tests](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/414) | Проверено покрытие реальных Docker/Helm контрактов и отмечены недостающие edge cases; добавлены regression tests там, где отсутствуют | Только в соответствующей Nexus integration branch; не подменять regional acceptance |
-| P2 | [#451 — integration release candidate](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451) | Итоговый SHA проверен combined CI/E2E и review; outstanding risks исправлены; региональное GO оформлено до merge/deploy | Сейчас draft/NO-GO; **не merge** автоматически |
+**Nexus Docker v2 + classic Helm HTTP** реализован в [Draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451), а не в `main`. Combined CI и disposable Nexus/Harbor E2E на integrated SHA `7b32643b` зелёные; это **не** эквивалент региональной приёмки.
 
-Приоритеты P1 не означают, что недоступная региональная инфраструктура должна блокировать независимое исправление #422. Не закрывайте #434/#436, пока отсутствует фактическое evidence. Точный следующий READY выбирается после проверки свежего GitHub state.
+## Активные зависимости
 
-## Режим работы AI agent
+| Приоритет | Задача | Что нужно для закрытия |
+| --- | --- | --- |
+| P1 | [#434 — Harbor ↔ Nexus handoff](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434) | Разрешённый физический SOURCE/TARGET transfer и receipt |
+| P1 | [#436 — regional acceptance](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436) | Реальные versions/editions, ACL, corporate TLS/CA/proxy, конкурирующие writers, sign-off |
+| P2 | [#422 — исторический export RCA](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422) | Traceback/deployed SHA и воспроизведение **или явный owner waiver неизвестной причины**; code fix выполнен |
+| P2 | [#414 — Nexus integration/qualification](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/414) | Завершение #434/#436, подтверждённая версия, approval; #451 остаётся Draft |
 
-1. Синхронизировать Issue/PR/branch/CI и docs, выбрать самый высокий **незаблокированный** приоритет.
-2. Выполнить **всю связную задачу**: реализация, edge cases, регрессионные тесты, документация и independent review.
-3. Довести требуемый CI до green **на окончательном commit SHA** и сделать checkpoint по [AGENTS.md](AGENTS.md).
-4. Открыть PR в корректную base branch; не merge автоматически.
-5. Следующую READY задачу брать только при отсутствии blocker и конфликтующего редактирования.
+## Границы релиза
 
-## Критерии milestone
+1. Любое изменение проходит scoped tests, независимое ревью и зелёный `Quality Gate` на финальном SHA; детали — [testing.md](docs/testing.md) и [AGENTS.md](AGENTS.md).
+2. Для Nexus региональное GO требует независимых SOURCE/TARGET, подписанного physical handoff, реальных репозиториев Docker/Helm с ACL/TLS, verified receipt и подтверждения оператора, безопасности и владельца. Проверять по [региональному runbook (Draft #451)](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/integration/nexus-oss-release-candidate-451/docs/nexus-regional-acceptance-runbook.md).
+3. TARGET `overwrite_conflicts=false` **не даёт** атомарного no-overwrite от внешнего writer без дополнительных гарантий на стороне registry. Этот пункт обязателен для #436.
+4. Не переносите Nexus в `main` и не отмечайте #434/#436 закрытыми только на основании disposable E2E.
+5. Начальный `admin/admin` существует только при **пустой базе** и только для обязательной смены пароля; не публикуйте HTTP bootstrap за пределами loopback без одобренного TLS-терминатора. `run.sh`/`run.cmd` — запуск исходного Compose, не замена offline release kit или региональной приёмки.
 
-### M1 — AI-ready repository
-
-- [x] Существуют `CONTRIBUTING.md`, нормативная `docs/`, scoped CI, dependency locks, documentation checker и `quality-gate`.
-- [ ] `AGENTS.md` + `ROADMAP.md` приняты в `main` через проверенный PR.
-- [ ] Для практического пилота выполнена одна **цельная** задача с regression test, review и зелёным CI.
-- [ ] Подтверждены branch protection / merge rules в GitHub Settings (API может ограничивать чтение).
-
-### M2 — надёжный одиночный агент
-
-- [ ] Issue → branch → complete implementation → tests → PR → CI → review выполняется на 3–5 реальных задачах без ручного переписывания требований.
-- [ ] Failures CI приводят к root-cause repair и повторной проверке итогового SHA, без ослабления gates.
-- [ ] Разрушительные/production действия явно требуют решения владельца.
-
-### M3 — coordinator / multi-agent
-
-Только после M2: выбор READY tasks по dependencies; отдельные branches/worktrees для независимых областей; исключение concurrent edits одних файлов; PR lifecycle и checkpoint для человека. Не внедрять мультиагентную платформу, пока не стабилен одиночный цикл.
-
-## Непреложные release gates
-
-Региональный Nexus GO требует документального evidence по фактическим versions, permissions, HTTPS/CA, per-repo Docker/Helm, физическому переносу, immutable bundle/signatures/digests, TARGET receipt и Harbor regression. Форма и процедуры: [regional acceptance runbook](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/integration/nexus-oss-release-candidate-451/docs/nexus-regional-acceptance-runbook.md). Зелёные [CI](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/workflows/ci.yml) и [Nexus disposable E2E](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/workflows/nexus-legacy-e2e.yml) обязательны для соответствующего scope, но **недостаточны** для корпоративного GO.
-
-Ссылки на текущие принципы: [docs/architecture.md](docs/architecture.md), [docs/testing.md](docs/testing.md), [docs/security.md](docs/security.md), [docs/deferred-tasks.md](docs/deferred-tasks.md).
+Инструкция работы с документацией: [docs/README.md](docs/README.md). Новые задачи и отложенные улучшения фиксируются в Issues, не в отдельном неактуализируемом списке.

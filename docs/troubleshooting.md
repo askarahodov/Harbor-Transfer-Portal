@@ -736,6 +736,32 @@ Worker получил неожиданное исключение. В persisted 
 
 `operation_worker_failed` требует developer investigation, если нет очевидной инфраструктурной причины.
 
+**После исправлений #475/#477:** ожидаемые ошибки export preflight/профиля и сбои обработки отдельного артефакта должны иметь типизированный code (`harbor_unavailable`, `export_source_not_found`, `export_artifact_internal_error` и др.). Остальные артефакты в неуспешном комплекте получают `export_aborted`; частичный bundle не публикуется. Если UI всё ещё показывает общий `operation_worker_failed`, сохраните `operation_id`, deployed commit SHA, время, sanitized backend traceback и проверьте версию установки. Не объявляйте историческую причину инцидента [#422](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422) доказанной на основании нового успешного E2E.
+
+## 17a. Экспорт завершён, но готового bundle нет
+
+### Симптом
+
+Мастер SOURCE export показывает `COMPLETED`, 100% и `5/5` проверенных artifacts, но скачать комплект нельзя: `export_bundle_missing`, `export_bundle_expired` или `export_bundle_metadata_invalid`. На шаге 3 доступна кнопка **«Начать новый экспорт»**, но **отмена** завершённой операции недоступна.
+
+### Что означают статусы
+
+`COMPLETED` относится к моменту успешной публикации export. 100% отражает завершение обработки artifacts, **не** постоянную доступность файлов. Перед скачиванием backend повторно проверяет архив `DELIVERY-<id>.htp.tar.gz` и контрольный sidecar `DELIVERY-<id>.htp.tar.gz.sha256` в `/app/data/outgoing`:
+
+- `export_bundle_missing` — один из файлов отсутствует до истечения срока хранения; после восстановления только SQLite/critical-data без outgoing bundle это возможно;
+- `export_bundle_expired` — срок хранения прошёл (`410 Gone`), история осталась;
+- `export_bundle_metadata_invalid` — файл/size/SHA-256/sidecar не соответствуют сохранённой metadata. Нельзя обходить такую проверку или собирать sidecar вручную без верификации.
+
+### Безопасное восстановление
+
+1. Убедитесь, что проверяется нужный `delivery_id`, и **только прочитайте** список `/app/data/outgoing` через `docker compose exec -T backend ls -la /app/data/outgoing`. Не выводите содержимое credentials/keys и не удаляйте volume.
+2. Если архивы могут быть восстановлены из доверенного backup — восстановите их по штатной процедуре и нажмите **«Обновить»**: успешная повторная проверка вернёт шаг 4.
+3. Если архив недоступен, нажмите **«Начать новый экспорт»**: это сбрасывает привязку текущего browser wizard, загружает доступные Harbor projects и создаёт *новую* операцию только после вашего повторного выбора/запуска. История старой операции остаётся неизменной; её нельзя отменить задним числом.
+4. Для старого frontend без этой кнопки временный выход из мастера в текущей вкладке: `sessionStorage.removeItem('htp.export.operation-id')` и обновление страницы. Это не удаляет серверную запись.
+5. Для нового export заново проверьте Harbor profile/credential, выберите artifacts и сформируйте **новый** signed delivery triplet. Не переносите неполный или непроверенный архив на TARGET.
+
+Если файлы точно существуют, но backend повторно возвращает `export_bundle_missing` или несоответствие metadata, сохраните только sanitized logs и `operation_id`; это требует расследования storage/permissions/consistency.
+
 ## 18. Login не работает
 
 ### Симптом

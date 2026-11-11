@@ -42,20 +42,19 @@ PORTAL_CONTOUR=TARGET
 
 Source Compose поддерживается на Linux с Docker Engine и на Windows с Docker Desktop в режиме Linux containers. Canonical cross-platform launcher: [docs/development.md](../docs/development.md). На Windows для этого workflow не требуются WSL, Git Bash или GNU Make.
 
-Linux:
+Linux — запуск исходного checkout:
 
 ```bash
-python3 tools/dev.py up
+./run.sh
 ```
 
-Windows CMD — canonical path:
+Windows CMD:
 
 ```bat
-py -3 tools/dev.py up
+run.cmd
 ```
 
-Если PowerShell scripts разрешены локальной политикой, `.\dev.ps1 up` остаётся optional
-convenience wrapper над тем же launcher.
+Оба launcher создают `.env` только при его отсутствии и запускают `docker compose up -d --build --force-recreate` без host Python. Дополнительный developer CLI (`python3 tools/dev.py setup`, `doctor`, `up`; Windows: `py -3`) и PowerShell wrapper `dev.ps1` необязательны.
 
 Корневой `compose.yaml` содержит `build:` sections. Backend image build может получать pinned Helm archive и OS/Python dependencies, frontend build — npm dependencies. Поэтому `docker compose up -d --build` допустим только там, где build environment имеет необходимые разрешённые источники.
 
@@ -115,24 +114,9 @@ Offline release использует стабильное Compose project name `
 
 ## 4. Development `.env`
 
-Для локальной разработки:
+При первом source-запуске `run.sh` или `run.cmd` создаёт `.env` из `.env.example` только если файл отсутствует. При повторном запуске существующий `.env` **не перезаписывается**. Ручная генерация `JWT_SECRET` не нужна: если он не задан, backend создаёт случайный секрет в persistent volume и переиспользует при restart. Опциональный `tools/dev.py setup` создаёт локальный `.env` с секретом.
 
-```bash
-cp .env.example .env
-```
-
-Проверьте как минимум:
-
-```text
-PORTAL_CONTOUR=SOURCE|TARGET
-PORTAL_HTTP_PORT=8080
-HARBOR_URL=https://harbor.local.example
-HARBOR_USER=<local-service-account>
-HARBOR_VERIFY_TLS=true
-JWT_SECRET=<unique-random-secret-at-least-32-chars>
-```
-
-`PORTAL_CONTOUR` в `.env` нужен для bootstrap новой DB; после инициализации текущий mode берётся из persisted runtime state.
+Для реальной передачи после bootstrap настройте действующий local Harbor profile в web UI (Settings) и проверьте соединение. Значения `HARBOR_URL` / `HARBOR_USER` в `.env.example` — placeholders, а не готовое подключение. `PORTAL_CONTOUR` задаёт только первоначальную роль пустой DB; после инициализации текущий mode берётся из persisted runtime state. По умолчанию frontend слушает на loopback `127.0.0.1`; для удалённого authenticated browser traffic нужен согласованный HTTPS-терминатор.
 
 `.env` исключён из Git и build context. Не коммитьте реальные passwords, tokens, `JWT_SECRET`, private signing keys, backup archives или private certificates.
 
@@ -193,24 +177,14 @@ Private signing key запрещено включать в delivery bundle ил�
 
 ## 8. Development start
 
-Проверьте Compose:
+Используйте штатный `./run.sh` (Linux) или `run.cmd` (Windows CMD): они подготавливают `.env` и запускают Compose build. Для ручного управления **после создания `.env`**:
 
 ```bash
 docker compose config
+docker compose up -d --build --force-recreate
 ```
 
-Запуск development build:
-
-```bash
-docker compose up -d --build
-```
-
-или:
-
-```bash
-make compose-config
-make up
-```
+Make/host Python не требуются для source quick start; расширенные developer-команды см. в [docs/development.md](../docs/development.md).
 
 Portal доступен на:
 
@@ -230,17 +204,9 @@ Backend entrypoint применяет Alembic migrations до запуска API
 
 ## 9. Bootstrap administrator
 
-В development/runtime Compose local admin можно создать так:
+На **новой установке с пустой таблицей пользователей** backend автоматически создаёт временного `admin/admin`; отдельная CLI-команда создания пользователя не требуется. При первом входе Portal принудительно открывает смену пароля: новый пароль не менее 12 символов, а защищённые API недоступны до смены (`403 password_change_required`). После успешной смены старый пароль и выданные ранее JWT перестают действовать. При повторном запуске действующий admin не создаётся повторно и пароль не сбрасывается.
 
-```bash
-export BOOTSTRAP_ADMIN_PASSWORD='replace-with-a-strong-password'
-docker compose exec -T \
-  -e BOOTSTRAP_ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD" \
-  backend python -m app.auth.cli --username admin
-unset BOOTSTRAP_ADMIN_PASSWORD
-```
-
-Не помещайте password в repository/script arguments. После bootstrap используйте web UI для local users, Harbor settings, policies и keys.
+Стартовый пароль предназначен **только для loopback/bootstrap**: не публикуйте HTTP вход с `admin/admin` в сеть. Для удалённого браузера используйте согласованный HTTPS-терминатор. В Settings после входа настройте local Harbor profiles, пользователей, политики и trust keys. См. [admin guide](../docs/admin-guide.md) и [security model](../docs/security.md).
 
 ## 10. SOURCE/TARGET operator flow
 

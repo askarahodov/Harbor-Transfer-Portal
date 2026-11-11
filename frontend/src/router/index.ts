@@ -23,6 +23,12 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true, layout: 'bare', documentation: '/docs/user-guide?id=login' },
   },
   {
+    path: '/change-password',
+    name: 'change-password',
+    component: () => import('@/views/ChangePasswordView.vue'),
+    meta: { layout: 'bare' },
+  },
+  {
     path: '/',
     name: 'dashboard',
     component: () => import('@/views/DashboardView.vue'),
@@ -81,13 +87,20 @@ export function installAuthGuards(appRouter: Router, pinia: Pinia): void {
 
     if (to.meta.public === true) {
       if (to.name === 'login' && auth.isAuthenticated) {
-        return { name: 'dashboard' }
+        return { name: auth.user?.must_change_password ? 'change-password' : 'dashboard' }
       }
       return true
     }
 
     if (!auth.isAuthenticated) {
       return { name: 'login', query: { redirect: to.fullPath } }
+    }
+
+    if (auth.user?.must_change_password && to.name !== 'change-password') {
+      return { name: 'change-password' }
+    }
+    if (!auth.user?.must_change_password && to.name === 'change-password') {
+      return { name: 'dashboard' }
     }
 
     const roles = Array.isArray(to.meta.roles) ? (to.meta.roles as UserRole[]) : null

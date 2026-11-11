@@ -14,6 +14,22 @@ def hash_password(password: str) -> str:
     return _password_hasher.hash(password)
 
 
+def hash_initial_admin_password() -> str:
+    """Only for the hard-coded first-run account; normal passwords require >=12 chars."""
+    return _password_hasher.hash("admin")
+
+
+def read_access_token_version(token: str, secret: str) -> int:
+    try:
+        payload = decode(token, secret, algorithms=["HS256"])
+        version = payload.get("ver", 0)  # pre-migration JWTs are version zero
+        if payload.get("type") != "access" or type(version) is not int or version < 0:
+            raise ValueError("invalid token version")
+        return version
+    except (InvalidTokenError, TypeError, ValueError) as exc:
+        raise ValueError("invalid token version") from exc
+
+
 def verify_password(password: str, password_hash: str) -> bool:
     try:
         return _password_hasher.verify(password_hash, password)
@@ -25,7 +41,9 @@ def verify_login_password(password: str, password_hash: str | None) -> bool:
     return verify_password(password, password_hash or _DUMMY_PASSWORD_HASH)
 
 
-def create_access_token(*, user_id: int, secret: str, lifetime_minutes: int) -> str:
+def create_access_token(
+    *, user_id: int, secret: str, lifetime_minutes: int, token_version: int = 0
+) -> str:
     now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
@@ -33,6 +51,7 @@ def create_access_token(*, user_id: int, secret: str, lifetime_minutes: int) -> 
         "exp": now + timedelta(minutes=lifetime_minutes),
         "last_activity": now.isoformat(),
         "type": "access",
+        "ver": token_version,
     }
     return encode(payload, secret, algorithm="HS256")
 
@@ -86,6 +105,7 @@ def refresh_access_token(
     secret: str,
     lifetime_minutes: int,
     inactivity_timeout_minutes: int = 60,
+    token_version: int = 0,
 ) -> str:
     """Renew only a valid active JWT, signed with the configured secret."""
     user_id, _ = check_and_refresh_token(
@@ -98,6 +118,7 @@ def refresh_access_token(
         user_id=user_id,
         secret=secret,
         lifetime_minutes=max(lifetime_minutes, inactivity_timeout_minutes),
+        token_version=token_version,
     )
 
 def create_export_download_token(
@@ -106,11 +127,13 @@ def create_export_download_token(
     operation_id: int,
     secret: str,
     lifetime_seconds: int,
+    token_version: int = 0,
 ) -> str:
     now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
         "operation_id": operation_id,
+        "ver": token_version,
         "iat": now,
         "exp": now + timedelta(seconds=lifetime_seconds),
         "type": "export-download",
@@ -133,3 +156,21 @@ def decode_export_download_token(
         return int(payload["sub"])
     except (InvalidTokenError, KeyError, TypeError, ValueError) as exc:
         raise ValueError("invalid export download token") from exc
+
+
+
+def read_export_download_token_version(
+    token: str, secret: str, *, expected_operation_id: int
+) -> int:
+    """Bind a cookie download ticket to the session revision that issued it."""
+    decode_export_download_token(
+        token, secret, expected_operation_id=expected_operation_id
+    )
+    try:
+        payload = decode(token, secret, algorithms=["HS256"])
+        version = payload.get("ver", 0)
+        if type(version) is not int or version < 0:
+            raise ValueError("invalid download ticket version")
+        return version
+    except (InvalidTokenError, TypeError, ValueError) as exc:
+        raise ValueError("invalid download ticket version") from exc

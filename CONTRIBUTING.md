@@ -68,7 +68,7 @@ chore: update developer tooling
 
 ## Локальная конфигурация
 
-Скопируйте `.env.example` в `.env`. Файл `.env` намеренно игнорируется Git. Значения в `.env.example` являются только безопасными placeholders и не должны использоваться как production credentials.
+Для первого source-запуска используйте `run.sh` (Linux) или `run.cmd` (Windows): они создают `.env` из шаблона, если его нет. Для developer CLI можно предварительно выполнить `python3 tools/dev.py setup` (Windows `py -3 tools/dev.py setup`). Файл `.env` игнорируется Git. Placeholder значения из `.env.example` не являются действительными production credentials.
 
 ## Запуск локального Compose после обновления исходников
 

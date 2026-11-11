@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.auth.security import check_and_refresh_token
+from app.auth.security import check_and_refresh_token, read_access_token_version
 from app.db.models import User, UserRole
 from app.db.repositories import UserRepository
 
@@ -59,10 +59,27 @@ def get_current_user(
         response.headers["X-New-Access-Token"] = new_token
 
     user = UserRepository(session).get(user_id)
-    if user is None or not user.is_active:
+    try:
+        token_version = read_access_token_version(credentials.credentials, jwt_secret)
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid or expired token",
+        ) from exc
+    if user is None or not user.is_active or user.token_version != token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid or expired token",
+        )
+    if user.must_change_password and request.url.path not in {
+        "/api/auth/me",
+        "/api/auth/activity",
+        "/api/auth/change-password",
+        "/api/auth/logout",
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="password_change_required",
         )
     return user
 

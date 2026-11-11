@@ -134,7 +134,10 @@ class DocumentationContractTests(unittest.TestCase):
         offline = self.read("deploy/offline/README.md")
         testing = self.read("docs/testing.md")
 
-        self.assertIn("Windows CMD — canonical path", deploy)
+        self.assertIn("Linux — запуск исходного checkout", deploy)
+        self.assertIn("Windows CMD:", deploy)
+        self.assertIn("./run.sh", deploy)
+        self.assertIn("run.cmd", deploy)
         self.assertIn("bundle + .sha256 + signed .htp-handoff.json download", deploy)
         self.assertIn("полного delivery triplet", deploy)
 
@@ -240,11 +243,7 @@ class DocumentationContractTests(unittest.TestCase):
             *sorted((_REPOSITORY_ROOT / "deploy").glob("**/*.md")),
             *sorted((_REPOSITORY_ROOT / "docs").glob("**/*.md")),
         ]
-        historical = _REPOSITORY_ROOT / "docs/harbor-transfer-portal.md"
-
         for path in markdown_files:
-            if path == historical:
-                continue
 
             open_fence = None
             open_line = None
@@ -278,6 +277,54 @@ class DocumentationContractTests(unittest.TestCase):
                 f"{path.relative_to(_REPOSITORY_ROOT)}:{open_line} has an unclosed code fence",
             )
 
+    def test_nexus_is_not_documented_as_released_in_main(self) -> None:
+        compare = self.read("docs/registry-comparison.md")
+        nexus_setup = self.read("docs/nexus-setup.md")
+        task = self.read("docs/nexus-integration-task.md")
+        docs_index = self.read("docs/README.md")
+
+        for document in (compare, nexus_setup, docs_index):
+            self.assertIn("Draft", document)
+            self.assertIn("#451", document)
+            self.assertIn("NO-GO", document)
+        self.assertNotIn("добавлен в v1.0.0 как альтернатива", compare)
+        self.assertNotIn("Helm Charts (OCI)** | ✅", compare)
+        self.assertNotIn("с 3.40+", compare + nexus_setup)
+        self.assertIn("classic Helm HTTP", compare)
+        self.assertIn("classic Helm HTTP", nexus_setup)
+        self.assertNotIn("softrust.ru", nexus_setup)
+        self.assertIn("исторический", task.lower())
+
+    def test_historical_docs_are_navigation_pointers_not_runtime_instructions(self) -> None:
+        original = self.read("docs/harbor-transfer-portal.md")
+        nexus_task = self.read("docs/nexus-integration-task.md")
+        sidebar = self.read("docs/_sidebar.md")
+        deferred = self.read("docs/deferred-tasks.md")
+        self.assertLess(len(original.splitlines()), 70)
+        self.assertLess(len(nexus_task.splitlines()), 70)
+        self.assertIn("истории Git", original)
+        self.assertIn("истории Git", nexus_task)
+        self.assertNotIn("harbor-transfer-portal.md", sidebar)
+        self.assertNotIn("feat/nexus-support", deferred)
+        self.assertIn("GitHub Issues", deferred)
+
+    def test_auth_documentation_distinguishes_current_and_stale_401(self) -> None:
+        security = self.read("docs/security.md")
+        adr = self.read("docs/adr/ADR-004-auth-session.md")
+        self.assertIn("текущего", security)
+        self.assertIn("предыдущего JWT", security)
+        self.assertNotIn("Любой authenticated API response", adr)
+        self.assertIn("только если запрос использовал текущий bearer token", adr)
+        self.assertIn("activity-only renewal", adr)
+
+    def test_remote_registry_writers_not_claimed_covered_by_preflight(self) -> None:
+        security = self.read("docs/security.md")
+        compare = self.read("docs/registry-comparison.md")
+        self.assertIn("внешнего конкурентного writer", security)
+        self.assertIn("не обеспечивают атомарную", security)
+        self.assertIn("не даёт", compare)
+        self.assertIn("#436", compare)
+
     def test_documentation_map_describes_both_gate_layers(self) -> None:
         docs_map = self.read("docs/README.md")
 
@@ -286,6 +333,37 @@ class DocumentationContractTests(unittest.TestCase):
         self.assertIn("site-root Markdown targets", docs_map)
         self.assertIn("Compose smoke", docs_map)
 
+
+    def test_first_run_documentation_matches_supported_launchers(self) -> None:
+        readme = self.read("README.md")
+        development = self.read("docs/development.md")
+        contributing = self.read("CONTRIBUTING.md")
+        offline = self.read("deploy/offline/README.md")
+        deployment = self.read("deploy/README.md")
+        roadmap = self.read("ROADMAP.md")
+        docs_map = self.read("docs/README.md")
+        for text in (readme, development):
+            self.assertIn("run.sh", text)
+            self.assertIn("run.cmd", text)
+            self.assertIn("admin/admin", text)
+            self.assertNotIn("BOOTSTRAP_ADMIN_PASSWORD", text)
+        self.assertIn("tools/dev.py setup", development)
+        self.assertIn("source launcher", offline)
+        self.assertIn("run.cmd", contributing)
+        self.assertIn("run.sh", deployment)
+        self.assertIn("run.cmd", deployment)
+        self.assertIn("admin/admin", deployment)
+        self.assertIn("password_change_required", deployment)
+        self.assertNotIn("BOOTSTRAP_ADMIN_PASSWORD", deployment)
+        for text in (roadmap, docs_map):
+            self.assertIn("run.sh", text)
+            self.assertIn("run.cmd", text)
+            self.assertIn("admin/admin", text)
+            self.assertIn("#481", text)
+            self.assertIn("#482", text)
+            self.assertNotIn("ещё не в baseline", text)
+            self.assertNotIn("Не используйте `admin/admin`", text)
+            self.assertNotIn("Не описывайте ещё не реализованный", text)
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -87,13 +88,71 @@ class DevCliTests(unittest.TestCase):
         ):
             self.assertEqual(dev.command_doctor(), 0)
 
-    def test_missing_env_is_fail_closed_for_build_and_up(self) -> None:
-        missing = Path(__file__).with_name("definitely-missing.env")
-        with patch.object(dev, "ENV_FILE", missing):
-            with self.assertRaises(dev.DevCliError):
-                dev.command_build()
-            with self.assertRaises(dev.DevCliError):
-                dev.command_up()
+    def test_setup_creates_secret_and_never_overwrites_existing_env(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / ".env.example"
+            target = root / ".env"
+            template.write_text("PORTAL_CONTOUR=SOURCE\n# JWT_SECRET=\n", encoding="utf-8")
+            with (
+                patch.object(dev, "ENV_FILE", target),
+                patch.object(dev, "EXAMPLE_ENV_FILE", template),
+            ):
+                self.assertEqual(dev.command_setup(), 0)
+                original = target.read_text(encoding="utf-8")
+                secret = next(
+                    line.split("=", 1)[1] for line in original.splitlines()
+                    if line.startswith("JWT_SECRET=")
+                )
+                self.assertGreaterEqual(len(secret), 32)
+                self.assertEqual(dev.command_setup(), 0)
+                self.assertEqual(target.read_text(encoding="utf-8"), original)
+
+    def test_setup_missing_example_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with (
+                patch.object(dev, "ENV_FILE", root / ".env"),
+                patch.object(dev, "EXAMPLE_ENV_FILE", root / "missing.example"),
+            ):
+                with self.assertRaises(dev.DevCliError):
+                    dev.command_setup()
+
+    def test_missing_env_build_fails_but_up_runs_setup_first(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / ".env.example"
+            target = root / ".env"
+            template.write_text("PORTAL_CONTOUR=SOURCE\n", encoding="utf-8")
+            with (
+                patch.object(dev, "ENV_FILE", target),
+                patch.object(dev, "EXAMPLE_ENV_FILE", template),
+                patch.object(dev, "_compose_environment", return_value={"PORTAL_VCS_REF": "abc"}),
+                patch.object(dev, "_docker_compose") as compose,
+            ):
+                with self.assertRaises(dev.DevCliError):
+                    dev.command_build()
+                self.assertEqual(dev.command_up(), 0)
+                self.assertTrue(target.is_file())
+                self.assertIn("JWT_SECRET=", target.read_text(encoding="utf-8"))
+                compose.assert_called_once()
+
+    def test_hostless_run_scripts_do_not_require_python_or_make(self) -> None:
+        shell = (dev.ROOT / "run.sh").read_text(encoding="utf-8")
+        cmd = (dev.ROOT / "run.cmd").read_text(encoding="utf-8")
+        for script in (shell, cmd):
+            self.assertIn("docker compose up -d --build --force-recreate", script)
+            self.assertIn(".env.example", script)
+            self.assertNotIn("python", script.lower())
+            self.assertNotIn("make ", script.lower())
+
+    def test_hostless_run_scripts_propagate_vcs_reference(self) -> None:
+        shell = (dev.ROOT / "run.sh").read_text(encoding="utf-8")
+        cmd = (dev.ROOT / "run.cmd").read_text(encoding="utf-8")
+        for script in (shell, cmd):
+            self.assertIn("git rev-parse HEAD", script)
+            self.assertIn("PORTAL_VCS_REF", script)
+            self.assertIn("unknown", script)
 
     def test_launcher_uses_argv_subprocess_without_shell(self) -> None:
         with patch("subprocess.run") as run:
