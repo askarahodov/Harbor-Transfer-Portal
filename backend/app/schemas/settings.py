@@ -77,6 +77,7 @@ class HarborProfileResponse(BaseModel):
     is_default: bool = False
     is_active: bool = False
     registry_type: Literal["harbor", "nexus"] = "harbor"
+    nexus_format: Literal["docker", "helm"] = "docker"
     nexus_search_url: AnyHttpUrl | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -96,6 +97,7 @@ class HarborProfileCreate(BaseModel):
     verify_tls: bool = True
     enabled: bool = True
     registry_type: Literal["harbor", "nexus"] = "harbor"
+    nexus_format: Literal["docker", "helm"] = "docker"
     nexus_search_url: AnyHttpUrl | None = None
     nexus_search_repository: str | None = Field(default=None, max_length=128)
 
@@ -147,6 +149,7 @@ class HarborProfilePatch(BaseModel):
     verify_tls: bool | None = None
     enabled: bool | None = None
     registry_type: Literal["harbor", "nexus"] | None = None
+    nexus_format: Literal["docker", "helm"] | None = None
     nexus_search_url: AnyHttpUrl | None = None
     nexus_search_repository: str | None = Field(default=None, max_length=128)
 
