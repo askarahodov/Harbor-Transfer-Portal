@@ -44,6 +44,12 @@ def get_harbor_client(
     try:
         service = HarborProfileService(session, request.app.state.settings)
         selected_id = profile_id or service.active_profile_id()
+        if service.get(selected_id).registry_type == "nexus":
+            raise _api_error(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "nexus_requires_registry_workflow",
+                "Nexus не поддерживает Harbor API; используйте отдельный Nexus workflow",
+            )
         client = service.build_client(selected_id)
     except HarborSettingsError as exc:
         status_code = (
@@ -232,6 +238,7 @@ def selectable_profiles(
                 id=profile.id,
                 name=profile.name,
                 url=profile.url,
+                registry_type=profile.registry_type,
                 is_default=profile.is_default,
             )
             for profile in service.selectable_profiles()
