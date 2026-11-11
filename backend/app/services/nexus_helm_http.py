@@ -31,6 +31,8 @@ from app.services.helm_oci_service import (
     HelmTargetInspection,
     HelmTargetState,
 )
+from app.services.harbor_profiles import HarborProfileService
+from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 from app.services.nexus_discovery import NexusDiscoveryService
 
 _REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
@@ -100,12 +102,36 @@ class NexusHelmHttpService:
     """Bounded, read/write Helm hosted protocol with no OCI or URL redirects."""
 
     def __init__(self, session: Session, settings: Settings, profile_id: str) -> None:
-        discovery = NexusDiscoveryService(session, settings, profile_id)
-        self.base_url = discovery.search_url or ""
-        self.username = discovery.username
-        self.password = discovery.password
-        self.verify = discovery.verify
-        self.timeout = discovery.timeout
+        profile = HarborProfileService(session, settings).operation_snapshot(profile_id)
+        if profile.registry_type != "nexus":
+            raise HarborSettingsError("registry_type_mismatch", "Требуется Nexus Helm HTTP profile")
+        self.allowed_repository = None
+        if profile.nexus_format == "helm":
+            # A dedicated Helm profile uses the Nexus UI origin itself, not the
+            # Docker connector. Keep exact repository identity bound to its profile.
+            effective = HarborSettingsService(session, settings).resolve_profile(profile.id)
+            self.base_url = effective.url or ""
+            self.allowed_repository = profile.nexus_search_repository
+            self.username = effective.username
+            self.password = effective.password
+            self.verify = (
+                str(effective.ca_file)
+                if effective.verify_tls and effective.ca_file is not None
+                else effective.verify_tls
+            )
+            self.timeout = httpx.Timeout(
+                settings.nexus_read_timeout_seconds,
+                connect=settings.nexus_connect_timeout_seconds,
+            )
+        else:
+            # Preserve existing Docker profiles that also browse Helm via their
+            # explicitly configured Nexus UI search origin.
+            discovery = NexusDiscoveryService(session, settings, profile_id)
+            self.base_url = discovery.search_url or ""
+            self.username = discovery.username
+            self.password = discovery.password
+            self.verify = discovery.verify
+            self.timeout = discovery.timeout
 
     def _base(self) -> str:
         try:
@@ -127,10 +153,13 @@ class NexusHelmHttpService:
             raise NexusHelmHttpError("helm_url_invalid", "Требуется корневой Nexus UI HTTPS URL")
         return self.base_url.rstrip("/")
 
-    @staticmethod
-    def _repository(repository: str) -> str:
+    def _repository(self, repository: str) -> str:
         if _REPO.fullmatch(repository) is None:
             raise NexusHelmHttpError("helm_repository_invalid", "Некорректное имя Helm repository")
+        if self.allowed_repository is not None and repository != self.allowed_repository:
+            raise NexusHelmHttpError(
+                "helm_repository_mismatch", "Helm repository не совпадает с выбранным профилем"
+            )
         return repository
 
     def _client(self) -> httpx.AsyncClient:
