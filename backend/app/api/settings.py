@@ -100,6 +100,7 @@ def _profile_response(
         is_default=profile.is_default,
         is_active=profile.id == service.active_profile_id(),
         registry_type=profile.registry_type,
+        nexus_format=profile.nexus_format,
         nexus_search_url=(
             AnyHttpUrl(profile.nexus_search_url) if profile.nexus_search_url else None
         ),
@@ -310,6 +311,7 @@ def create_harbor_profile(
             verify_tls=payload.verify_tls,
             enabled=payload.enabled,
             registry_type=payload.registry_type,
+            nexus_format=payload.nexus_format,
             nexus_search_url=(
                 str(payload.nexus_search_url).rstrip("/") if payload.nexus_search_url else None
             ),
@@ -378,6 +380,9 @@ def update_harbor_profile(
                 enabled=payload.enabled if "enabled" in payload.model_fields_set else None,
                 registry_type=(
                     payload.registry_type if "registry_type" in payload.model_fields_set else None
+                ),
+                nexus_format=(
+                    payload.nexus_format if "nexus_format" in payload.model_fields_set else None
                 ),
                 nexus_search_url=(
                     str(payload.nexus_search_url).rstrip("/")
