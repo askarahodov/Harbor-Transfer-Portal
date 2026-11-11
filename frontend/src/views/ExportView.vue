@@ -353,7 +353,7 @@ onBeforeUnmount(() => {
           <div>
             <h2 id="nexus-not-ready-title">Nexus выбран, но Harbor export wizard не поддерживает Nexus.</h2>
             <p>Этот мастер использует Harbor REST API. Nexus Docker v2 проверяйте отдельно в настройках профиля — кнопкой «Проверить Docker Registry v2». Успешная проверка подключения ещё не разрешает экспорт или импорт Nexus.</p>
-            <p>Полная реализация Nexus SOURCE/TARGET находится в Draft PR #451 и до региональной приёмки имеет статус NO-GO. Для текущего Harbor export выберите профиль с типом Harbor.</p>
+            <p>Полная реализация Nexus SOURCE/TARGET находится в Draft PR № 451 и до региональной приёмки имеет статус NO-GO. Для текущего Harbor export выберите профиль с типом Harbor.</p>
           </div>
         </div>
       </section>
