@@ -144,7 +144,14 @@ class ExportOrchestrator:
         selections: Sequence[ExportArtifactSelection],
         profile: HarborProfile,
     ) -> tuple[ResolvedExportArtifact, ...]:
-        """Inspect exact Docker references without invoking Harbor REST endpoints."""
+        """Inspect exact Nexus references without invoking Harbor REST endpoints."""
+        if profile.nexus_format == "helm" and any(
+            selection.kind is not ArtifactKind.HELM_CHART for selection in selections
+        ):
+            raise ExportOrchestrationError(
+                "export_artifact_unsupported",
+                "Helm HTTP профиль разрешает только Helm charts, не Docker images",
+            )
 
         async def inspect() -> tuple[ResolvedExportArtifact, ...]:
             with self.session_factory() as session:

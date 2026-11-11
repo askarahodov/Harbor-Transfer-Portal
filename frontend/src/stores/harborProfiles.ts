@@ -16,6 +16,7 @@ function normalizedProfile(profile: HarborProfileOption): HarborProfileOption {
   return {
     ...profile,
     registry_type: profile.registry_type === 'nexus' ? 'nexus' : 'harbor',
+    nexus_format: profile.nexus_format === 'helm' ? 'helm' : 'docker',
   }
 }
 

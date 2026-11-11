@@ -7,6 +7,7 @@ import { apiClient } from '@/api/client'
 type HarborProfile = {
   id: string
   registry_type: 'harbor' | 'nexus'
+  nexus_format?: 'docker' | 'helm'
   nexus_search_url?: string | null
   nexus_search_repository?: string | null
   name: string
@@ -50,6 +51,7 @@ const url = ref('')
 const username = ref('')
 const verifyTls = ref(true)
 const registryType = ref<'harbor' | 'nexus'>('harbor')
+const nexusFormat = ref<'docker' | 'helm'>('docker')
 const nexusSearchUrl = ref('')
 const nexusSearchRepository = ref('')
 const credential = ref('')
@@ -85,6 +87,7 @@ async function load(): Promise<void> {
     profiles.value = response.data.items.map((profile) => ({
       ...profile,
       registry_type: profile.registry_type === 'nexus' ? 'nexus' : 'harbor',
+      nexus_format: profile.nexus_format === 'helm' ? 'helm' : 'docker',
     }))
     selectedId.value = response.data.items.find((item) => item.is_active)?.id ?? ''
   } catch (reason) {
@@ -123,6 +126,7 @@ function resetEditor(): void {
   caPem.value = ''
   verifyTls.value = true
   registryType.value = 'harbor'
+  nexusFormat.value = 'docker'
   nexusSearchUrl.value = ''
   nexusSearchRepository.value = ''
 }
@@ -156,6 +160,7 @@ function editProfile(profile: HarborProfile): void {
   caPem.value = ''
   verifyTls.value = profile.verify_tls
   registryType.value = profile.registry_type ?? 'harbor'
+  nexusFormat.value = profile.nexus_format ?? 'docker'
   nexusSearchUrl.value = profile.nexus_search_url ?? ''
   nexusSearchRepository.value = profile.nexus_search_repository ?? ''
   error.value = ''
@@ -180,7 +185,19 @@ async function saveProfile(): Promise<void> {
     error.value = urlError
     return
   }
-  if (registryType.value === 'nexus' && (nexusSearchUrl.value || nexusSearchRepository.value)) {
+  if (registryType.value === 'nexus' && nexusFormat.value === 'helm') {
+    const parsed = new URL(url.value)
+    if (parsed.protocol !== 'https:' || !parsed.hostname ||
+        (parsed.pathname !== '/' && parsed.pathname !== '') || parsed.search || parsed.hash) {
+      error.value = 'Helm HTTP требует HTTPS URL корня Nexus UI без пути.'
+      return
+    }
+    if (!nexusSearchRepository.value.trim()) {
+      error.value = 'Укажите точное имя Helm HTTP repository.'
+      return
+    }
+  } else if (registryType.value === 'nexus' &&
+             (nexusSearchUrl.value || nexusSearchRepository.value)) {
     if (nexusSearchRepository.value.trim() && !nexusSearchUrl.value.trim()) {
       error.value = 'Для привязки Docker repository требуется Nexus UI HTTPS URL.'
       return
@@ -201,6 +218,7 @@ async function saveProfile(): Promise<void> {
       username: username.value.trim() || null,
       verify_tls: verifyTls.value,
       registry_type: registryType.value,
+      ...(registryType.value === 'nexus' ? { nexus_format: nexusFormat.value } : {}),
       ...((
         nexusSearchUrl.value.trim() ||
         nexusSearchRepository.value.trim() ||
@@ -208,8 +226,10 @@ async function saveProfile(): Promise<void> {
           profile.id === editingId.value && (profile.nexus_search_url || profile.nexus_search_repository)
         ))
       ) ? {
-        nexus_search_url: registryType.value === 'nexus' ? nexusSearchUrl.value.trim() || null : null,
-        nexus_search_repository: registryType.value === 'nexus' ? nexusSearchRepository.value.trim() || null : null,
+        nexus_search_url: registryType.value === 'nexus' && nexusFormat.value === 'docker'
+          ? nexusSearchUrl.value.trim() || null : null,
+        nexus_search_repository: registryType.value === 'nexus'
+          ? nexusSearchRepository.value.trim() || null : null,
       } : {}),
     }
     const response = editingId.value
@@ -415,7 +435,9 @@ onMounted(() => void load())
           <div>
             <div class="profile-title">
               <strong>{{ profile.name }}</strong>
-              <span class="registry-kind">{{ profile.registry_type === 'nexus' ? 'Nexus · Docker v2' : 'Harbor' }}</span>
+              <span class="registry-kind">{{ profile.registry_type === 'nexus'
+                ? profile.nexus_format === 'helm' ? 'Nexus · Helm HTTP' : 'Nexus · Docker v2'
+                : 'Harbor' }}</span>
               <span v-if="profile.is_active" class="inline-active">legacy fallback</span>
               <span
                 class="state-badge"
@@ -456,7 +478,9 @@ onMounted(() => void load())
               @click="testRegistry(profile)"
             >
               <span v-if="testingRegistryId === profile.id" class="spinner-inline"></span>
-              {{ testingRegistryId === profile.id ? 'Проверка реестра…' : profile.registry_type === 'nexus' ? 'Проверить Docker Registry v2' : 'Проверить реестр' }}
+              {{ testingRegistryId === profile.id ? 'Проверка реестра…' : profile.registry_type === 'nexus'
+                  ? profile.nexus_format === 'helm' ? 'Проверить Helm HTTP index.yaml' : 'Проверить Docker Registry v2'
+                  : 'Проверить реестр' }}
             </button>
             <button
               v-if="!profile.is_default"
@@ -513,8 +537,13 @@ onMounted(() => void load())
             <input v-model="name" name="profile-name" type="text" maxlength="128" placeholder="Harbor DC-2" />
           </label>
           <label>
-            {{ registryType === 'nexus' ? 'Docker v2 connector URL (не Nexus UI)' : 'URL' }}
-            <input v-model="url" type="url" :placeholder="registryType === 'nexus' ? 'https://docker-connector.example.internal:5000' : 'https://harbor-dc2.local'" />
+            {{ registryType === 'nexus' && nexusFormat === 'docker'
+                ? 'Docker v2 connector URL (не Nexus UI)'
+                : registryType === 'nexus' ? 'Nexus UI HTTPS origin (Helm HTTP)' : 'URL' }}
+            <input v-model="url" type="url" :placeholder="registryType === 'nexus' && nexusFormat === 'docker'
+              ? 'https://docker-connector.example.internal:5000'
+              : registryType === 'nexus' ? 'https://nexus-ui.example.internal'
+                : 'https://harbor-dc2.local'" />
           </label>
           <label>
             Тип реестра
@@ -523,14 +552,29 @@ onMounted(() => void load())
               <option value="nexus">Sonatype Nexus</option>
             </select>
           </label>
-          <p v-if="registryType === 'nexus'" class="profile-hint">Nexus Browse: docker-proxy / v2 / baseimage означает Docker repository docker-proxy и image baseimage. В поле URL укажите корневой адрес HTTPS Docker v2 connector именно docker-proxy (проверка /v2/). Для каждого Docker repository hosted/proxy/group нужен отдельный профиль. Nexus UI HTTPS URL — отдельный необязательный адрес для административного списка и Helm HTTP; для проверки известного Docker image:tag он не требуется. Имя Docker repository (ниже) можно задать docker-proxy. Не используйте Helm OCI. Не отключайте TLS для обхода ошибок.</p>
           <label v-if="registryType === 'nexus'">
+            Формат Nexus repository
+            <select v-model="nexusFormat" aria-label="Формат Nexus repository">
+              <option value="docker">Docker Registry v2</option>
+              <option value="helm">Helm HTTP (index.yaml, .tgz)</option>
+            </select>
+          </label>
+          <p v-if="registryType === 'nexus' && nexusFormat === 'helm'" class="profile-hint">
+            Для каждого Helm HTTP repository создайте отдельный профиль. URL — HTTPS origin
+            Nexus UI/API, а имя repository указывается ниже. Проверка читает только
+            index.yaml; Helm OCI и Docker Registry v2 для этого профиля не используются.
+          </p>
+          <p v-if="registryType === 'nexus' && nexusFormat === 'docker'" class="profile-hint">Nexus Browse: docker-proxy / v2 / baseimage означает Docker repository docker-proxy и image baseimage. В поле URL укажите корневой адрес HTTPS Docker v2 connector именно docker-proxy (проверка /v2/). Для каждого Docker repository hosted/proxy/group нужен отдельный профиль. Nexus UI HTTPS URL — отдельный необязательный адрес для административного списка и Helm HTTP; для проверки известного Docker image:tag он не требуется. Имя Docker repository (ниже) можно задать docker-proxy. Не используйте Helm OCI. Не отключайте TLS для обхода ошибок.</p>
+          <label v-if="registryType === 'nexus' && nexusFormat === 'docker'">
             Nexus UI HTTPS URL (необязательно)
             <input v-model="nexusSearchUrl" type="url" placeholder="https://nexus-ui.example.internal" />
           </label>
           <label v-if="registryType === 'nexus'">
-            Имя Docker repository, обслуживаемого этим connector (необязательно)
-            <input v-model="nexusSearchRepository" type="text" maxlength="128" placeholder="docker-hosted" />
+            {{ nexusFormat === 'helm'
+              ? 'Имя Helm HTTP repository (обязательно)'
+              : 'Имя Docker repository, обслуживаемого этим connector (необязательно)' }}
+            <input v-model="nexusSearchRepository" type="text" maxlength="128"
+              :placeholder="nexusFormat === 'helm' ? 'helm-hosted' : 'docker-hosted'" />
           </label>
           <label>
             Service account

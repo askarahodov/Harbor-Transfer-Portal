@@ -67,6 +67,7 @@ class HarborArtifactsPage(BaseModel):
 
 class HarborSelectableProfileResponse(BaseModel):
     registry_type: str = "harbor"
+    nexus_format: str = "docker"
     id: str
     name: str
     url: str

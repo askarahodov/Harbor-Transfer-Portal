@@ -76,6 +76,7 @@ export type HarborConnection = {
 
 export type HarborProfileOption = {
   registry_type?: 'harbor' | 'nexus'
+  nexus_format?: 'docker' | 'helm'
   id: string
   name: string
   url: string

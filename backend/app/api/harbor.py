@@ -242,6 +242,7 @@ def selectable_profiles(
             HarborSelectableProfileResponse(
                 id=profile.id,
                 registry_type=profile.registry_type,
+                nexus_format=profile.nexus_format,
                 name=profile.name,
                 url=profile.url,
                 is_default=profile.is_default,
