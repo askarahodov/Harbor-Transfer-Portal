@@ -12,6 +12,34 @@
 
 Официальные источники: [Sonatype — OCI Repositories](https://help.sonatype.com/en/oci-repositories.html), [Sonatype — Helm Repositories](https://help.sonatype.com/en/helm-repositories.html).
 
+## Раздельные профили Nexus Docker и Helm HTTP (кандидат #497)
+
+В Draft-кандидате сохраняется `registry_type=nexus`, но каждый профиль имеет явный
+`nexus_format=docker|helm`. Старые Nexus-профили без этого поля продолжают работать
+как **Docker**. Ключи, credentials, флаг `verify_tls`, CA, ID и существующие операции
+при обновлении не переносятся и не изменяются.
+
+- **Nexus Docker v2**: один профиль на физический Docker connector, `url` — его
+  корневой адрес, `nexus_search_repository` — необязательное имя Docker repository
+  для привязанного поиска, `nexus_search_url` — необязательный HTTPS origin Nexus UI.
+  Проверка — только `GET /v2/`, без фиктивного Docker image.
+- **Nexus Helm HTTP**: отдельный профиль для *каждого конкретного* Helm repository;
+  `url` — **корневой HTTPS origin Nexus UI/API**, не Docker connector и не путь
+  `/repository/name`; `nexus_search_repository` — обязательное точное имя Helm repository;
+  `nexus_search_url` не задаётся. Проверка читает только
+  `/repository/<name>/index.yaml` ограниченным HTTP клиентом и не выполняет Docker v2.
+  В SOURCE доступны версии из этого репозитория; любые другие имена блокируются до HTTP
+  обращения. TARGET запись допускается только после отдельной проверки, что репозиторий
+  действительно `helm hosted` и разрешён для записи. Helm OCI **не** используется.
+
+У каждого профиля собственные credentials и политика `verify_tls`. Ранее сохранённый
+`verify_tls=false` не сбрасывается при миграции конфигурации; это техническая
+совместимость для тестовых стендов, **не подтверждение доверенного TLS**.
+
+Изменения относятся к изолированной ветке Nexus-кандидата: **NO-GO** до #434/#436
+и отдельной приёмки Helm HTTP. Успешный GET `index.yaml` доказывает доступ на
+чтение, но не подтверждает права на загрузку chart или полный handoff.
+
 ## Docker hosted: подготовка Nexus
 
 1. В Nexus UI откройте **Administration → Repositories → Create repository → docker (hosted)**.
