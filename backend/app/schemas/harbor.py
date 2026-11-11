@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -69,6 +70,7 @@ class HarborSelectableProfileResponse(BaseModel):
     id: str
     name: str
     url: str
+    registry_type: Literal["harbor", "nexus"] = "harbor"
     is_default: bool = False
 
 
