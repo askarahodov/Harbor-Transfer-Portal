@@ -288,7 +288,9 @@ async def test_helm_probe_fails_closed_on_identity_access(monkeypatch, status, e
     paths = []
     def handler(request):
         paths.append(request.url.path)
-        return httpx.Response(status, headers={"Location": "https://other.test"} if status == 302 else {})
+        return httpx.Response(
+            status, headers={"Location": "https://other.test"} if status == 302 else {},
+        )
     mock_client(monkeypatch, handler)
     result = await probe_helm_http(profile(), "helm-hosted", connect_timeout=2, read_timeout=2)
     assert not result.ok
