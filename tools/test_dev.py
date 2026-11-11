@@ -146,6 +146,14 @@ class DevCliTests(unittest.TestCase):
             self.assertNotIn("python", script.lower())
             self.assertNotIn("make ", script.lower())
 
+    def test_hostless_run_scripts_propagate_vcs_reference(self) -> None:
+        shell = (dev.ROOT / "run.sh").read_text(encoding="utf-8")
+        cmd = (dev.ROOT / "run.cmd").read_text(encoding="utf-8")
+        for script in (shell, cmd):
+            self.assertIn("git rev-parse HEAD", script)
+            self.assertIn("PORTAL_VCS_REF", script)
+            self.assertIn("unknown", script)
+
     def test_launcher_uses_argv_subprocess_without_shell(self) -> None:
         with patch("subprocess.run") as run:
             run.return_value = subprocess.CompletedProcess(["git", "--version"], 0, "", "")
