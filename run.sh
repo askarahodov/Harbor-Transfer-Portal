@@ -9,6 +9,7 @@ if [ ! -f .env ]; then
     printf '%s\n' '.env создан из шаблона. JWT_SECRET сгенерирует backend и сохранит в volume.'
 fi
 
-docker compose up -d --build --force-recreate
+revision="$(git rev-parse HEAD 2>/dev/null || printf '%s' unknown)"
+PORTAL_VCS_REF="$revision" docker compose up -d --build --force-recreate
 printf '%s\n' 'Portal: http://127.0.0.1:8080/'
 printf '%s\n' 'На новой базе войдите admin/admin и обязательно смените пароль.'
