@@ -108,6 +108,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   let repositoryRequestGeneration = 0
   let artifactRequestGeneration = 0
 
+  const isNexusSelected = computed(() => selectedHarborProfile.value?.registry_type === 'nexus')
   const selectedArtifacts = computed(() => Object.values(selected.value))
   const selectedCount = computed(() => selectedArtifacts.value.length)
   const selectedKnownBytes = computed(() =>
@@ -205,8 +206,9 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadConnection(): Promise<void> {
+    connection.value = null
     const profileId = selectedHarborProfileId.value
-    if (!profileId) return
+    if (!profileId || isNexusSelected.value) return
     try {
       connection.value = await getHarborConnection(profileId)
     } catch (requestError) {
@@ -218,6 +220,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadProjects(page = 1): Promise<void> {
+    if (isNexusSelected.value) return
     clearProjectSearchTimer()
     const requestGeneration = ++projectRequestGeneration
     const search = projectSearch.value
@@ -260,6 +263,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadRepositories(page = 1): Promise<void> {
+    if (isNexusSelected.value) return
     const project = selectedProject.value
     if (!project) return
     clearRepositorySearchTimer()
@@ -311,6 +315,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function loadArtifacts(page = 1): Promise<void> {
+    if (isNexusSelected.value) return
     const project = selectedProject.value
     const repository = selectedRepository.value
     if (!project || !repository) return
@@ -437,6 +442,13 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function preparePreview(): Promise<boolean> {
+    if (isNexusSelected.value) {
+      error.value = {
+        code: 'nexus_requires_registry_workflow',
+        message: 'Nexus export требует отдельного Nexus workflow (Draft PR #451). Текущий Harbor wizard не поддерживает Nexus.',
+      }
+      return false
+    }
     if (!selectedHarborProfileId.value) {
       error.value = {
         code: 'harbor_profile_required',
@@ -483,6 +495,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   async function start(): Promise<boolean> {
+    if (isNexusSelected.value) return false
     if (!preview.value) return false
     busy.value = 'start'
     clearError()
@@ -690,6 +703,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     harborProfiles,
     selectedHarborProfileId,
     selectedHarborProfile,
+    isNexusSelected,
     harborProfilesLoading,
     harborProfileLocked,
     projects,
