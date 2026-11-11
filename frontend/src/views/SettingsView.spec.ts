@@ -48,9 +48,9 @@ function response<T>(data: T): AxiosResponse<T> {
   }
 }
 
-async function mountSettings() {
+async function mountSettings(overrides: Partial<typeof transferSettings> = {}) {
   vi.spyOn(apiClient, 'get').mockImplementation((url) => {
-    if (url === '/settings/transfer') return Promise.resolve(response(transferSettings))
+    if (url === '/settings/transfer') return Promise.resolve(response({ ...transferSettings, ...overrides }))
     if (url === '/settings/harbor/profiles') return Promise.resolve(response({
           items: [
             {
@@ -265,6 +265,53 @@ describe('Harbor settings view', () => {
     expect(wrapper.get('#transfer-export-retention-days').element).toHaveProperty('value', '10')
     expect(wrapper.get('#transfer-import-retention-days').element).toHaveProperty('value', '3')
     expect(wrapper.get('#transfer-cleanup-interval-minutes').element).toHaveProperty('value', '15')
+  })
+
+  it('accepts integer retention days including 5 without browser step mismatch', async () => {
+    const wrapper = await mountSettings()
+    const source = wrapper.get('#transfer-export-retention-days')
+    const target = wrapper.get('#transfer-import-retention-days')
+    for (const field of [source, target]) {
+      expect(field.attributes('min')).toBe('1')
+      expect(field.attributes('max')).toBe('365')
+      expect(field.attributes('step')).toBe('1')
+      await field.setValue('5')
+      expect((field.element as HTMLInputElement).validity.valid).toBe(true)
+      expect((field.element as HTMLInputElement).validity.stepMismatch).toBe(false)
+    }
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(response({
+      ...transferSettings,
+      export_bundle_retention_seconds: 5 * 86400,
+      import_bundle_retention_seconds: 5 * 86400,
+    }))
+    await wrapper.get('.transfer-form').trigger('submit')
+    await flushPromises()
+    expect(patch).toHaveBeenCalledWith('/settings/transfer', expect.objectContaining({
+      export_bundle_retention_seconds: 5 * 86400,
+      import_bundle_retention_seconds: 5 * 86400,
+    }))
+    wrapper.unmount()
+  })
+
+  it('keeps legacy hourly retention policy until an integer-day field is edited', async () => {
+    const wrapper = await mountSettings({
+      export_bundle_retention_seconds: 3600,
+      import_bundle_retention_seconds: 3 * 3600,
+    })
+    expect(wrapper.get('#transfer-export-retention-days').element).toHaveProperty('value', '1')
+    expect(wrapper.get('#transfer-import-retention-days').element).toHaveProperty('value', '1')
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(response({
+      ...transferSettings,
+      export_bundle_retention_seconds: 3600,
+      import_bundle_retention_seconds: 3 * 3600,
+    }))
+    await wrapper.get('.transfer-form').trigger('submit')
+    await flushPromises()
+    expect(patch).toHaveBeenCalledWith('/settings/transfer', expect.objectContaining({
+      export_bundle_retention_seconds: 3600,
+      import_bundle_retention_seconds: 3 * 3600,
+    }))
+    wrapper.unmount()
   })
 
   it('saves normalized destination defaults and project mappings', async () => {
