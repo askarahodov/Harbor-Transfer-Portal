@@ -494,6 +494,7 @@ describe('export wizard store', () => {
     const response = deferred<Operation>()
     sessionStorage.setItem('htp.export.operation-id', '42')
     vi.spyOn(exportsApi, 'getOperation').mockReturnValue(response.promise)
+    const bundleSpy = vi.spyOn(exportsApi, 'getExportBundle')
     const store = useExportWizardStore()
 
     const pendingResume = store.resumeSavedOperation()
@@ -505,7 +506,7 @@ describe('export wizard store', () => {
     expect(store.operation).toBeNull()
     expect(store.bundle).toBeNull()
     expect(store.error).toBeNull()
-    expect(exportsApi.getExportBundle).not.toHaveBeenCalled()
+    expect(bundleSpy).not.toHaveBeenCalled()
     expect(sessionStorage.getItem('htp.export.operation-id')).toBeNull()
   })
 
