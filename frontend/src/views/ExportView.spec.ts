@@ -842,4 +842,46 @@ describe('SOURCE export wizard view', () => {
   })
 
 
+
+  it('explains missing completed bundle and returns to working browse without cancelling history', async () => {
+    mockHappyPath()
+    sessionStorage.setItem('htp.export.operation-id', '42')
+    vi.mocked(exportsApi.getExportBundle).mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 500,
+        data: {
+          detail: {
+            code: 'export_bundle_missing',
+            message: 'Готовый export bundle или его checksum sidecar отсутствует',
+          },
+        },
+      },
+    })
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Обработка артефактов завершена, но bundle недоступен')
+    expect(wrapper.text()).toContain('100% — прогресс обработки')
+    expect(wrapper.text()).toContain('export_bundle_missing')
+    expect(button(wrapper, 'Начать новый экспорт').attributes('disabled')).toBeUndefined()
+    expect(wrapper.findAll('button').some((item) => item.text().includes('Отменить операцию'))).toBe(false)
+
+    await button(wrapper, 'Начать новый экспорт').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Проект Harbor')
+    expect(wrapper.get('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(true)
+    expect(exportsApi.listHarborProjects).toHaveBeenCalledWith(1, 25, '', 'default')
+    expect(sessionStorage.getItem('htp.export.operation-id')).toBeNull()
+    wrapper.unmount()
+  })
+
 })
