@@ -64,7 +64,9 @@ class NexusDiscoveryService:
         ):
             raise HarborSettingsError("nexus_url_invalid", "Нужен корневой URL Docker v2 connector")
         self.url = url.rstrip("/")
-        self.search_url = profile.nexus_search_url
+        self.search_url = (
+            profile.url if profile.nexus_format == "helm" else profile.nexus_search_url
+        )
         self.search_repository = profile.nexus_search_repository
         self.username = effective.username
         self.password = effective.password
