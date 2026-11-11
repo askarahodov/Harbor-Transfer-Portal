@@ -245,7 +245,6 @@ def selectable_profiles(
                 nexus_format=profile.nexus_format,
                 name=profile.name,
                 url=profile.url,
-                registry_type=profile.registry_type,
                 is_default=profile.is_default,
                 nexus_search_url=(
                     profile.nexus_search_url if profile.registry_type == "nexus" else None
