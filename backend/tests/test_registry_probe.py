@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.services.harbor_settings import EffectiveHarborSettings
-from app.services.registry_probe import probe_docker_v2
+from app.services.registry_probe import probe_docker_v2, probe_helm_http
 
 
 def profile(url: str = "https://nexus.example.test", password: str | None = "secret"):
@@ -221,3 +221,102 @@ async def test_generic_connect_error_remains_unavailable(monkeypatch):
     result = await probe(profile())
     assert not result.ok
     assert result.code == "registry_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_helm_probe_reads_exact_repository_metadata_and_index_only(monkeypatch):
+    paths = []
+
+    def handler(request):
+        paths.append((request.method, request.url.path))
+        if request.url.path == "/service/rest/v1/repositories/helm-hosted":
+            return httpx.Response(200, json={
+                "name": "helm-hosted", "format": "helm", "type": "hosted",
+            })
+        if request.url.path == "/repository/helm-hosted/index.yaml":
+            return httpx.Response(200, text="apiVersion: v1\nentries: {}\n")
+        return httpx.Response(404)
+
+    mock_client(monkeypatch, handler)
+    result = await probe_helm_http(profile(), "helm-hosted", connect_timeout=2, read_timeout=2)
+    assert result.ok
+    assert result.code == "helm_repository_ok"
+    assert paths == [
+        ("GET", "/service/rest/v1/repositories/helm-hosted"),
+        ("GET", "/repository/helm-hosted/index.yaml"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_helm_probe_respects_existing_tls_false_and_empty_index(monkeypatch):
+    verifies = []
+    original = httpx.AsyncClient
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json={
+            "name": "helm-proxy", "format": "helm", "type": "proxy",
+        }) if request.url.path.startswith("/service/rest/")
+        else httpx.Response(404)
+    )
+
+    def factory(**kwargs):
+        verifies.append(kwargs["verify"])
+        return original(transport=transport, **kwargs)
+
+    monkeypatch.setattr("app.services.registry_probe.httpx.AsyncClient", factory)
+    current = EffectiveHarborSettings(
+        url="https://nexus.example.test", username="operator",
+        password="unchanged-secret", verify_tls=False, ca_file=None,
+    )
+    result = await probe_helm_http(
+        current, "helm-proxy", connect_timeout=2, read_timeout=2,
+    )
+    assert result.ok
+    assert result.code == "helm_index_missing"
+    assert current.verify_tls is False
+    assert verifies == [False]
+    assert "unchanged-secret" not in result.message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,expected", [
+    (401, "helm_repository_denied"),
+    (403, "helm_repository_denied"),
+    (404, "helm_repository_missing"),
+    (302, "helm_repository_unavailable"),
+])
+async def test_helm_probe_fails_closed_on_identity_access(monkeypatch, status, expected):
+    paths = []
+    def handler(request):
+        paths.append(request.url.path)
+        return httpx.Response(status, headers={"Location": "https://other.test"} if status == 302 else {})
+    mock_client(monkeypatch, handler)
+    result = await probe_helm_http(profile(), "helm-hosted", connect_timeout=2, read_timeout=2)
+    assert not result.ok
+    assert result.code == expected
+    assert paths == ["/service/rest/v1/repositories/helm-hosted"]
+
+
+@pytest.mark.asyncio
+async def test_helm_probe_rejects_docker_repository_identity(monkeypatch):
+    mock_client(monkeypatch, lambda _request: httpx.Response(200, json={
+        "name": "helm-hosted", "format": "docker", "type": "hosted",
+    }))
+    result = await probe_helm_http(profile(), "helm-hosted", connect_timeout=2, read_timeout=2)
+    assert not result.ok
+    assert result.code == "helm_repository_format_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_helm_probe_rejects_ui_path_and_malformed_repository_before_network(monkeypatch):
+    def unexpected(**_kwargs):
+        raise AssertionError("Unsafe Helm endpoint must not contact registry")
+    monkeypatch.setattr("app.services.registry_probe.httpx.AsyncClient", unexpected)
+    a = await probe_helm_http(
+        profile(url="https://nexus.example.test/repository/helm-hosted"),
+        "helm-hosted", connect_timeout=2, read_timeout=2,
+    )
+    b = await probe_helm_http(
+        profile(), "../secrets", connect_timeout=2, read_timeout=2,
+    )
+    assert not a.ok and a.code == "helm_url_invalid"
+    assert not b.ok and b.code == "helm_repository_invalid"
