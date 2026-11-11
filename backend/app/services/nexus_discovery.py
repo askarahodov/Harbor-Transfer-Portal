@@ -145,7 +145,9 @@ class NexusDiscoveryService:
         )
 
     def _require_docker(self) -> None:
-        if self.nexus_repository_format == "helm_http":
+        # Legacy unit fixtures construct this service without calling __init__.
+        # All real typed Helm profiles get nexus_repository_format from metadata.
+        if getattr(self, "nexus_repository_format", "legacy") == "helm_http":
             raise HarborSettingsError(
                 "registry_format_mismatch", "Для Docker каталога выберите Nexus Docker profile",
             )
