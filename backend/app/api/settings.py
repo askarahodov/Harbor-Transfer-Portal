@@ -27,7 +27,7 @@ from app.services.harbor_settings import (
     HarborSettingsError,
     HarborSettingsService,
 )
-from app.services.registry_probe import probe_docker_v2
+from app.services.registry_probe import probe_docker_v2, probe_helm_http
 
 router = APIRouter(prefix="/settings/harbor", tags=["settings"])
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
@@ -566,11 +566,18 @@ async def test_registry_profile_connection(
             )
         except HarborSettingsError as exc:
             raise _profile_error(exc) from exc
-        result = await probe_docker_v2(
-            resolved,
-            connect_timeout=request.app.state.settings.harbor_connect_timeout_seconds,
-            read_timeout=request.app.state.settings.harbor_read_timeout_seconds,
-        )
+        if profile.nexus_repository_format == "helm_http":
+            result = await probe_helm_http(
+                resolved, profile.nexus_helm_repository or "",
+                connect_timeout=request.app.state.settings.harbor_connect_timeout_seconds,
+                read_timeout=request.app.state.settings.harbor_read_timeout_seconds,
+            )
+        else:
+            result = await probe_docker_v2(
+                resolved,
+                connect_timeout=request.app.state.settings.harbor_connect_timeout_seconds,
+                read_timeout=request.app.state.settings.harbor_read_timeout_seconds,
+            )
         return HarborConnectionTestResponse(
             ok=result.ok, code=result.code, message=result.message, version=None
         )
