@@ -158,6 +158,17 @@ function validateUrlForRegistry(url: string, registryType: 'harbor' | 'nexus'): 
   }
 }
 
+function changeRegistryType(event: Event): void {
+  const next = (event.target as HTMLSelectElement).value as 'harbor' | 'nexus'
+  if (next === 'nexus' && registryType.value !== 'nexus'
+      && nexusRepositoryFormat.value === 'legacy') {
+    // A Harbor profile converted to Nexus is a new Docker binding by default.
+    // Existing Nexus legacy profiles remain legacy unless explicitly migrated.
+    nexusRepositoryFormat.value = 'docker'
+  }
+  registryType.value = next
+}
+
 function editProfile(profile: HarborProfile): void {
   if (profile.is_default) return
   feedbackLocation.value = 'editor'
@@ -574,7 +585,7 @@ onMounted(() => void load())
           </label>
           <label>
             Тип реестра
-            <select v-model="registryType">
+            <select :value="registryType" @change="changeRegistryType">
               <option value="harbor">Harbor</option>
               <option value="nexus">Sonatype Nexus</option>
             </select>
