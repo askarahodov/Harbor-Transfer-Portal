@@ -218,7 +218,7 @@ async function saveProfile(): Promise<void> {
       username: username.value.trim() || null,
       verify_tls: verifyTls.value,
       registry_type: registryType.value,
-      nexus_format: registryType.value === 'nexus' ? nexusFormat.value : 'docker',
+      ...(registryType.value === 'nexus' ? { nexus_format: nexusFormat.value } : {}),
       ...((
         nexusSearchUrl.value.trim() ||
         nexusSearchRepository.value.trim() ||
