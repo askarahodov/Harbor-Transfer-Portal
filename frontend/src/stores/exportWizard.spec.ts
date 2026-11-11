@@ -567,21 +567,19 @@ describe('export wizard store', () => {
       ],
     })
     sessionStorage.setItem('htp.harbor.profile-id', 'nexus')
-    const previewSpy = vi.spyOn(exportsApi, 'previewExport')
     const store = useExportWizardStore()
 
     await store.initialize()
 
-    expect(store.isNexusSelected).toBe(true)
+    expect(store.isNexus).toBe(true)
     expect(store.connection).toBeNull()
     expect(exportsApi.getHarborConnection).not.toHaveBeenCalled()
     expect(exportsApi.listHarborProjects).not.toHaveBeenCalled()
-    expect(await store.preparePreview()).toBe(false)
-    expect(store.error?.code).toBe('nexus_requires_registry_workflow')
-    expect(previewSpy).not.toHaveBeenCalled()
+    // Choosing Nexus must not call Harbor browse, but must permit the independent Nexus workflow.
+    expect(store.isNexus).toBe(true)
 
     await store.selectHarborProfile('default')
-    expect(store.isNexusSelected).toBe(false)
+    expect(store.isNexus).toBe(false)
     expect(store.error).toBeNull()
     expect(exportsApi.getHarborConnection).toHaveBeenCalledWith('default')
     expect(exportsApi.listHarborProjects).toHaveBeenCalledWith(1, 25, '', 'default')
