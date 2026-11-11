@@ -581,11 +581,20 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <div v-if="wizard.completedBundleUnavailable" class="notice notice--warning" role="status">
+          <AlertTriangle :size="22" aria-hidden="true" />
+          <div>
+            <strong>Обработка артефактов завершена, но bundle недоступен для скачивания.</strong>
+            <p>100% — прогресс обработки, а не подтверждение наличия файлов. Archive, checksum sidecar или их metadata не прошли повторную проверку.</p>
+            <p>Завершённую операцию нельзя отменить. Можно повторить проверку кнопкой «Обновить» или начать новый экспорт с новым Delivery ID; предыдущая операция останется в истории. Не переносите неполный комплект на TARGET.</p>
+          </div>
+        </div>
+
         <div class="actions">
           <button v-if="wizard.canCancel" class="danger-button" type="button" :disabled="wizard.busy === 'cancel'" @click="wizard.cancel">
             Отменить операцию
           </button>
-          <button v-if="wizard.isTerminalFailure" class="secondary-button" type="button" @click="wizard.reset">
+          <button v-if="wizard.canStartNewExport" class="secondary-button" type="button" :disabled="wizard.busy !== null" @click="wizard.startNewExport">
             Начать новый экспорт
           </button>
         </div>
@@ -601,7 +610,7 @@ onBeforeUnmount(() => {
         @download-sidecar="downloadSidecar"
         @download-handoff="downloadHandoff"
         @print-handoff="printHandoffRecord"
-        @reset="wizard.reset"
+        @reset="wizard.startNewExport"
       />
     </template>
   </section>
