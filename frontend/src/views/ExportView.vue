@@ -117,7 +117,7 @@ let nexusInventoryGeneration = 0
 
 async function loadNexusInventory(): Promise<void> {
   const profileId = wizard.selectedHarborProfileId
-  if (!wizard.isNexus || !profileId) return
+  if (!wizard.isNexus || wizard.isNexusHelm || !profileId) return
   const generation = ++nexusInventoryGeneration
   nexusInventoryBusy.value = true
   nexusInventoryAvailable.value = false
@@ -153,7 +153,7 @@ let nexusGeneration = 0
 
 async function searchNexusRepositories(cursor: string | null = null): Promise<void> {
   const profileId = wizard.selectedHarborProfileId
-  if (!wizard.isNexus || !profileId) return
+  if (!wizard.isNexus || wizard.isNexusHelm || !profileId) return
   const search = exactRepository.value.trim()
   const generation = ++nexusGeneration
   nexusBrowseBusy.value = true
@@ -197,7 +197,7 @@ async function searchNexusTags(cursor: string | null = null): Promise<void> {
   const profileId = wizard.selectedHarborProfileId
   const repository = exactRepository.value.trim()
   const search = exactReference.value.trim()
-  if (!wizard.isNexus || !profileId || !repository) return
+  if (!wizard.isNexus || wizard.isNexusHelm || !profileId || !repository) return
   const generation = ++nexusTagsGeneration
   nexusTagsBusy.value = true
   if (!cursor) {
@@ -237,12 +237,12 @@ async function searchNexusTags(cursor: string | null = null): Promise<void> {
 
 async function inspectNexusReference(): Promise<void> {
   const profileId = wizard.selectedHarborProfileId
-  if (!wizard.isNexus || !profileId || exactBusy.value) return
+  if (!wizard.isNexus || wizard.isNexusHelm || !profileId || exactBusy.value) return
   const repository = exactRepository.value.trim()
   const reference = exactReference.value.trim()
   if (!repository || !reference) return
   const stillCurrent = () => (
-    wizard.isNexus
+    wizard.isNexus && !wizard.isNexusHelm
     && wizard.selectedHarborProfileId === profileId
     && exactRepository.value.trim() === repository
     && exactReference.value.trim() === reference
@@ -567,7 +567,7 @@ onMounted(async () => {
   }
   if (runtime.contour === 'SOURCE') {
     await wizard.initialize()
-    if (wizard.isNexus) {
+    if (wizard.isNexus && !wizard.isNexusHelm) {
       void loadNexusInventory()
       void searchNexusRepositories()
     }
@@ -944,7 +944,7 @@ onBeforeUnmount(() => {
             <strong>SOURCE</strong>
           </div>
           <div class="info-box">
-            <span>{{ wizard.isNexus ? 'Nexus · Docker v2' : 'Локальный Harbor' }}</span>
+            <span>{{ wizard.isNexusHelm ? 'Nexus · Helm HTTP' : wizard.isNexus ? 'Nexus · Docker v2' : 'Локальный Harbor' }}</span>
             <strong>{{ wizard.connection?.version || 'подключён' }}</strong>
             <small v-if="wizard.connection?.auth_mode">Auth: {{ wizard.connection.auth_mode }}</small>
           </div>
