@@ -136,7 +136,10 @@ class NexusHelmHttpService:
     def _repository(self, repository: str) -> str:
         if _REPO.fullmatch(repository) is None:
             raise NexusHelmHttpError("helm_repository_invalid", "Некорректное имя Helm repository")
-        if self.bound_repository is not None and repository != self.bound_repository:
+        # Older E2E/legacy fixtures construct this service without __init__.
+        # Real typed Helm profiles always set bound_repository in __init__.
+        bound_repository = getattr(self, "bound_repository", None)
+        if bound_repository is not None and repository != bound_repository:
             raise NexusHelmHttpError(
                 "helm_repository_mismatch", "Helm profile закреплён за другим repository",
             )
