@@ -135,6 +135,21 @@ async def test_direct_helm_repository_acl_isolated_when_global_listing_is_forbid
 
 
 @pytest.mark.asyncio
+async def test_dedicated_helm_profile_never_reads_another_repository(client_service):
+    service, state, _data, _digest = client_service
+    service.allowed_repository = "helm-a"
+
+    allowed = await service.list_charts("helm-a")
+    assert allowed.available
+    calls_before = len(state["calls"])
+
+    with pytest.raises(NexusHelmHttpError, match="не совпадает"):
+        await service.list_charts("helm-private")
+
+    assert len(state["calls"]) == calls_before
+
+
+@pytest.mark.asyncio
 async def test_helm_index_unauthorized_is_not_empty(client_service):
     service, state, _data, _digest = client_service
     state["status"] = 403
