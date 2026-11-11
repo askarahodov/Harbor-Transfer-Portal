@@ -97,6 +97,7 @@ class HarborProfileCreate(BaseModel):
     verify_tls: bool = True
     enabled: bool = True
     registry_type: Literal["harbor", "nexus"] = "harbor"
+    nexus_format: Literal["docker", "helm"] = "docker"
     nexus_search_url: AnyHttpUrl | None = None
     nexus_search_repository: str | None = Field(default=None, max_length=128)
 
