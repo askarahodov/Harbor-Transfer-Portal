@@ -104,6 +104,8 @@ def _profile_response(
             AnyHttpUrl(profile.nexus_search_url) if profile.nexus_search_url else None
         ),
         nexus_search_repository=profile.nexus_search_repository,
+        nexus_repository_format=profile.nexus_repository_format,
+        nexus_helm_repository=profile.nexus_helm_repository,
     )
 
 
@@ -314,6 +316,8 @@ def create_harbor_profile(
                 str(payload.nexus_search_url).rstrip("/") if payload.nexus_search_url else None
             ),
             nexus_search_repository=payload.nexus_search_repository,
+            nexus_repository_format=payload.nexus_repository_format,
+            nexus_helm_repository=payload.nexus_helm_repository,
         )
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
@@ -388,6 +392,12 @@ def update_harbor_profile(
                 nexus_search_repository_set=(
                     "nexus_search_repository" in payload.model_fields_set
                 ),
+                nexus_repository_format=(
+                    payload.nexus_repository_format
+                    if "nexus_repository_format" in payload.model_fields_set else None
+                ),
+                nexus_helm_repository=payload.nexus_helm_repository,
+                nexus_helm_repository_set="nexus_helm_repository" in payload.model_fields_set,
             )
             if changed_fields:
                 _audit_profile(
