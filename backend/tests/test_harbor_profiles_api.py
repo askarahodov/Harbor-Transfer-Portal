@@ -88,6 +88,7 @@ def test_existing_single_harbor_is_exposed_as_default_profile(tmp_path: Path) ->
                 "id": "default",
                 "name": "Default Harbor",
                 "registry_type": "harbor",
+                "nexus_format": "docker",
                 "url": "https://legacy.harbor.local",
                 "username": "legacy-user",
                 "verify_tls": True,
