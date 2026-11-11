@@ -719,3 +719,44 @@ def test_nexus_helm_profile_rejects_invalid_or_cross_repository_configuration(
     assert docker.status_code == 201
     assert docker.json()["nexus_format"] == "docker"
     assert docker.json()["verify_tls"] is False
+
+
+def test_converting_helm_profile_to_harbor_resets_format_when_omitted(tmp_path: Path) -> None:
+    client, app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Helm Source",
+            "url": "https://nexus.example.test",
+            "registry_type": "nexus",
+            "nexus_format": "helm",
+            "nexus_search_repository": "helm-team",
+            "verify_tls": False,
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+
+    converted = client.patch(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        json={"registry_type": "harbor", "url": "https://harbor.example.test"},
+        headers=headers,
+    )
+    assert converted.status_code == 200
+    assert converted.json()["registry_type"] == "harbor"
+    assert converted.json()["nexus_format"] == "docker"
+    assert converted.json()["verify_tls"] is False
+    with app.state.session_factory() as session:
+        stored = HarborProfileService(session, app.state.settings).get(profile_id)
+        assert stored.registry_type == "harbor"
+        assert stored.nexus_format == "docker"
+
+    explicitly_invalid = client.patch(
+        f"/api/settings/harbor/profiles/{profile_id}",
+        json={"registry_type": "harbor", "nexus_format": "helm"},
+        headers=headers,
+    )
+    assert explicitly_invalid.status_code == 422
+    assert explicitly_invalid.json()["error"]["code"] == "nexus_format_invalid"
