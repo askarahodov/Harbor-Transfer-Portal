@@ -648,7 +648,18 @@ onBeforeUnmount(() => {
         @update:model-value="wizard.selectHarborProfile"
       />
 
-      <section v-if="wizard.step === 1" class="wizard-card" aria-labelledby="selection-title">
+      <section v-if="wizard.step === 1 && wizard.isNexusSelected" class="wizard-card" aria-labelledby="nexus-not-ready-title">
+        <div class="notice notice--warning" role="status">
+          <AlertTriangle :size="22" aria-hidden="true" />
+          <div>
+            <h2 id="nexus-not-ready-title">Nexus выбран, но Harbor export wizard не поддерживает Nexus.</h2>
+            <p>Этот мастер использует Harbor REST API. Nexus Docker v2 проверяйте отдельно в настройках профиля — кнопкой «Проверить Docker Registry v2». Успешная проверка подключения ещё не разрешает экспорт или импорт Nexus.</p>
+            <p>Полная реализация Nexus SOURCE/TARGET находится в Draft PR № 451 и до региональной приёмки имеет статус NO-GO. Для текущего Harbor export выберите профиль с типом Harbor.</p>
+          </div>
+        </div>
+      </section>
+
+      <section v-else-if="wizard.step === 1" class="wizard-card" aria-labelledby="selection-title">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Шаг 1 из 4</p>
@@ -1072,11 +1083,20 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <div v-if="wizard.completedBundleUnavailable" class="notice notice--warning" role="status">
+          <AlertTriangle :size="22" aria-hidden="true" />
+          <div>
+            <strong>Обработка артефактов завершена, но bundle недоступен для скачивания.</strong>
+            <p>100% — прогресс обработки, а не подтверждение наличия файлов. Archive, checksum sidecar или их metadata не прошли повторную проверку.</p>
+            <p>Завершённую операцию нельзя отменить. Можно повторить проверку кнопкой «Обновить» или начать новый экспорт с новым Delivery ID; предыдущая операция останется в истории. Не переносите неполный комплект на TARGET.</p>
+          </div>
+        </div>
+
         <div class="actions">
           <button v-if="wizard.canCancel" class="danger-button" type="button" :disabled="wizard.busy === 'cancel'" @click="wizard.cancel">
             Отменить операцию
           </button>
-          <button v-if="wizard.isTerminalFailure" class="secondary-button" type="button" @click="wizard.reset">
+          <button v-if="wizard.canStartNewExport" class="secondary-button" type="button" :disabled="wizard.busy !== null" @click="wizard.startNewExport">
             Начать новый экспорт
           </button>
         </div>
@@ -1092,7 +1112,7 @@ onBeforeUnmount(() => {
         @download-sidecar="downloadSidecar"
         @download-handoff="downloadHandoff"
         @print-handoff="printHandoffRecord"
-        @reset="wizard.reset"
+        @reset="wizard.startNewExport"
       />
     </template>
   </section>
