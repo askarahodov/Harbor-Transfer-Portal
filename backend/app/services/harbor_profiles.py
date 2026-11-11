@@ -39,6 +39,7 @@ class HarborProfile:
     enabled: bool
     is_default: bool = False
     registry_type: Literal["harbor", "nexus"] = "harbor"
+    nexus_format: Literal["docker", "helm"] = "docker"
     nexus_search_url: str | None = None
     nexus_search_repository: str | None = None
 
@@ -201,6 +202,7 @@ class HarborProfileService:
         verify_tls: bool,
         enabled: bool,
         registry_type: Literal["harbor", "nexus"] = "harbor",
+        nexus_format: Literal["docker", "helm"] = "docker",
         nexus_search_url: str | None = None,
         nexus_search_repository: str | None = None,
     ) -> HarborProfile:
@@ -217,6 +219,15 @@ class HarborProfileService:
                 "registry_type должен быть 'harbor' или 'nexus'",
             )
 
+        if nexus_format not in ("docker", "helm") or (
+            registry_type != "nexus" and nexus_format != "docker"
+        ):
+            raise HarborSettingsError("nexus_format_invalid", "Неверный формат Nexus profile")
+        if nexus_format == "helm" and not nexus_search_repository:
+            raise HarborSettingsError(
+                "nexus_helm_repository_required", "Для Helm profile укажите repository"
+            )
+
         profile = HarborProfile(
             id=uuid4().hex,
             name=normalized_name,
@@ -225,6 +236,7 @@ class HarborProfileService:
             verify_tls=verify_tls,
             enabled=enabled,
             registry_type=registry_type,
+            nexus_format=nexus_format,
             nexus_search_url=self._search_url(nexus_search_url),
             nexus_search_repository=self._search_repository(nexus_search_repository),
         )
@@ -243,6 +255,7 @@ class HarborProfileService:
         verify_tls: bool | None = None,
         enabled: bool | None = None,
         registry_type: Literal["harbor", "nexus"] | None = None,
+        nexus_format: Literal["docker", "helm"] | None = None,
         nexus_search_url: str | None = None,
         nexus_search_repository: str | None = None,
         nexus_search_url_set: bool = False,
@@ -283,6 +296,19 @@ class HarborProfileService:
                 )
             next_registry_type = registry_type
 
+        next_nexus_format = nexus_format if nexus_format is not None else current.nexus_format
+        if next_nexus_format not in ("docker", "helm") or (
+            next_registry_type != "nexus" and next_nexus_format != "docker"
+        ):
+            raise HarborSettingsError("nexus_format_invalid", "Неверный формат Nexus profile")
+        next_helm_repo = (
+            self._search_repository(nexus_search_repository)
+            if nexus_search_repository_set else current.nexus_search_repository
+        )
+        if next_nexus_format == "helm" and not next_helm_repo:
+            raise HarborSettingsError(
+                "nexus_helm_repository_required", "Для Helm profile укажите repository"
+            )
         updated = replace(
             current,
             name=next_name,
@@ -291,6 +317,7 @@ class HarborProfileService:
             verify_tls=verify_tls if verify_tls is not None else current.verify_tls,
             enabled=next_enabled,
             registry_type=next_registry_type,
+            nexus_format=next_nexus_format,
             nexus_search_url=(
                 self._search_url(nexus_search_url) if nexus_search_url_set
                 else current.nexus_search_url
@@ -484,6 +511,11 @@ class HarborProfileService:
                 ):
                     raise TypeError
                 registry_type = str(item.get("registry_type", "harbor"))
+                nexus_format = str(item.get("nexus_format", "docker"))
+                if nexus_format not in ("docker", "helm") or (
+                    registry_type != "nexus" and nexus_format != "docker"
+                ):
+                    raise ValueError("invalid nexus_format")
                 if registry_type not in ("harbor", "nexus"):
                     raise ValueError("invalid registry_type")
                 profile = HarborProfile(
@@ -494,6 +526,7 @@ class HarborProfileService:
                     verify_tls=item["verify_tls"],
                     enabled=item["enabled"],
                     registry_type=registry_type,  # type: ignore[arg-type]
+                    nexus_format=nexus_format,  # type: ignore[arg-type]
                     nexus_search_url=self._search_url(item.get("nexus_search_url")),
                     nexus_search_repository=self._search_repository(
                         item.get("nexus_search_repository")
@@ -527,6 +560,7 @@ class HarborProfileService:
                 "verify_tls": item.verify_tls,
                 "enabled": item.enabled,
                 "registry_type": item.registry_type,
+                "nexus_format": item.nexus_format,
                 "nexus_search_url": item.nexus_search_url,
                 "nexus_search_repository": item.nexus_search_repository,
             }
