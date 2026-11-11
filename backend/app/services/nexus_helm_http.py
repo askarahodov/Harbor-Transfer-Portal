@@ -102,6 +102,9 @@ class NexusHelmHttpService:
     def __init__(self, session: Session, settings: Settings, profile_id: str) -> None:
         discovery = NexusDiscoveryService(session, settings, profile_id)
         self.base_url = discovery.search_url or ""
+        self.pinned_repository = (
+            discovery.search_repository if discovery.nexus_format == "helm" else None
+        )
         self.username = discovery.username
         self.password = discovery.password
         self.verify = discovery.verify
@@ -127,10 +130,14 @@ class NexusHelmHttpService:
             raise NexusHelmHttpError("helm_url_invalid", "Требуется корневой Nexus UI HTTPS URL")
         return self.base_url.rstrip("/")
 
-    @staticmethod
-    def _repository(repository: str) -> str:
+    def _repository(self, repository: str) -> str:
         if _REPO.fullmatch(repository) is None:
             raise NexusHelmHttpError("helm_repository_invalid", "Некорректное имя Helm repository")
+        if self.pinned_repository is not None and repository != self.pinned_repository:
+            raise NexusHelmHttpError(
+                "helm_repository_mismatch",
+                "Helm profile закреплён за другим repository",
+            )
         return repository
 
     def _client(self) -> httpx.AsyncClient:
