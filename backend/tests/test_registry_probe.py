@@ -245,7 +245,7 @@ async def test_explicit_https_tls_verify_false_is_honored_without_changing_profi
         verify_tls=False,
         ca_file=None,
     )
-    result = await probe_docker_v2(configured)
+    result = await probe(configured)
     assert result.ok
     assert observed == [False]
     assert configured.verify_tls is False
