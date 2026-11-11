@@ -524,3 +524,120 @@ def test_profile_create_edit_disable_enable_and_delete_persist_registry_type(
     listed_after = client.get("/api/settings/harbor/profiles", headers=headers)
     assert listed_after.status_code == 200
     assert [item["id"] for item in listed_after.json()["items"]] == ["default"]
+
+
+def test_nexus_profile_uses_docker_v2_probe_with_existing_tls_setting(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Registry check never requires a synthetic image or bypasses saved profile flags."""
+    from app.services.registry_probe import ProbeResult
+
+    client, app, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    create = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Nexus Docker",
+            "url": "https://docker.nexus.example.test",
+            "username": "operator",
+            "verify_tls": False,
+            "enabled": True,
+            "registry_type": "nexus",
+        },
+        headers=headers,
+    )
+    assert create.status_code == 201
+    profile_id = create.json()["id"]
+    assert client.put(
+        f"/api/settings/harbor/profiles/{profile_id}/credential",
+        json={"secret": PROFILE_SECRET},
+        headers=headers,
+    ).status_code == 200
+
+    observed = []
+
+    async def fake_probe(resolved, *, connect_timeout, read_timeout):
+        observed.append((resolved.url, resolved.verify_tls, resolved.username, bool(resolved.password)))
+        return ProbeResult(ok=True, code="registry_connection_ok", message="Docker Registry v2 доступен")
+
+    def forbidden_harbor(*args, **kwargs):
+        raise AssertionError("Nexus registry probe must not invoke Harbor client")
+
+    monkeypatch.setattr("app.api.settings.probe_docker_v2", fake_probe)
+    monkeypatch.setattr(
+        "app.services.harbor_profiles.HarborProfileService.build_client",
+        forbidden_harbor,
+    )
+    result = client.post(
+        f"/api/settings/harbor/profiles/{profile_id}/test-registry",
+        headers=headers,
+    )
+    assert result.status_code == 200
+    assert result.json() == {
+        "ok": True,
+        "code": "registry_connection_ok",
+        "message": "Docker Registry v2 доступен",
+        "version": None,
+    }
+    assert observed == [("https://docker.nexus.example.test", False, "operator", True)]
+    assert PROFILE_SECRET not in result.text
+
+    rejected = client.post(
+        f"/api/settings/harbor/profiles/{profile_id}/test",
+        headers=headers,
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "harbor_api_wrong_registry_type"
+
+
+def test_nexus_profile_does_not_trigger_harbor_browse_or_export_in_main(tmp_path: Path) -> None:
+    client, _app, tokens = _app_client(tmp_path)
+    admin = _auth(tokens["admin"])
+    create = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Nexus Docker",
+            "url": "https://docker.nexus.example.test",
+            "username": "operator",
+            "verify_tls": False,
+            "enabled": True,
+            "registry_type": "nexus",
+        },
+        headers=admin,
+    )
+    assert create.status_code == 201
+    profile_id = create.json()["id"]
+    viewer = _auth(tokens["viewer"])
+    choices = client.get("/api/harbor/profiles", headers=viewer)
+    assert choices.status_code == 200
+    picked = next(item for item in choices.json()["items"] if item["id"] == profile_id)
+    assert picked["registry_type"] == "nexus"
+    assert next(item for item in choices.json()["items"] if item["id"] == "default")[
+        "registry_type"
+    ] == "harbor"
+
+    for uri in (
+        f"/api/harbor/connection?profile_id={profile_id}",
+        f"/api/harbor/projects?profile_id={profile_id}",
+    ):
+        result = client.get(uri, headers=viewer)
+        assert result.status_code == 422
+        assert result.json()["error"]["code"] == "nexus_requires_registry_workflow"
+
+    result = client.post(
+        "/api/exports/preview",
+        json={
+            "artifacts": [{
+                "kind": "container-image",
+                "project": "library",
+                "repository": "busybox",
+                "reference": "latest",
+                "digest": "sha256:" + "a" * 64,
+            }],
+            "comment": None,
+            "harbor_profile_id": profile_id,
+        },
+        headers=_auth(tokens["operator"]),
+    )
+    assert result.status_code == 422
+    assert result.json()["error"]["code"] == "nexus_requires_registry_workflow"
