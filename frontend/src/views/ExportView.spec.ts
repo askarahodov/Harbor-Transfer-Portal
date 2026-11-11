@@ -793,4 +793,53 @@ describe('SOURCE export wizard view', () => {
     expect(connection).not.toHaveBeenCalled()
     expect(wrapper.find('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(false)
   })
+
+  it('selects Helm charts only from the bound Nexus Helm HTTP profile', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [{
+        id: 'nexus-helm',
+        name: 'Nexus Helm Team',
+        url: 'https://nexus-ui.example.test',
+        registry_type: 'nexus',
+        nexus_format: 'helm',
+        nexus_search_repository: 'helm-team',
+        is_default: false,
+      }],
+    })
+    const inventory = vi.spyOn(exportsApi, 'getNexusInventory')
+    const docker = vi.spyOn(exportsApi, 'inspectExactNexusImage')
+    const projects = vi.spyOn(exportsApi, 'listHarborProjects')
+    const helm = vi.spyOn(exportsApi, 'listNexusHelmCharts').mockResolvedValue({
+      available: true, code: null, message: null,
+      items: [{ name: 'team-chart', version: '2.0.0', digest: 'a'.repeat(64) }],
+    })
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Nexus · Helm HTTP repository')
+    expect(wrapper.text()).toContain('helm-team')
+    expect(wrapper.text()).not.toContain('Проверить Docker image')
+    expect(wrapper.find('form.nexus-exact-form').exists()).toBe(false)
+    expect(wrapper.find('.nexus-inventory').exists()).toBe(false)
+    expect(inventory).not.toHaveBeenCalled()
+    expect(projects).not.toHaveBeenCalled()
+    expect(docker).not.toHaveBeenCalled()
+
+    await button(wrapper, 'Показать Helm charts').trigger('click')
+    await flushPromises()
+    expect(helm).toHaveBeenCalledWith('nexus-helm', 'helm-team')
+    expect(wrapper.text()).toContain('team-chart')
+    await button(wrapper, 'Добавить Helm chart').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 выбрано')
+    wrapper.unmount()
+  })
+
+
 })
