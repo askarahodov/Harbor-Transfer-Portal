@@ -732,6 +732,11 @@ class ExportOrchestrator:
             with self.session_factory() as session:
                 service = HarborProfileService(session, self.settings)
                 selected = service.operation_snapshot(profile_id)
+                if selected.registry_type == "nexus":
+                    raise ExportOrchestrationError(
+                        "nexus_requires_registry_workflow",
+                        "Nexus export требует отдельного registry workflow; Harbor API здесь неприменим",
+                    )
                 return service.build_client(selected.id)
         except HarborSettingsError as exc:
             raise ExportOrchestrationError(exc.code, exc.message) from exc
