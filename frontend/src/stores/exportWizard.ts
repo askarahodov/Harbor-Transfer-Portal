@@ -100,6 +100,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   const busy = ref<string | null>(null)
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let pollRequestActive = false
+  let operationGeneration = 0
   let projectSearchTimer: ReturnType<typeof setTimeout> | null = null
   let repositorySearchTimer: ReturnType<typeof setTimeout> | null = null
   let artifactSearchTimer: ReturnType<typeof setTimeout> | null = null
@@ -123,6 +124,12 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   )
   const isTerminalFailure = computed(
     () => operation.value?.status === 'FAILED' || operation.value?.status === 'CANCELLED',
+  )
+  const completedBundleUnavailable = computed(
+    () => operation.value?.status === 'COMPLETED' && bundle.value === null && error.value !== null,
+  )
+  const canStartNewExport = computed(
+    () => isTerminalFailure.value || completedBundleUnavailable.value,
   )
   const failedArtifacts = computed(
     () => operation.value?.artifacts.filter((item) => item.status === 'FAILED') ?? [],
@@ -496,11 +503,17 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     }
   }
 
-  async function loadBundle(operationId: number): Promise<void> {
+  async function loadBundle(operationId: number, generation: number): Promise<void> {
     try {
-      bundle.value = await getExportBundle(operationId)
+      const metadata = await getExportBundle(operationId)
+      if (generation !== operationGeneration) return
+      bundle.value = metadata
       step.value = 4
+      clearError()
     } catch (requestError) {
+      if (generation !== operationGeneration) return
+      bundle.value = null
+      step.value = 3
       error.value = apiErrorInfo(
         requestError,
         'Операция завершена, но metadata готового bundle недоступна.',
@@ -511,8 +524,10 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   async function refreshOperation(operationId = operation.value?.id ?? savedOperationId()): Promise<void> {
     if (!operationId || pollRequestActive) return
     pollRequestActive = true
+    const generation = operationGeneration
     try {
       const current = await getOperation(operationId)
+      if (generation !== operationGeneration) return
       if (current.type !== 'EXPORT') {
         saveOperationId(null)
         throw new Error('Saved operation is not an export operation')
@@ -523,12 +538,13 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
       }
       if (current.status === 'COMPLETED') {
         stopPolling()
-        await loadBundle(current.id)
+        await loadBundle(current.id, generation)
       } else if (TERMINAL_EXPORT_STATUSES.has(current.status)) {
         stopPolling()
         step.value = 3
       }
     } catch (requestError) {
+      if (generation !== operationGeneration) return
       stopPolling()
       error.value = apiErrorInfo(
         requestError,
@@ -635,6 +651,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
   }
 
   function reset(): void {
+    operationGeneration += 1
     cancelSearchDebounces()
     projectRequestGeneration += 1
     repositoryRequestGeneration += 1
@@ -649,6 +666,17 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     error.value = null
     busy.value = null
     selected.value = {}
+  }
+
+  async function startNewExport(): Promise<void> {
+    // A terminal operation cannot be cancelled or resumed. Keep its persisted history
+    // intact and only clear this browser wizard's saved operation binding.
+    if (operation.value && !TERMINAL_EXPORT_STATUSES.has(operation.value.status)) return
+    reset()
+    // initialize() skips browsing when restoring a saved operation; load it now.
+    if (!selectedHarborProfileId.value && !(await loadHarborProfiles())) return
+    await loadConnection()
+    await loadProjects(1)
   }
 
   watch(projectSearch, scheduleProjectSearch, { flush: 'sync' })
@@ -691,6 +719,8 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     selectedUnknownSizeCount,
     canCancel,
     isTerminalFailure,
+    completedBundleUnavailable,
+    canStartNewExport,
     failedArtifacts,
     loadHarborProfiles,
     selectHarborProfile,
@@ -713,6 +743,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     resumeSavedOperation,
     initialize,
     reset,
+    startNewExport,
     clearError,
   }
 })
