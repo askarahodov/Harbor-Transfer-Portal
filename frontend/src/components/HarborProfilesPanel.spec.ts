@@ -377,7 +377,7 @@ describe('HarborProfilesPanel', () => {
         username: 'svc-b',
         verify_tls: true,
         registry_type: 'nexus',
-        nexus_repository_format: 'legacy',
+        nexus_repository_format: 'docker',
         nexus_helm_repository: null,
       },
     )
