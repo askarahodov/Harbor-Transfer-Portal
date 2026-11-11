@@ -27,6 +27,7 @@ from app.services.harbor_settings import (
     HarborSettingsError,
     HarborSettingsService,
 )
+from app.services.nexus_helm_http import NexusHelmHttpError, NexusHelmHttpService
 from app.services.registry_probe import probe_docker_v2
 
 router = APIRouter(prefix="/settings/harbor", tags=["settings"])
@@ -555,6 +556,30 @@ async def test_registry_profile_connection(
         raise HTTPException(status_code=404, detail="Profile not found")
 
     if profile.registry_type == "nexus":
+        if profile.nexus_format == "helm":
+            # Dedicated Helm HTTP repositories are checked by their bounded
+            # index.yaml read; they are never probed as Docker v2 / OCI.
+            try:
+                catalog = await NexusHelmHttpService(
+                    session, request.app.state.settings, profile.id
+                ).list_charts(profile.nexus_search_repository or "")
+            except HarborSettingsError as exc:
+                raise _profile_error(exc) from exc
+            except NexusHelmHttpError as exc:
+                return HarborConnectionTestResponse(
+                    ok=False, code=exc.code, message=exc.message, version=None
+                )
+            return HarborConnectionTestResponse(
+                ok=catalog.available,
+                code="helm_repository_connection_ok" if catalog.available else (
+                    catalog.code or "helm_index_unavailable"
+                ),
+                message=(
+                    "Helm HTTP index.yaml доступен"
+                    if catalog.available else catalog.message or "Helm repository недоступен"
+                ),
+                version=None,
+            )
         try:
             resolved = HarborSettingsService(session, request.app.state.settings).resolve_profile(
                 profile.id
