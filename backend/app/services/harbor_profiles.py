@@ -293,8 +293,13 @@ class HarborProfileService:
                 )
             next_registry_type = registry_type
 
+        # Converting a Helm profile to Harbor must not retain its Helm-only
+        # format when callers use the legacy registry_type-only update contract.
         next_nexus_format = (
-            nexus_format if nexus_format is not None else current.nexus_format
+            nexus_format
+            if nexus_format is not None
+            else "docker" if next_registry_type == "harbor"
+            else current.nexus_format
         )
         next_search_url = (
             self._search_url(nexus_search_url) if nexus_search_url_set
