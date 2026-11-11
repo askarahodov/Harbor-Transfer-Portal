@@ -510,4 +510,33 @@ describe('export wizard store', () => {
     expect(sessionStorage.getItem('htp.export.operation-id')).toBeNull()
   })
 
+
+  it('never calls Harbor endpoints for selected Nexus and supports Harbor recovery', async () => {
+    vi.mocked(exportsApi.listHarborProfiles).mockResolvedValue({
+      items: [
+        { id: 'default', name: 'Default Harbor', url: 'https://harbor.local', is_default: true, registry_type: 'harbor' },
+        { id: 'nexus', name: 'Nexus Docker', url: 'https://nexus.example.test', is_default: false, registry_type: 'nexus' },
+      ],
+    })
+    sessionStorage.setItem('htp.harbor.profile-id', 'nexus')
+    const previewSpy = vi.spyOn(exportsApi, 'previewExport')
+    const store = useExportWizardStore()
+
+    await store.initialize()
+
+    expect(store.isNexusSelected).toBe(true)
+    expect(store.connection).toBeNull()
+    expect(exportsApi.getHarborConnection).not.toHaveBeenCalled()
+    expect(exportsApi.listHarborProjects).not.toHaveBeenCalled()
+    expect(await store.preparePreview()).toBe(false)
+    expect(store.error?.code).toBe('nexus_requires_registry_workflow')
+    expect(previewSpy).not.toHaveBeenCalled()
+
+    await store.selectHarborProfile('default')
+    expect(store.isNexusSelected).toBe(false)
+    expect(store.error).toBeNull()
+    expect(exportsApi.getHarborConnection).toHaveBeenCalledWith('default')
+    expect(exportsApi.listHarborProjects).toHaveBeenCalledWith(1, 25, '', 'default')
+  })
+
 })
