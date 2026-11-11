@@ -53,7 +53,7 @@ async def inspect_exact_source(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "registry_profile_unavailable", "message": "Профиль недоступен"},
         ) from exc
-    if profile.registry_type != "nexus":
+    if profile.registry_type != "nexus" or profile.nexus_format != "docker":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
