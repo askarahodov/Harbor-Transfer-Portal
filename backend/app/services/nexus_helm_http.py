@@ -22,6 +22,8 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.services.harbor_profiles import HarborProfileService
+from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 from app.services.helm_oci_service import (
     HelmChartReference,
     HelmPackageMetadata,
@@ -31,8 +33,6 @@ from app.services.helm_oci_service import (
     HelmTargetInspection,
     HelmTargetState,
 )
-from app.services.harbor_profiles import HarborProfileService
-from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
 from app.services.nexus_discovery import NexusDiscoveryService
 
 _REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
