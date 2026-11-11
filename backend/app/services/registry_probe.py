@@ -279,21 +279,25 @@ async def probe_helm_http(
                     "helm_repository_format_mismatch",
                     "Выбранный Nexus repository не имеет формат Helm HTTP",
                 )
-            index = await client.get(
-                url + "/repository/" + quote(repository) + "/index.yaml", auth=auth,
-            )
-            if index.status_code in {401, 403}:
-                return _result("helm_repository_denied", "Нет прав на Helm index.yaml")
-            if index.status_code == 404:
-                return _result(
-                    "helm_index_missing",
-                    "Helm repository подтверждён, но index.yaml отсутствует",
-                    True,
-                )
-            if index.status_code != 200:
-                return _result("helm_index_unavailable", "Helm index.yaml недоступен")
-            if len(index.content) > 8 * 1024 * 1024:
-                return _result("helm_index_too_large", "Helm index.yaml слишком большой")
+            async with client.stream(
+                "GET", url + "/repository/" + quote(repository) + "/index.yaml",
+                auth=auth,
+            ) as index:
+                if index.status_code in {401, 403}:
+                    return _result("helm_repository_denied", "Нет прав на Helm index.yaml")
+                if index.status_code == 404:
+                    return _result(
+                        "helm_index_missing",
+                        "Helm repository подтверждён, но index.yaml отсутствует",
+                        True,
+                    )
+                if index.status_code != 200:
+                    return _result("helm_index_unavailable", "Helm index.yaml недоступен")
+                size = 0
+                async for chunk in index.aiter_bytes():
+                    size += len(chunk)
+                    if size > 8 * 1024 * 1024:
+                        return _result("helm_index_too_large", "Helm index.yaml слишком большой")
             return _result(
                 "helm_repository_ok",
                 "Helm HTTP repository и index.yaml доступны на чтение",
