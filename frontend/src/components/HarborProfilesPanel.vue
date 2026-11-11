@@ -220,6 +220,13 @@ async function saveProfile(): Promise<void> {
 }
 
 async function testProfile(profile: HarborProfile): Promise<void> {
+  // Nexus Docker connectors do not implement Harbor REST endpoints.
+  if (profile.registry_type === 'nexus') {
+    feedbackLocation.value = 'list'
+    message.value = ''
+    error.value = 'Для Nexus используйте проверку Docker Registry v2.'
+    return
+  }
   feedbackLocation.value = 'list'
   testingId.value = profile.id
   error.value = ''
@@ -375,6 +382,7 @@ onMounted(() => void load())
           <div>
             <div class="profile-title">
               <strong>{{ profile.name }}</strong>
+              <span v-if="profile.registry_type === 'nexus'" class="inline-active">Nexus · Docker v2</span>
               <span v-if="profile.is_active" class="inline-active">legacy fallback</span>
               <span
                 class="state-badge"
@@ -399,6 +407,7 @@ onMounted(() => void load())
           </div>
           <div class="row-actions">
             <button
+              v-if="profile.registry_type !== 'nexus'"
               type="button"
               class="secondary"
               :disabled="testingId === profile.id || !profile.enabled"
@@ -414,7 +423,7 @@ onMounted(() => void load())
               @click="testRegistry(profile)"
             >
               <span v-if="testingRegistryId === profile.id" class="spinner-inline"></span>
-              {{ testingRegistryId === profile.id ? 'Проверка реестра…' : 'Проверить реестр' }}
+              {{ testingRegistryId === profile.id ? 'Проверка реестра…' : profile.registry_type === 'nexus' ? 'Проверить Docker Registry v2' : 'Проверить реестр' }}
             </button>
             <button
               v-if="!profile.is_default"
