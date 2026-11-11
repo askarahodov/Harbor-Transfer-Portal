@@ -221,3 +221,31 @@ async def test_generic_connect_error_remains_unavailable(monkeypatch):
     result = await probe(profile())
     assert not result.ok
     assert result.code == "registry_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_explicit_https_tls_verify_false_is_honored_without_changing_profile(monkeypatch):
+    observed = []
+    original = httpx.AsyncClient
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, headers={"Docker-Distribution-API-Version": "registry/2.0"}
+        )
+    )
+
+    def factory(**kwargs):
+        observed.append(kwargs["verify"])
+        return original(transport=transport, **kwargs)
+
+    monkeypatch.setattr("app.services.registry_probe.httpx.AsyncClient", factory)
+    configured = EffectiveHarborSettings(
+        url="https://nexus.example.test",
+        username="operator",
+        password="existing-credential",
+        verify_tls=False,
+        ca_file=None,
+    )
+    result = await probe_docker_v2(configured)
+    assert result.ok
+    assert observed == [False]
+    assert configured.verify_tls is False
