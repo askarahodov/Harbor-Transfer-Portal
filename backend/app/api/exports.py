@@ -59,6 +59,7 @@ def _export_error(exc: ExportOrchestrationError) -> HTTPException:
         "export_artifact_kind_changed": status.HTTP_409_CONFLICT,
         "export_not_ready": status.HTTP_409_CONFLICT,
         "export_source_not_found": status.HTTP_404_NOT_FOUND,
+        "nexus_not_found": status.HTTP_404_NOT_FOUND,
         "export_operation_not_found": status.HTTP_404_NOT_FOUND,
         "export_artifact_unsupported": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "nexus_requires_registry_workflow": status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -229,13 +230,14 @@ def preview_export(
         artifacts=[
             ExportResolvedArtifactResponse(
                 kind=item.kind,
-                project=item.project,
-                repository=item.repository,
+                project=selected.project,
+                repository=selected.repository,
                 reference=item.reference,
                 source_digest=item.digest,
                 size_bytes=item.size_bytes,
+                media_type=item.media_type,
             )
-            for item in resolved
+            for selected, item in zip(payload.artifacts, resolved, strict=True)
         ],
         estimated_payload_bytes=sum(item.size_bytes or 0 for item in resolved),
     )

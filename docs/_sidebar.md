@@ -21,9 +21,17 @@
   - [Безопасность](/docs/security.md)
   - [Transfer policies](/docs/transfer-policies.md)
 
-- **Развёртывание и сопровождение**
-  - [Локальный запуск Windows/Linux](/docs/development.md)
-  - [Docker Compose](/deploy/README.md)
+- **Эксплуатация и безопасность**
+  - [Security](/docs/security.md)
+  - [Troubleshooting](/docs/troubleshooting.md)
+  - [Structured logging](/docs/structured-logging.md)
+  - [Offline lifecycle](/docs/offline-lifecycle.md)
+  - [Development](/docs/development.md)
+  - [Testing и CI](/docs/testing.md)
+  - [Release notes v1.0.0](/docs/release-notes-v1.0.0.md)
+  - [Nexus release candidate — статус и приёмка](/docs/nexus-release-readiness-2026-11-03.md)
+  - [Региональный runbook Nexus 3.69 OSS](/docs/nexus-regional-acceptance-runbook.md)
+  - [Docker Compose deployment](/deploy/README.md)
   - [Offline install kit](/deploy/offline/README.md)
   - [Backup и upgrade](/docs/offline-lifecycle.md)
   - [Тестирование и CI](/docs/testing.md)

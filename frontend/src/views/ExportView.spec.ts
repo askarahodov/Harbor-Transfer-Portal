@@ -212,6 +212,69 @@ describe('SOURCE export wizard view', () => {
     expect(button(wrapper, 'Скачать `.sha256`').attributes('type')).toBe('button')
   })
 
+  it('uses native ticket download from a completed Nexus SOURCE operation', async () => {
+    mockHappyPath()
+    vi.mocked(exportsApi.listHarborProfiles).mockResolvedValue({
+      items: [{
+        id: 'nexus-profile', name: 'Nexus hosted',
+        url: 'https://nexus.example.test',
+        registry_type: 'nexus', is_default: true,
+      }],
+    })
+    const inventory = vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: false, items: [], message: 'REST inventory forbidden',
+    })
+    vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: false, items: [], message: 'Docker catalog forbidden', truncated: false,
+    })
+    vi.spyOn(exportsApi, 'listNexusTags').mockResolvedValue({
+      available: false, items: [], message: 'Docker tags forbidden', truncated: false,
+    })
+    vi.spyOn(exportsApi, 'inspectExactNexusImage').mockResolvedValue({
+      repository: 'team/app', reference: 'v1', digest: DIGEST, media_type: null,
+    })
+    vi.mocked(exportsApi.previewExport).mockResolvedValue({
+      artifacts: [{
+        kind: 'container-image', project: 'team',
+        repository: 'app', reference: 'v1',
+        source_digest: DIGEST, size_bytes: null,
+      }],
+      estimated_payload_bytes: null,
+    })
+    const mint = vi.spyOn(exportsApi, 'createExportDownloadTicket').mockResolvedValue({
+      download_url: '/api/exports/42/download', expires_in_seconds: 120,
+    })
+    const navigate = vi.spyOn(exportsApi, 'navigateToExportDownload').mockImplementation(() => {})
+    const harborProjects = vi.spyOn(exportsApi, 'listHarborProjects')
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+    expect(inventory).toHaveBeenCalledWith('nexus-profile')
+    await wrapper.get('input[placeholder="team/application"]').setValue('team/app')
+    await wrapper.get('input[placeholder="1.0.0"]').setValue('v1')
+    await wrapper.get('form.nexus-exact-form').trigger('submit')
+    await flushPromises()
+    await button(wrapper, 'Добавить образ в выбор').trigger('click')
+    await button(wrapper, 'Проверить выбранное').trigger('click')
+    await flushPromises()
+    await button(wrapper, 'Запустить экспорт').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Bundle готов к физическому переносу')
+    await button(wrapper, 'Скачать bundle').trigger('click')
+    await flushPromises()
+    expect(mint).toHaveBeenCalledExactlyOnceWith(42)
+    expect(navigate).toHaveBeenCalledExactlyOnceWith({
+      download_url: '/api/exports/42/download', expires_in_seconds: 120,
+    }, 42)
+    expect(harborProjects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('lets an admin generate missing signing identity and continue export', async () => {
     mockHappyPath()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -349,6 +412,371 @@ describe('SOURCE export wizard view', () => {
     wrapper.unmount()
   })
 
+  it('refreshes Nexus Search configuration after Settings edit in the same browser session', async () => {
+    const nexus = {
+      id: 'nexus-profile', name: 'Nexus proxy', url: 'https://docker.example.test',
+      registry_type: 'nexus' as const, is_default: true,
+    }
+    const list = vi.spyOn(exportsApi, 'listHarborProfiles')
+      .mockResolvedValueOnce({ items: [nexus] })
+      .mockResolvedValueOnce({
+        items: [{
+          ...nexus,
+          nexus_search_url: 'https://nexus-ui.example.test/',
+          nexus_search_repository: 'docker-proxy',
+        }],
+      })
+    vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: false, items: [], message: 'No inventory permission',
+    })
+    vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: true, items: [], message: null, truncated: false, next_cursor: null,
+    })
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const mountView = () => mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+
+    const first = mountView()
+    await flushPromises()
+    expect(first.get('.nexus-browser__heading').text()).toContain('текущий Docker connector')
+    expect(first.text()).toContain('Для более полного поиска укажите Nexus UI HTTPS URL')
+    first.unmount()
+
+    // The profile is edited in Settings, but Pinia is retained during SPA navigation.
+    const second = mountView()
+    await flushPromises()
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(second.get('.nexus-browser__heading').text()).toContain('docker-proxy')
+    expect(second.text()).not.toContain('Для более полного поиска укажите Nexus UI HTTPS URL')
+    expect(second.get('#export-harbor-profile').element).toHaveProperty('value', 'nexus-profile')
+    second.unmount()
+  })
+
+  it('loads later Nexus catalog and tag pages without discarding earlier results', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [{
+        id: 'nexus-profile', name: 'Nexus proxy',
+        url: 'https://docker.example.test', registry_type: 'nexus', is_default: true,
+      }],
+    })
+    vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: true, items: [], message: null,
+    })
+    const repositories = vi.spyOn(exportsApi, 'listNexusRepositories').mockImplementation(
+      async (_profile, _search, cursor) => cursor
+        ? { available: true, items: ['bitnami/redis'], message: null,
+            truncated: false, next_cursor: null }
+        : { available: true, items: ['alpine'], message: null,
+            truncated: true, next_cursor: 'page-2' },
+    )
+    const tags = vi.spyOn(exportsApi, 'listNexusTags').mockImplementation(
+      async (_profile, _repo, _search, cursor) => cursor
+        ? { available: true, items: ['3.20'], message: null,
+            truncated: false, next_cursor: null }
+        : { available: true, items: ['3.19'], message: null,
+            truncated: true, next_cursor: 'tag-page-2' },
+    )
+    const harborProjects = vi.spyOn(exportsApi, 'listHarborProjects')
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('alpine')
+    await button(wrapper, 'Показать ещё репозитории').trigger('click')
+    await flushPromises()
+    expect(repositories).toHaveBeenCalledWith('nexus-profile', '', 'page-2')
+    expect(wrapper.text()).toContain('bitnami/redis')
+    expect(wrapper.text()).toContain('alpine')
+    await wrapper.get('input[placeholder="team/application"]').setValue('alpine')
+    await button(wrapper, 'Найти теги').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('3.19')
+    await button(wrapper, 'Показать ещё теги').trigger('click')
+    await flushPromises()
+    expect(tags).toHaveBeenCalledWith('nexus-profile', 'alpine', '', 'tag-page-2')
+    expect(wrapper.text()).toContain('3.19')
+    expect(wrapper.text()).toContain('3.20')
+    expect(harborProjects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('routes Nexus exact-reference inspection without calling Harbor browse APIs', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [
+        {
+          id: 'nexus-profile',
+          name: 'Regional Nexus',
+          url: 'https://nexus.example.test',
+          registry_type: 'nexus',
+          is_default: false,
+        },
+      ],
+    })
+    const helmCharts = vi.spyOn(exportsApi, 'listNexusHelmCharts').mockResolvedValue({
+      available: true, code: null, message: null,
+      items: [{ name: 'chart-demo', version: '1.0.0', digest: 'a'.repeat(64) }],
+    })
+    const inventory = vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: true,
+      message: null,
+      items: [
+        { name: 'docker-source', format: 'docker', kind: 'hosted' },
+        { name: 'docker-proxy', format: 'docker', kind: 'proxy' },
+        { name: 'helm-team', format: 'helm', kind: 'hosted' },
+      ],
+    })
+    const listNexusRepositories = vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: true, items: ['0702/centos7', 'jaegertracing/jaeger'],
+      message: null, truncated: false,
+    })
+    const listNexusTags = vi.spyOn(exportsApi, 'listNexusTags').mockResolvedValue({
+      available: true, items: ['7.9.2009', 'latest'],
+      message: null, truncated: false,
+    })
+    const connection = vi.spyOn(exportsApi, 'getHarborConnection')
+    const projects = vi.spyOn(exportsApi, 'listHarborProjects')
+    const repositories = vi.spyOn(exportsApi, 'listHarborRepositories')
+    const artifacts = vi.spyOn(exportsApi, 'listHarborArtifacts')
+    const inspect = vi.spyOn(exportsApi, 'inspectExactNexusImage').mockResolvedValue({
+      repository: '0702/centos7',
+      reference: '7.9.2009',
+      digest: DIGEST,
+    })
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('#export-harbor-profile').text()).toContain('Nexus · Docker v2')
+    expect(inventory).toHaveBeenCalledWith('nexus-profile')
+    expect(wrapper.get('.nexus-inventory').text()).toContain('docker-source')
+    expect(wrapper.get('.nexus-inventory').text()).toContain('docker-proxy')
+    expect(wrapper.get('.nexus-inventory').text()).toContain('helm-team')
+    expect(wrapper.get('.nexus-inventory').text()).toContain('Helm HTTP (.tgz)')
+    await button(wrapper, 'Показать charts').trigger('click')
+    await flushPromises()
+    expect(helmCharts).toHaveBeenCalledWith('nexus-profile', 'helm-team')
+    expect(wrapper.text()).toContain('chart-demo')
+    await button(wrapper, 'Добавить Helm chart').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 выбрано')
+    expect(wrapper.text()).toContain('TARGET требует отдельной проверки прав')
+    expect(wrapper.text()).toContain('Helm OCI не используются.')
+    expect(wrapper.find('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(false)
+    expect(connection).not.toHaveBeenCalled()
+    expect(projects).not.toHaveBeenCalled()
+    expect(repositories).not.toHaveBeenCalled()
+    expect(artifacts).not.toHaveBeenCalled()
+
+    await button(wrapper, 'Найти репозитории').trigger('click')
+    await flushPromises()
+    expect(listNexusRepositories).toHaveBeenCalledWith('nexus-profile', '')
+    expect(wrapper.text()).toContain('jaegertracing/jaeger')
+    await wrapper.get('input[placeholder="team/application"]').setValue('0702/centos7')
+    await button(wrapper, 'Найти теги').trigger('click')
+    await flushPromises()
+    expect(listNexusTags).toHaveBeenCalledWith('nexus-profile', '0702/centos7', '')
+    expect(wrapper.text()).toContain('latest')
+    await wrapper.get('input[placeholder="1.0.0"]').setValue('7.9.2009')
+    await wrapper.get('form.nexus-exact-form').trigger('submit')
+    await flushPromises()
+    expect(inspect).toHaveBeenCalledWith('nexus-profile', '0702/centos7', '7.9.2009')
+    await button(wrapper, 'Добавить образ в выбор').trigger('click')
+    expect(wrapper.text()).toContain('2 выбрано')
+    expect(projects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('browses a named Helm repository when inventory is forbidden; denied peer does not block it', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [{
+        id: 'nexus-profile',
+        name: 'Regional Nexus',
+        url: 'https://nexus.example.test',
+        registry_type: 'nexus',
+        is_default: false,
+      }],
+    })
+    vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: false, items: [], message: 'Нет прав на список репозиториев Nexus',
+    })
+    vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: false, items: [], message: 'Каталог Docker закрыт', truncated: false,
+    })
+    const helmCharts = vi.spyOn(exportsApi, 'listNexusHelmCharts')
+      .mockResolvedValueOnce({
+        available: false, items: [], code: 'helm_repository_denied',
+        message: 'Нет прав на чтение Helm repository',
+      })
+      .mockResolvedValueOnce({
+        available: true, code: null, message: null,
+        items: [{ name: 'team-chart', version: '2.0.0', digest: 'b'.repeat(64) }],
+      })
+    const harborProjects = vi.spyOn(exportsApi, 'listHarborProjects')
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Нет прав на список репозиториев Nexus')
+
+    const input = wrapper.get('#nexus-helm-repository')
+    const open = button(wrapper, 'Проверить Helm-репозиторий')
+    expect(open.attributes('disabled')).toBeDefined()
+    await input.setValue('../unsafe')
+    expect(open.attributes('disabled')).toBeDefined()
+    expect(helmCharts).not.toHaveBeenCalled()
+
+    await input.setValue('helm-private')
+    await wrapper.get('form.nexus-helm-manual').trigger('submit')
+    await flushPromises()
+    expect(helmCharts).toHaveBeenNthCalledWith(1, 'nexus-profile', 'helm-private')
+    expect(wrapper.text()).toContain('Нет прав на чтение Helm repository')
+    expect(wrapper.findAll('.nexus-helm-catalog li')).toHaveLength(0)
+
+    await input.setValue('helm-team')
+    await wrapper.get('form.nexus-helm-manual').trigger('submit')
+    await flushPromises()
+    expect(helmCharts).toHaveBeenNthCalledWith(2, 'nexus-profile', 'helm-team')
+    expect(wrapper.text()).not.toContain('Нет прав на чтение Helm repository')
+    expect(wrapper.text()).toContain('team-chart')
+    await button(wrapper, 'Добавить Helm chart').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 выбрано')
+    expect(harborProjects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('switches only to the configured Docker connector for each Nexus repository', async () => {
+    const profiles = [
+      {
+        id: 'docker-a', name: 'Docker hosted', url: 'https://hosted.example.test',
+        registry_type: 'nexus' as const, is_default: false,
+        nexus_search_url: 'https://nexus-ui.example.test',
+        nexus_search_repository: 'docker-hosted',
+      },
+      {
+        id: 'docker-b', name: 'Docker group', url: 'https://group.example.test',
+        registry_type: 'nexus' as const, is_default: false,
+        nexus_search_url: 'https://nexus-ui.example.test',
+        nexus_search_repository: 'docker-group',
+      },
+      {
+        id: 'unrelated', name: 'Unrelated Nexus', url: 'https://other.example.test',
+        registry_type: 'nexus' as const, is_default: false,
+        nexus_search_url: 'https://other-ui.example.test',
+        nexus_search_repository: 'docker-unmapped',
+      },
+    ]
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({ items: profiles })
+    const inventory = vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: true, message: null, items: [
+        { name: 'docker-hosted', format: 'docker', kind: 'hosted' },
+        { name: 'docker-group', format: 'docker', kind: 'group' },
+        { name: 'docker-unmapped', format: 'docker', kind: 'proxy' },
+        { name: 'helm-team', format: 'helm', kind: 'hosted' },
+      ],
+    })
+    vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: false, items: [], message: '403', truncated: false,
+    })
+    const inspect = vi.spyOn(exportsApi, 'inspectExactNexusImage').mockResolvedValue({
+      repository: 'team/app', reference: 'v1', digest: DIGEST,
+    })
+    const harborProjects = vi.spyOn(exportsApi, 'listHarborProjects')
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.get('#export-harbor-profile').element).toHaveProperty('value', 'docker-a')
+    expect(wrapper.text()).toContain('Для этого Docker repository отдельный connector-профиль ещё не настроен')
+    const switchButton = button(wrapper, 'Выбрать Docker connector')
+    await switchButton.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('#export-harbor-profile').element).toHaveProperty('value', 'docker-b')
+    expect(inventory).toHaveBeenCalledWith('docker-b')
+    expect(wrapper.text()).toContain('Docker connector выбран')
+    await wrapper.get('input[placeholder="team/application"]').setValue('team/app')
+    await wrapper.get('input[placeholder="1.0.0"]').setValue('v1')
+    await wrapper.get('form.nexus-exact-form').trigger('submit')
+    await flushPromises()
+    expect(inspect).toHaveBeenCalledWith('docker-b', 'team/app', 'v1')
+    await button(wrapper, 'Добавить образ в выбор').trigger('click')
+    expect(wrapper.text()).toContain('1 выбрано')
+    expect(button(wrapper, 'Выбрать Docker connector').attributes('disabled')).toBeDefined()
+    expect(harborProjects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('does not show a stale inspected digest after Nexus repository or tag changes', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [{
+        id: 'nexus-profile', name: 'Nexus', url: 'https://nexus.example.test',
+        registry_type: 'nexus', is_default: false,
+      }],
+    })
+    vi.spyOn(exportsApi, 'getNexusInventory').mockResolvedValue({
+      available: false, items: [], message: 'Нет доступа к inventory',
+    })
+    vi.spyOn(exportsApi, 'listNexusRepositories').mockResolvedValue({
+      available: false, items: [], message: 'Каталог закрыт', truncated: false,
+    })
+    vi.spyOn(exportsApi, 'listNexusTags').mockResolvedValue({
+      available: false, items: [], message: 'Теги закрыты', truncated: false,
+    })
+    let resolveInspection: ((value: exportsApi.ExactNexusInspection) => void) | undefined
+    const inspect = vi.spyOn(exportsApi, 'inspectExactNexusImage').mockImplementation(
+      () => new Promise((resolve) => { resolveInspection = resolve }),
+    )
+    const harborProjects = vi.spyOn(exportsApi, 'listHarborProjects')
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('input[placeholder="team/application"]').setValue('team/app')
+    await wrapper.get('input[placeholder="1.0.0"]').setValue('v1')
+    await wrapper.get('form.nexus-exact-form').trigger('submit')
+    expect(inspect).toHaveBeenCalledWith('nexus-profile', 'team/app', 'v1')
+    expect(resolveInspection).toBeDefined()
+
+    // The operator changes the tag while the previous async digest probe is in flight.
+    await wrapper.get('input[placeholder="1.0.0"]').setValue('v2')
+    resolveInspection?.({
+      repository: 'team/app', reference: 'v1', digest: DIGEST, media_type: null,
+    })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Найден team/app:v1')
+    expect(wrapper.findAll('button').some((item) =>
+      item.text().includes('Добавить образ в выбор'),
+    )).toBe(false)
+    expect(harborProjects).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('renders an actionable TARGET fallback and does not browse Harbor', async () => {
     const connection = vi.spyOn(exportsApi, 'getHarborConnection')
     const runtime = useRuntimeStore(pinia)
@@ -365,6 +793,55 @@ describe('SOURCE export wizard view', () => {
     expect(connection).not.toHaveBeenCalled()
     expect(wrapper.find('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(false)
   })
+
+  it('selects Helm charts only from the bound Nexus Helm HTTP profile', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [{
+        id: 'nexus-helm',
+        name: 'Nexus Helm Team',
+        url: 'https://nexus-ui.example.test',
+        registry_type: 'nexus',
+        nexus_format: 'helm',
+        nexus_search_repository: 'helm-team',
+        is_default: false,
+      }],
+    })
+    const inventory = vi.spyOn(exportsApi, 'getNexusInventory')
+    const docker = vi.spyOn(exportsApi, 'inspectExactNexusImage')
+    const projects = vi.spyOn(exportsApi, 'listHarborProjects')
+    const helm = vi.spyOn(exportsApi, 'listNexusHelmCharts').mockResolvedValue({
+      available: true, code: null, message: null,
+      items: [{ name: 'team-chart', version: '2.0.0', digest: 'a'.repeat(64) }],
+    })
+    useRuntimeStore(pinia).setContour('SOURCE')
+    const wrapper = mount(ExportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Nexus · Helm HTTP repository')
+    expect(wrapper.text()).toContain('helm-team')
+    expect(wrapper.text()).not.toContain('Проверить Docker image')
+    expect(wrapper.find('form.nexus-exact-form').exists()).toBe(false)
+    expect(wrapper.find('.nexus-inventory').exists()).toBe(false)
+    expect(inventory).not.toHaveBeenCalled()
+    expect(projects).not.toHaveBeenCalled()
+    expect(docker).not.toHaveBeenCalled()
+
+    await button(wrapper, 'Показать Helm charts').trigger('click')
+    await flushPromises()
+    expect(helm).toHaveBeenCalledWith('nexus-helm', 'helm-team')
+    expect(wrapper.text()).toContain('team-chart')
+    await button(wrapper, 'Добавить Helm chart').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 выбрано')
+    wrapper.unmount()
+  })
+
+
 
   it('explains missing completed bundle and returns to working browse without cancelling history', async () => {
     mockHappyPath()
@@ -404,38 +881,6 @@ describe('SOURCE export wizard view', () => {
     expect(wrapper.get('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(true)
     expect(exportsApi.listHarborProjects).toHaveBeenCalledWith(1, 25, '', 'default')
     expect(sessionStorage.getItem('htp.export.operation-id')).toBeNull()
-    wrapper.unmount()
-  })
-
-
-  it('shows an explicit Nexus staging boundary instead of empty Harbor project selector', async () => {
-    mockHappyPath()
-    vi.mocked(exportsApi.listHarborProfiles).mockResolvedValue({
-      items: [
-        { id: 'default', name: 'Default Harbor', url: 'https://harbor.local', is_default: true },
-        { id: 'nexus', name: 'Nexus Docker', url: 'https://nexus.example.test', is_default: false, registry_type: 'nexus' },
-      ],
-    })
-    const runtime = useRuntimeStore(pinia)
-    runtime.setContour('SOURCE')
-    const wrapper = mount(ExportView, {
-      global: {
-        plugins: [pinia],
-        stubs: { RouterLink: { template: '<a><slot /></a>' } },
-      },
-    })
-    await flushPromises()
-
-    vi.mocked(exportsApi.getHarborConnection).mockClear()
-    vi.mocked(exportsApi.listHarborProjects).mockClear()
-    await wrapper.get('#export-harbor-profile').setValue('nexus')
-    await flushPromises()
-    expect(wrapper.text()).toContain('Nexus выбран, но Harbor export wizard не поддерживает Nexus')
-    expect(wrapper.text()).toContain('Docker Registry v2')
-    expect(wrapper.text()).toContain('NO-GO')
-    expect(wrapper.find('input[role="combobox"][aria-label="Проект Harbor"]').exists()).toBe(false)
-    expect(exportsApi.getHarborConnection).not.toHaveBeenCalled()
-    expect(exportsApi.listHarborProjects).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 

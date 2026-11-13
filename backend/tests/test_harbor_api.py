@@ -158,14 +158,16 @@ def _client(
     alembic_config.set_main_option("sqlalchemy.url", database_url)
     command.upgrade(alembic_config, "head")
 
-    settings_kwargs: dict[str, str] = {
+    settings_kwargs: dict[str, str | None] = {
         "database_url": database_url,
         "jwt_secret": JWT_SECRET,
     }
     if configured:
         settings_kwargs["harbor_url"] = "https://harbor.local"
 
-    app = create_app(Settings(**settings_kwargs))
+    if not configured:
+        settings_kwargs["harbor_url"] = None
+    app = create_app(Settings(_env_file=None, **settings_kwargs))
     with app.state.session_factory() as session:
         UserRepository(session).create(
             username="viewer",
@@ -222,12 +224,52 @@ def test_authenticated_selector_exposes_only_safe_enabled_profile_metadata(
                 "url": "https://harbor-a.local",
                 "registry_type": "harbor",
                 "is_default": False,
+                "nexus_format": "docker",
+                "nexus_search_url": None,
+                "nexus_search_repository": None,
             }
         ]
     }
     assert "username" not in response.text
     assert "credential" not in response.text
     assert "verify_tls" not in response.text
+
+
+def test_selectable_nexus_profiles_expose_distinct_connector_bindings_without_secrets(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        HarborProfileService,
+        "selectable_profiles",
+        lambda _self: [
+            HarborProfile(
+                id="nexus-a", name="Nexus docker-hosted",
+                url="https://docker-hosted.example.test",
+                username="hidden-service-identity", verify_tls=True,
+                enabled=True, registry_type="nexus",
+                nexus_search_url="https://nexus-ui.example.test",
+                nexus_search_repository="docker-hosted",
+            ),
+            HarborProfile(
+                id="nexus-b", name="Nexus docker-group",
+                url="https://docker-group.example.test",
+                username="another-secret-account", verify_tls=True,
+                enabled=True, registry_type="nexus",
+                nexus_search_url="https://nexus-ui.example.test",
+                nexus_search_repository="docker-group",
+            ),
+        ],
+    )
+    client, token = _client(tmp_path, configured=True)
+    response = client.get("/api/harbor/profiles", headers=_auth(token))
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [(p["id"], p["nexus_search_repository"]) for p in items] == [
+        ("nexus-a", "docker-hosted"), ("nexus-b", "docker-group"),
+    ]
+    assert all(p["nexus_search_url"] == "https://nexus-ui.example.test" for p in items)
+    assert "hidden-service-identity" not in response.text
+    assert "another-secret-account" not in response.text
 
 
 def test_browse_passes_explicit_profile_id_to_harbor_client(
@@ -242,6 +284,13 @@ def test_browse_passes_explicit_profile_id_to_harbor_client(
         return harbor
 
     monkeypatch.setattr(HarborProfileService, "build_client", build_client)
+    monkeypatch.setattr(
+        HarborProfileService, "get",
+        lambda _self, profile_id: HarborProfile(
+            id=profile_id, name="Harbor B", url="https://harbor-b.local",
+            username=None, verify_tls=True, enabled=True,
+        ),
+    )
     client, token = _client(tmp_path, configured=True)
     profile_id = "b" * 32
     original_get = HarborProfileService.get

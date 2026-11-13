@@ -75,11 +75,15 @@ export type HarborConnection = {
 }
 
 export type HarborProfileOption = {
+  registry_type?: 'harbor' | 'nexus'
+  nexus_format?: 'docker' | 'helm'
   id: string
   name: string
   url: string
   registry_type?: 'harbor' | 'nexus'
   is_default: boolean
+  nexus_search_url?: string | null
+  nexus_search_repository?: string | null
 }
 
 export type HarborProfileOptions = {
@@ -88,7 +92,7 @@ export type HarborProfileOptions = {
 
 export type ExportSelection = {
   kind: Exclude<ArtifactKind, 'unknown-oci'>
-  project: string
+  project: string | null
   repository: string
   reference: string
   digest: string
@@ -102,11 +106,12 @@ export type ExportSelectionRequest = {
 
 export type ExportResolvedArtifact = {
   kind: Exclude<ArtifactKind, 'unknown-oci'>
-  project: string
+  project: string | null
   repository: string
   reference: string
   source_digest: string
   size_bytes: number | null
+  media_type?: string | null
 }
 
 export type ExportPreview = {
@@ -286,6 +291,93 @@ export async function listHarborArtifacts(
   return response.data
 }
 
+export type NexusRepository = {
+  name: string
+  format: 'docker' | 'helm'
+  kind: 'hosted' | 'proxy' | 'group'
+}
+
+export type NexusInventory = {
+  available: boolean
+  items: NexusRepository[]
+  message: string | null
+}
+
+export async function getNexusInventory(profileId: string): Promise<NexusInventory> {
+  const response = await apiClient.get<NexusInventory>('/registry/source/nexus/inventory', {
+    params: { profile_id: profileId },
+  })
+  return response.data
+}
+
+export type NexusHelmChartVersion = {
+  name: string
+  version: string
+  digest: string
+}
+
+export type NexusHelmCatalog = {
+  available: boolean
+  items: NexusHelmChartVersion[]
+  code: string | null
+  message: string | null
+}
+
+export async function listNexusHelmCharts(
+  profileId: string, repository: string,
+): Promise<NexusHelmCatalog> {
+  const response = await apiClient.get<NexusHelmCatalog>('/registry/source/nexus/helm/charts', {
+    params: { profile_id: profileId, repository },
+  })
+  return response.data
+}
+
+export type NexusSuggestions = {
+  available: boolean
+  items: string[]
+  message: string | null
+  truncated: boolean
+  next_cursor?: string | null
+}
+
+export async function listNexusRepositories(
+  profileId: string, search = '', cursor?: string,
+): Promise<NexusSuggestions> {
+  const response = await apiClient.get<NexusSuggestions>('/registry/source/nexus/repositories', {
+    params: { profile_id: profileId, search, paged: true, ...(cursor ? { cursor } : {}) },
+  })
+  return response.data
+}
+
+export async function listNexusTags(
+  profileId: string, repository: string, search = '', cursor?: string,
+): Promise<NexusSuggestions> {
+  const response = await apiClient.get<NexusSuggestions>('/registry/source/nexus/tags', {
+    params: { profile_id: profileId, repository, search, paged: true, ...(cursor ? { cursor } : {}) },
+  })
+  return response.data
+}
+
+export type ExactNexusInspection = {
+  repository: string
+  reference: string
+  digest: string
+  media_type: string | null
+}
+
+export async function inspectExactNexusImage(
+  profileId: string,
+  repository: string,
+  reference: string,
+): Promise<ExactNexusInspection> {
+  const response = await apiClient.post<ExactNexusInspection>('/registry/source/inspect', {
+    profile_id: profileId,
+    repository,
+    reference,
+  })
+  return response.data
+}
+
 export async function getHarborConnection(profileId?: string): Promise<HarborConnection> {
   const response = await apiClient.get<HarborConnection>('/harbor/connection', {
     params: profileId ? { profile_id: profileId } : undefined,
@@ -341,6 +433,23 @@ export async function createExportDownloadTicket(
     `/exports/${operationId}/download-ticket`,
   )
   return response.data
+}
+
+/**
+ * A download ticket authorizes exactly one same-origin operation endpoint.
+ * Never follow a URL supplied by a compromised/misconfigured API response.
+ * The browser handles the large archive as a native streamed download.
+ */
+export function navigateToExportDownload(
+  ticket: ExportDownloadTicket,
+  operationId: number,
+): void {
+  const expected = `/api/exports/${operationId}/download`
+  if (!Number.isSafeInteger(operationId) || operationId <= 0 ||
+      ticket.download_url !== expected) {
+    throw new Error('Некорректный URL скачивания bundle.')
+  }
+  window.location.assign(expected)
 }
 
 export function apiErrorInfo(error: unknown, fallback: string): ApiErrorInfo {

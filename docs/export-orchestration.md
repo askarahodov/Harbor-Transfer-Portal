@@ -88,6 +88,21 @@ Endpoint нужен для безопасного native browser download бол
 
 Ticket не является общей web-session cookie и не должен давать доступ к другому export operation.
 
+Для SOURCE Harbor и Nexus frontend принимает от ticket API только точный
+относительный `/api/exports/{operation_id}/download` активной операции.
+Внешние URL, query/fragment, иной operation ID и некорректный идентификатор
+отвергаются до вызова browser navigation. Ответ, пришедший после смены
+операции/сброса мастера, игнорируется. Большой файл обрабатывает сам браузер,
+без загрузки всего archive через Axios. Тест `ExportView.spec.ts`
+проходит Nexus exact `repository:tag` → preview → export completion →
+клик `Скачать bundle` → ticket → вызов навигации, а
+`exports.spec.ts` проверяет негативные URL. Это UI automation в
+Vitest/jsdom, **не** ручной тест установленного браузера. Перед
+корпоративным GO оператор отдельно фиксирует фактический browser download,
+имя/размер, sidecar, SHA-256 и signed handoff на региональном стенде.
+
+
+
 ### Download
 
 `GET /api/exports/{operation_id}/download`
@@ -193,8 +208,11 @@ Packaging выполняется в worker thread через `asyncio.to_thread`
 - `export_artifact_kind_changed` — Harbor классифицирует artifact иначе;
 - `export_artifact_unsupported` — неподдерживаемый type;
 - `export_aborted` — artifact остановлен fail-fast policy;
-- `export_artifact_internal_error` — неожиданный сбой обработки конкретного артефакта: он получает `FAILED`, остальные — `export_aborted`. Публичный статус не содержит текст исключения/секреты; traceback в backend logs связывается с `operation_id` и `artifact_id`;
-
+- `export_artifact_internal_error` — неожиданное исключение во время фактической
+  выгрузки конкретного Helm/Docker артефакта: именно текущий artifact получает
+  `FAILED`, остальные `export_aborted`. В публичный status не передаются
+  строка исключения или пути/credentials; traceback пишется только в backend
+  log с `operation_id` и `artifact_id` для расследования;
 - `export_not_ready` — bundle запрошен до `COMPLETED`;
 - `export_bundle_expired` — completed publication удалена штатной retention policy; API отвечает `410 Gone`;
 - `export_bundle_missing` — completed delivery неожиданно отсутствует на диске до истечения retention;
@@ -258,3 +276,27 @@ Regression suite покрывает:
 - ticket mint authorization;
 - `Content-Length`, SHA-256 и no-store metadata;
 - frontend selection/preview/progress/reload/ready flow.
+
+
+## Nexus SOURCE: Docker v2 и обычный Helm HTTP
+
+Интеграционный кандидат в [Draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451)
+поддерживает Nexus Docker v2 с раздельным connector URL, строгим
+`repository:tag`, повторной проверкой pinned digest, подписанным Offline
+Bundle и browser download. Для Nexus Helm поддерживаются **обычные HTTP
+`index.yaml` и `.tgz`**, включая read-only SOURCE и hosted-only TARGET
+Components upload; **Nexus Helm OCI не поддерживается**. Несколько
+репозиториев, service identity и ACL нужно проверять по отдельности.
+
+При неожиданной ошибке materialization оператор сверяет `operation_id`,
+`artifact_id` и серверный traceback; публичный
+`export_artifact_internal_error` лишь локализует сбой, но сам по себе
+не объясняет первопричину. Для инцидента #422 от 2026-11-03 необходимы
+фактический deployed Portal SHA и обезличенный production traceback;
+см. [региональный runbook](nexus-regional-acceptance-runbook.md).
+
+Тесты disposable Nexus 3.69/3.70 + Harbor Core не означают завершение
+региональной приёмки. Реальные корпоративные TLS/CA/proxy, per-repo ACL,
+физический подписанный SOURCE→TARGET handoff и approvals остаются
+открытыми по #434/#436. **Release DRAFT / NO-GO**, без merge в
+`main` и без production deployment.

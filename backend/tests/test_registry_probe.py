@@ -222,6 +222,7 @@ async def test_generic_connect_error_remains_unavailable(monkeypatch):
     assert not result.ok
     assert result.code == "registry_unavailable"
 
+
 @pytest.mark.asyncio
 async def test_explicit_https_tls_verify_false_is_honored_without_changing_profile(monkeypatch):
     observed = []

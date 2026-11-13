@@ -67,6 +67,17 @@ class HarborDestinationValidator:
         return self._registry_host
 
     async def validate(self, project: str, repository: str) -> DestinationCapability:
+        # A Harbor registry token grants push to the *exact* image repository,
+        # not to a bare project name. Never treat "repository:test" as a
+        # meaningful write capability for "test/node"; also prevent a
+        # cross-project scope from being evaluated under another project.
+        if not repository.startswith(f"{project}/") or not repository[len(project) + 1 :]:
+            return DestinationCapability(
+                False,
+                False,
+                "import_destination_repository_invalid",
+                "TARGET Harbor repository должен содержать project/image",
+            )
         try:
             exists = await asyncio.to_thread(self._project_exists, project)
             if not exists:

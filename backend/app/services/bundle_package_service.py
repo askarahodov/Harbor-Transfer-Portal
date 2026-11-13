@@ -371,7 +371,7 @@ class BundlePackageService:
     ) -> BundleManifest:
         try:
             return BundleManifest(
-                schema_version="1.0",
+                schema_version="1.1" if source.registry_type == "nexus" else "1.0",
                 delivery_id=identifier,
                 created_at=created_at,
                 created_by=created_by,

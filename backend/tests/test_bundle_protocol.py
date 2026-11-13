@@ -122,3 +122,87 @@ def test_archive_validation_rejects_empty_payload_directories() -> None:
     empty_directory.type = tarfile.DIRTYPE
     with pytest.raises(ValueError, match="empty or undeclared"):
         validate_archive_members([*_required_members(), empty_directory])
+
+
+def test_nexus_source_has_explicit_origin_and_no_harbor_alias() -> None:
+    legacy = make_manifest()
+    legacy_bytes = canonical_manifest_bytes(legacy)
+    assert b'"registry_type"' not in legacy_bytes
+    assert b'"registry"' not in legacy_bytes
+    assert b'"harbor":"harbor.source.local"' in legacy_bytes
+
+    nexus = legacy.model_copy(deep=True)
+    nexus.schema_version = "1.1"
+    nexus.source = BundleSource(
+        contour="SOURCE",
+        registry_type="nexus",
+        registry="https://docker-nexus.internal",
+    )
+    payload = canonical_manifest_bytes(nexus)
+    assert b'"registry_type":"nexus"' in payload
+    assert b'"registry":"https://docker-nexus.internal"' in payload
+    assert b'"harbor"' not in payload
+    assert BundleManifest.model_validate_json(payload) == nexus
+    assert canonical_manifest_bytes(BundleManifest.model_validate_json(payload)) == payload
+
+
+def test_nexus_source_rejects_misleading_harbor_and_missing_origin() -> None:
+    with pytest.raises(ValidationError):
+        BundleSource(contour="SOURCE", registry_type="nexus", harbor="nexus.example")
+    with pytest.raises(ValidationError):
+        BundleSource(contour="SOURCE", registry_type="nexus")
+    with pytest.raises(ValidationError):
+        BundleSource(contour="SOURCE", registry_type="harbor", harbor="harbor", registry="other")
+
+
+@pytest.mark.parametrize(
+    "version,source",
+    [
+        ("1.0", {"contour": "SOURCE", "registry_type": "nexus",
+                 "registry": "https://docker-nexus.internal"}),
+        ("1.0", {"contour": "SOURCE", "harbor": "harbor.source.local",
+                 "registry": "https://harbor.source.local"}),
+        ("1.0", {"contour": "SOURCE", "harbor": "harbor.source.local",
+                 "registry_type": "harbor"}),
+        ("1.1", {"contour": "SOURCE", "harbor": "harbor.source.local"}),
+        ("1.1", {"contour": "SOURCE", "harbor": "harbor.source.local",
+                 "registry_type": "harbor"}),
+    ],
+)
+def test_version_specific_provenance_cannot_impersonate_legacy(
+    version: str, source: dict[str, str],
+) -> None:
+    payload = make_manifest().model_dump(mode="json", exclude_none=True)
+    payload["schema_version"] = version
+    payload["source"] = source
+    with pytest.raises(ValidationError):
+        BundleManifest.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://user:password@docker-nexus.internal",
+        "https://docker-nexus.internal/path/token",
+        "https://docker-nexus.internal?token=secret",
+        "https://docker-nexus.internal/#fragment",
+        "https://docker-nexus.internal:not-a-port",
+        "https://[invalid",
+        "file:///var/run/secret",
+    ],
+)
+def test_nexus_origin_rejects_credentials_and_non_origin_urls(origin: str) -> None:
+    with pytest.raises(ValidationError):
+        BundleSource(contour="SOURCE", registry_type="nexus", registry=origin)
+
+
+def test_signed_provenance_can_use_isolated_http_connector_without_credentials() -> None:
+    source = BundleSource(
+        contour="SOURCE", registry_type="nexus", registry="http://127.0.0.1:8082",
+    )
+    manifest = make_manifest().model_copy(
+        update={"schema_version": "1.1", "source": source},
+    )
+    signed_bytes = canonical_manifest_bytes(manifest)
+    assert b'"registry":"http://127.0.0.1:8082"' in signed_bytes
+    assert b'"harbor"' not in signed_bytes

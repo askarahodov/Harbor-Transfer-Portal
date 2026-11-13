@@ -141,7 +141,7 @@ Harbor TARGET
 | Runtime SOURCE/TARGET и ключи | [Runtime mode](docs/runtime-mode.md), [Key management](docs/key-management.md) |
 | Архитектура и разработка | [Windows/Linux development](docs/development.md), [карта документации](docs/README.md), [Architecture](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Тестирование и CI | [Testing](docs/testing.md) |
-| Релиз | [Release notes v1.0.0](docs/release-notes-v1.0.0.md), [CHANGELOG.md](CHANGELOG.md) |
+| Релиз | [Release notes v1.0.0](docs/release-notes-v1.0.0.md), [Nexus release candidate: статус и приёмка](docs/nexus-release-readiness-2026-11-03.md), [CHANGELOG.md](CHANGELOG.md) |
 
 Исторический `docs/harbor-transfer-portal.md` не определяет текущее runtime, protocol или security behavior.
 

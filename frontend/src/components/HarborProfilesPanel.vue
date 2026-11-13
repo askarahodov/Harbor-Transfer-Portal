@@ -7,6 +7,9 @@ import { apiClient } from '@/api/client'
 type HarborProfile = {
   id: string
   registry_type: 'harbor' | 'nexus'
+  nexus_format?: 'docker' | 'helm'
+  nexus_search_url?: string | null
+  nexus_search_repository?: string | null
   name: string
   url: string
   username: string | null
@@ -48,6 +51,9 @@ const url = ref('')
 const username = ref('')
 const verifyTls = ref(true)
 const registryType = ref<'harbor' | 'nexus'>('harbor')
+const nexusFormat = ref<'docker' | 'helm'>('docker')
+const nexusSearchUrl = ref('')
+const nexusSearchRepository = ref('')
 const credential = ref('')
 const caPem = ref('')
 
@@ -78,10 +84,14 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     const response = await apiClient.get<ProfilesResponse>('/settings/harbor/profiles')
-    profiles.value = response.data.items
+    profiles.value = response.data.items.map((profile) => ({
+      ...profile,
+      registry_type: profile.registry_type === 'nexus' ? 'nexus' : 'harbor',
+      nexus_format: profile.nexus_format === 'helm' ? 'helm' : 'docker',
+    }))
     selectedId.value = response.data.items.find((item) => item.is_active)?.id ?? ''
   } catch (reason) {
-    error.value = safeError('Не удалось загрузить Harbor profiles.', reason)
+    error.value = safeError('Не удалось загрузить профили реестров.', reason)
   } finally {
     loading.value = false
   }
@@ -98,7 +108,7 @@ async function activate(): Promise<void> {
       `/settings/harbor/profiles/${encodeURIComponent(selectedId.value)}/activate`,
     )
     await load()
-    message.value = `Legacy fallback Harbor: ${response.data.name}.`
+    message.value = `Legacy fallback: ${response.data.name}.`
     emit('changed')
   } catch (reason) {
     error.value = safeError('Не удалось изменить legacy fallback Harbor.', reason)
@@ -116,6 +126,9 @@ function resetEditor(): void {
   caPem.value = ''
   verifyTls.value = true
   registryType.value = 'harbor'
+  nexusFormat.value = 'docker'
+  nexusSearchUrl.value = ''
+  nexusSearchRepository.value = ''
 }
 
 function validateUrlForRegistry(url: string, registryType: 'harbor' | 'nexus'): string | null {
@@ -147,6 +160,9 @@ function editProfile(profile: HarborProfile): void {
   caPem.value = ''
   verifyTls.value = profile.verify_tls
   registryType.value = profile.registry_type ?? 'harbor'
+  nexusFormat.value = profile.nexus_format ?? 'docker'
+  nexusSearchUrl.value = profile.nexus_search_url ?? ''
+  nexusSearchRepository.value = profile.nexus_search_repository ?? ''
   error.value = ''
   message.value = ''
   void nextTick(() => {
@@ -169,6 +185,29 @@ async function saveProfile(): Promise<void> {
     error.value = urlError
     return
   }
+  if (registryType.value === 'nexus' && nexusFormat.value === 'helm') {
+    const parsed = new URL(url.value)
+    if (parsed.protocol !== 'https:' || !parsed.hostname ||
+        (parsed.pathname !== '/' && parsed.pathname !== '') || parsed.search || parsed.hash) {
+      error.value = 'Helm HTTP требует HTTPS URL корня Nexus UI без пути.'
+      return
+    }
+    if (!nexusSearchRepository.value.trim()) {
+      error.value = 'Укажите точное имя Helm HTTP repository.'
+      return
+    }
+  } else if (registryType.value === 'nexus' &&
+             (nexusSearchUrl.value || nexusSearchRepository.value)) {
+    if (nexusSearchRepository.value.trim() && !nexusSearchUrl.value.trim()) {
+      error.value = 'Для привязки Docker repository требуется Nexus UI HTTPS URL.'
+      return
+    }
+    if (!nexusSearchUrl.value.startsWith('https://') ||
+        validateUrlForRegistry(nexusSearchUrl.value, 'nexus')) {
+      error.value = 'Для Nexus REST Search требуется HTTPS URL корня Nexus UI без пути.'
+      return
+    }
+  }
   savingProfile.value = true
   error.value = ''
   message.value = ''
@@ -179,6 +218,19 @@ async function saveProfile(): Promise<void> {
       username: username.value.trim() || null,
       verify_tls: verifyTls.value,
       registry_type: registryType.value,
+      ...(registryType.value === 'nexus' ? { nexus_format: nexusFormat.value } : {}),
+      ...((
+        nexusSearchUrl.value.trim() ||
+        nexusSearchRepository.value.trim() ||
+        (editingId.value && profiles.value.some((profile) =>
+          profile.id === editingId.value && (profile.nexus_search_url || profile.nexus_search_repository)
+        ))
+      ) ? {
+        nexus_search_url: registryType.value === 'nexus' && nexusFormat.value === 'docker'
+          ? nexusSearchUrl.value.trim() || null : null,
+        nexus_search_repository: registryType.value === 'nexus'
+          ? nexusSearchRepository.value.trim() || null : null,
+      } : {}),
     }
     const response = editingId.value
       ? await apiClient.patch<HarborProfile>(
@@ -220,11 +272,12 @@ async function saveProfile(): Promise<void> {
 }
 
 async function testProfile(profile: HarborProfile): Promise<void> {
-  // Nexus Docker connectors do not implement Harbor REST endpoints.
+  // The Harbor REST check is never valid for a Nexus Docker connector,
+  // regardless of how this action is invoked.
   if (profile.registry_type === 'nexus') {
     feedbackLocation.value = 'list'
-    message.value = ''
     error.value = 'Для Nexus используйте проверку Docker Registry v2.'
+    message.value = ''
     return
   }
   feedbackLocation.value = 'list'
@@ -348,9 +401,9 @@ onMounted(() => void load())
   <section class="profiles-card" aria-labelledby="harbor-profiles-title">
     <div class="profiles-heading">
       <div>
-        <h2 id="harbor-profiles-title">Harbor profiles</h2>
+        <h2 id="harbor-profiles-title">Профили реестров Harbor / Nexus</h2>
         <p class="status">
-          Один Portal может хранить несколько Harbor. Новые Export/Import выбирают profile внутри workflow; selector ниже задаёт только legacy fallback для старых клиентов.
+          Portal хранит профили Harbor и Nexus. SOURCE/ TARGET выбирают реестр внутри workflow; selector ниже задаёт legacy fallback для старых клиентов.
         </p>
       </div>
       <span v-if="activeProfile" class="active-badge">Legacy fallback · {{ activeProfile.name }}</span>
@@ -362,7 +415,7 @@ onMounted(() => void load())
         <label for="active-harbor-profile">Legacy fallback Harbor</label>
         <select id="active-harbor-profile" v-model="selectedId" :disabled="busy">
           <option v-for="profile in enabledProfiles" :key="profile.id" :value="profile.id">
-            {{ profile.name }} · {{ profile.url }}
+            {{ profile.registry_type === 'nexus' ? 'Nexus · Docker v2' : 'Harbor' }} · {{ profile.name }} · {{ profile.url }}
           </option>
         </select>
         <button
@@ -382,7 +435,9 @@ onMounted(() => void load())
           <div>
             <div class="profile-title">
               <strong>{{ profile.name }}</strong>
-              <span v-if="profile.registry_type === 'nexus'" class="inline-active">Nexus · Docker v2</span>
+              <span class="registry-kind">{{ profile.registry_type === 'nexus'
+                ? profile.nexus_format === 'helm' ? 'Nexus · Helm HTTP' : 'Nexus · Docker v2'
+                : 'Harbor' }}</span>
               <span v-if="profile.is_active" class="inline-active">legacy fallback</span>
               <span
                 class="state-badge"
@@ -423,7 +478,9 @@ onMounted(() => void load())
               @click="testRegistry(profile)"
             >
               <span v-if="testingRegistryId === profile.id" class="spinner-inline"></span>
-              {{ testingRegistryId === profile.id ? 'Проверка реестра…' : profile.registry_type === 'nexus' ? 'Проверить Docker Registry v2' : 'Проверить реестр' }}
+              {{ testingRegistryId === profile.id ? 'Проверка реестра…' : profile.registry_type === 'nexus'
+                  ? profile.nexus_format === 'helm' ? 'Проверить Helm HTTP index.yaml' : 'Проверить Docker Registry v2'
+                  : 'Проверить реестр' }}
             </button>
             <button
               v-if="!profile.is_default"
@@ -469,7 +526,7 @@ onMounted(() => void load())
 
       <form ref="editorForm" class="create-form" novalidate @submit.prevent="saveProfile">
         <div class="editor-heading">
-          <h3>{{ editingId ? 'Изменить Harbor profile' : 'Добавить Harbor' }}</h3>
+          <h3>{{ editingId ? 'Изменить профиль реестра' : 'Добавить реестр' }}</h3>
           <button v-if="editingId" type="button" class="secondary" @click="resetEditor">
             Отмена
           </button>
@@ -480,8 +537,13 @@ onMounted(() => void load())
             <input v-model="name" name="profile-name" type="text" maxlength="128" placeholder="Harbor DC-2" />
           </label>
           <label>
-            URL
-            <input v-model="url" type="url" placeholder="https://harbor-dc2.local" />
+            {{ registryType === 'nexus' && nexusFormat === 'docker'
+                ? 'Docker v2 connector URL (не Nexus UI)'
+                : registryType === 'nexus' ? 'Nexus UI HTTPS origin (Helm HTTP)' : 'URL' }}
+            <input v-model="url" type="url" :placeholder="registryType === 'nexus' && nexusFormat === 'docker'
+              ? 'https://docker-connector.example.internal:5000'
+              : registryType === 'nexus' ? 'https://nexus-ui.example.internal'
+                : 'https://harbor-dc2.local'" />
           </label>
           <label>
             Тип реестра
@@ -489,6 +551,30 @@ onMounted(() => void load())
               <option value="harbor">Harbor</option>
               <option value="nexus">Sonatype Nexus</option>
             </select>
+          </label>
+          <label v-if="registryType === 'nexus'">
+            Формат Nexus repository
+            <select v-model="nexusFormat" aria-label="Формат Nexus repository">
+              <option value="docker">Docker Registry v2</option>
+              <option value="helm">Helm HTTP (index.yaml, .tgz)</option>
+            </select>
+          </label>
+          <p v-if="registryType === 'nexus' && nexusFormat === 'helm'" class="profile-hint">
+            Для каждого Helm HTTP repository создайте отдельный профиль. URL — HTTPS origin
+            Nexus UI/API, а имя repository указывается ниже. Проверка читает только
+            index.yaml; Helm OCI и Docker Registry v2 для этого профиля не используются.
+          </p>
+          <p v-if="registryType === 'nexus' && nexusFormat === 'docker'" class="profile-hint">Nexus Browse: docker-proxy / v2 / baseimage означает Docker repository docker-proxy и image baseimage. В поле URL укажите корневой адрес HTTPS Docker v2 connector именно docker-proxy (проверка /v2/). Для каждого Docker repository hosted/proxy/group нужен отдельный профиль. Nexus UI HTTPS URL — отдельный необязательный адрес для административного списка и Helm HTTP; для проверки известного Docker image:tag он не требуется. Имя Docker repository (ниже) можно задать docker-proxy. Не используйте Helm OCI. Не отключайте TLS для обхода ошибок.</p>
+          <label v-if="registryType === 'nexus' && nexusFormat === 'docker'">
+            Nexus UI HTTPS URL (необязательно)
+            <input v-model="nexusSearchUrl" type="url" placeholder="https://nexus-ui.example.internal" />
+          </label>
+          <label v-if="registryType === 'nexus'">
+            {{ nexusFormat === 'helm'
+              ? 'Имя Helm HTTP repository (обязательно)'
+              : 'Имя Docker repository, обслуживаемого этим connector (необязательно)' }}
+            <input v-model="nexusSearchRepository" type="text" maxlength="128"
+              :placeholder="nexusFormat === 'helm' ? 'helm-hosted' : 'docker-hosted'" />
           </label>
           <label>
             Service account

@@ -51,6 +51,7 @@ from app.services.import_bundle_storage import (
 from app.services.import_persistence import ImportOperationPersistence
 from app.services.key_management import KeyManagementError, KeyManagementService
 from app.services.media_handoff import MediaHandoffError, MediaHandoffService
+from app.services.nexus_helm_http import NexusHelmAdapter
 from app.services.nexus_service import NexusServiceError
 from app.services.operation_manager import (
     OperationContext,
@@ -132,7 +133,7 @@ class ImportOrchestrator:
             self.artifact_classifier = ImportArtifactClassifier(
                 session_factory,
                 settings,
-                helm_factory=self.helm_factory,
+                helm_factory=helm_factory,
                 registry_client_factory=registry_client_factory,
             )
         self.discovery_root = settings.import_discovery_root.resolve()
@@ -497,6 +498,7 @@ class ImportOrchestrator:
             artifacts=await self.artifact_classifier.classify(
                 verified.manifest.artifacts,
                 harbor_profile_id=profile.id,
+                target_registry_type=profile.registry_type,
             ),
         )
         self._persist_preview(operation_id, preview)
@@ -603,7 +605,11 @@ class ImportOrchestrator:
                         self.settings,
                         profile_id=profile.id,
                     )
-                helm = self.helm_factory(session)
+                helm = (
+                    NexusHelmAdapter(session, self.settings, profile.id)
+                    if profile.registry_type == "nexus"
+                    else self.helm_factory(session)
+                )
                 if isinstance(skopeo, SkopeoService):
                     skopeo.harbor_profile_id = profile.id
                 if isinstance(helm, HelmOciService):
@@ -742,7 +748,7 @@ class ImportOrchestrator:
         self,
         descriptor: ContainerImageArtifact | HelmChartArtifact,
         skopeo: SkopeoService | RegistryClient,
-        helm: HelmOciService,
+        helm: HelmOciService | NexusHelmAdapter,
     ) -> tuple[ImportPreviewState, str | None]:
         if isinstance(descriptor, ContainerImageArtifact):
             inspected = await skopeo.inspect_target(

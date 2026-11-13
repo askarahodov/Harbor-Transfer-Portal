@@ -90,6 +90,8 @@ def test_persist_preview_enriches_verified_manifest_and_policy(monkeypatch) -> N
     assert len(persisted) == 1
     enriched = persisted[0]
     assert enriched.source_harbor == "harbor.source.local"
+    assert enriched.source_registry_type is None
+    assert enriched.source_registry is None
     assert enriched.source_portal_version == "0.1.0"
     assert enriched.source_created_at == verified.manifest.created_at
     assert enriched.source_created_by == "source-operator"
@@ -121,7 +123,9 @@ async def test_parallel_preview_workers_keep_verified_results_isolated(monkeypat
         bundle_filename=f"{operation_id}.htp.tar.gz",
         import_intake_mode="incoming",
     )
-    orchestrator._assert_operation_profile = lambda _operation: SimpleNamespace(id="profile")
+    orchestrator._assert_operation_profile = lambda _operation: SimpleNamespace(
+        id="profile", registry_type="harbor"
+    )
     orchestrator.persistence = SimpleNamespace(persist_verified_signer=lambda *_args: None)
 
     class Package:
@@ -191,7 +195,68 @@ def test_old_persisted_preview_shape_remains_readable() -> None:
     )
 
     assert preview.source_harbor is None
+    assert preview.source_registry_type is None
+    assert preview.source_registry is None
     assert preview.checksum_verified is False
     assert preview.signature_verified is False
     assert preview.schema_verified is False
     assert preview.overwrite_allowed is False
+
+
+def test_verified_nexus_source_provenance_is_shown_not_mislabeled_harbor(
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    verified = _verified_result()
+    nexus_source = BundleSource(
+        contour="SOURCE",
+        registry_type="nexus",
+        registry="https://docker-nexus.example.test",
+        portal_version="0.1.0",
+    )
+    verified = BundleVerificationResult(
+        manifest=BundleManifest.model_validate({
+            **verified.manifest.model_dump(),
+            "schema_version": "1.1",
+            "source": nexus_source.model_dump(),
+        }),
+        archive_sha256=verified.archive_sha256,
+        archive_size=verified.archive_size,
+        signing_key_fingerprint=verified.signing_key_fingerprint,
+    )
+    orchestrator = object.__new__(ImportPreviewProjectionOrchestrator)
+    orchestrator.settings = SimpleNamespace(import_allow_overwrite=False)
+    monkeypatch.setattr(
+        orchestrator, "_get_import_operation",
+        lambda _id: SimpleNamespace(
+            bundle_filename="nexus.htp.tar.gz",
+            import_intake_mode="incoming",
+        ),
+    )
+    persisted: list[ImportPreviewResponse] = []
+    monkeypatch.setattr(
+        ImportOrchestrator, "_persist_preview",
+        lambda _self, _id, preview: persisted.append(preview),
+    )
+    preview = ImportPreviewResponse(
+        operation_id=42,
+        status=OperationStatus.READY,
+        source_delivery_id=verified.manifest.delivery_id,
+        bundle_sha256=verified.archive_sha256,
+        bundle_size_bytes=verified.archive_size,
+        signing_key_fingerprint=verified.signing_key_fingerprint,
+        verified_at=datetime.now(UTC),
+        artifacts=[],
+    )
+    token = _preview_capture.set([verified])
+    try:
+        orchestrator._persist_preview(42, preview)
+    finally:
+        _preview_capture.reset(token)
+    [enriched] = persisted
+    assert enriched.source_harbor is None
+    assert enriched.source_registry_type == "nexus"
+    assert enriched.source_registry == "https://docker-nexus.example.test"
+    assert enriched.checksum_verified is True
+    assert enriched.signature_verified is True
+    assert enriched.schema_verified is True
+    assert enriched.overwrite_allowed is False

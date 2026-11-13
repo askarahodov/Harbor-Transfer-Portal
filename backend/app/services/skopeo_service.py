@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import shutil
+import signal
 import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -24,6 +25,12 @@ _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9
 _TAG_PATTERN = r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}"
 _PERSISTED_DIAGNOSTIC_LIMIT = 512
 _SAFE_LOCALE_ENV = ("LANG", "LC_ALL", "LC_CTYPE")
+# Fixed-size JSON fields: never serialize RepoTags, layers or environment.
+# Go template built-in printf("%q") quotes/escapes fields even in Skopeo 1.9.3.
+_COMPACT_INSPECT_FORMAT = (
+    '{"Digest":{{printf "%q" .Digest}},"Architecture":{{printf "%q" .Architecture}},'
+    '"Os":{{printf "%q" .Os}}}'
+)
 
 
 class SkopeoPhase(StrEnum):
@@ -124,6 +131,19 @@ class AsyncioCommandRunner:
         self.temp_root = temp_root.resolve() if temp_root is not None else None
 
     @staticmethod
+    def _terminate_process_group(process: asyncio.subprocess.Process) -> None:
+        pid = getattr(process, "pid", None)
+        if pid is not None:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+                return
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                pass
+        process.kill()
+
+    @staticmethod
     def _environment(root: Path) -> dict[str, str]:
         home = root / "home"
         config_home = root / "xdg-config"
@@ -174,6 +194,7 @@ class AsyncioCommandRunner:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(root),
                 env=self._environment(root),
+                start_new_session=True,
             )
             if process.stdout is None or process.stderr is None:
                 process.kill()
@@ -185,17 +206,35 @@ class AsyncioCommandRunner:
             try:
                 await asyncio.wait_for(process.wait(), timeout_seconds)
             except TimeoutError as exc:
-                process.kill()
+                # Skopeo/Nexus may spawn helpers that inherit stderr pipes.
+                # Kill the whole process group so pipe readers do not remain
+                # blocked forever after the parent process exits.
+                self._terminate_process_group(process)
                 await process.wait()
-                await asyncio.gather(stdout_task, stderr_task)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(stdout_task, stderr_task), timeout=5
+                    )
+                except TimeoutError:
+                    stdout_task.cancel()
+                    stderr_task.cancel()
                 raise SkopeoServiceError(
                     "skopeo_timeout",
                     "Операция Skopeo превысила допустимое время выполнения",
                 ) from exc
             except asyncio.CancelledError:
-                process.kill()
+                # Skopeo/Nexus may spawn helpers that inherit stderr pipes.
+                # Kill the whole process group so pipe readers do not remain
+                # blocked forever after the parent process exits.
+                self._terminate_process_group(process)
                 await process.wait()
-                await asyncio.gather(stdout_task, stderr_task)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(stdout_task, stderr_task), timeout=5
+                    )
+                except TimeoutError:
+                    stdout_task.cancel()
+                    stderr_task.cancel()
                 raise
 
             stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
@@ -356,6 +395,9 @@ class SkopeoService:
                 (
                     self.settings.skopeo_binary,
                     "inspect",
+                    "--no-tags",
+                    "--format",
+                    _COMPACT_INSPECT_FORMAT,
                     *self._registry_flags("inspect", harbor, security),
                     self._docker_transport(image, harbor),
                 ),
@@ -384,6 +426,9 @@ class SkopeoService:
             (
                 self.settings.skopeo_binary,
                 "inspect",
+                "--no-tags",
+                "--format",
+                _COMPACT_INSPECT_FORMAT,
                 *self._registry_flags("inspect", harbor, security),
                 self._docker_transport(image, harbor),
             ),
@@ -396,6 +441,9 @@ class SkopeoService:
             (
                 self.settings.skopeo_binary,
                 "inspect",
+                "--no-tags",
+                "--format",
+                _COMPACT_INSPECT_FORMAT,
                 self._oci_transport(payload_path),
             ),
             _SecurityContext(Path(), None, None, ()),
@@ -517,6 +565,11 @@ class SkopeoService:
 
     @staticmethod
     def _parse_inspection(payload: str) -> ImageInspection:
+        if payload.rstrip().endswith("[output truncated]"):
+            raise SkopeoServiceError(
+                "skopeo_output_truncated",
+                "Вывод inspect превысил настроенный лимит байт",
+            )
         try:
             data = json.loads(payload)
         except json.JSONDecodeError as exc:

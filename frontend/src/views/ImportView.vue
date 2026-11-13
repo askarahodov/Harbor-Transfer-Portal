@@ -249,12 +249,12 @@ onBeforeUnmount(() => {
 
       <HarborProfileSelector
         id="import-harbor-profile"
-        label="TARGET Harbor profile"
+        label="TARGET registry profile"
         :profiles="wizard.harborProfiles"
         :model-value="wizard.operation && !wizard.operation.harbor_profile_id ? null : wizard.selectedHarborProfileId"
         :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
         :locked="wizard.harborProfileLocked"
-        hint="Intake, TARGET preview и import будут закреплены за выбранным Harbor."
+        hint="Intake, TARGET preview и import закрепляются за выбранным реестром."
         @update:model-value="wizard.selectHarborProfile"
       />
 
@@ -426,7 +426,14 @@ onBeforeUnmount(() => {
 
         <dl class="metadata-grid metadata-grid--wide">
           <div><dt>Delivery ID</dt><dd>{{ wizard.preview.source_delivery_id }}</dd></div>
-          <div><dt>SOURCE Harbor</dt><dd>{{ wizard.preview.source_harbor ?? 'нет данных в legacy preview' }}</dd></div>
+          <div>
+            <dt>{{ wizard.preview.source_registry_type === 'nexus' ? 'SOURCE Nexus' : 'SOURCE Harbor' }}</dt>
+            <dd>
+              {{ wizard.preview.source_registry_type === 'nexus'
+                ? (wizard.preview.source_registry ?? '—')
+                : (wizard.preview.source_harbor ?? '—') }}
+            </dd>
+          </div>
           <div><dt>Создан</dt><dd>{{ formatDate(wizard.preview.source_created_at) }}</dd></div>
           <div><dt>Автор</dt><dd>{{ wizard.preview.source_created_by ?? '—' }}</dd></div>
           <div><dt>Portal SOURCE</dt><dd>{{ wizard.preview.source_portal_version ?? '—' }}</dd></div>

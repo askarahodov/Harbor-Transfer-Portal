@@ -58,7 +58,21 @@
 
 ## Исторический материал (не source of truth)
 
-[Исходный дизайн](harbor-transfer-portal.md) и [первоначальное Nexus ТЗ](nexus-integration-task.md) сведены к коротким страницам-ссылкам на pinned Git history. Старые скрипты-генераторы, устаревшие протоколы, оценки и ASCII-макеты больше не копируются в текущие руководства. [Deferred work](deferred-tasks.md) теперь только перенаправляет в живые Issues.
+| Документ | Для чего | Статус |
+|---|---|---|
+| [project-passport.md](project-passport.md) | простое описание продукта, ролей и целевого процесса | актуальный product overview |
+| [development.md](development.md) | source build/run на Windows и Linux, Docker Desktop/Engine boundary | актуальный developer workflow |
+| [user-guide.md](user-guide.md) | пошаговый browser flow SOURCE → physical transfer → TARGET | актуальный |
+| [admin-guide.md](admin-guide.md) | bootstrap, Harbor, users/policies/keys, lifecycle, limits | актуальный |
+| [settings.md](settings.md) | фактический admin Settings UI: Harbor profiles/readiness/keys/policies/retention/mapping | актуальный |
+| [runtime-mode.md](runtime-mode.md) | persistent SOURCE/TARGET role, switch, restart, migration, backup/restore | актуальный runtime/admin contract |
+| [key-management.md](key-management.md) | SOURCE signing identity и TARGET trusted-key lifecycle | актуальный |
+| [transfer-policies.md](transfer-policies.md) | admin-managed transfer policies и limits | актуальный |
+| [troubleshooting.md](troubleshooting.md) | symptom → cause → diagnostic → safe resolution | актуальный |
+| [../deploy/offline/README.md](../deploy/offline/README.md) | versioned offline kit install/backup/restore/upgrade/uninstall | актуальный release/install guide |
+| [../deploy/README.md](../deploy/README.md) | development/runtime Compose deployment | актуальный development/runtime guide |
+| [release-notes-v1.0.0.md](release-notes-v1.0.0.md) | release identity, scope и ограничения v1.0.0 | актуальный release artifact |
+| [nexus-release-readiness-2026-11-03.md](nexus-release-readiness-2026-11-03.md) | журнал доработок Nexus, CI evidence, blockers и форма региональной приёмки | кандидат; **не выпущен**, NO-GO |
 
 ## Как проверять изменения документации
 
