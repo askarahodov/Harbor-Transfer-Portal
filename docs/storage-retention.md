@@ -79,11 +79,11 @@ Admin UI использует **Настройки → Политики пере
 
 | UI поле | API/persistent поле | Bootstrap `.env` default |
 |---|---|---:|
-| Готовые SOURCE пакеты, суток | `export_bundle_retention_seconds` | `EXPORT_BUNDLE_RETENTION_SECONDS=604800` |
-| Failed/partial TARGET пакеты, суток | `import_bundle_retention_seconds` | `IMPORT_BUNDLE_RETENTION_SECONDS=604800` |
+| Готовые SOURCE пакеты, целое число + единица (сутки/часы/минуты/секунды) | `export_bundle_retention_seconds` | `EXPORT_BUNDLE_RETENTION_SECONDS=604800` |
+| Failed/partial TARGET пакеты, целое число + единица (сутки/часы/минуты/секунды) | `import_bundle_retention_seconds` | `IMPORT_BUNDLE_RETENTION_SECONDS=604800` |
 | Проверка очистки, минут | `storage_cleanup_interval_seconds` | `STORAGE_CLEANUP_INTERVAL_SECONDS=3600` |
 
-UI показывает human-friendly сутки/минуты, но backend API и SQLite хранят секунды. Если admin override ещё
+UI показывает только **целые значения** длительности с выбранной единицей (обычно сутки; для 36 часов показывается `36 часов`, а не `1.5 суток`). При получении нестандартного сохранённого значения (например, 5400 секунд) автоматически выбирается точная единица `90 минут`; даже единичные секунды не округляются. Смена единиц допускается только при целочисленном пересчёте, чтобы не менять политику скрытно. Backend API и SQLite по-прежнему хранят секунды. Если admin override ещё
 не сохранён, effective значение берётся из `.env`/Settings. После сохранения SQLite `transfer.*` override
 имеет приоритет и переживает restart/backup/restore.
 
