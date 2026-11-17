@@ -93,6 +93,30 @@ describe('HarborProfilesPanel', () => {
     expect(wrapper.emitted('changed')).toHaveLength(1)
   })
 
+  it('keeps editor sections structured when switching from Harbor to Nexus Docker', async () => {
+    vi.spyOn(apiClient, 'get').mockResolvedValue(response({ items: [defaultProfile, secondProfile] }))
+    const wrapper = mount(HarborProfilesPanel)
+    await flushPromises()
+    const editor = wrapper.get('.create-form')
+    expect(editor.findAll('.editor-section').map(item => item.get('h4').text()))
+      .toEqual(['Подключение', 'Доступ и TLS'])
+    expect(editor.find('.editor-actions button[type="submit"]').text()).toBe('Добавить профиль')
+
+    const edit = wrapper.findAll('.profile-row').find(item => item.text().includes('Harbor DC-2'))!
+      .findAll('button').find(item => item.text() === 'Изменить')!
+    await edit.trigger('click')
+    expect(editor.get('.editor-heading h3').text()).toBe('Редактирование профиля')
+    expect(editor.find('.editor-actions button[type="submit"]').text()).toBe('Сохранить изменения')
+    await editor.get('.form-grid select').setValue('nexus')
+    expect(editor.findAll('.editor-section').map(item => item.get('h4').text()))
+      .toEqual(['Подключение', 'Параметры Nexus', 'Доступ и TLS'])
+    expect(editor.findAll('input[type="url"]')).toHaveLength(2)
+    expect(editor.text()).toContain('Для поиска образов по неполному пути')
+    expect(editor.get('input[autocomplete="new-password"]').element)
+      .toHaveProperty('value', '')
+    wrapper.unmount()
+  })
+
   it('creates a profile and stores credential/CA separately without reading secrets back', async () => {
     vi.spyOn(apiClient, 'get')
       .mockResolvedValueOnce(response({ items: [defaultProfile] }))
