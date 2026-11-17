@@ -129,6 +129,29 @@ describe('NexusDockerBrowser', () => {
     wrapper.unmount()
   })
 
+  it('opens exact image tags from an empty catalog search without requiring a catalog match', async () => {
+    vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
+      available: true, items: [], message: null, truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: ['8.0.413', '10.0.100'],
+      message: null, truncated: false, next_cursor: null,
+    })
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]')
+      .setValue('baseimage/softrust/sdk/sdk')
+    await wrapper.findAll('button').find(button => button.text() === 'Показать теги по точному имени')!
+      .trigger('click')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenCalledWith(
+      'proxy-id', 'baseimage/softrust/sdk/sdk', '', undefined,
+    )
+    expect(wrapper.get('[aria-label="Таблица версий Nexus"]').text()).toContain('8.0.413')
+    expect(wrapper.get('[aria-label="Таблица версий Nexus"]').text()).toContain('10.0.100')
+    wrapper.unmount()
+  })
+
   it('keeps exact image lookup primary and shows verified digest beside its form even when catalog is empty', async () => {
     vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
       available: true, items: [], message: null, truncated: false, next_cursor: null,
