@@ -276,7 +276,7 @@ onMounted(load)
 .card { display: grid; gap: var(--space-4); padding: var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 .create-grid { display: grid; grid-template-columns: 1.2fr 1.2fr .8fr auto; gap: var(--space-3); align-items: end; }
 label { display: grid; gap: var(--space-2); color: var(--color-text-muted); font-size: 14px; }
-input, select, button { min-height: 42px; border-radius: var(--radius-md); font: inherit; }
+input, select, button { min-height: var(--control-height); border-radius: var(--radius-md); font: inherit; }
 input, select { border: 1px solid var(--color-border-control); background: var(--color-surface); padding: 0 var(--space-3); color: var(--color-text); }
 button { border: 0; padding: 0 var(--space-4); background: var(--color-action-surface); color: var(--color-on-accent); cursor: pointer; }
 button.secondary { border: 1px solid var(--color-border-control); background: var(--color-surface); color: var(--color-text); }
@@ -285,7 +285,7 @@ button:disabled { opacity: .6; cursor: wait; }
 .user-row { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(120px, .6fr) auto auto minmax(260px, 1fr); gap: var(--space-3); align-items: end; padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
 .identity { display: grid; gap: var(--space-1); }
 .identity span, .hint, .empty { color: var(--color-text-muted); font-size: 13px; }
-.active-toggle { display: flex; align-items: center; gap: var(--space-2); min-height: 42px; color: var(--color-text); }
+.active-toggle { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-height); color: var(--color-text); }
 .active-toggle input { min-height: auto; }
 .password-reset { display: grid; grid-template-columns: minmax(150px, 1fr) auto; gap: var(--space-2); align-items: end; }
 .success, .error { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); }
