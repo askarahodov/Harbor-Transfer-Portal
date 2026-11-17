@@ -121,10 +121,10 @@ async function logout(): Promise<void> {
 <style scoped>
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: var(--layout-sidebar) minmax(0, 1fr); }
 .sidebar { background: var(--color-brand-surface); color: var(--color-on-accent); padding: var(--space-6) var(--space-4); }
-.brand { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; color: var(--color-on-accent); font-weight: 700; text-decoration: none; }
+.brand { display: flex; align-items: center; gap: var(--space-3); min-height: var(--control-height-large); color: var(--color-on-accent); font-weight: 700; text-decoration: none; }
 .brand__mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-md); background: var(--color-action-surface); font-size: 12px; }
 .nav-list { display: grid; gap: var(--space-2); margin-top: var(--space-8); }
-.nav-link { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; padding: 0 var(--space-3); border-radius: var(--radius-md); color: var(--color-brand-text-muted); text-decoration: none; }
+.nav-link { display: flex; align-items: center; gap: var(--space-3); min-height: var(--control-height-large); padding: 0 var(--space-3); border-radius: var(--radius-md); color: var(--color-brand-text-muted); text-decoration: none; }
 .nav-link:hover, .nav-link:focus-visible, .nav-link.router-link-exact-active { background: var(--color-brand-hover-surface); color: var(--color-on-accent); }
 .workspace { min-width: 0; }
 .topbar { min-height: var(--layout-header); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-2) var(--space-6); border-bottom: 1px solid var(--color-border); background: var(--color-surface); }
@@ -133,7 +133,7 @@ async function logout(): Promise<void> {
 .release-revision { color: var(--color-text-muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .topbar__session { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; justify-content: flex-end; }
 .current-user { color: var(--color-text-muted); font-size: 14px; }
-.docs-button, .logout-button { min-height: 40px; display: inline-flex; align-items: center; gap: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.docs-button, .logout-button { min-height: var(--control-height); display: inline-flex; align-items: center; gap: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
 .docs-button { text-decoration: none; }
 .docs-button:hover, .docs-button:focus-visible, .logout-button:hover, .logout-button:focus-visible { border-color: var(--color-action); }
 .content { width: min(100%, var(--layout-content-max)); margin: 0 auto; padding: var(--space-8) var(--space-6); }
