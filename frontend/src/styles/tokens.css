@@ -60,6 +60,8 @@
 
   /* Shared minimum interactive control height for custom form components. */
   --control-height: 42px;
+  --control-height-compact: 36px;
+  --control-height-large: 44px;
 
   --radius-sm: 4px;
   --radius-md: 8px;
