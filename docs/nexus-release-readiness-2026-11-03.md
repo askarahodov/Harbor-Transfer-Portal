@@ -1,6 +1,8 @@
 # Nexus Docker v2 — журнал доработок и статус подготовки релиза
 
-**Срез на 03.11.2026 · Harbor Transfer Portal · кандидат на следующий релиз (версия/тег не назначены)**
+**Исторический срез на 03.11.2026 · Harbor Transfer Portal · кандидат на следующий релиз (версия/тег не назначены).**
+
+Для изменений после этой даты см. [Nexus setup](nexus-setup.md), [текущие Draft #501](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/501) / [#503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503) и [задачу #504](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/504). Документ сохраняет историческое evidence; не используйте его старые SHA/PR как финальную проверку последней сборки. Региональный статус остаётся **NO-GO**.
 
 > **Статус: НЕ ВЫПУЩЕНО / NO-GO для Nexus production.** Этот документ описывает
 > изменения, реализованные в **открытых draft PR** и проверенные на их ветках,
