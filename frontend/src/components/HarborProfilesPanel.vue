@@ -545,7 +545,7 @@ onMounted(() => void load())
           <div class="form-grid">
             <label>
               Имя профиля
-              <input v-model="name" name="profile-name" type="text" maxlength="128" placeholder="Nexus RC" />
+              <input v-model="name" name="profile-name" type="text" maxlength="128" placeholder="Harbor DC-2" />
             </label>
             <label>
               Тип реестра
