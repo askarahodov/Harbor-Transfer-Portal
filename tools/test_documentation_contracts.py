@@ -285,8 +285,12 @@ class DocumentationContractTests(unittest.TestCase):
 
         for document in (compare, nexus_setup, docs_index):
             self.assertIn("Draft", document)
-            self.assertIn("#451", document)
+            self.assertIn("#501", document)
+            self.assertIn("#503", document)
             self.assertIn("NO-GO", document)
+        # Historical qualification remains discoverable but must not be
+        # presented as the current Nexus integration head.
+        self.assertIn("#451", self.read("docs/nexus-release-readiness-2026-11-03.md"))
         self.assertNotIn("добавлен в v1.0.0 как альтернатива", compare)
         self.assertNotIn("Helm Charts (OCI)** | ✅", compare)
         self.assertNotIn("с 3.40+", compare + nexus_setup)
