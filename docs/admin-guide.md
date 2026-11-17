@@ -8,6 +8,23 @@
 
 ![Settings](img/screenshots/settings.png)
 
+## Администрирование Nexus на тестовом RC
+
+В отдельном Nexus Draft #501/#503 администратор создаёт
+`registry_type=nexus` профили на экране Settings. Форма редактора
+организована в секции «Подключение», «Параметры Nexus», «Доступ и TLS».
+Для Docker Registry v2 необходимо различать URL Docker connector и
+необязательный HTTPS URL веб-интерфейса Nexus для REST Search; имя Docker
+repository задаётся отдельно и не включается в Docker image name.
+Helm HTTP требует отдельного профиля с точным repository и не использует OCI.
+
+У каждого профиля собственные credential, TLS verification и custom CA;
+пустое поле при редактировании не перезаписывает сохранённый секрет.
+Не отключайте TLS validation для исправления ошибок поиска.
+Доступные образы ограничены индексом/ACL Nexus. Инструкция:
+[Nexus setup](nexus-setup.md). Production-обязательства и региональная
+приёмка по #434/#436 остаются **NO-GO**, независимо от локального E2E.
+
 ## 1. Один deployment, runtime role SOURCE/TARGET
 
 Один и тот же Harbor Transfer Portal deployment поддерживает обе runtime-роли:
