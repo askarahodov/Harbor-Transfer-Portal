@@ -153,6 +153,50 @@ describe('NexusDockerBrowser', () => {
     wrapper.unmount()
   })
 
+  it('accepts a pasted image:tag in catalog search and checks digest before export', async () => {
+    vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
+      available: true, items: [], message: null, truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.inspectExactNexusImage).mockResolvedValue({
+      repository: 'baseimage/softrust/sdk/sdk', reference: '8.0.413',
+      digest: DIGEST, media_type: null,
+    })
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]')
+      .setValue('baseimage/softrust/sdk/sdk:8.0.413')
+    expect(wrapper.text()).toContain('Проверить image:tag и digest')
+    await wrapper.findAll('button').find(button => button.text() === 'Проверить image:tag и digest')!
+      .trigger('click')
+    await flushPromises()
+    expect(exportsApi.inspectExactNexusImage).toHaveBeenCalledWith(
+      'proxy-id', 'baseimage/softrust/sdk/sdk', '8.0.413',
+    )
+    expect(exportsApi.listNexusTags).not.toHaveBeenCalled()
+    expect(wrapper.get('.nexus-browser__direct .nexus-browser__verified').text())
+      .toContain(DIGEST)
+    expect(wrapper.emitted('add')).toBeUndefined()
+    await wrapper.get('.nexus-browser__direct .nexus-browser__verified button').trigger('click')
+    expect(wrapper.emitted('add')?.[0]).toEqual([
+      'baseimage/softrust/sdk/sdk', '8.0.413', DIGEST,
+    ])
+    wrapper.unmount()
+  })
+
+  it('rejects a pasted registry host or malformed digest without calling inspection', async () => {
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    const search = wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]')
+    await search.setValue('other.example.org/baseimage/softrust/sdk/sdk:8.0.413')
+    await search.trigger('keydown.enter')
+    expect(exportsApi.inspectExactNexusImage).not.toHaveBeenCalled()
+    await search.setValue('baseimage/softrust/sdk/sdk@sha256:garbage')
+    await search.trigger('keydown.enter')
+    expect(exportsApi.inspectExactNexusImage).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Укажите точное Docker image либо image:tag')
+    wrapper.unmount()
+  })
+
   it('opens exact tags on Enter and rejects malformed catalog search identities', async () => {
     vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
       available: true, items: [], message: null, truncated: false, next_cursor: null,
@@ -163,9 +207,9 @@ describe('NexusDockerBrowser', () => {
     const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
     await flushPromises()
     const input = wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]')
-    await input.setValue('baseimage/softrust/sdk/sdk:8.0.413')
+    await input.setValue('docker-proxy/v2/../baseimage:8.0.413')
     await input.trigger('keydown.enter')
-    expect(wrapper.text()).toContain('Укажите точное Docker image без tag')
+    expect(wrapper.text()).toContain('Укажите точное Docker image либо image:tag')
     expect(exportsApi.listNexusTags).not.toHaveBeenCalled()
     await input.setValue('baseimage/softrust/sdk/sdk')
     await input.trigger('keydown.enter')
@@ -173,7 +217,7 @@ describe('NexusDockerBrowser', () => {
     expect(exportsApi.listNexusTags).toHaveBeenCalledWith(
       'proxy-id', 'baseimage/softrust/sdk/sdk', '', undefined,
     )
-    expect(wrapper.text()).not.toContain('Укажите точное Docker image без tag')
+    expect(wrapper.text()).not.toContain('Укажите точное Docker image либо image:tag')
     wrapper.unmount()
   })
 
