@@ -84,7 +84,7 @@ function change(event: Event): void {
 .profile-selector { display: grid; gap: var(--space-2); max-width: 760px; }
 .profile-selector label { color: var(--color-text); font-weight: 700; }
 .profile-selector select {
-  min-height: 42px;
+  min-height: var(--control-height);
   width: 100%;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-md);
