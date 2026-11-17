@@ -914,7 +914,7 @@ onBeforeUnmount(() => {
               type="button"
               class="text-button"
               :aria-label="`Удалить ${artifact.reference}`"
-              @click="wizard.toggleArtifact(artifact, artifact.reference)"
+              @click="wizard.removeSelectedArtifact(artifact)"
             >
               Удалить
             </button>
