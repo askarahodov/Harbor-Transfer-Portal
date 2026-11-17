@@ -663,13 +663,14 @@ onMounted(() => void load())
 .selector-row { display: grid; grid-template-columns: auto minmax(240px, 1fr) auto; gap: var(--space-3); align-items: end; }
 .selector-row label { align-self: center; }
 select, input, textarea { border: 1px solid var(--color-border-control); border-radius: var(--radius-md); font: inherit; background: var(--color-surface); color: var(--color-text); }
-select, input { min-height: 42px; padding: 0 var(--space-3); }
+select, input { min-height: var(--control-height); padding: 0 var(--space-3); }
 textarea { width: 100%; padding: var(--space-3); resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .profile-list { display: grid; gap: var(--space-2); }
-.profile-row { display: flex; justify-content: space-between; gap: var(--space-4); align-items: center; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.profile-row { display: flex; justify-content: space-between; gap: var(--space-4); align-items: center; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); min-width: 0; }
+.profile-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
 .profile-row small { color: var(--color-text-muted); }
 .profile-row .profile-hint { margin-top: var(--space-2); font-size: 13px; color: var(--color-text-muted); }
-.row-actions { display: flex; gap: var(--space-2); }
+.row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
 .create-form { display: grid; gap: var(--space-4); padding-top: var(--space-5); border-top: 1px solid var(--color-border); }
 .editor-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
 .editor-intro { display: grid; gap: var(--space-2); min-width: 0; }
@@ -691,7 +692,7 @@ textarea { width: 100%; padding: var(--space-3); resize: vertical; font-family: 
 .editor-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
 .editor-actions .status { flex: 1 1 240px; }
 .editor-actions button { min-width: 180px; }
-button { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-action-surface); color: var(--color-on-accent); font: inherit; cursor: pointer; }
+button { min-height: var(--control-height); border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-action-surface); color: var(--color-on-accent); font: inherit; cursor: pointer; }
 button.secondary { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-control); }
 button.danger { color: var(--color-danger-text); }
 button:disabled { opacity: .55; cursor: not-allowed; }
