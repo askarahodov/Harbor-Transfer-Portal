@@ -187,7 +187,7 @@ describe('NexusDockerBrowser', () => {
     const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
     await flushPromises()
     const search = wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]')
-    await search.setValue('other.example.org/baseimage/softrust/sdk/sdk:8.0.413')
+    await search.setValue('https://other.example.org/baseimage/softrust/sdk/sdk:8.0.413')
     await search.trigger('keydown.enter')
     expect(exportsApi.inspectExactNexusImage).not.toHaveBeenCalled()
     await search.setValue('baseimage/softrust/sdk/sdk@sha256:garbage')
