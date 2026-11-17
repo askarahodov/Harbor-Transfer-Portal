@@ -6,7 +6,10 @@
 
 Фактическая структура экрана **Настройки** — Harbor profiles, readiness, default Harbor, credential/CA, keys, transfer policies, retention и TARGET mapping defaults — описана отдельно в [settings.md](settings.md).
 
-![Settings](img/screenshots/settings.png)
+![Settings baseline v1.0.0](img/screenshots/settings.png)
+
+*Скриншот относится к baseline v1.0.0. Интерфейс Nexus RC может отличаться;
+описание редактора RC приведено ниже и в [Settings](settings.md).*
 
 ## Администрирование Nexus на тестовом RC
 
