@@ -83,6 +83,7 @@ const visibleTags = computed(() =>
 const selectedRepository = ref('')
 const selectedTag = ref('')
 const inspection = ref<ExactNexusInspection | null>(null)
+const inspectionFromDirect = ref(false)
 const error = ref<string | null>(null)
 const tagError = ref<string | null>(null)
 const inspectionError = ref<string | null>(null)
@@ -115,6 +116,7 @@ function resetTag(): void {
   tagQuery.value = ''
   selectedTag.value = ''
   inspection.value = null
+  inspectionFromDirect.value = false
   inspectionError.value = null
   tagError.value = null
   tagCursor.value = null
@@ -302,12 +304,13 @@ async function inspectKnownImage(): Promise<void> {
   }
   // Exact inspect uses the configured Docker v2 connector and Skopeo; it does
   // not require permissions for /v2/_catalog, Nexus REST Search or tags/list.
-  await chooseTag(tag)
+  await chooseTag(tag, true)
 }
-async function chooseTag(tag: string): Promise<void> {
+async function chooseTag(tag: string, direct = false): Promise<void> {
   const id = props.profileId
   const repository = selectedRepository.value
   selectedTag.value = tag
+  inspectionFromDirect.value = direct
   inspection.value = null
   inspectionError.value = null
   const current = ++inspectionGeneration
@@ -511,7 +514,7 @@ onBeforeUnmount(() => {
       </p>
       <p v-if="inspectionError && selectedRepository === knownImage.trim()" role="alert">{{ inspectionError }}</p>
       <p v-if="inspectBusy && selectedRepository === knownImage.trim()" role="status">Проверяем digest в Nexus…</p>
-      <div v-if="inspection && inspection.repository === knownImage.trim()" class="nexus-browser__verified" role="status">
+      <div v-if="inspection && inspectionFromDirect && inspection.repository === knownImage.trim()" class="nexus-browser__verified" role="status">
         <strong>Проверен: {{ inspection.repository }}:{{ inspection.reference }}</strong>
         <code>{{ inspection.digest }}</code>
         <button type="button" class="secondary-button"
@@ -662,7 +665,7 @@ onBeforeUnmount(() => {
       </div>
       <p v-if="inspectionError" role="alert">{{ inspectionError }}</p>
       <p v-if="inspectBusy" role="status">Проверяем digest в Nexus…</p>
-      <div v-if="inspection && inspection.repository !== knownImage.trim()" class="nexus-browser__verified" role="status">
+      <div v-if="inspection && !inspectionFromDirect" class="nexus-browser__verified" role="status">
         <strong>Проверен: {{ inspection.repository }}:{{ inspection.reference }}</strong>
         <code>{{ inspection.digest }}</code>
         <button type="button" class="secondary-button"
