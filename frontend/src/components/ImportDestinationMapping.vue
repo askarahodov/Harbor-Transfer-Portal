@@ -503,7 +503,7 @@ onMounted(() => {
 }
 .mapping-field select,
 .mapping-table select {
-  min-height: 40px;
+  min-height: var(--control-height);
   width: 100%;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-md);
