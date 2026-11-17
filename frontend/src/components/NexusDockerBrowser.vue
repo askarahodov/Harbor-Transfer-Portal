@@ -465,6 +465,49 @@ onBeforeUnmount(() => {
         Обновить список
       </button>
     </header>
+    <section class="nexus-browser__direct" aria-label="Проверить известный Docker image Nexus">
+      
+      <h4>Проверить Docker image:tag напрямую</h4>
+      <p class="muted">
+        Введите точное имя и тег, например <code>baseimage/softrust/sdk/sdk</code> и
+        <code>8.0.413</code>. Имя Nexus repository (например, <code>docker-proxy</code>)
+        не входит в имя образа. Проверка не требует доступа к каталогу и ничего не записывает.
+      </p>
+      <form class="nexus-browser__direct-form" @submit.prevent="inspectKnownImage">
+        <label class="nexus-browser__label">
+          Имя Docker image внутри выбранного connector
+          <input v-model="knownImage" type="text" autocomplete="off" maxlength="255"
+            aria-label="Имя известного Docker image" placeholder="baseimage/softrust/sdk/sdk" />
+        </label>
+        <label class="nexus-browser__label">
+          Точный tag или sha256 digest
+          <input v-model="knownTag" type="text" autocomplete="off" maxlength="128"
+            aria-label="Точный tag Docker image" placeholder="8.0.413" />
+        </label>
+        <div class="nexus-browser__direct-actions">
+          <button type="button" class="secondary-button" :disabled="tagsBusy || bulkBusy || !knownImage.trim()"
+            @click="openKnownImage">Показать теги этого образа</button>
+          <button type="submit" class="secondary-button" :disabled="inspectBusy || bulkBusy || !knownImage.trim() || !knownTag.trim()">
+            {{ inspectBusy ? 'Проверяем…' : 'Проверить image и digest' }}
+          </button>
+        </div>
+      </form>
+      <p v-if="knownError" role="alert">{{ knownError }}</p>
+      <p v-if="selectedRepository === knownImage.trim() && tagError" role="status" class="muted">
+        Список тегов недоступен: {{ tagError }}. Если tag известен, введите его выше и проверьте digest напрямую.
+      </p>
+      <p v-if="inspectionError && selectedRepository === knownImage.trim()" role="alert">{{ inspectionError }}</p>
+      <p v-if="inspectBusy && selectedRepository === knownImage.trim()" role="status">Проверяем digest в Nexus…</p>
+      <div v-if="inspection && inspection.repository === knownImage.trim()" class="nexus-browser__verified" role="status">
+        <strong>Проверен: {{ inspection.repository }}:{{ inspection.reference }}</strong>
+        <code>{{ inspection.digest }}</code>
+        <button type="button" class="secondary-button"
+          @click="emit('add', inspection.repository, inspection.reference, inspection.digest)">
+          Добавить проверенный образ
+        </button>
+      </div>
+    </section>
+    <p class="muted">Поиск ниже фильтрует только доступный каталог; он не проверяет точный image:tag.</p>
     <section class="nexus-browser__picker" aria-label="Выбор Docker image Nexus">
       <div class="nexus-browser__picker-fields">
         <label class="nexus-browser__label">
@@ -488,7 +531,7 @@ onBeforeUnmount(() => {
       <p v-if="error" role="alert">{{ error }}</p>
       <p v-else role="status" class="muted">
         {{ repoBusy ? 'Загружаем доступные образы…' : `Найдено ${repositories.length} образов, прочитано страниц: ${pagesRead}` }}
-        {{ cursor ? '· список продолжается' : (pagesRead ? '· доступные страницы просмотрены' : '') }}
+        {{ cursor ? '· список продолжается' : (pagesRead ? '· доступные страницы просмотрены (не гарантирует наличие всех pull-доступных образов)' : '') }}
       </p>
       <p v-if="!restSearchConfigured" class="muted">
         Для более полного поиска укажите Nexus UI HTTPS URL и имя Docker repository
@@ -593,7 +636,7 @@ onBeforeUnmount(() => {
       </div>
       <p v-if="inspectionError" role="alert">{{ inspectionError }}</p>
       <p v-if="inspectBusy" role="status">Проверяем digest в Nexus…</p>
-      <div v-if="inspection" class="nexus-browser__verified" role="status">
+      <div v-if="inspection && inspection.repository !== knownImage.trim()" class="nexus-browser__verified" role="status">
         <strong>Проверен: {{ inspection.repository }}:{{ inspection.reference }}</strong>
         <code>{{ inspection.digest }}</code>
         <button type="button" class="secondary-button"
@@ -602,39 +645,6 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </section>
-    <details class="nexus-browser__direct" aria-label="Проверить известный Docker image Nexus">
-      <summary>Точный Docker image:tag, если дерево недоступно</summary>
-      <h4>Проверка образа по точному имени</h4>
-      <p class="muted">
-        Если в Nexus открыт <code>docker-proxy / v2 / baseimage</code>, здесь нужно ввести
-        <strong>baseimage</strong>. <code>docker-proxy</code> — имя Nexus repository,
-        а не часть имени образа и не Helm repository. Каталог может быть закрыт,
-        но проверка конкретного образа остаётся доступна.
-      </p>
-      <form class="nexus-browser__direct-form" @submit.prevent="inspectKnownImage">
-        <label class="nexus-browser__label">
-          Имя Docker image внутри выбранного connector
-          <input v-model="knownImage" type="text" autocomplete="off" maxlength="255"
-            aria-label="Имя известного Docker image" placeholder="baseimage" />
-        </label>
-        <label class="nexus-browser__label">
-          Точный tag или sha256 digest
-          <input v-model="knownTag" type="text" autocomplete="off" maxlength="128"
-            aria-label="Точный tag Docker image" placeholder="latest" />
-        </label>
-        <div class="nexus-browser__direct-actions">
-          <button type="button" class="secondary-button" :disabled="tagsBusy || bulkBusy || !knownImage.trim()"
-            @click="openKnownImage">Показать теги этого образа</button>
-          <button type="submit" class="secondary-button" :disabled="inspectBusy || bulkBusy || !knownImage.trim() || !knownTag.trim()">
-            {{ inspectBusy ? 'Проверяем…' : 'Проверить image и digest' }}
-          </button>
-        </div>
-      </form>
-      <p v-if="knownError" role="alert">{{ knownError }}</p>
-      <p v-if="selectedRepository === knownImage.trim() && tagError" role="status" class="muted">
-        Список тегов недоступен: {{ tagError }}. Если tag известен, введите его выше и проверьте digest напрямую.
-      </p>
-    </details>
     <p class="muted">
       Дерево показывает только видимые текущему профилю образы. Если listing proxy закрыт,
       откройте точную проверку image:tag. При просмотре и проверке digest запись не выполняется.
