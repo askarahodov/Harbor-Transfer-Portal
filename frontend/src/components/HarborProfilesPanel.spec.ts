@@ -105,7 +105,7 @@ describe('HarborProfilesPanel', () => {
     const edit = wrapper.findAll('.profile-row').find(item => item.text().includes('Harbor DC-2'))!
       .findAll('button').find(item => item.text() === 'Изменить')!
     await edit.trigger('click')
-    expect(editor.get('.editor-heading h3').text()).toBe('Редактирование профиля')
+    expect(editor.get('.editor-heading h3').text()).toBe('Изменить профиль реестра')
     expect(editor.find('.editor-actions button[type="submit"]').text()).toBe('Сохранить изменения')
     await editor.get('.form-grid select').setValue('nexus')
     expect(editor.findAll('.editor-section').map(item => item.get('h4').text()))
