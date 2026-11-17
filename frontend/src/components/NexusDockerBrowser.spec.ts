@@ -175,7 +175,7 @@ describe('NexusDockerBrowser', () => {
       props: { profileId: 'proxy-id', nexusRepository: 'docker-proxy' },
     })
     await flushPromises()
-    expect(wrapper.text()).toContain('docker-proxy / v2 / baseimage')
+    expect(wrapper.text()).toContain('Docker image:tag напрямую')
     await wrapper.get('input[aria-label="Имя известного Docker image"]').setValue('baseimage')
     await wrapper.get('input[aria-label="Точный tag Docker image"]').setValue('1.0.0')
     await wrapper.get('form.nexus-browser__direct-form').trigger('submit')
@@ -484,7 +484,7 @@ describe('NexusDockerBrowser', () => {
     const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'restricted' } })
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('Нет прав')
-    expect(wrapper.text()).toContain('Точный Docker image:tag, если дерево недоступно')
+    expect(wrapper.text()).toContain('Проверить Docker image:tag напрямую')
     expect(wrapper.emitted('add')).toBeUndefined()
     expect(exportsApi.inspectExactNexusImage).not.toHaveBeenCalled()
   })
