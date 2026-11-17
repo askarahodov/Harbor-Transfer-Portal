@@ -262,6 +262,62 @@ describe('export wizard store', () => {
     expect(store.selectedArtifacts).toEqual([])
   })
 
+  it('removes a Nexus Docker tag exactly once without creating a digest-only duplicate', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [{ id: 'nexus', name: 'Nexus proxy',
+        url: 'https://docker.example.test', registry_type: 'nexus', is_default: true }],
+    })
+    const store = useExportWizardStore()
+    await store.initialize()
+
+    expect(store.addExactNexusImage('baseimage/softrust/aspnet/wkhtml', '10.0', DIGEST))
+      .toBe(true)
+    expect(store.selectedCount).toBe(1)
+    const first = store.selectedArtifacts[0]!
+    store.removeSelectedArtifact(first)
+    expect(store.selectedCount).toBe(0)
+    expect(store.selectedArtifacts).toEqual([])
+    store.removeSelectedArtifact(first)
+    expect(store.selectedCount).toBe(0)
+    expect(store.addExactNexusImage('baseimage/softrust/aspnet/wkhtml', '10.0', DIGEST))
+      .toBe(true)
+    expect(store.selectedCount).toBe(1)
+  })
+
+  it('removes one of two Nexus tag aliases without removing or duplicating the other', async () => {
+    vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
+      items: [{ id: 'nexus', name: 'Nexus proxy',
+        url: 'https://docker.example.test', registry_type: 'nexus', is_default: true }],
+    })
+    const store = useExportWizardStore()
+    await store.initialize()
+
+    store.addExactNexusImage('baseimage/softrust/sdk/sdk', '8.0.413', DIGEST)
+    store.addExactNexusImage('baseimage/softrust/sdk/sdk', '10.0.100', DIGEST)
+    expect(store.selectedCount).toBe(2)
+    const first = store.selectedArtifacts.find(item => item.reference === '8.0.413')!
+    store.removeSelectedArtifact(first)
+    expect(store.selectedCount).toBe(1)
+    expect(store.selectedArtifacts.map(item => item.reference)).toEqual(['10.0.100'])
+    store.removeSelectedArtifact(first)
+    expect(store.selectedCount).toBe(1)
+  })
+
+  it('removes a Harbor selection by digest without changing its alias deduplication', () => {
+    const store = useExportWizardStore()
+    const alias = artifact('1.0.0')
+    store.addArtifact(alias, '1.0.0')
+    expect(store.selectedCount).toBe(1)
+    store.removeSelectedArtifact(store.selectedArtifacts[0]!)
+    expect(store.selectedCount).toBe(0)
+    store.removeSelectedArtifact({
+      kind: alias.kind, project: alias.project,
+      repository: alias.repository, reference: '1.0.0',
+      digest: alias.digest, size_bytes: alias.size,
+    })
+    expect(store.selectedCount).toBe(0)
+  })
+
   it('adds Nexus root and nested Docker images without inventing a Harbor-style project', async () => {
     vi.spyOn(exportsApi, 'listHarborProfiles').mockResolvedValue({
       items: [{
