@@ -470,10 +470,13 @@ function scheduleTagSearch(): void {
   tagTimer = setTimeout(() => { void readTags() }, 350)
 }
 watch([knownImage, knownTag], () => {
+  // Invalidate immediately: catalog image:tag paste sets both fields and
+  // starts an inspect in the same click. A deferred watcher could discard
+  // that fresh inspection after it starts.
   inspectionGeneration += 1
   inspection.value = null
   inspectionError.value = null
-})
+}, { flush: 'sync' })
 watch(() => props.profileId, () => {
   if (searchTimer) clearTimeout(searchTimer)
   if (tagTimer) clearTimeout(tagTimer)
