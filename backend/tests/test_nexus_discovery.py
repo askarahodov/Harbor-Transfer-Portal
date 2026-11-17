@@ -454,6 +454,70 @@ async def test_paged_docker_catalog_exposes_later_pages_beyond_first_hundred(dis
 
 
 @pytest.mark.asyncio
+async def test_scoped_rest_prefix_queries_nexus_index_and_checks_repository_scope(discovery):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/search"):
+            assert request.url.params["repository"] == "docker-proxy"
+            assert request.url.params["name"] == "baseimage/softrust/*"
+            return httpx.Response(200, json={
+                "items": [
+                    {"repository": "docker-proxy", "name": "baseimage/softrust/sdk/sdk",
+                     "version": "8.0.413"},
+                    {"repository": "other-secret", "name": "baseimage/softrust/secret",
+                     "version": "secret"},
+                    {"repository": "docker-proxy", "name": "another/image", "version": "latest"},
+                ],
+                "continuationToken": None,
+            })
+        return httpx.Response(404)
+
+    response["custom_handler"] = handler
+    result = await service.catalog_page("baseimage/softrust/")
+    assert result.available and result.items == ("baseimage/softrust/sdk/sdk",)
+    assert [request.url.path for request in seen] == [
+        "/service/rest/v1/search",
+        "/service/rest/v1/repositories/docker/group/docker-proxy",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_substring_does_not_use_prefix_only_nexus_query(discovery):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "name" not in request.url.params
+        return httpx.Response(200, json={
+            "items": [{"repository": "docker-proxy",
+                       "name": "baseimage/softrust/sdk/sdk", "version": "8.0.413"}],
+            "continuationToken": None,
+        })
+
+    response["custom_handler"] = handler
+    result = await service.catalog_page("softrust")
+    assert result.available and result.items == ("baseimage/softrust/sdk/sdk",)
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_invalid_prefix_never_injects_nexus_wildcard(discovery):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+    response["custom_handler"] = lambda request: httpx.Response(
+        200, json={"items": [], "continuationToken": None},
+    )
+    result = await service.catalog_page("baseimage/*/")
+    assert result.available and not result.items
+    assert "name" not in seen[0].url.params
+
+
+@pytest.mark.asyncio
 async def test_group_rest_search_preserves_member_images_tags_and_page_two(discovery):
     service, seen, response = discovery
     service.search_url = "https://nexus-ui.example.test"
