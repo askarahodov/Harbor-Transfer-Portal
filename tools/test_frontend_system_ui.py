@@ -219,6 +219,14 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertIn("@media (max-width: 768px)", docs_css)
         self.assertNotIn("#0B1E3A", docs_css)
         self.assertNotIn("#2563EB", docs_css)
+        # The bundled Docsify core theme must not override dark-mode article
+        # foregrounds with light-only Prism/table colors.
+        self.assertIn("@media (prefers-color-scheme: dark)", docs_css)
+        self.assertIn(".markdown-section pre code .token", docs_css)
+        self.assertIn(".markdown-section blockquote p", docs_css)
+        self.assertIn(".markdown-section td", docs_css)
+        self.assertIn("text-shadow: none;", docs_css)
+        self.assertIn("color: var(--color-text);", docs_css)
 
         self.assertNotIn("](#/", sidebar)
         markdown_links = re.findall(r"\]\((/[^)#?]+\.md)\)", sidebar)
