@@ -271,6 +271,13 @@ function openKnownImage(): void {
   }
 }
 
+function openSearchImage(): void {
+  const name = query.value.trim()
+  if (!validImageName.test(name)) return
+  knownImage.value = name
+  openKnownImage()
+}
+
 async function inspectKnownImage(): Promise<void> {
   if (bulkBusy.value) return
   const name = knownImage.value.trim()
@@ -533,6 +540,14 @@ onBeforeUnmount(() => {
         {{ repoBusy ? 'Загружаем доступные образы…' : `Найдено ${repositories.length} образов, прочитано страниц: ${pagesRead}` }}
         {{ cursor ? '· список продолжается' : (pagesRead ? '· доступные страницы просмотрены (не гарантирует наличие всех pull-доступных образов)' : '') }}
       </p>
+      <div v-if="query.trim() && validImageName.test(query.trim()) && !repositories.includes(query.trim())"
+        class="nexus-browser__exact-fallback">
+        <p class="muted">
+          Точное имя может отсутствовать в каталоге Nexus, даже если Docker pull работает.
+        </p>
+        <button type="button" class="secondary-button" :disabled="tagsBusy || bulkBusy"
+          @click="openSearchImage">Показать теги по точному имени</button>
+      </div>
       <p v-if="!restSearchConfigured" class="muted">
         Для более полного поиска укажите Nexus UI HTTPS URL и имя Docker repository
         в настройках профиля. Проверка известного image:tag доступна без каталога.
