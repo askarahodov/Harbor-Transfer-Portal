@@ -40,6 +40,36 @@
 и отдельной приёмки Helm HTTP. Успешный GET `index.yaml` доказывает доступ на
 чтение, но не подтверждает права на загрузку chart или полный handoff.
 
+## Nexus SOURCE: поиск образов в Docker proxy/group
+
+В Nexus Browse запись вида `docker-proxy / v2 / baseimage/softrust/sdk/sdk / tags / 8.0.413`
+означает Docker image `baseimage/softrust/sdk/sdk` с тегом `8.0.413`. Имя
+Nexus repository (`docker-proxy`), служебные `v2`/`tags` и hostname
+коннектора **не входят** в Docker image name.
+
+- Основной поиск Portal через Docker `/v2/_catalog` имеет ограниченные страницы.
+  В Nexus proxy/group и при различных ACL результат может не включать образ,
+  который успешно скачивается через `docker pull`. Ноль совпадений
+  **не доказывает** отсутствие образа.
+- Если известно точное имя, введите его в поле поиска (без `:tag`) и
+  нажмите **Enter** либо выберите `имя · проверить теги по имени` в том же
+  списке. Portal запросит `/v2/<image>/tags/list` на выбранном connector;
+  доступный тег затем проверяется по digest перед добавлением в экспорт.
+  Если перечисление тегов запрещено, укажите имя и точный tag в прямой
+  проверке выше — каталог для неё не требуется.
+- Для **неполного** поиска по большому Nexus администратор должен настроить
+  `nexus_search_url` как HTTPS root Nexus UI и
+  `nexus_search_repository` как **точное** имя Docker repository.
+  Тогда используется ограниченный Nexus REST Search с проверкой
+  repository identity/group membership. Это не расширяет ACL сервисного
+  пользователя и не делает чужие репозитории доступными.
+- Все операции Browse, чтение тегов и inspect — только чтение; SOURCE
+  export стартует отдельно после подтверждения digest и выбора артефактов.
+  Не отключайте TLS validation и не меняйте права только ради Browse.
+
+Эта возможность относится к Nexus staging-кандидату; успешная локальная
+проверка не заменяет региональную приёмку и physical handoff.
+
 ## Docker hosted: подготовка Nexus
 
 1. В Nexus UI откройте **Administration → Repositories → Create repository → docker (hosted)**.
