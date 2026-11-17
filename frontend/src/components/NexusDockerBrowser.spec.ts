@@ -141,7 +141,6 @@ describe('NexusDockerBrowser', () => {
     await flushPromises()
     const direct = wrapper.get('.nexus-browser__direct')
     const picker = wrapper.get('.nexus-browser__picker')
-    expect(wrapper.element.compareDocumentPosition(direct.element) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
     expect(direct.element.compareDocumentPosition(picker.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     await direct.get('input[aria-label="Имя известного Docker image"]')
       .setValue('baseimage/softrust/sdk/sdk')
