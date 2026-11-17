@@ -416,6 +416,19 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     preview.value = null
   }
 
+  function removeSelectedArtifact(selection: SelectedExportArtifact): void {
+    // Removal is idempotent. Nexus Docker/Helm selections are keyed by tag,
+    // whereas Harbor historically coalesces tag aliases by manifest digest.
+    // Never call toggleArtifact here: an absent digest-only key would ADD the
+    // supposedly deleted Nexus image back into the selection.
+    const key = selectedKey(selection, isNexus.value)
+    if (!Object.prototype.hasOwnProperty.call(selected.value, key)) return
+    const next = { ...selected.value }
+    delete next[key]
+    selected.value = next
+    preview.value = null
+  }
+
   function addArtifact(artifact: HarborArtifact, reference: string): void {
     if (artifact.kind === 'unknown-oci') return
     const selection: SelectedExportArtifact = {
@@ -801,6 +814,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     referencesFor,
     isSelected,
     toggleArtifact,
+    removeSelectedArtifact,
     addArtifact,
     addExactNexusHelmChart,
     addExactNexusImage,
