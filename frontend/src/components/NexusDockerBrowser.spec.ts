@@ -129,6 +129,37 @@ describe('NexusDockerBrowser', () => {
     wrapper.unmount()
   })
 
+  it('keeps exact image lookup primary and shows verified digest beside its form even when catalog is empty', async () => {
+    vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
+      available: true, items: [], message: null, truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.inspectExactNexusImage).mockResolvedValue({
+      repository: 'baseimage/softrust/sdk/sdk', reference: '8.0.413',
+      digest: DIGEST, media_type: null,
+    })
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    const direct = wrapper.get('.nexus-browser__direct')
+    const picker = wrapper.get('.nexus-browser__picker')
+    expect(wrapper.element.compareDocumentPosition(direct.element) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    expect(direct.element.compareDocumentPosition(picker.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await direct.get('input[aria-label="Имя известного Docker image"]')
+      .setValue('baseimage/softrust/sdk/sdk')
+    await direct.get('input[aria-label="Точный tag Docker image"]').setValue('8.0.413')
+    await direct.get('form.nexus-browser__direct-form').trigger('submit')
+    await flushPromises()
+    expect(exportsApi.inspectExactNexusImage).toHaveBeenCalledWith(
+      'proxy-id', 'baseimage/softrust/sdk/sdk', '8.0.413',
+    )
+    expect(direct.text()).toContain(DIGEST)
+    await direct.findAll('button').find(button => button.text() === 'Добавить проверенный образ')!
+      .trigger('click')
+    expect(wrapper.emitted('add')?.[0]).toEqual([
+      'baseimage/softrust/sdk/sdk', '8.0.413', DIGEST,
+    ])
+    wrapper.unmount()
+  })
+
   it('verifies baseimage directly on docker-proxy when Nexus browse and tags are forbidden', async () => {
     vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
       available: false, items: [], message: 'Каталог Docker v2 закрыт',
