@@ -535,15 +535,15 @@ onMounted(() => history.load(true))
 .eyebrow { margin: 0 0 var(--space-1); color: var(--color-action); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
 .filters { display: grid; grid-template-columns: repeat(6, minmax(130px, 1fr)); gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 .filters label { display: grid; gap: var(--space-1); font-size: 13px; font-weight: 600; }
-.filters input, .filters select { min-width: 0; padding: 10px 12px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
+.filters input, .filters select { min-width: 0; min-height: var(--control-height); padding: 0 var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
 .filter-search { grid-column: span 2; }
 .filter-actions { display: flex; align-items: end; gap: var(--space-2); grid-column: span 2; }
-.button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 40px; padding: 8px 14px; border: 1px solid transparent; border-radius: var(--radius-md); cursor: pointer; font: inherit; font-weight: 600; }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: var(--control-height); padding: 8px 14px; border: 1px solid transparent; border-radius: var(--radius-md); cursor: pointer; font: inherit; font-weight: 600; }
 .button:disabled { opacity: .5; cursor: not-allowed; }
 .button--primary { background: var(--color-action-surface); color: var(--color-on-accent); }
 .button--secondary { background: var(--color-surface); border-color: var(--color-border-control); color: var(--color-text); }
 .button--danger { background: var(--color-danger); border-color: var(--color-danger); color: var(--color-on-accent); }
-.button--compact { min-height: 34px; padding: 5px 9px; font-size: 12px; }
+.button--compact { min-height: var(--control-height-compact); padding: 5px 9px; font-size: 12px; }
 .download-actions, .row-actions, .lifecycle-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
 table { width: 100%; border-collapse: collapse; background: var(--color-surface); }
@@ -563,7 +563,7 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .drawer-backdrop { position: fixed; inset: 0; z-index: 30; display: flex; justify-content: flex-end; background: var(--color-overlay-backdrop); }
 .detail-drawer { width: min(900px, 96vw); height: 100%; overflow-y: auto; padding: var(--space-5); background: var(--color-background); box-shadow: var(--shadow-drawer); }
 .drawer-header { display: flex; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
-.icon-button { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
+.icon-button { display: grid; place-items: center; width: var(--control-height); height: var(--control-height); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
 .metadata-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0 0 var(--space-4); }
 .metadata-grid div, .bundle-card, .receipt-card, .report-card, .retry-card { padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .lifecycle-card { display: grid; gap: var(--space-3); margin: 0 0 var(--space-4); padding: var(--space-4); border: 1px solid var(--color-warning-text); border-radius: var(--radius-md); background: var(--color-warning-surface); }
