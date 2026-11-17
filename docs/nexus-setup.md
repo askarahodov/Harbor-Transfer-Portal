@@ -1,6 +1,25 @@
 # Nexus Repository — подготовка к приёмке (Draft)
 
-> **Не инструкция для production на `main`.** Nexus реализуется в [Draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451) и остаётся **NO-GO** до [региональной приёмки #436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436). В `main` Nexus profiles и classic Helm HTTP не являются выпускаемой функцией. Не переносите credentials или конфигурацию из корпоративных контуров в Issues/документацию.
+> **Не инструкция для production на `main`.** Nexus-кандидат интегрируется в [Draft PR #501](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/501) и дорабатывается в [Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503) и остаётся **NO-GO** до [региональной приёмки #436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436). В `main` Nexus profiles и classic Helm HTTP не являются выпускаемой функцией. Не переносите credentials или конфигурацию из корпоративных контуров в Issues/документацию.
+
+## Текущая проверка на отдельном RC (17.11.2026)
+
+- Инженерный статус: поиск и проверка точного `image:tag`, поиск по префиксу
+  при настроенном REST Search, чтение тегов и удаление выбранного образа
+  реализованы в Draft #503. Источник истины — код и тесты финального RC-коммита.
+- Оператор сообщил об успешном поиске по `baseimage/softrust`, проверке digest,
+  экспорте двух Docker-тегов из Nexus в подписанный Offline Bundle, TARGET
+  `VERIFIED 2/2` и повторном `SKIPPED 2/2` в Harbor. Это evidence
+  **одного тестового окружения**, не региональная приёмка на физических контурах.
+- Для поиска `baseimage/softrust/` через Nexus REST Search нужны одновременно:
+  HTTPS URL Nexus UI, точный repository (`docker-proxy` только если он реально
+  обслуживается выбранным connector), соответствующие ACL и индексированные
+  записи. Отсутствие результатов в `/_catalog` не доказывает отсутствие
+  образа; wildcard-поведение Nexus зависит от версии и настроек.
+- Кнопка удаления выбранного Nexus-артефакта должна убирать **конкретный тег**
+  без повторного добавления или изменения другого тега с тем же digest.
+  Редактор профилей использует единые группы «Подключение», «Параметры Nexus»,
+  «Доступ и TLS»; credential и CA при пустом поле не перезаписываются.
 
 ## 1. Не путайте Docker v2, Helm HTTP и OCI
 
