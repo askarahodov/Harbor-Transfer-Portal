@@ -526,91 +526,124 @@ onMounted(() => void load())
 
       <form ref="editorForm" class="create-form" novalidate @submit.prevent="saveProfile">
         <div class="editor-heading">
-          <h3>{{ editingId ? 'Изменить профиль реестра' : 'Добавить реестр' }}</h3>
-          <button v-if="editingId" type="button" class="secondary" @click="resetEditor">
+          <div class="editor-intro">
+            <h3>{{ editingId ? 'Редактирование профиля' : 'Новый профиль реестра' }}</h3>
+            <p class="status">
+              Настройте подключение, доступ и проверку сертификата. Изменения применяются после сохранения.
+            </p>
+          </div>
+          <button v-if="editingId" type="button" class="secondary" :disabled="savingProfile" @click="resetEditor">
             Отмена
           </button>
         </div>
-        <div class="form-grid">
-          <label>
-            Имя профиля
-            <input v-model="name" name="profile-name" type="text" maxlength="128" placeholder="Harbor DC-2" />
-          </label>
-          <label>
-            {{ registryType === 'nexus' && nexusFormat === 'docker'
-                ? 'Docker v2 connector URL (не Nexus UI)'
-                : registryType === 'nexus' ? 'Nexus UI HTTPS origin (Helm HTTP)' : 'URL' }}
-            <input v-model="url" type="url" :placeholder="registryType === 'nexus' && nexusFormat === 'docker'
-              ? 'https://docker-connector.example.internal:5000'
-              : registryType === 'nexus' ? 'https://nexus-ui.example.internal'
-                : 'https://harbor-dc2.local'" />
-          </label>
-          <label>
-            Тип реестра
-            <select v-model="registryType">
-              <option value="harbor">Harbor</option>
-              <option value="nexus">Sonatype Nexus</option>
-            </select>
-          </label>
-          <label v-if="registryType === 'nexus'">
-            Формат Nexus repository
-            <select v-model="nexusFormat" aria-label="Формат Nexus repository">
-              <option value="docker">Docker Registry v2</option>
-              <option value="helm">Helm HTTP (index.yaml, .tgz)</option>
-            </select>
-          </label>
-          <p v-if="registryType === 'nexus' && nexusFormat === 'helm'" class="profile-hint">
-            Для каждого Helm HTTP repository создайте отдельный профиль. URL — HTTPS origin
-            Nexus UI/API, а имя repository указывается ниже. Проверка читает только
-            index.yaml; Helm OCI и Docker Registry v2 для этого профиля не используются.
+
+        <section class="editor-section" aria-labelledby="registry-connection-title">
+          <div class="editor-section__heading">
+            <h4 id="registry-connection-title">Подключение</h4>
+            <p class="status">Основные параметры подключения к реестру.</p>
+          </div>
+          <div class="form-grid">
+            <label>
+              Имя профиля
+              <input v-model="name" name="profile-name" type="text" maxlength="128" placeholder="Nexus RC" />
+            </label>
+            <label>
+              Тип реестра
+              <select v-model="registryType">
+                <option value="harbor">Harbor</option>
+                <option value="nexus">Sonatype Nexus</option>
+              </select>
+            </label>
+            <label class="field-wide">
+              {{ registryType === 'nexus' && nexusFormat === 'docker'
+                  ? 'Docker v2 connector URL'
+                  : registryType === 'nexus' ? 'Nexus UI HTTPS origin' : 'URL реестра' }}
+              <input v-model="url" type="url" :placeholder="registryType === 'nexus' && nexusFormat === 'docker'
+                ? 'https://docker-connector.example.internal:5000'
+                : registryType === 'nexus' ? 'https://nexus-ui.example.internal'
+                  : 'https://harbor-dc2.local'" />
+              <small v-if="registryType === 'nexus' && nexusFormat === 'docker'">
+                Корневой URL Docker connector, не адрес интерфейса Nexus UI.
+              </small>
+            </label>
+          </div>
+        </section>
+
+        <section v-if="registryType === 'nexus'" class="editor-section" aria-labelledby="nexus-options-title">
+          <div class="editor-section__heading">
+            <h4 id="nexus-options-title">Параметры Nexus</h4>
+            <p class="status">Выберите протокол и репозиторий. Для каждого connector нужен отдельный профиль.</p>
+          </div>
+          <div class="form-grid">
+            <label>
+              Формат Nexus repository
+              <select v-model="nexusFormat" aria-label="Формат Nexus repository">
+                <option value="docker">Docker Registry v2</option>
+                <option value="helm">Helm HTTP (index.yaml, .tgz)</option>
+              </select>
+            </label>
+            <label>
+              {{ nexusFormat === 'helm'
+                ? 'Имя Helm HTTP repository (обязательно)'
+                : 'Имя Docker repository (необязательно)' }}
+              <input v-model="nexusSearchRepository" type="text" maxlength="128"
+                :placeholder="nexusFormat === 'helm' ? 'helm-hosted' : 'docker-proxy'" />
+              <small>Имя репозитория в Nexus, без /v2/ и имени образа.</small>
+            </label>
+            <label v-if="nexusFormat === 'docker'" class="field-wide">
+              Nexus UI HTTPS URL (необязательно)
+              <input v-model="nexusSearchUrl" type="url" placeholder="https://nexus-ui.example.internal" />
+              <small>Для поиска образов по неполному пути через Nexus REST Search. Отдельный адрес от Docker connector.</small>
+            </label>
+          </div>
+          <p v-if="nexusFormat === 'docker'" class="editor-note">
+            В Nexus Browse путь <code>docker-proxy / v2 / baseimage</code> означает образ
+            <code>baseimage</code> внутри repository <code>docker-proxy</code>.
+            Для проверки точного image:tag интерфейс Nexus UI не требуется.
           </p>
-          <p v-if="registryType === 'nexus' && nexusFormat === 'docker'" class="profile-hint">Nexus Browse: docker-proxy / v2 / baseimage означает Docker repository docker-proxy и image baseimage. В поле URL укажите корневой адрес HTTPS Docker v2 connector именно docker-proxy (проверка /v2/). Для каждого Docker repository hosted/proxy/group нужен отдельный профиль. Nexus UI HTTPS URL — отдельный необязательный адрес для административного списка и Helm HTTP; для проверки известного Docker image:tag он не требуется. Имя Docker repository (ниже) можно задать docker-proxy. Не используйте Helm OCI. Не отключайте TLS для обхода ошибок.</p>
-          <label v-if="registryType === 'nexus' && nexusFormat === 'docker'">
-            Nexus UI HTTPS URL (необязательно)
-            <input v-model="nexusSearchUrl" type="url" placeholder="https://nexus-ui.example.internal" />
+          <p v-else class="editor-note">
+            Helm HTTP использует <code>index.yaml</code> и <code>.tgz</code> через HTTPS Nexus UI.
+            Helm OCI и Docker Registry v2 для этого профиля не используются.
+          </p>
+        </section>
+
+        <section class="editor-section" aria-labelledby="registry-security-title">
+          <div class="editor-section__heading">
+            <h4 id="registry-security-title">Доступ и TLS</h4>
+            <p class="status">Существующие секреты не отображаются при редактировании.</p>
+          </div>
+          <div class="form-grid">
+            <label>
+              Service account
+              <input v-model="username" type="text" autocomplete="username" />
+            </label>
+            <label>
+              Credential
+              <input v-model="credential" type="password" autocomplete="new-password"
+                :placeholder="editingId ? 'Оставьте пустым, чтобы не менять' : 'Необязательно при создании'" />
+            </label>
+          </div>
+          <label class="checkbox-row">
+            <input v-model="verifyTls" type="checkbox" />
+            Проверять TLS-сертификат
           </label>
-          <label v-if="registryType === 'nexus'">
-            {{ nexusFormat === 'helm'
-              ? 'Имя Helm HTTP repository (обязательно)'
-              : 'Имя Docker repository, обслуживаемого этим connector (необязательно)' }}
-            <input v-model="nexusSearchRepository" type="text" maxlength="128"
-              :placeholder="nexusFormat === 'helm' ? 'helm-hosted' : 'docker-hosted'" />
+          <label class="ca-field" for="harbor-profile-ca">
+            Custom CA (PEM)
+            <textarea id="harbor-profile-ca" v-model="caPem" rows="5" spellcheck="false"
+              placeholder="-----BEGIN CERTIFICATE-----" />
+            <small>
+              Необязательно. Текущий CA не отображается: пустое поле сохраняет его без изменений.
+              Удаление выполняется отдельно в списке профилей.
+            </small>
           </label>
-          <label>
-            Service account
-            <input v-model="username" type="text" autocomplete="username" />
-          </label>
-          <label>
-            Credential
-            <input
-              v-model="credential"
-              type="password"
-              autocomplete="new-password"
-              :placeholder="editingId ? 'оставьте пустым, чтобы не менять' : 'необязательно при создании'"
-            />
-          </label>
+        </section>
+
+        <div class="editor-actions">
+          <p class="status">Проверьте адрес реестра и настройки сертификата перед сохранением.</p>
+          <button type="submit" :disabled="savingProfile">
+            {{ savingProfile ? 'Сохранение…' : editingId ? 'Сохранить изменения' : 'Добавить профиль' }}
+          </button>
         </div>
-        <label class="checkbox-row">
-          <input v-model="verifyTls" type="checkbox" />
-          Проверять TLS-сертификат
-        </label>
-        <label class="ca-field" for="harbor-profile-ca">
-          Custom CA (PEM)
-          <textarea
-            id="harbor-profile-ca"
-            v-model="caPem"
-            rows="6"
-            spellcheck="false"
-            placeholder="-----BEGIN CERTIFICATE-----"
-          />
-          <small>
-            Необязательно. Существующий CA никогда не читается обратно: оставьте поле пустым,
-            чтобы не менять его. Для удаления используйте действие в строке profile.
-          </small>
-        </label>
-        <button type="submit" :disabled="savingProfile">
-          {{ savingProfile ? 'Сохранение…' : editingId ? 'Сохранить изменения' : 'Добавить профиль' }}
-        </button>
         <p v-if="feedbackLocation === 'editor' && message" class="success" role="status">{{ message }}</p>
         <p v-if="feedbackLocation === 'editor' && error" class="error" role="alert">{{ error }}</p>
       </form>
@@ -637,12 +670,24 @@ textarea { width: 100%; padding: var(--space-3); resize: vertical; font-family: 
 .profile-row small { color: var(--color-text-muted); }
 .profile-row .profile-hint { margin-top: var(--space-2); font-size: 13px; color: var(--color-text-muted); }
 .row-actions { display: flex; gap: var(--space-2); }
-.create-form { display: grid; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
-.editor-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
-.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
-.form-grid label, .ca-field { display: grid; gap: var(--space-2); }
-.ca-field small { color: var(--color-text-muted); }
-.checkbox-row { display: flex; gap: var(--space-2); align-items: center; }
+.create-form { display: grid; gap: var(--space-4); padding-top: var(--space-5); border-top: 1px solid var(--color-border); }
+.editor-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
+.editor-intro { display: grid; gap: var(--space-2); min-width: 0; }
+.editor-section { display: grid; gap: var(--space-4); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); min-width: 0; }
+.editor-section__heading { display: grid; gap: var(--space-1); }
+.editor-section__heading h4 { margin: 0; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.form-grid label, .ca-field { display: grid; gap: var(--space-2); min-width: 0; }
+.form-grid .field-wide { grid-column: 1 / -1; }
+.form-grid input, .form-grid select, .ca-field textarea { width: 100%; min-width: 0; }
+.form-grid small, .ca-field small { color: var(--color-text-muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
+.editor-note { margin: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-muted); background: var(--color-surface); line-height: 1.6; overflow-wrap: anywhere; }
+.editor-note code { overflow-wrap: anywhere; }
+.checkbox-row { display: flex; gap: var(--space-2); align-items: center; font-weight: 500; }
+.checkbox-row input { width: 16px; height: 16px; min-height: 16px; flex: 0 0 auto; }
+.editor-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
+.editor-actions .status { flex: 1 1 240px; }
+.editor-actions button { min-width: 180px; }
 button { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-action-surface); color: var(--color-on-accent); font: inherit; cursor: pointer; }
 button.secondary { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-control); }
 button.danger { color: var(--color-danger-text); }
@@ -652,8 +697,10 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .error { border: 1px solid var(--color-danger-text); color: var(--color-danger-text); }
 @media (max-width: 720px) {
   .profiles-heading, .profile-row { align-items: stretch; flex-direction: column; }
-  .selector-row { grid-template-columns: 1fr; }
-  .row-actions { flex-wrap: wrap; }
+  .selector-row, .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .row-actions, .editor-heading { flex-wrap: wrap; }
+  .editor-section { padding: var(--space-3); }
+  .editor-actions button { width: 100%; }
 }
 
 .spinner-inline {
