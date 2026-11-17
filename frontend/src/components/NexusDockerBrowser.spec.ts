@@ -198,6 +198,32 @@ describe('NexusDockerBrowser', () => {
     wrapper.unmount()
   })
 
+  it('keeps table-tag verification beside the versions even after direct lookup fields are filled', async () => {
+    vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
+      available: true, items: [], message: null, truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
+      available: true, items: ['8.0.413'], message: null, truncated: false, next_cursor: null,
+    })
+    vi.mocked(exportsApi.inspectExactNexusImage).mockResolvedValue({
+      repository: 'baseimage/softrust/sdk/sdk', reference: '8.0.413',
+      digest: DIGEST, media_type: null,
+    })
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('input[aria-label="Имя известного Docker image"]')
+      .setValue('baseimage/softrust/sdk/sdk')
+    await wrapper.findAll('button').find(button => button.text() === 'Показать теги этого образа')!
+      .trigger('click')
+    await flushPromises()
+    await wrapper.get('button.nexus-browser__tag-link').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.nexus-browser__versions .nexus-browser__verified').text())
+      .toContain(DIGEST)
+    expect(wrapper.find('.nexus-browser__direct .nexus-browser__verified').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('opens exact image tags from an empty catalog search without requiring a catalog match', async () => {
     vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
       available: true, items: [], message: null, truncated: false, next_cursor: null,
