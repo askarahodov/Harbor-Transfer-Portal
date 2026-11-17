@@ -20,6 +20,7 @@ const tagQuery = ref('')
 const knownImage = ref('')
 const knownTag = ref('')
 const knownError = ref<string | null>(null)
+const catalogExactError = ref<string | null>(null)
 const validImageName = /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/
 const validTagOrDigest = /^(?:[A-Za-z0-9_][A-Za-z0-9._-]{0,127}|sha256:[a-f0-9]{64})$/
 const repositories = ref<string[]>([])
@@ -273,7 +274,11 @@ function openKnownImage(): void {
 
 function openSearchImage(): void {
   const name = query.value.trim()
-  if (!validImageName.test(name)) return
+  catalogExactError.value = null
+  if (!validImageName.test(name)) {
+    catalogExactError.value = 'Укажите точное Docker image без tag, /v2/ и имени Nexus repository.'
+    return
+  }
   knownImage.value = name
   openKnownImage()
 }
@@ -425,6 +430,7 @@ async function addCandidates(): Promise<void> {
 }
 
 function scheduleSearch(): void {
+  catalogExactError.value = null
   if (searchTimer) clearTimeout(searchTimer)
   resetCatalog(true)
   searchTimer = setTimeout(() => { void searchAcrossPages() }, 350)
@@ -447,6 +453,7 @@ watch(() => props.profileId, () => {
   knownImage.value = ''
   knownTag.value = ''
   knownError.value = null
+  catalogExactError.value = null
   query.value = ''
   resetCatalog()
   if (props.profileId) void readCatalog()
@@ -473,7 +480,6 @@ onBeforeUnmount(() => {
       </button>
     </header>
     <section class="nexus-browser__direct" aria-label="Проверить известный Docker image Nexus">
-      
       <h4>Проверить Docker image:tag напрямую</h4>
       <p class="muted">
         Введите точное имя и тег, например <code>baseimage/softrust/sdk/sdk</code> и
@@ -522,19 +528,22 @@ onBeforeUnmount(() => {
           <input v-model="query" type="search" autocomplete="off"
             aria-label="Поиск Docker-образов Nexus"
             placeholder="Например, baseimage или cbl-mariner/base/redis"
-            @input="scheduleSearch" />
+            @input="scheduleSearch" @keydown.enter.prevent="openSearchImage" />
         </label>
         <label class="nexus-browser__label">
           Docker image / репозиторий
           <select :value="selectedRepository" aria-label="Выбрать Docker image Nexus"
             @change="chooseImage(($event.target as HTMLSelectElement).value)">
             <option value="">Выберите образ</option>
+            <option v-if="query.trim() && validImageName.test(query.trim()) && !repositories.includes(query.trim()) && selectedRepository !== query.trim()"
+              :value="query.trim()">{{ query.trim() }} · проверить теги по имени</option>
             <option v-if="selectedRepository && !repositories.includes(selectedRepository)"
               :value="selectedRepository">{{ selectedRepository }} · выбран</option>
             <option v-for="name in repositories" :key="name" :value="name">{{ name }}</option>
           </select>
         </label>
       </div>
+      <p v-if="catalogExactError" role="alert">{{ catalogExactError }}</p>
       <p v-if="error" role="alert">{{ error }}</p>
       <p v-else role="status" class="muted">
         {{ repoBusy ? 'Загружаем доступные образы…' : `Найдено ${repositories.length} образов, прочитано страниц: ${pagesRead}` }}
@@ -544,6 +553,8 @@ onBeforeUnmount(() => {
         class="nexus-browser__exact-fallback">
         <p class="muted">
           Точное имя может отсутствовать в каталоге Nexus, даже если Docker pull работает.
+          Выберите его в списке или нажмите кнопку ниже; Enter также откроет теги.
+          Права на теги и digest проверяются отдельно.
         </p>
         <button type="button" class="secondary-button" :disabled="tagsBusy || bulkBusy"
           @click="openSearchImage">Показать теги по точному имени</button>
