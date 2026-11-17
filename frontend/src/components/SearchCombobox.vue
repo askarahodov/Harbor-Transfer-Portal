@@ -165,7 +165,7 @@ async function toggle(): Promise<void> {
 <style scoped>
 .search-combobox { position: relative; min-width: 0; }
 .search-combobox__label { display: block; margin-bottom: var(--space-1); font-size: 12px; font-weight: 700; color: var(--color-text-muted); }
-.search-combobox__control { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; padding-left: var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); }
+.search-combobox__control { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-height); padding-left: var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); }
 .search-combobox__control:focus-within { outline: 2px solid var(--color-focus-ring); outline-offset: 1px; }
 .search-combobox__control input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-text); }
 .search-combobox__control button, .search-combobox__pagination button { border: 0; background: transparent; color: var(--color-action); cursor: pointer; }
