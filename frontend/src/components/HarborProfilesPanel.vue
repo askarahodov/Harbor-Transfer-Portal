@@ -677,9 +677,12 @@ textarea { width: 100%; padding: var(--space-3); resize: vertical; font-family: 
 .editor-section__heading { display: grid; gap: var(--space-1); }
 .editor-section__heading h4 { margin: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
-.form-grid label, .ca-field { display: grid; gap: var(--space-2); min-width: 0; }
+.form-grid label { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: var(--space-2); min-width: 0; }
+.ca-field { display: grid; gap: var(--space-2); min-width: 0; }
 .form-grid .field-wide { grid-column: 1 / -1; }
 .form-grid input, .form-grid select, .ca-field textarea { width: 100%; min-width: 0; }
+.form-grid input, .form-grid select { height: var(--control-height); min-height: var(--control-height); flex: 0 0 auto; }
+.form-grid label > small { margin: 0; }
 .form-grid small, .ca-field small { color: var(--color-text-muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
 .editor-note { margin: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-muted); background: var(--color-surface); line-height: 1.6; overflow-wrap: anywhere; }
 .editor-note code { overflow-wrap: anywhere; }
