@@ -3,7 +3,7 @@
 > **Состояние: NO-GO / региональная приёмка не выполнена.**
 > Этот документ — исполняемый протокол и форма сбора доказательств, но **не**
 > свидетельство доступа к корпоративным системам. Изменения находятся в
-> [draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451),
+> [integration Draft #501](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/501) и [Nexus UX Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503),
 > не в production или \`main\`. Без подписанного разрешения владельца контуров
 > и фактических тестов в региональной сети статус не может стать GO.
 
@@ -616,7 +616,7 @@ Nexus formats/types/versions и полномочий сервисного пол
 
 ## 9. Harbor ↔ Nexus — real Core/robot test and external limits
 
-В draft PR #451 обязательный E2E включает два разных тестовых режима:
+В Nexus-интеграционном Draft #501 обязательный E2E включает два разных тестовых режима:
 
 - **Независимый Docker Distribution 2.8.3** с Harbor-профилем,
   стабилизированными REST metadata и project/RBAC — проверка транспорта,
