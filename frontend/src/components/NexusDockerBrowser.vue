@@ -23,6 +23,23 @@ const knownError = ref<string | null>(null)
 const catalogExactError = ref<string | null>(null)
 const validImageName = /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/
 const validTagOrDigest = /^(?:[A-Za-z0-9_][A-Za-z0-9._-]{0,127}|sha256:[a-f0-9]{64})$/
+function parseExactImageReference(input: string): { image: string; reference: string } | null {
+  const candidate = input.trim()
+  const at = candidate.indexOf('@')
+  if (at > 0) {
+    const image = candidate.slice(0, at)
+    const reference = candidate.slice(at + 1)
+    return validImageName.test(image) && /^sha256:[a-f0-9]{64}$/.test(reference)
+      ? { image, reference } : null
+  }
+  const colon = candidate.lastIndexOf(':')
+  if (colon <= 0) return null
+  const image = candidate.slice(0, colon)
+  const reference = candidate.slice(colon + 1)
+  return validImageName.test(image) && validTagOrDigest.test(reference)
+    ? { image, reference } : null
+}
+const searchExactReference = computed(() => parseExactImageReference(query.value))
 const repositories = ref<string[]>([])
 type ImageTreeNode = { path: string; label: string; depth: number; isImage: boolean; children: ImageTreeNode[] }
 const collapsedPaths = ref<string[]>([])
@@ -277,8 +294,15 @@ function openKnownImage(): void {
 function openSearchImage(): void {
   const name = query.value.trim()
   catalogExactError.value = null
+  const exact = parseExactImageReference(name)
+  if (exact) {
+    knownImage.value = exact.image
+    knownTag.value = exact.reference
+    void inspectKnownImage()
+    return
+  }
   if (!validImageName.test(name)) {
-    catalogExactError.value = 'Укажите точное Docker image без tag, /v2/ и имени Nexus repository.'
+    catalogExactError.value = 'Укажите точное Docker image либо image:tag (без hostname и /v2/).'
     return
   }
   knownImage.value = name
@@ -523,14 +547,14 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </section>
-    <p class="muted">Поиск ниже фильтрует только доступный каталог; он не проверяет точный image:tag.</p>
+    <p class="muted">Поиск ниже показывает доступный каталог. Точный image:tag можно проверить здесь же, даже если каталог пуст.</p>
     <section class="nexus-browser__picker" aria-label="Выбор Docker image Nexus">
       <div class="nexus-browser__picker-fields">
         <label class="nexus-browser__label">
           Поиск Docker image
           <input v-model="query" type="search" autocomplete="off"
             aria-label="Поиск Docker-образов Nexus"
-            placeholder="Например, baseimage или cbl-mariner/base/redis"
+            placeholder="Например, baseimage/softrust/sdk/sdk:8.0.413"
             @input="scheduleSearch" @keydown.enter.prevent="openSearchImage" />
         </label>
         <label class="nexus-browser__label">
@@ -552,15 +576,16 @@ onBeforeUnmount(() => {
         {{ repoBusy ? 'Загружаем доступные образы…' : `Найдено ${repositories.length} образов, прочитано страниц: ${pagesRead}` }}
         {{ cursor ? '· список продолжается' : (pagesRead ? '· доступные страницы просмотрены (не гарантирует наличие всех pull-доступных образов)' : '') }}
       </p>
-      <div v-if="query.trim() && validImageName.test(query.trim()) && !repositories.includes(query.trim())"
+      <div v-if="query.trim() && (validImageName.test(query.trim()) || searchExactReference) && !repositories.includes(query.trim())"
         class="nexus-browser__exact-fallback">
         <p class="muted">
-          Точное имя может отсутствовать в каталоге Nexus, даже если Docker pull работает.
-          Выберите его в списке или нажмите кнопку ниже; Enter также откроет теги.
-          Права на теги и digest проверяются отдельно.
+          Каталог Nexus может не содержать образ, доступный через Docker pull.
+          Укажите image для чтения тегов или image:tag для прямой проверки SHA-256.
+          Точный reference не добавляется в экспорт без успешной проверки digest.
         </p>
-        <button type="button" class="secondary-button" :disabled="tagsBusy || bulkBusy"
-          @click="openSearchImage">Показать теги по точному имени</button>
+        <button type="button" class="secondary-button"
+          :disabled="tagsBusy || bulkBusy || (Boolean(searchExactReference) && inspectBusy)"
+          @click="openSearchImage">{{ searchExactReference ? 'Проверить image:tag и digest' : 'Показать теги по точному имени' }}</button>
       </div>
       <p v-if="!restSearchConfigured" class="muted">
         Для более полного поиска укажите Nexus UI HTTPS URL и имя Docker repository
