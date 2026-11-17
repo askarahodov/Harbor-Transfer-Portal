@@ -591,8 +591,9 @@ onBeforeUnmount(() => {
           @click="openSearchImage">{{ searchExactReference ? 'Проверить image:tag и digest' : 'Показать теги по точному имени' }}</button>
       </div>
       <p v-if="!restSearchConfigured" class="muted">
-        Для более полного поиска укажите Nexus UI HTTPS URL и имя Docker repository
-        в настройках профиля. Проверка известного image:tag доступна без каталога.
+        Для поиска по началу пути (например, baseimage/softrust/) укажите
+        Nexus UI HTTPS URL и точный Docker repository в настройках профиля.
+        Без них /v2/_catalog может не показывать доступные образы.
       </p>
       <button v-if="cursor" type="button" class="secondary-button"
         :disabled="repoBusy" @click="searchAcrossPages(true)">
