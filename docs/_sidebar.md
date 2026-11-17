@@ -15,6 +15,7 @@
 
 - **Администрирование**
   - [Настройки](/docs/settings.md)
+  - [Единые UI/UX правила](/docs/ui-design-system.md)
   - [Harbor profiles](/docs/harbor-profiles.md)
   - [Ключи и доверие](/docs/key-management.md)
   - [Runtime SOURCE/TARGET](/docs/runtime-mode.md)
@@ -29,6 +30,7 @@
   - [Development](/docs/development.md)
   - [Testing и CI](/docs/testing.md)
   - [Release notes v1.0.0](/docs/release-notes-v1.0.0.md)
+  - [Nexus setup для RC](/docs/nexus-setup.md)
   - [Nexus release candidate — статус и приёмка](/docs/nexus-release-readiness-2026-11-03.md)
   - [Региональный runbook Nexus 3.69 OSS](/docs/nexus-regional-acceptance-runbook.md)
   - [Docker Compose deployment](/deploy/README.md)
