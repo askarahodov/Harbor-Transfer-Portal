@@ -129,7 +129,7 @@ async function createProject(project: string): Promise<void> {
 .project-create__item { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(240px, 1.3fr) auto; gap: var(--space-3); align-items: end; padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface); }
 .project-create__item small, .project-create__item label span { display: block; color: var(--color-text-muted); font-size: 12px; }
 .project-create__item label { display: grid; gap: var(--space-1); }
-.project-create__item input { min-height: 40px; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; }
+.project-create__item input { min-height: var(--control-height); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; }
 .project-create__operator-note { margin-top: var(--space-3); color: var(--color-text); }
 .project-create__operator-note p { margin: 0; }
 .project-create__error { margin: var(--space-3) 0 0; color: var(--color-danger); }
