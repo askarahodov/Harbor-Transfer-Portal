@@ -443,7 +443,7 @@ describe('SOURCE export wizard view', () => {
     const first = mountView()
     await flushPromises()
     expect(first.get('.nexus-browser__heading').text()).toContain('текущий Docker connector')
-    expect(first.text()).toContain('Для более полного поиска укажите Nexus UI HTTPS URL')
+    expect(first.text()).toContain('Для поиска по началу пути')
     first.unmount()
 
     // The profile is edited in Settings, but Pinia is retained during SPA navigation.
@@ -451,7 +451,7 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
     expect(list).toHaveBeenCalledTimes(2)
     expect(second.get('.nexus-browser__heading').text()).toContain('docker-proxy')
-    expect(second.text()).not.toContain('Для более полного поиска укажите Nexus UI HTTPS URL')
+    expect(second.text()).not.toContain('Для поиска по началу пути')
     expect(second.get('#export-harbor-profile').element).toHaveProperty('value', 'nexus-profile')
     second.unmount()
   })
