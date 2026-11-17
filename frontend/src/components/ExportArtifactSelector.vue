@@ -155,7 +155,7 @@ function addCandidates(): void {
 <style scoped>
 .artifact-selector { display: grid; gap: var(--space-3); min-width: 0; }
 .artifact-selector__search { display: grid; gap: var(--space-2); font-weight: 700; }
-.artifact-selector__search input { width: 100%; min-height: 44px; padding: 0 var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; }
+.artifact-selector__search input { width: 100%; min-height: var(--control-height-large); padding: 0 var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; }
 .artifact-selector__table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .artifact-selector__table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 13px; }
 .artifact-selector__table th, .artifact-selector__table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: middle; }
@@ -175,7 +175,7 @@ function addCandidates(): void {
 .artifact-selector__candidate > div { display: flex; min-width: 0; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); }
 .artifact-selector__candidate span { color: var(--color-text-muted); font-size: 12px; }
 .artifact-selector__candidate code { overflow-wrap: anywhere; font-size: 12px; }
-.artifact-selector__add { min-height: 36px; padding: 0 var(--space-3); border: 1px solid var(--color-action); border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); font-weight: 700; cursor: pointer; }
+.artifact-selector__add { min-height: var(--control-height-compact); padding: 0 var(--space-3); border: 1px solid var(--color-action); border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); font-weight: 700; cursor: pointer; }
 .artifact-selector__pagination { display: flex; align-items: center; justify-content: center; gap: var(--space-3); color: var(--color-text-muted); font-size: 12px; }
 .artifact-selector__pagination button { border: 0; background: transparent; color: var(--color-action); cursor: pointer; }
 .artifact-selector__unsupported { display: grid; gap: var(--space-1); color: var(--color-text-muted); font-size: 12px; }
