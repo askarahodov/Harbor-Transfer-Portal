@@ -7,6 +7,20 @@ Harbor Transfer Portal может хранить несколько именов
 управляет profile metadata/secrets в **Настройки**, а operator/admin выбирает конкретный
 Harbor непосредственно в SOURCE Export или TARGET Import.
 
+## Различие поведения в актуальном Nexus RC
+
+В Nexus-кандидате (интеграция [Draft #501](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/501),
+доработка [Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503))
+реализован отдельный SOURCE Nexus Docker v2 workflow. Это **не меняет**
+описанный ниже контракт `main`, где полный Nexus workflow ещё не выпущен.
+Проверка сохранённого профиля по `GET /v2/` подтверждает только доступность
+connector, а не каталог и не право pull/push конкретного образа.
+Поле `nexus_search_url` задаёт HTTPS Nexus UI origin для индексного
+поиска; `nexus_search_repository` — точное имя Docker repository.
+Для Helm HTTP используется отдельный профиль.
+Сохранение credential/CA и выбор Harbor profile остаются неизменными.
+Операторские шаги: [Nexus setup](nexus-setup.md).
+
 ## Различие Harbor и Nexus в текущем `main`
 
 Registry profile содержит явный `registry_type=harbor|nexus`. Название профиля или адрес
