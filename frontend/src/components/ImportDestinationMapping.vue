@@ -465,7 +465,7 @@ onMounted(() => {
   display: inline-grid;
   place-items: center;
   min-width: 40px;
-  min-height: 40px;
+  min-height: var(--control-height);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-md);
   background: var(--color-surface);
