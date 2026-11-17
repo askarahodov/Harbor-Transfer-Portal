@@ -276,6 +276,19 @@ class NexusDiscoveryService:
 
         return allowed, None
 
+    @staticmethod
+    def _rest_name_query(repository: str | None, search: str) -> str | None:
+        """Query Nexus by explicit path prefix, never assume arbitrary substrings are prefixes."""
+        if repository is not None:
+            return repository
+        prefix = search.rstrip("/")
+        if (
+            search.endswith("/") and len(prefix) >= 3
+            and _REPOSITORY.fullmatch(prefix) is not None
+        ):
+            return prefix + "/*"
+        return None
+
     async def _rest_page(
         self, repository: str | None, search: str, cursor: str | None,
     ) -> DiscoveryResult:
@@ -299,8 +312,9 @@ class NexusDiscoveryService:
         params = {"repository": self.search_repository, "format": "docker"}
         # Exact image name is a Nexus-native search criterion: enumerate only
         # this image's versions, not all versions of a large proxy repository.
-        if repository is not None:
-            params["name"] = repository
+        name_filter = self._rest_name_query(repository, search)
+        if name_filter is not None:
+            params["name"] = name_filter
         if cursor is not None:
             params["continuationToken"] = cursor
         try:
@@ -461,8 +475,9 @@ class NexusDiscoveryService:
             ) as client:
                 for page in range(5):
                     params = {"repository": self.search_repository, "format": "docker"}
-                    if repository is not None:
-                        params["name"] = repository
+                    name_filter = self._rest_name_query(repository, search)
+                    if name_filter is not None:
+                        params["name"] = name_filter
                     if token:
                         params["continuationToken"] = token
                     response = await client.get(
