@@ -527,7 +527,7 @@ onMounted(() => void load())
       <form ref="editorForm" class="create-form" novalidate @submit.prevent="saveProfile">
         <div class="editor-heading">
           <div class="editor-intro">
-            <h3>{{ editingId ? 'Редактирование профиля' : 'Новый профиль реестра' }}</h3>
+            <h3>{{ editingId ? 'Изменить профиль реестра' : 'Добавить реестр' }}</h3>
             <p class="status">
               Настройте подключение, доступ и проверку сертификата. Изменения применяются после сохранения.
             </p>
