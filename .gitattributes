@@ -1,0 +1,3 @@
+# Linux container scripts must keep LF on Windows with core.autocrlf=true.
+*.sh text eol=lf
+Dockerfile text eol=lf
