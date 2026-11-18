@@ -219,9 +219,30 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertIn("@media (max-width: 768px)", docs_css)
         self.assertNotIn("#0B1E3A", docs_css)
         self.assertNotIn("#2563EB", docs_css)
-        # The bundled Docsify core theme must not override dark-mode article
-        # foregrounds with light-only Prism/table colors.
-        self.assertIn("@media (prefers-color-scheme: dark)", docs_css)
+        # Docsify vendor styles need readable article colors regardless of
+        # system preference or a forced light/dark theme.
+        self.assertIn("html[data-theme='dark']", docs_css)
+        self.assertIn("html[data-theme='light']", docs_css)
+        self.assertIn("data-theme-choice=\"system\"", docs_index)
+        self.assertIn("data-theme-choice=\"light\"", docs_index)
+        self.assertIn("data-theme-choice=\"dark\"", docs_index)
+        self.assertIn('src="/theme-control.js"', docs_index)
+        self.assertIn("syncDocsTheme", docs_index)
+        self.assertIn("htp-theme-change", docs_index)
+        shared_script = (_REPOSITORY_ROOT / "frontend/public/theme-control.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("htp.ui.theme.v1", shared_script)
+        self.assertIn("window.addEventListener('storage'", shared_script)
+        self.assertIn("document.documentElement.setAttribute('data-theme'", shared_script)
+        portal_index = (_REPOSITORY_ROOT / "frontend/index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('src="/theme-control.js"', portal_index)
+        self.assertLess(
+            portal_index.index('src="/theme-control.js"'),
+            portal_index.index('src="/src/main.ts"'),
+        )
         self.assertIn(".markdown-section pre code .token", docs_css)
         self.assertIn(".markdown-section blockquote p", docs_css)
         self.assertIn(".markdown-section td", docs_css)
