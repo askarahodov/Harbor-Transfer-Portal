@@ -44,8 +44,10 @@ async def test_real_classic_helm_source_to_target_and_idempotent_replay(
     uploaded = await source.upload_chart("htp-helm-source", "htp-test", "1.0.0", package)
     assert uploaded == expected
 
-    source_index = await source.list_charts("htp-helm-source")
-    assert source_index.available
+    # The same read-only metadata + index probe used by the settings screen
+    # must recognize a real legacy Nexus Helm repository.
+    source_index = await source.probe_repository("htp-helm-source")
+    assert source_index.available, source_index.message
     assert any(item.name == "htp-test" and item.digest == expected
                for item in source_index.items)
 
