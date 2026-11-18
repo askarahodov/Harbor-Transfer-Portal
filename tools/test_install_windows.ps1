@@ -66,7 +66,7 @@ exit /b 0
     $initial = [IO.File]::ReadAllText($envPath)
     Check ($initial.Contains('PORTAL_CONTOUR=TARGET')) 'Bootstrap contour not saved'
     Check ($initial.Contains('PORTAL_VERSION=1.0.0')) 'Version not saved'
-    Check ($initial -match '(?m)^JWT_SECRET=[a-f0-9]{64}\r?) 'Strong JWT secret missing'
+    Check ($initial -match '(?m)^JWT_SECRET=[a-f0-9]{64}\r?$') 'Strong JWT secret missing'
     $dockerLog = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
     Check ($dockerLog.Contains('load -i images/backend.tar')) 'Backend image not loaded'
     Check ($dockerLog.Contains('load -i images/frontend.tar')) 'Frontend image not loaded'
