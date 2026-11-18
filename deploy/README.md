@@ -54,7 +54,7 @@ Windows CMD:
 run.cmd
 ```
 
-Оба launcher создают `.env` только при его отсутствии и запускают `docker compose up -d --build --force-recreate` без host Python. Дополнительный developer CLI (`python3 tools/dev.py setup`, `doctor`, `up`; Windows: `py -3`) и PowerShell wrapper `dev.ps1` необязательны.
+Оба launcher создают `.env` только при его отсутствии, проверяют Docker/Compose и запускают `docker compose up -d --build --force-recreate --wait` без host Python. Дополнительный developer CLI (`python3 tools/dev.py setup`, `doctor`, `up`; Windows: `py -3`) и PowerShell wrapper `dev.ps1` необязательны.
 
 Корневой `compose.yaml` содержит `build:` sections. Backend image build может получать pinned Helm archive и OS/Python dependencies, frontend build — npm dependencies. Поэтому `docker compose up -d --build` допустим только там, где build environment имеет необходимые разрешённые источники.
 
@@ -232,7 +232,7 @@ TARGET browser
 
 ## 11. Backup / restore / upgrade / uninstall
 
-Для production/offline install используйте scripts, поставляемые kit:
+Для offline lifecycle **на Linux** используйте scripts, поставляемые kit. На Windows пока поддержан только `install.cmd` (install/rerun той же версии):
 
 ```text
 backup.sh
