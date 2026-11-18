@@ -79,4 +79,7 @@ finally {
     Remove-Item Env:HTP_MOCK_OS -ErrorAction SilentlyContinue
     if (Test-Path '.env') { Remove-Item '.env' -Force }
     Remove-Item $mockDir -Recurse -Force -ErrorAction SilentlyContinue
+    # PowerShell GitHub Actions wrapper propagates LASTEXITCODE from the
+    # deliberately rejected Windows-containers negative test unless cleared.
+    $global:LASTEXITCODE = 0
 }
