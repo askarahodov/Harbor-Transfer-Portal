@@ -277,6 +277,19 @@ jobs:
       - name: Проверка ссылок
         run: make docs-check
 
+  offline-kit-smoke:
+    name: Linux offline release payload and lifecycle smoke (fake Docker)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Offline kit build and lifecycle smoke
+        run: |
+          set -euo pipefail
+          sh -n run.sh
+          sh -n deploy/build-offline-kit.sh
+          sh deploy/smoke-offline-kit.sh
+
   windows-offline:
     name: Windows offline installer contract (no Docker daemon)
     runs-on: windows-2022
@@ -289,7 +302,7 @@ jobs:
 
   quality-gate:
     name: Quality Gate
-    needs: [scope, backend, frontend, protocol, security, integration, compose, docs, windows-offline]
+    needs: [scope, backend, frontend, protocol, security, integration, compose, docs, offline-kit-smoke, windows-offline]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -305,6 +318,7 @@ jobs:
           COMPOSE_RESULT: ${{ needs.compose.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
           WINDOWS_OFFLINE_RESULT: ${{ needs.windows-offline.result }}
+          OFFLINE_KIT_RESULT: ${{ needs.offline-kit-smoke.result }}
           BACKEND_REQUIRED: ${{ needs.scope.outputs.backend }}
           FRONTEND_REQUIRED: ${{ needs.scope.outputs.frontend }}
           PROTOCOL_REQUIRED: ${{ needs.scope.outputs.protocol }}
@@ -316,6 +330,7 @@ jobs:
           set -euo pipefail
           [[ "$SCOPE_RESULT" == "success" ]] || { echo "Scope failed: $SCOPE_RESULT"; exit 1; }
           [[ "$WINDOWS_OFFLINE_RESULT" == "success" ]] || { echo "Windows installer contract failed: $WINDOWS_OFFLINE_RESULT"; exit 1; }
+          [[ "$OFFLINE_KIT_RESULT" == "success" ]] || { echo "Offline release kit smoke failed: $OFFLINE_KIT_RESULT"; exit 1; }
           for area in BACKEND FRONTEND PROTOCOL SECURITY INTEGRATION COMPOSE DOCS; do
             result_key="${area}_RESULT"
             required_key="${area}_REQUIRED"
