@@ -1,6 +1,6 @@
 # Быстрый запуск Portal на Windows и Linux
 
-**Назначение:** запуск из **Git checkout** на рабочей/тестовой машине, с Docker Compose и доступом к источникам Docker images. На обеих ОС приложение работает **в Linux-контейнерах**. **Python, Node.js, GNU Make и Git Bash на host не требуются.** В этом режиме данные сохраняются в Docker named volume, а настройки в локальном `.env`.
+**Назначение:** запуск из **Git checkout** на рабочей/тестовой машине, с Docker Compose и доступом к источникам Docker images. На обеих ОС приложение работает **в Linux-контейнерах**. **Python, Node.js, GNU Make и Git Bash на host не требуются.** Docker Desktop может использовать WSL2 как внутренний backend, но пользователю не нужен WSL terminal. В этом режиме данные сохраняются в Docker named volume, а настройки в локальном `.env`.
 
 > **Для закрытого production-контура** используйте предварительно проверенный [offline release kit](../deploy/offline/README.md). Его `install.sh` / backup / restore / upgrade / uninstall — **Linux lifecycle**; Windows-native offline kit пока не квалифицирован. Не выдавайте source checkout за готовый релиз. Nexus из [Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503) ещё не имеет регионального production GO.
 
@@ -87,4 +87,4 @@ PORTAL_CONTOUR=SOURCE
 
 ## 6. Offline release на Linux
 
-Подписанная/квалифицированная поставка отличается от source checkout: оператор переносит versioned kit с checksum, запускает `install.sh` (load уже готовых images без build/pull), использует `backup.sh` / `restore.sh` / `upgrade.sh` и отдельный production approval. [Пошаговая инструкция](../deploy/offline/README.md). Утверждение, что Windows source Docker Desktop работает, **не равно** квалификации Windows-native offline installer.
+Квалифицированная offline-поставка с внешним SHA-256 отличается от source checkout: оператор переносит versioned kit с checksum, запускает `install.sh` (load уже готовых images без build/pull), использует `backup.sh` / `restore.sh` / `upgrade.sh` и отдельный production approval. [Пошаговая инструкция](../deploy/offline/README.md). Утверждение, что Windows source Docker Desktop работает, **не равно** квалификации Windows-native offline installer.
