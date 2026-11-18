@@ -25,7 +25,9 @@ exit /b 0
 '@ | Set-Content -Encoding ascii -Path (Join-Path $mockDir 'docker.cmd')
 
 function Invoke-Launcher([string]$verb, [int]$expectedExit = 0) {
-    & cmd.exe /d /c "run.cmd $verb"
+    Write-Host "SMOKE invoking: run.cmd $verb"
+    & cmd.exe /d /c "call run.cmd $verb"
+    Write-Host "SMOKE exit code: $LASTEXITCODE"
     if ($LASTEXITCODE -ne $expectedExit) {
         throw "run.cmd $verb returned $LASTEXITCODE, expected $expectedExit"
     }
@@ -36,6 +38,7 @@ try {
     Invoke-Launcher 'doctor'
     Invoke-Launcher 'up'
     if (!(Test-Path '.env')) {
+        if (Test-Path $log) { Get-Content $log | ForEach-Object { Write-Host "MOCK: $_" } }
         throw 'First up did not create .env'
     }
     $envHash = (Get-FileHash '.env' -Algorithm SHA256).Hash
