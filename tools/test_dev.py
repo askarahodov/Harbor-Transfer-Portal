@@ -27,11 +27,9 @@ class DevCliTests(unittest.TestCase):
         ):
             self.assertEqual(dev.command_up(), 0)
 
-        self.assertEqual(
-            calls[-2][0],
-            ["docker", "compose", "build"],
-        )
-        compose_call = calls[-1]
+        compose_calls = [call for call in calls if call[0][:2] == ["docker", "compose"]]
+        self.assertEqual(compose_calls[-2][0], ["docker", "compose", "build"])
+        compose_call = compose_calls[-1]
         self.assertEqual(
             compose_call[0],
             [
@@ -40,7 +38,7 @@ class DevCliTests(unittest.TestCase):
             ],
         )
         self.assertEqual(compose_call[1]["PORTAL_VCS_REF"], "abc123")
-        self.assertEqual(calls[-2][1]["PORTAL_VCS_REF"], "abc123")
+        self.assertEqual(compose_calls[-2][1]["PORTAL_VCS_REF"], "abc123")
 
     def test_build_uses_compose_build_with_revision_identity(self) -> None:
         calls: list[tuple[list[str], dict[str, str] | None]] = []
