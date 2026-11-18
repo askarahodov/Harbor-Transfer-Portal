@@ -611,7 +611,7 @@ onBeforeUnmount(() => {
           <select :value="selectedRepository" aria-label="Выбрать Docker image Nexus"
             @change="chooseSelectorImage(($event.target as HTMLSelectElement).value)">
             <option value="">Выберите образ</option>
-            <option v-if="query.trim() && validImageName.test(query.trim()) && !repositories.includes(query.trim()) && selectedRepository !== query.trim()"
+            <option v-if="query.trim() && validImageName.test(query.trim()) && (query.includes('/') || !repositories.length) && !repositories.includes(query.trim()) && selectedRepository !== query.trim()"
               :value="query.trim()">{{ query.trim() }} · проверить теги по имени</option>
             <option v-if="selectedRepository && !repositories.includes(selectedRepository)"
               :value="selectedRepository">{{ selectedRepository }} · выбран</option>
@@ -640,7 +640,7 @@ onBeforeUnmount(() => {
         {{ repoBusy ? 'Ищем совпадения в доступных образах…' : `Совпадений: ${repositories.length} · страниц просмотрено: ${pagesRead}` }}
         {{ cursor ? '· поиск не завершён, есть следующие страницы' : (pagesRead ? '· просмотренные страницы не гарантируют наличия всех pull-доступных образов' : '') }}
       </p>
-      <div v-if="query.trim() && (validImageName.test(query.trim()) || searchExactReference) && !repositories.includes(query.trim())"
+      <div v-if="query.trim() && (validImageName.test(query.trim()) || searchExactReference) && (query.includes('/') || !repositories.length) && !repositories.includes(query.trim())"
         class="nexus-browser__exact-fallback">
         <p class="muted">
           Если введён полный путь Docker image, откройте теги напрямую через выбранный connector.
