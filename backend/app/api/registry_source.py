@@ -205,13 +205,18 @@ async def nexus_tag_suggestions(
     search: str = Query(default="", max_length=128),
     paged: bool = False,
     cursor: str | None = Query(default=None, max_length=512),
+    direct: bool = False,
 ) -> NexusSuggestionResponse:
     try:
         service = NexusDiscoveryService(session, request.app.state.settings, profile_id)
-        result = (
-            await service.tags_page(repository, search.strip(), cursor)
-            if paged else await service.tags(repository, search.strip())
-        )
+        if direct:
+            # Explicit exact-name action against the selected connector, never
+            # an automatic fallback from a denied REST Search request.
+            result = await service.tags_page(repository, search.strip(), cursor, direct=True)
+        elif paged:
+            result = await service.tags_page(repository, search.strip(), cursor)
+        else:
+            result = await service.tags(repository, search.strip())
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
