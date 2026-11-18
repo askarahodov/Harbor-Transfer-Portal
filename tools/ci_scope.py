@@ -238,6 +238,10 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
         in {
             "compose.yaml",
             ".dockerignore",
+            ".gitattributes",
+            "run.cmd",
+            "run.sh",
+            "tools/test_windows_launcher.ps1",
             "Makefile",
             "backend/Dockerfile",
             "frontend/Dockerfile",
