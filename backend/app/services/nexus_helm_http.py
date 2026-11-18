@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import json
 import os
 import re
 import stat
@@ -342,6 +343,42 @@ class NexusHelmHttpService:
                         message="Helm index.yaml содержит слишком много charts",
                     )
         return HelmHttpResult(True, tuple(found))
+
+    async def probe_repository(self, repository: str) -> HelmHttpResult:
+        """Verify read-only repository identity and index without implying write access."""
+        repository = self._repository(repository)
+        url = self._base() + "/service/rest/v1/repositories/" + quote(repository)
+        async with self._client() as client:
+            try:
+                async with client.stream("GET", url) as response:
+                    if response.status_code in (401, 403):
+                        return HelmHttpResult(False, code="helm_repository_denied",
+                                              message="Нет прав на чтение metadata Helm repository")
+                    if response.status_code != 200:
+                        return HelmHttpResult(False, code="helm_repository_unavailable",
+                                              message="Metadata Helm repository недоступны")
+                    content = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        content.extend(chunk)
+                        if len(content) > 65536:
+                            return HelmHttpResult(False, code="helm_repository_invalid",
+                                                  message="Metadata Helm repository превышают лимит")
+                details = json.loads(content)
+            except (ValueError, UnicodeError):
+                return HelmHttpResult(False, code="helm_repository_invalid",
+                                      message="Некорректные metadata Helm repository")
+            except httpx.HTTPError:
+                return HelmHttpResult(False, code="helm_repository_unavailable",
+                                      message="Metadata Helm repository недоступны")
+            if (
+                not isinstance(details, dict)
+                or details.get("name") != repository
+                or details.get("format") != "helm"
+                or details.get("type") not in ("hosted", "proxy", "group")
+            ):
+                return HelmHttpResult(False, code="helm_repository_invalid",
+                                      message="Формат или имя Helm repository не совпадает")
+            return await self._load_index(client, repository, strict=True)
 
     async def list_charts(self, repository: str) -> HelmHttpResult:
         self._base()
