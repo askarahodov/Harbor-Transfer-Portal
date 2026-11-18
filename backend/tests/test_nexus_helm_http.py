@@ -99,8 +99,11 @@ async def test_helm_settings_probe_checks_identity_before_reading_index(client_s
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status,code", [(403, "helm_repository_denied"),
-                                         (404, "helm_index_missing")])
+@pytest.mark.parametrize("status,code", [
+    (401, "helm_repository_denied"),
+    (403, "helm_repository_denied"),
+    (404, "helm_index_missing"),
+])
 async def test_helm_settings_probe_missing_or_denied_index_is_not_success(
     client_service, status, code,
 ):
@@ -108,8 +111,40 @@ async def test_helm_settings_probe_missing_or_denied_index_is_not_success(
     state["status"] = status
     result = await service.probe_repository("helm-a")
     assert not result.available and result.code == code
+    assert f"HTTP {status}" in (result.message or "")
     assert len(state["calls"]) == 2
     assert not state["upload"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_path,expected_code", [
+    ("/service/rest/v1/repositories/helm-a", "helm_repository_unavailable"),
+    ("/repository/helm-a/index.yaml", "helm_index_unavailable"),
+])
+async def test_helm_probe_reports_tls_failure_without_raw_diagnostics(
+    client_service, monkeypatch, failure_path, expected_code,
+):
+    service, state, _data, _digest = client_service
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["calls"].append(request)
+        if request.url.path == failure_path:
+            raise httpx.ConnectError("certificate verify failed: secret-not-for-logs")
+        return httpx.Response(200, json={
+            "name": "helm-a", "format": "helm", "type": "hosted",
+        })
+
+    monkeypatch.setattr(
+        "app.services.nexus_helm_http.httpx.AsyncClient",
+        lambda **kwargs: REAL_ASYNC_CLIENT(
+            transport=httpx.MockTransport(handler), **kwargs
+        ),
+    )
+    result = await service.probe_repository("helm-a")
+    assert not result.available and result.code == expected_code
+    assert "TLS-сертификат" in (result.message or "")
+    assert "secret-not-for-logs" not in (result.message or "")
+    assert all(req.method == "GET" for req in state["calls"])
 
 
 @pytest.mark.asyncio
