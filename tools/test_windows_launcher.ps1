@@ -44,20 +44,20 @@ public class DockerStub
     try {
         $env:HTP_TEST_DOCKER_OS = "linux"
         $env:HTP_TEST_UP_FAIL = "0"
-        $output = (& cmd.exe /d /c run.cmd 2>&1 | Out-String)
+        $output = (& cmd.exe /d /c "run.cmd 2>&1" | Out-String)
         if ($LASTEXITCODE -ne 0 -or !$output.Contains("127.0.0.1:8082")) {
             throw "Expected successful Linux-container startup with CRLF OSType; got: $output"
         }
 
         $env:HTP_TEST_DOCKER_OS = "windows"
-        $output = (& cmd.exe /d /c run.cmd 2>&1 | Out-String)
+        $output = (& cmd.exe /d /c "run.cmd 2>&1" | Out-String)
         if ($LASTEXITCODE -eq 0 -or $output.Contains("127.0.0.1:8082")) {
             throw "Expected Windows-container mode to be rejected; got: $output"
         }
 
         $env:HTP_TEST_DOCKER_OS = "linux"
         $env:HTP_TEST_UP_FAIL = "1"
-        $output = (& cmd.exe /d /c run.cmd 2>&1 | Out-String)
+        $output = (& cmd.exe /d /c "run.cmd 2>&1" | Out-String)
         if ($LASTEXITCODE -eq 0 -or $output.Contains("127.0.0.1:8082")) {
             throw "Expected unhealthy Docker Compose to fail closed; got: $output"
         }
