@@ -272,7 +272,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Run Windows batch smoke with CRLF Docker output
         shell: powershell
-        run: .\\tools\\test_windows_launcher.ps1
+        run: .\tools\test_windows_launcher.ps1
 
   docs:
     name: Docs — проверка документации
@@ -305,7 +305,7 @@ jobs:
           SECURITY_RESULT: ${{ needs.security.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
           COMPOSE_RESULT: ${{ needs.compose.result }}
-          WINDOWS_RESULT: ${{ needs.windows-launcher.result }}
+          WINDOWS_RESULT: ${{ needs['windows-launcher'].result }}
           DOCS_RESULT: ${{ needs.docs.result }}
           BACKEND_REQUIRED: ${{ needs.scope.outputs.backend }}
           FRONTEND_REQUIRED: ${{ needs.scope.outputs.frontend }}
