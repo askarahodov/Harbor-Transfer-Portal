@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import ContourBadge from '@/components/ContourBadge.vue'
+import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRuntimeStore } from '@/stores/runtime'
 
@@ -69,6 +70,7 @@ async function submit(): Promise<void> {
         <ContourBadge :contour="runtime.contour" />
       </div>
 
+      <ThemeSwitcher class="login-theme" />
       <p class="login-card__hint">
         Используйте локальную учётную запись этого изолированного контура.
       </p>
@@ -136,6 +138,7 @@ async function submit(): Promise<void> {
 .login-card__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
 .login-card h1 { margin: var(--space-2) 0 0; color: var(--color-text); }
 .eyebrow { margin: 0; color: var(--color-action); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.login-theme { margin-top: var(--space-4); }
 .login-card__hint { margin: var(--space-4) 0 var(--space-6); color: var(--color-text-muted); }
 .login-form { display: grid; gap: var(--space-3); }
 .login-form label { font-weight: 600; color: var(--color-text); }
