@@ -8,7 +8,8 @@
 | --- | --- |
 | Работа с экспортом/импортом | [User guide](user-guide.md) |
 | Пользователи, ключи, политики, резервные копии | [Admin guide](admin-guide.md) |
-| Запуск source checkout (Windows/Linux) | [Development](development.md) |
+| Быстрая установка из Git на Windows/Linux | [Пошаговая инструкция](install-windows-linux.md) |
+| Разработка и команды source checkout | [Development](development.md) |
 | Установка готового offline kit | [Offline installation](../deploy/offline/README.md) |
 | Диагностика ошибок | [Troubleshooting](troubleshooting.md) |
 | Оценка безопасности | [Security](security.md) |
@@ -62,6 +63,7 @@
 |---|---|---|
 | [project-passport.md](project-passport.md) | простое описание продукта, ролей и целевого процесса | актуальный product overview |
 | [development.md](development.md) | source build/run на Windows и Linux, Docker Desktop/Engine boundary | актуальный developer workflow |
+| [install-windows-linux.md](install-windows-linux.md) | пошаговый запуск, обновление, диагностика, отдельный RC | source installation guide |
 | [user-guide.md](user-guide.md) | пошаговый browser flow SOURCE → physical transfer → TARGET | актуальный |
 | [admin-guide.md](admin-guide.md) | bootstrap, Harbor, users/policies/keys, lifecycle, limits | актуальный |
 | [settings.md](settings.md) | фактический admin Settings UI: Harbor profiles/readiness/keys/policies/retention/mapping | актуальный |
