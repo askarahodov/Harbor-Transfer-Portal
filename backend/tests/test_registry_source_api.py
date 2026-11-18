@@ -11,7 +11,9 @@ from app.api.registry_source import (
     ExactSourceInspectionRequest,
     inspect_exact_source,
     nexus_helm_catalog,
+    nexus_tag_suggestions,
 )
+from app.services.nexus_discovery import DiscoveryResult
 from app.services.nexus_helm_http import HelmChartVersion, HelmHttpResult
 from app.services.nexus_service import ImageInspection, NexusServiceError
 
@@ -163,3 +165,39 @@ async def test_exact_inspection_returns_sanitized_typed_failure(
     assert "do-not-leak" not in str(failure.value.detail)
     assert "secret.nexus.internal" not in str(failure.value.detail)
     service.inspect_image.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_direct_tags_api_preserves_profile_and_cursor_without_rest_fallback(context):
+    request, session = context
+    service = MagicMock()
+    service.tags_page = AsyncMock(return_value=DiscoveryResult(
+        available=True, items=("v2",), truncated=True, next_cursor="v2",
+    ))
+    with patch("app.api.registry_source.NexusDiscoveryService", return_value=service) as factory:
+        result = await nexus_tag_suggestions(
+            request, MagicMock(), session, profile_id="proxy-profile",
+            repository="team/app", search=" v ", paged=True, cursor="v1", direct=True,
+        )
+    factory.assert_called_once_with(session, request.app.state.settings, "proxy-profile")
+    service.tags_page.assert_awaited_once_with("team/app", "v", "v1", direct=True)
+    service.tags.assert_not_called()
+    assert result.available and result.items == ["v2"]
+    assert result.next_cursor == "v2"
+
+
+@pytest.mark.asyncio
+async def test_direct_tags_api_does_not_retry_denied_connector(context):
+    request, session = context
+    service = MagicMock()
+    service.tags_page = AsyncMock(return_value=DiscoveryResult(
+        available=False, items=(), message="Нет доступа",
+    ))
+    with patch("app.api.registry_source.NexusDiscoveryService", return_value=service):
+        result = await nexus_tag_suggestions(
+            request, MagicMock(), session, profile_id="proxy-profile",
+            repository="team/app", search="", cursor=None, direct=True,
+        )
+    assert not result.available and not result.items
+    service.tags_page.assert_awaited_once_with("team/app", "", None, direct=True)
+    service.tags.assert_not_called()
