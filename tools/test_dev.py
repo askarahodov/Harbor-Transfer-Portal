@@ -11,7 +11,7 @@ from tools import dev
 
 
 class DevCliTests(unittest.TestCase):
-    def test_up_uses_current_revision_and_force_recreate_without_shell(self) -> None:
+    def test_up_uses_current_revision_and_two_phase_compose_without_shell(self) -> None:
         calls: list[tuple[list[str], dict[str, str] | None, bool]] = []
 
         def fake_run(command, *, cwd=dev.ROOT, env=None, capture_output=False, dry_run=False):
@@ -68,6 +68,31 @@ class DevCliTests(unittest.TestCase):
             self.assertEqual(dev.command_up(dry_run=True), 0)
 
         run.assert_not_called()
+
+    def test_dry_run_new_checkout_does_not_create_files_or_touch_docker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / ".env.example"
+            target = root / ".env"
+            template.write_text("PORTAL_CONTOUR=SOURCE\n", encoding="utf-8")
+            with (
+                patch.object(dev, "ENV_FILE", target),
+                patch.object(dev, "EXAMPLE_ENV_FILE", template),
+                patch.object(dev, "_resolve_executable", side_effect=lambda name: name),
+                patch("subprocess.run") as run,
+            ):
+                self.assertEqual(dev.command_up(dry_run=True), 0)
+            self.assertFalse(target.exists())
+            run.assert_not_called()
+
+    @unittest.skipUnless(os.name == "posix", "POSIX sh syntax check")
+    def test_linux_launcher_has_valid_sh_syntax(self) -> None:
+        subprocess.run(
+            ["sh", "-n", str(dev.ROOT / "run.sh")],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
     def test_doctor_rejects_windows_container_mode(self) -> None:
         def fake_run(command, *, cwd=dev.ROOT, env=None, capture_output=False, dry_run=False):
