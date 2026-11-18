@@ -81,6 +81,62 @@ def client_service(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["hosted", "proxy", "group"])
+async def test_helm_settings_probe_checks_identity_before_reading_index(client_service, kind):
+    service, state, _data, _digest = client_service
+    service.allowed_repository = "helm-a"
+    state["kind"] = kind
+    result = await service.probe_repository("helm-a")
+    assert result.available
+    assert [(req.method, req.url.path) for req in state["calls"]] == [
+        ("GET", "/service/rest/v1/repositories/helm-a"),
+        ("GET", "/repository/helm-a/index.yaml"),
+    ]
+    assert not state["upload"]
+    with pytest.raises(NexusHelmHttpError, match="не совпадает"):
+        await service.probe_repository("helm-private")
+    assert len(state["calls"]) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,code", [(403, "helm_repository_denied"),
+                                         (404, "helm_index_missing")])
+async def test_helm_settings_probe_missing_or_denied_index_is_not_success(
+    client_service, status, code,
+):
+    service, state, _data, _digest = client_service
+    state["status"] = status
+    result = await service.probe_repository("helm-a")
+    assert not result.available and result.code == code
+    assert len(state["calls"]) == 2
+    assert not state["upload"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [b"not json", b"x" * 65537])
+async def test_helm_settings_probe_rejects_invalid_or_oversized_metadata(
+    client_service, monkeypatch, payload,
+):
+    service, state, _data, _digest = client_service
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["calls"].append(request)
+        return httpx.Response(200, content=payload)
+
+    monkeypatch.setattr(
+        "app.services.nexus_helm_http.httpx.AsyncClient",
+        lambda **kwargs: REAL_ASYNC_CLIENT(
+            transport=httpx.MockTransport(handler), **kwargs
+        ),
+    )
+    result = await service.probe_repository("helm-a")
+    assert not result.available and result.code == "helm_repository_invalid"
+    assert [req.url.path for req in state["calls"]] == [
+        "/service/rest/v1/repositories/helm-a",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_helm_index_and_download_with_checksum(client_service, tmp_path: Path):
     service, state, _data, digest = client_service
     result = await service.list_charts("helm-a")
