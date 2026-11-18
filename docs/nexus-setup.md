@@ -46,7 +46,7 @@
   `url` — **корневой HTTPS origin Nexus UI/API**, не Docker connector и не путь
   `/repository/name`; `nexus_search_repository` — обязательное точное имя Helm repository;
   `nexus_search_url` не задаётся. Проверка сначала подтверждает точные name/format/type через REST metadata репозитория, затем читает
-  `/repository/<name>/index.yaml` ограниченным HTTP клиентом и не выполняет Docker v2. Отказ metadata/ACL, редирект или несоответствие формата блокируют проверку; доступ к индексу не доказывает право записи.
+  `/repository/<name>/index.yaml` ограниченным HTTP клиентом и не выполняет Docker v2. Отказ metadata/ACL, редирект или несоответствие формата блокируют проверку; доступ к индексу не доказывает право записи. Сообщение различает HTTP 401 (авторизация), 403 (ACL), 404 (metadata/index отсутствует или недоступен) и ошибки TLS/CA без раскрытия исходного сетевого исключения. Коды ошибок API остаются совместимыми.
   В SOURCE доступны версии из этого репозитория; любые другие имена блокируются до HTTP
   обращения. TARGET запись допускается только после отдельной проверки, что репозиторий
   действительно `helm hosted` и разрешён для записи. Helm OCI **не** используется.
@@ -546,7 +546,7 @@ operation ID, таймштампы и редактированные логи б
 - [Nexus legacy Docker v2 + classic Helm HTTP 3.69/3.70 и disposable Harbor Core E2E #42806604136](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42806604136) — SUCCESS.
 - Обе проверки относятся к интегрированному SHA `7b32643bb04226b986d98c6ae015311528df01b6`.
 
-**Не доказано**: реальные региональные версии и редакции, внутренние TLS/CA/DNS/proxy, per-repo ACL, физическая изоляция, media handoff, контроль внешних writer и sign-off. Для них используйте [региональный runbook в Draft #451](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/integration/nexus-oss-release-candidate-451/docs/nexus-regional-acceptance-runbook.md) и [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
+**Не доказано**: реальные региональные версии и редакции, внутренние TLS/CA/DNS/proxy, per-repo ACL, физическая изоляция, media handoff, контроль внешних writer и sign-off. Для них используйте [региональный runbook](nexus-regional-acceptance-runbook.md) и [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
 
 ## 6. Диагностика
 
