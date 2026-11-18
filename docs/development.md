@@ -55,7 +55,7 @@ py -3 tools/dev.py doctor
 py -3 tools/dev.py up
 ```
 
-Оба коротких скрипта запускают `docker compose up -d --build --force-recreate`. Запуск на Windows требует Docker Desktop в Linux containers mode. `tools/dev.py` не зависит от shell-specific features.
+Оба коротких скрипта проверяют доступность Docker, Compose v2 и Linux containers mode, валидируют конфигурацию, затем запускают `docker compose up -d --build --force-recreate --wait --wait-timeout 180`. Адрес печатается только после успешного healthcheck; фактический host/port определяется через `docker compose port frontend 8080`. При ошибке смотрите `docker compose ps` и `docker compose logs --tail=100`. Запуск на Windows требует Docker Desktop в Linux containers mode. `tools/dev.py` не зависит от shell-specific features.
 
 ### Windows PowerShell — optional convenience
 
@@ -79,7 +79,7 @@ py -3 tools/dev.py up
 | `bootstrap` | явно проверяет временный локальный вход `admin/admin` (не выполняется автоматически при каждом запуске) |
 | `doctor` | проверяет Git, Docker, Compose и состояние `.env`, объясняет fallback JWT в volume |
 | `build` | собирает backend/frontend Docker images из текущего Git revision |
-| `up` | автоматически запускает `setup` при отсутствии `.env`, затем build и `--force-recreate` локального stack |
+| `up` | автоматически запускает `setup` при отсутствии `.env`, затем build, `--force-recreate` и ожидание healthy контейнеров локального stack |
 | `down` | останавливает stack без удаления persistent volume |
 | `logs` | показывает Compose logs |
 | `compose-config` | валидирует итоговую Compose configuration |
