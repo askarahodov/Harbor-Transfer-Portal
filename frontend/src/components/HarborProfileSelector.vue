@@ -29,7 +29,8 @@ const selectedProfile = computed(
 )
 
 function registryLabel(profile: HarborProfileOption): string {
-  return profile.registry_type === 'nexus' ? 'Nexus · Docker v2' : 'Harbor'
+  if (profile.registry_type !== 'nexus') return 'Harbor'
+  return profile.nexus_format === 'helm' ? 'Nexus · Helm HTTP' : 'Nexus · Docker v2'
 }
 
 function host(value: string): string {
@@ -60,7 +61,7 @@ function change(event: Event): void {
       </option>
       <option v-else-if="profiles.length === 0" value="" disabled>Нет доступных profiles</option>
       <option v-for="profile in profiles" :key="profile.id" :value="profile.id">
-        {{ registryLabel(profile) }} · {{ profile.name }} · {{ host(profile.url) }}
+        {{ registryLabel(profile) }} · {{ profile.name }} · {{ host(profile.url) }}{{ profile.nexus_search_repository && profile.registry_type === 'nexus' ? ' · ' + profile.nexus_search_repository : '' }}
       </option>
     </select>
     <small v-if="locked && !modelValue">
@@ -75,6 +76,9 @@ function change(event: Event): void {
       </template>
       <template v-else>
         {{ registryLabel(selectedProfile) }} · {{ selectedProfile.name }} · {{ selectedProfile.url }}
+      </template>
+      <template v-if="selectedProfile.registry_type === 'nexus' && selectedProfile.nexus_search_repository">
+        · repository: <strong>{{ selectedProfile.nexus_search_repository }}</strong>
       </template>
     </small>
   </div>
