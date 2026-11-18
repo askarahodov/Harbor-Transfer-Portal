@@ -8,12 +8,14 @@ on:
       - "tools/dev.py"
       - "tools/test_dev.py"
       - "tools/test_windows_launcher.ps1"
+      - "tools/test_linux_launcher.sh"
       - ".github/workflows/windows-launcher-smoke.yml"
       - "docs/install-windows-linux.md"
   push:
     paths:
       - "run.cmd"
       - "tools/test_windows_launcher.ps1"
+      - "tools/test_linux_launcher.sh"
       - ".github/workflows/windows-launcher-smoke.yml"
   workflow_dispatch:
 
@@ -31,3 +33,14 @@ jobs:
       - name: Test launcher in native CMD, without touching real Docker
         shell: pwsh
         run: .\tools\test_windows_launcher.ps1
+
+  linux-sh:
+    name: Linux POSIX launcher (mock Docker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Exercise source launcher recovery and safety
+        shell: bash
+        run: sh tools/test_linux_launcher.sh
