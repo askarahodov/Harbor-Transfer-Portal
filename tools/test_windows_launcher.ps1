@@ -74,3 +74,7 @@ finally {
     Remove-Item Env:HTP_TEST_UP_FAIL -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $testDir -ErrorAction SilentlyContinue
 }
+
+# A deliberately failing Compose probe leaves LASTEXITCODE nonzero in the host shell.
+# All assertions passed, so return success explicitly to GitHub Actions.
+exit 0
