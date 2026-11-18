@@ -779,7 +779,7 @@ onBeforeUnmount(() => {
 .nexus-browser__direct-form { display: grid; gap: var(--space-3); }
 .nexus-browser__direct-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .nexus-browser__picker { display: grid; gap: var(--space-2); }
-.nexus-browser__picker-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.nexus-browser__picker-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); align-items: start; }
 .nexus-browser__matches { display: grid; gap: var(--space-2); }
 .nexus-browser__matches-list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .nexus-browser__match { max-width: 100%; min-height: var(--control-height-compact); overflow-wrap: anywhere; text-align: left; }
@@ -798,7 +798,7 @@ onBeforeUnmount(() => {
 .nexus-browser__tree-row button:disabled { cursor: not-allowed; }
 .nexus-browser__direct code { overflow-wrap: anywhere; }
 .nexus-browser h3, .nexus-browser h4 { margin: 0; }
-.nexus-browser__label { display: grid; gap: var(--space-2); font-weight: 600; }
+.nexus-browser__label { display: grid; gap: var(--space-2); align-content: start; font-weight: 600; }
 .nexus-browser input { width: 100%; min-height: var(--control-height); padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
 .nexus-browser__table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .nexus-browser__table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px; }
