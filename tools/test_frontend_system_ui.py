@@ -122,8 +122,11 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertGreaterEqual(compose.count("VCS_REF: ${PORTAL_VCS_REF:-unknown}"), 2)
         self.assertIn("python3 tools/dev.py up", makefile)
         self.assertIn('env["PORTAL_VCS_REF"] = _git_revision', launcher)
-        self.assertIn('"--build"', launcher)
-        self.assertIn('"--force-recreate"', launcher)
+        # Image build is separated from the no-pull startup phase so
+        # failures are diagnosable without recreating a healthy stack.
+        self.assertIn('_docker_compose("build", env=env, dry_run=dry_run)', launcher)
+        self.assertIn('"--no-build", "--pull", "never", "--wait", "--wait-timeout", "180"', launcher)
+        self.assertNotIn('"--force-recreate"', launcher)
         self.assertIn("ENV PORTAL_FRONTEND_REVISION=${VCS_REF}", dockerfile)
         self.assertIn("revision: '$revision'", entrypoint)
 
