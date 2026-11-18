@@ -103,7 +103,7 @@ exit /b 0
     Check ($LASTEXITCODE -ne 0) 'Tampered image was accepted'
     Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -eq '') 'Tampered image reached Docker'
 
-    # The source launcher is a separate user path; verify its CMD bootstrap and --wait contract.
+    # Check the source CMD launcher separately with the same mocked Docker.
     $source = Join-Path $temp 'source'
     New-Item -ItemType Directory -Path $source | Out-Null
     foreach ($name in @('run.cmd', 'compose.yaml', '.env.example')) {
@@ -123,51 +123,6 @@ exit /b 0
     Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'compose up')) 'Source launcher launched in Windows containers mode'
 
     Write-Host 'Windows installer and source launcher contracts passed: checksums, install/rerun, transport, version, engine mode, healthy startup.'
-} finally {
-    $env:PATH = $oldPath
-    if ($null -eq $oldContour) { Remove-Item Env:PORTAL_CONTOUR -ErrorAction SilentlyContinue } else { $env:PORTAL_CONTOUR = $oldContour }
-    if ($null -eq $oldLog) { Remove-Item Env:FAKE_DOCKER_LOG -ErrorAction SilentlyContinue } else { $env:FAKE_DOCKER_LOG = $oldLog }
-    if ($null -eq $oldOs) { Remove-Item Env:FAKE_DOCKER_OS -ErrorAction SilentlyContinue } else { $env:FAKE_DOCKER_OS = $oldOs }
-    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
-}
-) 'Strong JWT secret missing'
-    $dockerLog = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
-    Check ($dockerLog.Contains('load -i images/backend.tar')) 'Backend image not loaded'
-    Check ($dockerLog.Contains('load -i images/frontend.tar')) 'Frontend image not loaded'
-    Check ($dockerLog -match 'compose .*up -d --no-build --pull never --wait --wait-timeout 180') 'Compose no-build/no-pull/health contract missing'
-
-    $rerunOutput = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $kit 'install.ps1') 2>&1 | Out-String
-    Check ($LASTEXITCODE -eq 0) "Idempotent rerun failed: $rerunOutput"
-    Check ([IO.File]::ReadAllText($envPath) -ceq $initial) 'Rerun overwrote .env'
-
-    [IO.File]::WriteAllText($envPath, $initial.Replace('PORTAL_HTTP_BIND=127.0.0.1', 'PORTAL_HTTP_BIND=0.0.0.0'))
-    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $kit 'install.ps1') *> $null
-    Check ($LASTEXITCODE -ne 0) 'Non-loopback plain HTTP was accepted'
-    Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'load -i|compose .*up')) 'Unsafe browser transport reached Docker load or start'
-    [IO.File]::WriteAllText($envPath, $initial)
-
-    [IO.File]::WriteAllText($envPath, $initial.Replace('PORTAL_VERSION=1.0.0', 'PORTAL_VERSION=0.9.0'))
-    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $kit 'install.ps1') *> $null
-    Check ($LASTEXITCODE -ne 0) 'Mismatched release version was accepted'
-    Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'load -i')) 'Mismatched release loaded images'
-    [IO.File]::WriteAllText($envPath, $initial)
-
-    $env:FAKE_DOCKER_OS = 'windows'
-    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $kit 'install.ps1') *> $null
-    Check ($LASTEXITCODE -ne 0) 'Windows containers mode was accepted'
-    Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'load -i')) 'Windows containers mode loaded images'
-    Remove-Item Env:FAKE_DOCKER_OS -ErrorAction SilentlyContinue
-
-    [IO.File]::AppendAllText((Join-Path $kit 'images/backend.tar'), 'tamper')
-    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $kit 'install.ps1') *> $null
-    Check ($LASTEXITCODE -ne 0) 'Tampered image was accepted'
-    Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -eq '') 'Tampered image reached Docker'
-
-    Write-Host 'Windows installer contract passed: checksums, initial install, rerun, transport, version, Docker engine mode.'
 } finally {
     $env:PATH = $oldPath
     if ($null -eq $oldContour) { Remove-Item Env:PORTAL_CONTOUR -ErrorAction SilentlyContinue } else { $env:PORTAL_CONTOUR = $oldContour }
