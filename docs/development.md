@@ -137,4 +137,4 @@ docker compose version
 UI <revision>
 ```
 
-На Windows Docker Desktop должен быть переключён в Linux containers mode. `doctor` проверяет `docker info` и завершится ошибкой, если Docker сообщает другой `OSType`; после переключения повторите `doctor` / `build`.
+На Windows Docker Desktop должен быть переключён в Linux containers mode. `run.cmd` считывает `docker info --format "{{.OSType}}"` без `findstr`, чтобы корректно принимать вывод `linux` с Windows CRLF. `.gitattributes` принудительно сохраняет LF у `*.sh` и Dockerfile, а Docker images дополнительно нормализуют скопированные entrypoint scripts на случай старого Windows checkout с CRLF. После обновления этих файлов для проверки используйте повторную сборку через `run.cmd`. Не переносите в Git локальные исправления Dockerfile и не используйте `down -v`: это удалит данные. `doctor` проверяет `docker info` и завершится ошибкой, если Docker сообщает другой `OSType`; после переключения повторите `doctor` / `build`.
