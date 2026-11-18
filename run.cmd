@@ -47,12 +47,12 @@ if errorlevel 1 (
   echo ERROR: Docker CLI not found. Install/start Docker Desktop.
   exit /b 2
 )
-docker compose version
+call docker compose version
 if errorlevel 1 (
   echo ERROR: Docker Compose v2 required.
   exit /b 2
 )
-docker info >NUL 2>NUL
+call docker info >NUL 2>NUL
 if errorlevel 1 (
   echo ERROR: Docker Engine is not running. Start Docker Desktop.
   exit /b 2
@@ -112,7 +112,7 @@ exit /b 0
 
 :build_images
 echo Building backend/frontend images with revision %PORTAL_VCS_REF% ...
-docker compose build
+call docker compose build
 if errorlevel 1 (
   echo ERROR: Build failed. Check Docker Desktop disk, DNS/proxy and BuildKit logs.
   echo Retry: run.cmd build, then run.cmd start. No containers were deleted.
@@ -122,13 +122,13 @@ exit /b 0
 
 :start_only
 echo Starting prebuilt images without build or pull ...
-docker compose up -d --no-build --pull never --wait --wait-timeout 180
+call docker compose up -d --no-build --pull never --wait --wait-timeout 180
 if errorlevel 1 (
   echo ERROR: Startup or health check failed.
   echo Run: run.cmd status, run.cmd logs. For missing images: run.cmd build.
   exit /b 1
 )
-docker compose ps
+call docker compose ps
 set "DISPLAY_PORT=%PORTAL_HTTP_PORT%"
 if not defined DISPLAY_PORT (
   for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
@@ -142,15 +142,15 @@ echo Verify UI revision matches %PORTAL_VCS_REF% ^(start does not rebuild old im
 exit /b 0
 
 :status
-docker compose ps
+call docker compose ps
 exit /b %ERRORLEVEL%
 
 :logs
-docker compose logs -f
+call docker compose logs -f
 exit /b %ERRORLEVEL%
 
 :stop
-docker compose down
+call docker compose down
 if errorlevel 1 exit /b 1
 echo Stopped. Persistent volume preserved.
 exit /b 0
