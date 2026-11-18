@@ -853,3 +853,40 @@ async def test_paged_rest_rejects_repeating_continuation_token(discovery):
     second = await service.catalog_page(cursor=first.next_cursor)
     assert not second.available and second.items == ()
     assert len(seen) == 2
+
+
+@pytest.mark.asyncio
+async def test_explicit_connector_tags_are_independent_of_rest_index(discovery):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+    response["json"] = {"name": "team/app", "tags": ["v1", "v2"]}
+    result = await service.tags_page("team/app", direct=True)
+    assert result.available and result.items == ("v1", "v2")
+    assert len(seen) == 1
+    assert seen[0].url.host == "nexus.example.test"
+    assert seen[0].url.path == "/v2/team/app/tags/list"
+
+
+@pytest.mark.asyncio
+async def test_explicit_connector_tags_reject_foreign_response_identity(discovery):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+    response["json"] = {"name": "other/private", "tags": ["secret"]}
+    result = await service.tags_page("team/app", direct=True)
+    assert not result.available and not result.items
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 403, 302])
+async def test_explicit_connector_tags_do_not_fall_back_to_rest(discovery, status):
+    service, seen, response = discovery
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-proxy"
+    response["status"] = status
+    result = await service.tags_page("team/app", direct=True)
+    assert not result.available and not result.items
+    assert len(seen) == 1
+    assert seen[0].url.host == "nexus.example.test"
