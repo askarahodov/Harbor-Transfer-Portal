@@ -44,6 +44,8 @@ Launcher сначала проверяет Git, Docker Engine в Linux mode и C
 |---|---|---|
 | Проверить Docker/Git/Compose | `run.cmd doctor` | `./run.sh doctor` |
 | Собрать новый Git SHA | `run.cmd build` | `./run.sh build` |
+| Диагностика зависшей сборки | `run.cmd build-plain` | `./run.sh build-plain` |
+| Повторная сборка без кеша | `run.cmd build-clean` | `./run.sh build-clean` |
 | Запустить **без сборки/скачивания** | `run.cmd start` | `./run.sh start` |
 | Собрать **и** запустить | `run.cmd` | `./run.sh` |
 | Проверить статус | `run.cmd status` | `./run.sh status` |
@@ -76,15 +78,39 @@ PORTAL_CONTOUR=SOURCE
 |---|---|
 | `docker` / Compose не найдены | `run.cmd doctor` или `./run.sh doctor`; установить Docker Desktop/Engine и Compose v2 |
 | `docker info` не отвечает | Запустить Docker Desktop / docker daemon; на Windows выбрать **Linux containers** |
-| BuildKit завис или не может скачать базовый образ | Выполнить отдельно `run.cmd build` / `./run.sh build`; проверить DNS/proxy, доступ к registry и свободное место Docker. Для подробного вывода: `docker compose build --progress plain`, сохранив **`PORTAL_VCS_REF`**; лучше пользоваться launcher, который выставляет SHA автоматически |
+| BuildKit завис или не может скачать базовый образ | Выполнить `run.cmd build-plain` / `./run.sh build-plain` и посмотреть **последний шаг сборки**, DNS/proxy, доступ к registry, Docker disk usage. Если проблема в повреждённом слое, выбрать `build-clean` (пересборка без кеша); ни одна команда не удаляет данные и не разворачивает новые контейнеры. По завершении вызвать `start`. Не использовать `docker system prune --volumes` и не отключать TLS. |
 | Образ не найден после `start` | Сперва `build`, затем `start`; `start` специально не вызывает pull/build |
-| Frontend показывает `revision: unknown` или старый SHA | Выполнить штатный `build` с launcher и `start`; при прямом `docker compose build` нужно вручную передать текущий `PORTAL_VCS_REF` |
+| Frontend показывает `revision: unknown` или старый SHA | Выполнить штатный `build-clean` (он передаёт `PORTAL_VCS_REF` автоматически), затем `start`; сверить SHA со значением `git rev-parse HEAD`. При прямом `docker compose build` нужно вручную передавать текущий `PORTAL_VCS_REF`, поэтому используйте launcher. |
 | Порт занят / интерфейс не отвечает | `status`, `logs`; проверить `PORTAL_HTTP_PORT`, `COMPOSE_PROJECT_NAME`, `docker compose config`; не отключать работающий экземпляр на 8080 |
 | Health не становится healthy за 180 с | Проверить `docker compose ps`, последние backend/frontend logs, место для volume, migrations, ожидание registry; устранить проблему и повторить `start` |
 | `containerd failed to stat parent` | Повреждённый Docker layer/cache на **конкретном host**, не подтверждённый дефект Portal. Сначала изучить Docker Desktop disk / daemon logs. Избегать массового `system prune --volumes`, `down -v` или удаления работающих images/volumes; адресно чинить только изолированный RC после резервной копии |
 
 **Не публикуйте логи с credentials**, весь `.env`, JWT или signing keys. Не отключайте TLS или ACL ради восстановления сборки. См. [Troubleshooting](troubleshooting.md) и [Development](development.md).
 
-## 6. Offline release на Linux
+## 6. Быстрый диагностический маршрут при сбое установки
+
+В существующем каталоге Portal (сохраняйте отдельный `.env` и `COMPOSE_PROJECT_NAME` у RC):
+
+**Windows CMD:**
+```bat
+run.cmd doctor
+run.cmd build-plain
+run.cmd start
+run.cmd status
+```
+
+**Linux:**
+```sh
+./run.sh doctor
+./run.sh build-plain
+./run.sh start
+./run.sh status
+```
+
+Если BuildKit не может использовать повреждённый layer/cache — **вместо** `build-plain` один раз используйте `build-clean`. При отказе сети сначала восстановите DNS/proxy/Docker; пересборка без кеша сетевые ошибки не исправляет. Сценарии не удаляют images других установок, базы, credentials, тома или исходники. Сборка без кеша расходует больше времени, трафика и диска, поэтому не является штатным режимом.
+
+**Развёртывание проверенного Nexus RC:** `git clone` по умолчанию получает `main` (Harbor baseline), **не** Nexus Draft. Для изолированного тестового checkout возьмите точный одобренный SHA PR #503, прежде чем запускать Compose; задайте в его `.env` уникальные `COMPOSE_PROJECT_NAME`, `PORTAL_VERSION` и `PORTAL_HTTP_PORT`. Например `htp-nexus-rc`, `nexus-rc`, `8081`. Не используйте `run.cmd` / `run.sh` из рабочего каталога 8080 для развёртывания RC. Прежде чем менять релиз-кандидат, убедитесь в наличии резервной копии соответствующего тома.
+
+## 7. Offline release на Linux
 
 Квалифицированная offline-поставка с внешним SHA-256 отличается от source checkout: оператор переносит versioned kit с checksum, запускает `install.sh` (load уже готовых images без build/pull), использует `backup.sh` / `restore.sh` / `upgrade.sh` и отдельный production approval. [Пошаговая инструкция](../deploy/offline/README.md). Утверждение, что Windows source Docker Desktop работает, **не равно** квалификации Windows-native offline installer.
