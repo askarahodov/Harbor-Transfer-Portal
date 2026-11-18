@@ -1,5 +1,7 @@
 # Offline lifecycle: backup, restore, upgrade и uninstall
 
+**Поддерживаемая хостовая платформа этих lifecycle scripts — Linux.** На Windows 10/11 с Docker Desktop (Linux containers) доступен `install.cmd` для первой установки и rerun той же версии, но не Windows-native backup/restore/upgrade/uninstall. До проведения отдельной квалификации не переносите Linux lifecycle команды в Windows и не удаляйте persistent volumes вручную.
+
 Этот документ относится к release kit Harbor Transfer Portal и описывает эксплуатационные операции без доступа в интернет.
 
 ## Backup
