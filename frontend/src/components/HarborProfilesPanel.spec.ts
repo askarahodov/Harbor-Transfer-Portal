@@ -549,6 +549,7 @@ describe('HarborProfilesPanel', () => {
     if (!row) throw new Error('Helm row missing')
 
     expect(row.text()).toContain('Nexus · Helm HTTP')
+    expect(row.text()).toContain('Repository: helm-team')
     expect(row.text()).not.toContain('Проверить (Harbor API)')
     expect(row.text()).not.toContain('Проверить Docker Registry v2')
     const check = row.findAll('button').find(item => item.text() === 'Проверить Helm HTTP index.yaml')
