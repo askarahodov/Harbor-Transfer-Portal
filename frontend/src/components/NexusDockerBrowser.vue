@@ -41,6 +41,7 @@ function parseExactImageReference(input: string): { image: string; reference: st
 }
 const searchExactReference = computed(() => parseExactImageReference(query.value))
 const repositories = ref<string[]>([])
+const visibleSuggestions = computed(() => repositories.value.slice(0, 10))
 type ImageTreeNode = { path: string; label: string; depth: number; isImage: boolean; children: ImageTreeNode[] }
 const collapsedPaths = ref<string[]>([])
 const imageTree = computed<ImageTreeNode[]>(() => {
@@ -315,6 +316,16 @@ function openSearchImage(): void {
     void inspectKnownImage()
     return
   }
+  // Enter on a short fragment should select a real search result, not
+  // silently attempt /v2/<fragment>/tags/list as though it were a full path.
+  if (repositories.value.includes(name)) {
+    chooseImage(name)
+    return
+  }
+  if (!name.includes('/') && repositories.value.length) {
+    catalogExactError.value = 'Выберите образ из совпадений. Если это полное имя корневого образа, используйте кнопку прямой проверки ниже.'
+    return
+  }
   if (!validImageName.test(name)) {
     catalogExactError.value = 'Укажите точное Docker image либо image:tag (без hostname и /v2/).'
     return
@@ -481,7 +492,15 @@ function scheduleSearch(): void {
   catalogExactError.value = null
   if (searchTimer) clearTimeout(searchTimer)
   resetCatalog(true)
-  searchTimer = setTimeout(() => { void searchAcrossPages() }, 350)
+  const search = query.value.trim()
+  // The public suggestion endpoint caps search at 128 characters. Longer
+  // exact paths must still be available through the explicit Docker connector.
+  if (search.length > 128) {
+    error.value = 'Поиск по фрагменту ограничен 128 символами. Для полного имени используйте прямую проверку.'
+    return
+  }
+  if (parseExactImageReference(search)) return
+  searchTimer = setTimeout(() => { searchTimer = null; void searchAcrossPages() }, 350)
 }
 function scheduleTagSearch(): void {
   if (tagTimer) clearTimeout(tagTimer)
@@ -573,18 +592,22 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </section>
-    <p class="muted">Поиск ниже показывает доступный каталог. Точный image:tag можно проверить здесь же, даже если каталог пуст.</p>
+    <p class="muted">Введите часть имени или полный путь в одно поле. Совпадения берутся из доступного каталога, а полный Docker image можно открыть напрямую, даже если каталог его не показывает.</p>
     <section class="nexus-browser__picker" aria-label="Выбор Docker image Nexus">
       <div class="nexus-browser__picker-fields">
         <label class="nexus-browser__label">
-          Поиск Docker image
-          <input v-model="query" type="search" autocomplete="off"
-            aria-label="Поиск Docker-образов Nexus"
-            placeholder="Например, baseimage/softrust/sdk/sdk:8.0.413"
+          Docker image / репозиторий Nexus — ввод и поиск
+          <input v-model="query" type="search" autocomplete="off" maxlength="255"
+            aria-label="Поиск Docker-образов Nexus" aria-describedby="nexus-image-search-help"
+            placeholder="sdk, softrust или baseimage/softrust/sdk/sdk"
             @input="scheduleSearch" @keydown.enter.prevent="openSearchImage" />
+          <small id="nexus-image-search-help" class="muted">
+            Короткое совпадение ищет подстроку имени (например, sdk). Полный путь откройте Enter или кнопкой ниже.
+            Nexus repository {{ nexusRepository || '(выбранный connector)' }} фиксируется профилем и не добавляется к пути образа.
+          </small>
         </label>
         <label class="nexus-browser__label">
-          Docker image / репозиторий
+          Результаты поиска — выбрать образ
           <select :value="selectedRepository" aria-label="Выбрать Docker image Nexus"
             @change="chooseSelectorImage(($event.target as HTMLSelectElement).value)">
             <option value="">Выберите образ</option>
@@ -596,17 +619,33 @@ onBeforeUnmount(() => {
           </select>
         </label>
       </div>
+      <div v-if="visibleSuggestions.length && query.trim()" class="nexus-browser__matches"
+        aria-label="Быстрый выбор найденных Docker-образов">
+        <span class="muted">Найденные совпадения — нажмите, чтобы открыть теги:</span>
+        <div class="nexus-browser__matches-list">
+          <button v-for="name in visibleSuggestions" :key="name" type="button"
+            class="secondary-button nexus-browser__match"
+            :aria-label="'Открыть найденный Docker image ' + name"
+            :aria-pressed="selectedRepository === name"
+            :disabled="bulkBusy"
+            @click="chooseImage(name)">{{ name }}</button>
+        </div>
+        <span v-if="repositories.length > visibleSuggestions.length" class="muted">
+          Ещё {{ repositories.length - visibleSuggestions.length }} совпадений доступны в списке выбора.
+        </span>
+      </div>
       <p v-if="catalogExactError" role="alert">{{ catalogExactError }}</p>
       <p v-if="error" role="alert">{{ error }}</p>
       <p v-else role="status" class="muted">
-        {{ repoBusy ? 'Загружаем доступные образы…' : `Найдено ${repositories.length} образов, прочитано страниц: ${pagesRead}` }}
-        {{ cursor ? '· список продолжается' : (pagesRead ? '· доступные страницы просмотрены (не гарантирует наличие всех pull-доступных образов)' : '') }}
+        {{ repoBusy ? 'Ищем совпадения в доступных образах…' : `Совпадений: ${repositories.length} · страниц просмотрено: ${pagesRead}` }}
+        {{ cursor ? '· поиск не завершён, есть следующие страницы' : (pagesRead ? '· просмотренные страницы не гарантируют наличия всех pull-доступных образов' : '') }}
       </p>
       <div v-if="query.trim() && (validImageName.test(query.trim()) || searchExactReference) && !repositories.includes(query.trim())"
         class="nexus-browser__exact-fallback">
         <p class="muted">
-          Каталог Nexus может не содержать образ, доступный через Docker pull.
-          Укажите image для чтения тегов через Docker connector или image:tag для прямой проверки SHA-256.
+          Если введён полный путь Docker image, откройте теги напрямую через выбранный connector.
+          Для короткого совпадения используйте результаты поиска выше. Каталог Nexus может не показывать доступный через Docker pull образ.
+          Для image:tag выполняется точная проверка SHA-256 без зависимости от каталога.
           Точный reference не добавляется в экспорт без успешной проверки digest.
         </p>
         <button type="button" class="secondary-button"
@@ -620,7 +659,7 @@ onBeforeUnmount(() => {
       </p>
       <button v-if="cursor" type="button" class="secondary-button"
         :disabled="repoBusy" @click="searchAcrossPages(true)">
-        {{ repoBusy ? 'Загрузка…' : 'Следующая страница образов' }}
+        {{ repoBusy ? 'Загрузка…' : 'Искать дальше на следующих страницах' }}
       </button>
       <p v-if="!repositories.length && !repoBusy && pagesRead && cursor" class="muted">
         На прочитанных страницах совпадений нет. Продолжите поиск по следующим страницам.
@@ -741,6 +780,11 @@ onBeforeUnmount(() => {
 .nexus-browser__direct-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .nexus-browser__picker { display: grid; gap: var(--space-2); }
 .nexus-browser__picker-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.nexus-browser__matches { display: grid; gap: var(--space-2); }
+.nexus-browser__matches-list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.nexus-browser__match { max-width: 100%; min-height: var(--control-height-compact); overflow-wrap: anywhere; text-align: left; }
+.nexus-browser__match[aria-pressed='true'] { border-color: var(--color-action); background: var(--color-info-surface); }
+.nexus-browser__label small { font-weight: 400; line-height: 1.5; }
 .nexus-browser__picker select { width: 100%; min-height: var(--control-height); padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; }
 .nexus-browser__catalog { padding-top: var(--space-2); }
 .nexus-browser__catalog summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-3); }
