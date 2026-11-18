@@ -447,6 +447,9 @@ onMounted(() => void load())
               </span>
             </div>
             <p>{{ profile.url }}</p>
+            <p v-if="profile.registry_type === 'nexus' && profile.nexus_search_repository" class="profile-hint">
+              Repository: <strong>{{ profile.nexus_search_repository }}</strong>
+            </p>
             <p v-if="profile.is_active && !profile.is_default" class="profile-hint">
               Это текущий legacy fallback. Чтобы отключить или удалить профиль, сначала
               выберите другой fallback в списке выше.
