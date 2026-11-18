@@ -7,6 +7,19 @@ function Check([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "Windows installer test failed: $Message" }
 }
 
+function Expect-InstallerFailure([string]$ScriptPath) {
+    # Windows PowerShell 5.1 treats a native child's stderr as a terminating
+    # NativeCommandError when ErrorActionPreference is Stop.
+    $previous = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ScriptPath >$null 2>$null
+        return [int]$LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("htp-offline-" + [Guid]::NewGuid().ToString('N'))
 $kit = Join-Path $temp 'kit'
 $fakeBin = Join-Path $temp 'fake-bin'
@@ -78,29 +91,29 @@ exit /b 0
 
     [IO.File]::WriteAllText($envPath, $initial.Replace('PORTAL_HTTP_BIND=127.0.0.1', 'PORTAL_HTTP_BIND=0.0.0.0'))
     [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $kit 'install.ps1') *> $null
-    Check ($LASTEXITCODE -ne 0) 'Non-loopback plain HTTP was accepted'
+    $failureCode = Expect-InstallerFailure (Join-Path $kit 'install.ps1')
+    Check ($failureCode -ne 0) 'Non-loopback plain HTTP was accepted'
     Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'load -i|compose .*up')) 'Unsafe browser transport reached Docker load or start'
     [IO.File]::WriteAllText($envPath, $initial)
 
     [IO.File]::WriteAllText($envPath, $initial.Replace('PORTAL_VERSION=1.0.0', 'PORTAL_VERSION=0.9.0'))
     [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $kit 'install.ps1') *> $null
-    Check ($LASTEXITCODE -ne 0) 'Mismatched release version was accepted'
+    $failureCode = Expect-InstallerFailure (Join-Path $kit 'install.ps1')
+    Check ($failureCode -ne 0) 'Mismatched release version was accepted'
     Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'load -i')) 'Mismatched release loaded images'
     [IO.File]::WriteAllText($envPath, $initial)
 
     $env:FAKE_DOCKER_OS = 'windows'
     [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $kit 'install.ps1') *> $null
-    Check ($LASTEXITCODE -ne 0) 'Windows containers mode was accepted'
+    $failureCode = Expect-InstallerFailure (Join-Path $kit 'install.ps1')
+    Check ($failureCode -ne 0) 'Windows containers mode was accepted'
     Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'load -i')) 'Windows containers mode loaded images'
     Remove-Item Env:FAKE_DOCKER_OS -ErrorAction SilentlyContinue
 
     [IO.File]::AppendAllText((Join-Path $kit 'images/backend.tar'), 'tamper')
     [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $kit 'install.ps1') *> $null
-    Check ($LASTEXITCODE -ne 0) 'Tampered image was accepted'
+    $failureCode = Expect-InstallerFailure (Join-Path $kit 'install.ps1')
+    Check ($failureCode -ne 0) 'Tampered image was accepted'
     Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -eq '') 'Tampered image reached Docker'
 
     # Check the source CMD launcher separately with the same mocked Docker.
@@ -119,7 +132,7 @@ exit /b 0
     $env:FAKE_DOCKER_OS = 'windows'
     [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
     & (Join-Path $source 'run.cmd') *> $null
-    Check ($LASTEXITCODE -ne 0) 'Source launcher accepted Windows containers mode'
+    Check ($failureCode -ne 0) 'Source launcher accepted Windows containers mode'
     Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'compose up')) 'Source launcher launched in Windows containers mode'
 
     Write-Host 'Windows installer and source launcher contracts passed: checksums, install/rerun, transport, version, engine mode, healthy startup.'
