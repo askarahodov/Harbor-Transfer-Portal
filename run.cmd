@@ -11,6 +11,8 @@ if /I "%ACTION%"=="-h" goto help
 if /I "%ACTION%"=="--help" goto help
 if /I "%ACTION%"=="up" goto begin
 if /I "%ACTION%"=="build" goto begin
+if /I "%ACTION%"=="build-plain" goto begin
+if /I "%ACTION%"=="build-clean" goto begin
 if /I "%ACTION%"=="start" goto begin
 if /I "%ACTION%"=="doctor" goto begin
 if /I "%ACTION%"=="status" goto begin
@@ -22,6 +24,8 @@ goto usage
 echo Harbor Transfer Portal - Windows CMD launcher for Linux containers
 echo   run.cmd          First install / rebuild after source update
 echo   run.cmd build    Build images only
+echo   run.cmd build-plain  Verbose build log for BuildKit/DNS troubleshooting
+echo   run.cmd build-clean  No-cache build, keeps containers and data
 echo   run.cmd start    Start existing images without building, wait for health
 echo   run.cmd doctor   Check Git, Docker Desktop Linux engine and Compose v2
 echo   run.cmd status   Show containers and health
@@ -93,6 +97,8 @@ if not exist ".env" (
 )
 if /I "%ACTION%"=="up" goto up
 if /I "%ACTION%"=="build" goto build_only
+if /I "%ACTION%"=="build-plain" goto build_only
+if /I "%ACTION%"=="build-clean" goto build_only
 if /I "%ACTION%"=="start" goto start_only
 if /I "%ACTION%"=="status" goto status
 if /I "%ACTION%"=="logs" goto logs
@@ -112,10 +118,17 @@ exit /b 0
 
 :build_images
 echo Building backend/frontend images with revision %PORTAL_VCS_REF% ...
-call docker compose build
+if /I "%ACTION%"=="build-plain" (
+  call docker compose --progress plain build
+) else if /I "%ACTION%"=="build-clean" (
+  call docker compose --progress plain build --no-cache
+) else (
+  call docker compose build
+)
 if errorlevel 1 (
   echo ERROR: Build failed. Check Docker Desktop disk, DNS/proxy and BuildKit logs.
-  echo Retry: run.cmd build, then run.cmd start. No containers were deleted.
+  echo Retry: run.cmd build-plain for full logs or build-clean for damaged layers.
+  echo No containers or volumes were deleted.
   exit /b 1
 )
 exit /b 0
