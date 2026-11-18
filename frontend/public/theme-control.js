@@ -11,7 +11,7 @@
   function read() {
     try {
       return normalize(window.localStorage.getItem(storageKey))
-    } catch (_) {
+    } catch {
       return 'system'
     }
   }
@@ -36,7 +36,7 @@
       } else {
         window.localStorage.setItem(storageKey, choice)
       }
-    } catch (_) {
+    } catch {
       // Theme remains usable for this tab when storage is blocked.
     }
     apply()
