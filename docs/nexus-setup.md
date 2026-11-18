@@ -1,6 +1,6 @@
 # Nexus Repository — подготовка к приёмке (Draft)
 
-> **Не инструкция для production на `main`.** Nexus-кандидат интегрируется в [Draft PR #501](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/501) и дорабатывается в [Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503) и остаётся **NO-GO** до [региональной приёмки #436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436). В `main` Nexus profiles и classic Helm HTTP не являются выпускаемой функцией. Не переносите credentials или конфигурацию из корпоративных контуров в Issues/документацию.
+> **Не инструкция для production на `main`.** Единый Nexus-кандидат — [Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503), включающий историческую основу [#501](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/501), и остаётся **NO-GO** до [региональной приёмки #436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436). В `main` Nexus profiles и classic Helm HTTP не являются выпускаемой функцией. Не переносите credentials или конфигурацию из корпоративных контуров в Issues/документацию.
 
 ## Текущая проверка на отдельном RC (17.11.2026)
 
@@ -45,8 +45,8 @@
 - **Nexus Helm HTTP**: отдельный профиль для *каждого конкретного* Helm repository;
   `url` — **корневой HTTPS origin Nexus UI/API**, не Docker connector и не путь
   `/repository/name`; `nexus_search_repository` — обязательное точное имя Helm repository;
-  `nexus_search_url` не задаётся. Проверка читает только
-  `/repository/<name>/index.yaml` ограниченным HTTP клиентом и не выполняет Docker v2.
+  `nexus_search_url` не задаётся. Проверка сначала подтверждает точные name/format/type через REST metadata репозитория, затем читает
+  `/repository/<name>/index.yaml` ограниченным HTTP клиентом и не выполняет Docker v2. Отказ metadata/ACL, редирект или несоответствие формата блокируют проверку; доступ к индексу не доказывает право записи.
   В SOURCE доступны версии из этого репозитория; любые другие имена блокируются до HTTP
   обращения. TARGET запись допускается только после отдельной проверки, что репозиторий
   действительно `helm hosted` и разрешён для записи. Helm OCI **не** используется.
