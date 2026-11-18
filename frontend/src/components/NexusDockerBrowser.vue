@@ -41,7 +41,6 @@ function parseExactImageReference(input: string): { image: string; reference: st
 }
 const searchExactReference = computed(() => parseExactImageReference(query.value))
 const repositories = ref<string[]>([])
-const visibleSuggestions = computed(() => repositories.value.slice(0, 10))
 type ImageTreeNode = { path: string; label: string; depth: number; isImage: boolean; children: ImageTreeNode[] }
 const collapsedPaths = ref<string[]>([])
 const imageTree = computed<ImageTreeNode[]>(() => {
@@ -592,7 +591,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </section>
-    <p class="muted">Введите часть имени или полный путь в одно поле. Совпадения берутся из доступного каталога, а полный Docker image можно открыть напрямую, даже если каталог его не показывает.</p>
+    <p class="muted">Поиск по части имени (например, <code>softrust</code>) или полному Docker image. Выберите совпадение, чтобы открыть теги; полный путь можно проверить напрямую.</p>
     <section class="nexus-browser__picker" aria-label="Выбор Docker image Nexus">
       <div class="nexus-browser__picker-fields">
         <label class="nexus-browser__label">
@@ -602,37 +601,22 @@ onBeforeUnmount(() => {
             placeholder="sdk, softrust или baseimage/softrust/sdk/sdk"
             @input="scheduleSearch" @keydown.enter.prevent="openSearchImage" />
           <small id="nexus-image-search-help" class="muted">
-            Короткое совпадение ищет подстроку имени (например, sdk). Полный путь откройте Enter или кнопкой ниже.
-            Nexus repository {{ nexusRepository || '(выбранный connector)' }} фиксируется профилем и не добавляется к пути образа.
+            Короткое имя — выберите из результатов; полный путь — Enter. Поиск ограничен текущим профилем Nexus.
           </small>
         </label>
         <label class="nexus-browser__label">
           Результаты поиска — выбрать образ
-          <select :value="selectedRepository" aria-label="Выбрать Docker image Nexus"
+          <select :value="selectedRepository" class="nexus-browser__results" aria-label="Выбрать Docker image Nexus"
+            :size="Math.min(7, Math.max(2, repositories.length + 1))"
             @change="chooseSelectorImage(($event.target as HTMLSelectElement).value)">
             <option value="">Выберите образ</option>
             <option v-if="query.trim() && validImageName.test(query.trim()) && (query.includes('/') || !repositories.length) && !repositories.includes(query.trim()) && selectedRepository !== query.trim()"
               :value="query.trim()">{{ query.trim() }} · проверить теги по имени</option>
             <option v-if="selectedRepository && !repositories.includes(selectedRepository)"
               :value="selectedRepository">{{ selectedRepository }} · выбран</option>
-            <option v-for="name in repositories" :key="name" :value="name">{{ name }}</option>
+            <option v-for="name in repositories" :key="name" :value="name" :title="name">{{ name }}</option>
           </select>
         </label>
-      </div>
-      <div v-if="visibleSuggestions.length && query.trim()" class="nexus-browser__matches"
-        aria-label="Быстрый выбор найденных Docker-образов">
-        <span class="muted">Найденные совпадения — нажмите, чтобы открыть теги:</span>
-        <div class="nexus-browser__matches-list">
-          <button v-for="name in visibleSuggestions" :key="name" type="button"
-            class="secondary-button nexus-browser__match"
-            :aria-label="'Открыть найденный Docker image ' + name"
-            :aria-pressed="selectedRepository === name"
-            :disabled="bulkBusy"
-            @click="chooseImage(name)">{{ name }}</button>
-        </div>
-        <span v-if="repositories.length > visibleSuggestions.length" class="muted">
-          Ещё {{ repositories.length - visibleSuggestions.length }} совпадений доступны в списке выбора.
-        </span>
       </div>
       <p v-if="catalogExactError" role="alert">{{ catalogExactError }}</p>
       <p v-if="error" role="alert">{{ error }}</p>
@@ -779,16 +763,15 @@ onBeforeUnmount(() => {
 .nexus-browser__direct-form { display: grid; gap: var(--space-3); }
 .nexus-browser__direct-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .nexus-browser__picker { display: grid; gap: var(--space-2); }
-.nexus-browser__picker-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); align-items: start; }
-.nexus-browser__matches { display: grid; gap: var(--space-2); }
-.nexus-browser__matches-list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.nexus-browser__match { max-width: 100%; min-height: var(--control-height-compact); overflow-wrap: anywhere; text-align: left; }
-.nexus-browser__match[aria-pressed='true'] { border-color: var(--color-action); background: var(--color-info-surface); }
+.nexus-browser__picker-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); align-items: start; }
 .nexus-browser__label small { font-weight: 400; line-height: 1.5; }
 .nexus-browser__picker select { width: 100%; min-height: var(--control-height); padding: var(--space-2); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; }
+.nexus-browser__results { max-height: 260px; overflow-y: auto; }
+.nexus-browser__results option { padding: 6px var(--space-2); overflow: hidden; text-overflow: ellipsis; }
+.nexus-browser__results:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
 .nexus-browser__catalog { padding-top: var(--space-2); }
 .nexus-browser__catalog summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-3); }
-@media (max-width: 760px) { .nexus-browser__picker-fields { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .nexus-browser__results { max-height: 208px; } }
 .nexus-browser__direct summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-3); }
 .nexus-browser__tree { display: grid; gap: var(--space-2); list-style: none; padding: 0; margin: 0; max-height: 400px; overflow-y: auto; }
 .nexus-browser__tree-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
