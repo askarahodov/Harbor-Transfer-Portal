@@ -160,15 +160,17 @@ class NexusDiscoveryService:
 
     async def tags_page(
         self, repository: str, search: str = "", cursor: str | None = None,
+        *, direct: bool = False,
     ) -> DiscoveryResult:
         if _REPOSITORY.fullmatch(repository) is None:
             raise ValueError("invalid Docker repository")
-        return await self._browse_page(repository, search, cursor)
+        return await self._browse_page(repository, search, cursor, direct=direct)
 
     async def _browse_page(
         self, repository: str | None, search: str, cursor: str | None,
+        *, direct: bool = False,
     ) -> DiscoveryResult:
-        rest = bool(self.search_url and self.search_repository)
+        rest = bool(self.search_url and self.search_repository and not direct)
         if cursor is not None and (
             not cursor or len(cursor) > 512
             or (not rest and (
@@ -413,6 +415,8 @@ class NexusDiscoveryService:
             return DiscoveryResult(False, (), "Каталог Nexus недоступен")
         if not isinstance(data, dict) or not isinstance(data.get(field), list):
             return DiscoveryResult(False, (), "Nexus вернул некорректный каталог")
+        if repository is not None and data.get("name") != repository:
+            return DiscoveryResult(False, (), "Nexus вернул теги другого образа")
         values = data[field]
         if len(values) > 1000 or any(
             not isinstance(v, str) or pattern.fullmatch(v) is None for v in values
