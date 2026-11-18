@@ -122,6 +122,8 @@ const seenCursors = new Set<string>()
 const seenTagCursors = new Set<string>()
 
 function resetTag(): void {
+  if (tagTimer) clearTimeout(tagTimer)
+  tagTimer = null
   tagGeneration += 1
   inspectionGeneration += 1
   bulkGeneration += 1
@@ -281,6 +283,7 @@ function chooseSelectorImage(name: string): void {
 }
 
 function openKnownImage(): void {
+  if (bulkBusy.value || tagsBusy.value) return
   const name = knownImage.value.trim()
   knownError.value = null
   if (!validImageName.test(name)) {
@@ -302,6 +305,7 @@ function openKnownImage(): void {
 }
 
 function openSearchImage(): void {
+  if (bulkBusy.value || tagsBusy.value) return
   const name = query.value.trim()
   catalogExactError.value = null
   const exact = parseExactImageReference(name)
@@ -320,7 +324,7 @@ function openSearchImage(): void {
 }
 
 async function inspectKnownImage(): Promise<void> {
-  if (bulkBusy.value) return
+  if (bulkBusy.value || inspectBusy.value) return
   const name = knownImage.value.trim()
   const tag = knownTag.value.trim()
   knownError.value = null
@@ -354,6 +358,12 @@ async function chooseTag(tag: string, direct = false): Promise<void> {
     const value = await inspectExactNexusImage(id, repository, tag)
     if (current === inspectionGeneration && id === props.profileId
         && repository === selectedRepository.value && tag === selectedTag.value) {
+      if (value.repository !== repository || value.reference !== tag
+          || !/^sha256:[a-f0-9]{64}$/.test(value.digest)
+          || (tag.startsWith('sha256:') && value.digest !== tag)) {
+        inspectionError.value = 'Ответ Nexus не соответствует выбранному image:tag или digest.'
+        return
+      }
       inspection.value = value
       inspectedDigests.value = { ...inspectedDigests.value, [tag]: value.digest }
     }
@@ -476,15 +486,17 @@ function scheduleSearch(): void {
 function scheduleTagSearch(): void {
   if (tagTimer) clearTimeout(tagTimer)
   tagGeneration += 1
+  tagsBusy.value = false
   tags.value = []
   tagCursor.value = null
-  tagTimer = setTimeout(() => { void readTags() }, 350)
+  tagTimer = setTimeout(() => { tagTimer = null; void readTags() }, 350)
 }
 watch([knownImage, knownTag], () => {
   // Invalidate immediately: catalog image:tag paste sets both fields and
   // starts an inspect in the same click. A deferred watcher could discard
   // that fresh inspection after it starts.
   inspectionGeneration += 1
+  inspectBusy.value = false
   inspection.value = null
   inspectionError.value = null
 }, { flush: 'sync' })
