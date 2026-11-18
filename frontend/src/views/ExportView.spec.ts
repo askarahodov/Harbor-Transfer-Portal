@@ -823,6 +823,9 @@ describe('SOURCE export wizard view', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Nexus · Helm HTTP repository')
+    expect(wrapper.get('#export-harbor-profile').text()).toContain('Nexus · Helm HTTP')
+    expect(wrapper.get('#export-harbor-profile').text()).toContain('helm-team')
+    expect(wrapper.get('#export-harbor-profile').text()).not.toContain('Nexus · Docker v2')
     expect(wrapper.text()).toContain('helm-team')
     expect(wrapper.text()).not.toContain('Проверить Docker image')
     expect(wrapper.find('form.nexus-exact-form').exists()).toBe(false)
