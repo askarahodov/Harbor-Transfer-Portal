@@ -634,6 +634,10 @@ def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_se
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.path == "/service/rest/v1/repositories/helm-team":
+            return httpx.Response(200, json={
+                "name": "helm-team", "format": "helm", "type": "hosted",
+            })
         if request.url.path == "/repository/helm-team/index.yaml":
             return httpx.Response(200, text="apiVersion: v1\nentries: {}\n")
         return httpx.Response(404)
@@ -657,10 +661,40 @@ def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_se
     }
     assert verifies == [False]
     assert [str(req.url.path) for req in requests] == [
-        "/repository/helm-team/index.yaml"
+        "/service/rest/v1/repositories/helm-team",
+        "/repository/helm-team/index.yaml",
     ]
     assert PROFILE_SECRET not in response.text
     assert all(req.url.host == "nexus.example.test" for req in requests)
+
+    for status, details, expected in [
+        (403, {}, "helm_repository_denied"),
+        (302, {}, "helm_repository_unavailable"),
+        (404, {}, "helm_repository_unavailable"),
+        (200, {"name": "other", "format": "helm", "type": "hosted"}, "helm_repository_invalid"),
+        (200, {"name": "helm-team", "format": "docker", "type": "hosted"}, "helm_repository_invalid"),
+    ]:
+        requests.clear()
+
+        def denied_handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(status, json=details)
+
+        monkeypatch.setattr(
+            "app.services.nexus_helm_http.httpx.AsyncClient",
+            lambda **kwargs: real_async_client(
+                transport=httpx.MockTransport(denied_handler), **kwargs
+            ),
+        )
+        denied = client.post(
+            f"/api/settings/harbor/profiles/{profile_id}/test-registry", headers=headers
+        )
+        assert denied.status_code == 200
+        assert denied.json()["ok"] is False
+        assert denied.json()["code"] == expected
+        assert [req.url.path for req in requests] == [
+            "/service/rest/v1/repositories/helm-team"
+        ]
 
     wrong_repo = client.get(
         f"/api/registry/source/nexus/helm/charts?profile_id={profile_id}&repository=other",
