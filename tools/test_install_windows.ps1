@@ -31,7 +31,7 @@ try {
         $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $relative"
     })
-    [IO.File]::WriteAllText((Join-Path $kit 'CHECKSUMS.sha256'), (($entries -join [Environment]::NewLine) + [Environment]::NewLine), (New-Object Text.UTF8Encoding($false)))
+    [IO.File]::WriteAllText((Join-Path $kit 'CHECKSUMS.sha256'), (($entries -join [Environment]::NewLine) + [Environment]::NewLine), ([Text.UTF8Encoding]::new($false)))
 
     $fakeDocker = @'
 @echo off
