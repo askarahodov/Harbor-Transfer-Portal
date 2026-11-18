@@ -564,12 +564,12 @@ async def test_registry_profile_connection(
 
     if profile.registry_type == "nexus":
         if profile.nexus_format == "helm":
-            # Dedicated Helm HTTP repositories are checked by their bounded
-            # index.yaml read; they are never probed as Docker v2 / OCI.
+            # Dedicated Helm HTTP repositories are checked by exact metadata and
+            # a bounded index.yaml read; they are never probed as Docker v2 / OCI.
             try:
                 catalog = await NexusHelmHttpService(
                     session, request.app.state.settings, profile.id
-                ).list_charts(profile.nexus_search_repository or "")
+                ).probe_repository(profile.nexus_search_repository or "")
             except HarborSettingsError as exc:
                 raise _profile_error(exc) from exc
             except NexusHelmHttpError as exc:
