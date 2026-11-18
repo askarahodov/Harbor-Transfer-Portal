@@ -322,8 +322,8 @@ function openSearchImage(): void {
     chooseImage(name)
     return
   }
-  if (!name.includes('/') && repositories.value.length) {
-    catalogExactError.value = 'Выберите образ из совпадений. Если это полное имя корневого образа, используйте кнопку прямой проверки ниже.'
+  if (!name.includes('/') && validImageName.test(name)) {
+    catalogExactError.value = 'Короткое совпадение: выберите образ из результатов поиска. Если это точное имя корневого образа, нажмите «Показать теги по точному имени» ниже.'
     return
   }
   if (!validImageName.test(name)) {
