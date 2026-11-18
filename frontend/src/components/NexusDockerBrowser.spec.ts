@@ -43,6 +43,80 @@ describe('NexusDockerBrowser', () => {
     expect(wrapper.emitted('add')?.[0]).toEqual(['bitnami/redis', '3.20', DIGEST])
   })
 
+  it('searches by a short case-insensitive fragment and opens a suggested full image', async () => {
+    vi.useFakeTimers()
+    vi.mocked(exportsApi.listNexusRepositories).mockImplementation(async (_id, search) => ({
+      available: true,
+      items: ['baseimage/softrust/sdk/sdk', 'baseimage/softrust/aspnet/wkhtml']
+        .filter(name => name.toLowerCase().includes(search.toLowerCase())),
+      message: null, truncated: false, next_cursor: null,
+    }))
+    const wrapper = mount(NexusDockerBrowser, {
+      props: { profileId: 'proxy-id', nexusRepository: 'docker-proxy', restSearchConfigured: true },
+    })
+    await flushPromises()
+    const input = wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]')
+    expect(wrapper.get('.nexus-browser__picker').text()).toContain(
+      'Docker image / репозиторий Nexus — ввод и поиск',
+    )
+    await input.setValue('SDK')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushPromises()
+    expect(exportsApi.listNexusRepositories).toHaveBeenLastCalledWith('proxy-id', 'SDK', undefined)
+    const suggested = wrapper.get(
+      'button[aria-label="Открыть найденный Docker image baseimage/softrust/sdk/sdk"]',
+    )
+    expect(wrapper.findAll('.nexus-browser__matches-list button')).toHaveLength(1)
+    await input.trigger('keydown.enter')
+    expect(exportsApi.listNexusTags).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Короткое совпадение')
+    await suggested.trigger('click')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenCalledWith(
+      'proxy-id', 'baseimage/softrust/sdk/sdk', '', undefined,
+    )
+    expect(wrapper.get('.nexus-browser__versions h4').text())
+      .toContain('baseimage/softrust/sdk/sdk')
+    wrapper.unmount()
+  })
+
+  it('opens full Docker image even when configured REST browse returns no matches', async () => {
+    vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
+      available: true, items: [], message: null, truncated: false, next_cursor: null,
+    })
+    const wrapper = mount(NexusDockerBrowser, {
+      props: { profileId: 'proxy-id', restSearchConfigured: true },
+    })
+    await flushPromises()
+    const input = wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]')
+    await input.setValue('baseimage/softrust/sdk/sdk')
+    await input.trigger('keydown.enter')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenCalledWith(
+      'proxy-id', 'baseimage/softrust/sdk/sdk', '', undefined, true,
+    )
+    expect(wrapper.get('table.nexus-browser__table').text()).toContain('3.20')
+    wrapper.unmount()
+  })
+
+  it('limits substring searches to 128 characters without blocking exact path lookup', async () => {
+    const wrapper = mount(NexusDockerBrowser, {
+      props: { profileId: 'proxy-id', restSearchConfigured: true },
+    })
+    await flushPromises()
+    vi.mocked(exportsApi.listNexusRepositories).mockClear()
+    const full = 'namespace/' + 'a'.repeat(125)
+    await wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]').setValue(full)
+    expect(wrapper.text()).toContain('Поиск по фрагменту ограничен 128 символами')
+    expect(exportsApi.listNexusRepositories).not.toHaveBeenCalled()
+    await wrapper.get('.nexus-browser__exact-fallback button').trigger('click')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenCalledWith(
+      'proxy-id', full, '', undefined, true,
+    )
+    wrapper.unmount()
+  })
+
   it('uses a compact searchable image selector to open a Harbor-style tag table', async () => {
     const wrapper = mount(NexusDockerBrowser, {
       props: { profileId: 'proxy-id', nexusRepository: 'docker-proxy' },
@@ -635,7 +709,7 @@ describe('NexusDockerBrowser', () => {
     const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
     await flushPromises()
     expect(wrapper.text()).toContain('На прочитанных страницах совпадений нет')
-    await wrapper.findAll('button').find(button => button.text() === 'Следующая страница образов')!
+    await wrapper.findAll('button').find(button => button.text() === 'Искать дальше на следующих страницах')!
       .trigger('click')
     await flushPromises()
     expect(exportsApi.listNexusRepositories).toHaveBeenCalledWith('proxy-id', '', 'next')
@@ -671,7 +745,7 @@ describe('NexusDockerBrowser', () => {
     await flushPromises()
     expect(seen).toEqual([undefined, undefined, 'page-2', 'page-3'])
     expect(wrapper.text()).toContain('bitnami/redis')
-    expect(wrapper.text()).toContain('прочитано страниц: 3')
+    expect(wrapper.text()).toContain('страниц просмотрено: 3')
     wrapper.unmount()
   })
 
@@ -699,7 +773,7 @@ describe('NexusDockerBrowser', () => {
     await flushPromises()
     expect(exportsApi.listNexusRepositories).toHaveBeenCalledWith('proxy-id', 'redis', 'page-2')
     expect(wrapper.text()).toContain('team/redis')
-    expect(wrapper.text()).toContain('прочитано страниц: 2')
+    expect(wrapper.text()).toContain('страниц просмотрено: 2')
     wrapper.unmount()
   })
 
