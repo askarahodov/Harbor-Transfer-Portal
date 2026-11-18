@@ -12,6 +12,7 @@ import io
 import json
 import os
 import re
+import ssl
 import stat
 import tarfile
 from dataclasses import dataclass
@@ -42,6 +43,26 @@ _VERSION = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
 _SHA256 = re.compile(r"[a-f0-9]{64}\Z")
 _MAX_INDEX = 4 * 1024 * 1024
 _MAX_CHART = 100 * 1024 * 1024
+
+
+def _helm_tls_error(exc: BaseException) -> bool:
+    # httpcore may retain the SSL error as a cause or flatten its diagnostic.
+    # Never return raw transport messages or endpoint/credential information.
+    pending = [exc]
+    visited: set[int] = set()
+    while pending:
+        cause = pending.pop()
+        if id(cause) in visited:
+            continue
+        visited.add(id(cause))
+        if isinstance(cause, ssl.SSLError):
+            return True
+        if cause.__cause__ is not None:
+            pending.append(cause.__cause__)
+        if cause.__context__ is not None:
+            pending.append(cause.__context__)
+    diagnostic = str(exc).lower()
+    return "certificate verify failed" in diagnostic or "certificate_verify_failed" in diagnostic
 
 
 class _UniqueKeysLoader(yaml.SafeLoader):
@@ -221,12 +242,16 @@ class NexusHelmHttpService:
                 if response.status_code in (401, 403):
                     return HelmHttpResult(
                         False, code="helm_repository_denied",
-                        message="Нет прав на чтение Helm repository",
+                        message=(
+                            "HTTP 401: авторизация Helm repository не подтверждена"
+                            if response.status_code == 401
+                            else "HTTP 403: нет прав на чтение Helm repository"
+                        ),
                     )
                 if response.status_code == 404:
                     return HelmHttpResult(
                         False, code="helm_index_missing",
-                        message="Helm index.yaml отсутствует",
+                        message="HTTP 404: Helm index.yaml отсутствует",
                     )
                 if response.status_code != 200:
                     return HelmHttpResult(False, code="helm_index_unavailable",
@@ -237,9 +262,12 @@ class NexusHelmHttpService:
                     if len(content) > _MAX_INDEX:
                         return HelmHttpResult(False, code="helm_index_too_large",
                                               message="Helm index.yaml превышает лимит")
-        except httpx.HTTPError:
-            return HelmHttpResult(False, code="helm_index_unavailable",
-                                  message="Helm repository недоступен")
+        except httpx.HTTPError as exc:
+            return HelmHttpResult(
+                False, code="helm_index_unavailable",
+                message=("Не удалось проверить TLS-сертификат Helm repository"
+                         if _helm_tls_error(exc) else "Helm repository недоступен"),
+            )
         try:
             data = _load_unambiguous_yaml(bytes(content))
         except (yaml.YAMLError, UnicodeError):
@@ -348,12 +376,30 @@ class NexusHelmHttpService:
         """Verify read-only repository identity and index without implying write access."""
         repository = self._repository(repository)
         url = self._base() + "/service/rest/v1/repositories/" + quote(repository)
-        async with self._client() as client:
+        try:
+            client = self._client()
+        except (ValueError, OSError):
+            return HelmHttpResult(
+                False, code="helm_repository_unavailable",
+                message="Ошибка TLS/CA или конфигурации Helm подключения",
+            )
+        async with client:
             try:
                 async with client.stream("GET", url) as response:
                     if response.status_code in (401, 403):
-                        return HelmHttpResult(False, code="helm_repository_denied",
-                                              message="Нет прав на чтение metadata Helm repository")
+                        return HelmHttpResult(
+                            False, code="helm_repository_denied",
+                            message=(
+                                "HTTP 401: авторизация Helm metadata не подтверждена"
+                                if response.status_code == 401
+                                else "HTTP 403: нет прав на чтение Helm metadata"
+                            ),
+                        )
+                    if response.status_code == 404:
+                        return HelmHttpResult(
+                            False, code="helm_repository_unavailable",
+                            message="HTTP 404: Helm repository metadata недоступны",
+                        )
                     if response.status_code != 200:
                         return HelmHttpResult(False, code="helm_repository_unavailable",
                                               message="Metadata Helm repository недоступны")
@@ -369,9 +415,12 @@ class NexusHelmHttpService:
             except (ValueError, UnicodeError):
                 return HelmHttpResult(False, code="helm_repository_invalid",
                                       message="Некорректные metadata Helm repository")
-            except httpx.HTTPError:
-                return HelmHttpResult(False, code="helm_repository_unavailable",
-                                      message="Metadata Helm repository недоступны")
+            except httpx.HTTPError as exc:
+                return HelmHttpResult(
+                    False, code="helm_repository_unavailable",
+                    message=("Не удалось проверить TLS-сертификат Helm repository"
+                             if _helm_tls_error(exc) else "Metadata Helm repository недоступны"),
+                )
             if (
                 not isinstance(details, dict)
                 or details.get("name") != repository
