@@ -42,7 +42,9 @@ cd Harbor-Transfer-Portal
 ./run.sh
 ```
 
-Оба скрипта сохраняют существующий `.env`, при необходимости создают его из `.env.example` и выполняют `docker compose up -d --build --force-recreate`. Секрет JWT при отсутствии значения безопасно генерируется backend и повторно используется из persistent volume; в Git он не попадает. При **первой установке на пустую базу** войдите `admin/admin` и обязательно установите новый пароль от 12 символов. До смены пароля административные и transfer API недоступны. После смены войдите с новым паролем.
+**Первый запуск:** `run.cmd` или `./run.sh` выполняет два понятных шага: сборку образов с точным Git SHA, затем `docker compose up -d --no-build --pull never --wait`, ожидая healthy. **Повторный запуск без сборки:** `run.cmd start` / `./run.sh start`. **Диагностика:** `doctor`, `status`, `logs`; **остановка без удаления данных:** `stop`. Подробная таблица и действия при зависании BuildKit: [быстрый запуск Windows/Linux](docs/install-windows-linux.md).
+
+Оба скрипта сохраняют существующий `.env` и при первом запуске копируют `.env.example`; `run.sh` создаёт файл с закрытыми правами. JWT secret при отсутствии значения генерируется backend и сохраняется в persistent volume. При **первой установке на пустую базу** войдите `admin/admin` и обязательно установите новый пароль от 12 символов. До смены пароля административные и transfer API недоступны. После смены войдите с новым паролем.
 
 Откройте Portal по адресу `http://127.0.0.1:8080/` или локальную документацию `http://127.0.0.1:8080/docs/`. URL рассчитан на локальный bootstrap; для удалённых браузеров нужен одобренный HTTPS-терминатор. Адрес и порт могут быть изменены через `.env`. Изначальный `HARBOR_URL` является placeholder: добавьте действительный локальный Harbor profile через **Настройки**, прежде чем переносить артефакты.
 
@@ -64,16 +66,16 @@ cd Harbor-Transfer-Portal
 
 ### Полезные команды
 
-```text
-docker compose ps
-docker compose logs -f
-docker compose down
-docker compose down -v
-docker compose restart
-docker compose up -d --build --force-recreate
-```
+| Действие | Windows CMD | Linux |
+|---|---|---|
+| Проверить окружение | `run.cmd doctor` | `./run.sh doctor` |
+| Первый запуск / обновление SHA | `run.cmd` | `./run.sh` |
+| Только собрать images | `run.cmd build` | `./run.sh build` |
+| Запустить **без новой сборки** | `run.cmd start` | `./run.sh start` |
+| Статус / логи | `run.cmd status` / `run.cmd logs` | `./run.sh status` / `./run.sh logs` |
+| Остановить, сохранив данные | `run.cmd stop` | `./run.sh stop` |
 
-`docker compose down -v` удаляет persistent volume и предназначен только для осознанного сброса локальных данных.
+Скрипты **не вызывают** `docker compose down -v`: эта команда удаляет persistent volume и **не применяется** в штатной эксплуатации. Для двух отдельных установок нужны разные `.env`, `COMPOSE_PROJECT_NAME`, `PORTAL_VERSION` и `PORTAL_HTTP_PORT`.
 
 ### Доступ
 
@@ -94,7 +96,8 @@ Docsify JS/CSS включены во frontend image, поэтому для чт�
 |---|---|
 | выполняете перенос | [Пользовательское руководство](docs/user-guide.md) |
 | администрируете Portal / Harbor | [Руководство администратора](docs/admin-guide.md) |
-| устанавливаете Portal в закрытом контуре | [Offline installation guide](deploy/offline/README.md) |
+| устанавливаете Portal на Windows/Linux из Git | [Быстрый запуск Windows/Linux](docs/install-windows-linux.md) |
+| устанавливаете Portal в закрытом контуре Linux | [Offline installation guide](deploy/offline/README.md) |
 | устраняете проблему | [Troubleshooting](docs/troubleshooting.md) |
 | разрабатываете или сопровождаете проект | [Локальная разработка Windows/Linux](docs/development.md), [карта документации](docs/README.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 
