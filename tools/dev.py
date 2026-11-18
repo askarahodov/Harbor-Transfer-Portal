@@ -178,7 +178,8 @@ def command_doctor(*, dry_run: bool = False) -> int:
 
 def command_build(*, dry_run: bool = False) -> int:
     """Build backend/frontend Docker images from the current source revision."""
-    _require_env_file()
+    if not dry_run:
+        _require_env_file()
     env = _compose_environment(dry_run=dry_run)
     _docker_compose("build", env=env, dry_run=dry_run)
     return 0
@@ -186,13 +187,14 @@ def command_build(*, dry_run: bool = False) -> int:
 
 def _start_images(*, dry_run: bool = False) -> int:
     """Run already-built images without network pulls or an implicit rebuild."""
-    _require_env_file()
+    if not dry_run:
+        _require_env_file()
     env = _compose_environment(dry_run=dry_run)
     _docker_compose(
         "up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "180",
         env=env, dry_run=dry_run,
     )
-    raw = ENV_FILE.read_text(encoding="utf-8")
+    raw = ENV_FILE.read_text(encoding="utf-8") if ENV_FILE.is_file() else ""
     match = re.search(r"(?m)^PORTAL_HTTP_PORT=(\d+)$", raw)
     port = os.environ.get("PORTAL_HTTP_PORT") or (match.group(1) if match else "8080")
     print(f"Portal: http://127.0.0.1:{port}/  Docs: /docs/")
