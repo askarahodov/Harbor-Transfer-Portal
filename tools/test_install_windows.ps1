@@ -125,7 +125,11 @@ exit /b 0
     [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
     $sourceOutput = & (Join-Path $source 'run.cmd') 2>&1 | Out-String
     Check ($LASTEXITCODE -eq 0) "Source CMD launcher failed: $sourceOutput"
-    Check (Test-Path -LiteralPath (Join-Path $source '.env') -PathType Leaf) 'Source launcher did not create .env'
+    if (-not (Test-Path -LiteralPath (Join-Path $source '.env') -PathType Leaf)) {
+        $names = (Get-ChildItem -LiteralPath $source -Force | Select-Object -ExpandProperty Name) -join ', '
+        $calls = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
+        throw "Source CMD launcher did not create .env; output=[$sourceOutput], files=[$names], Docker calls=[$calls]"
+    }
     $sourceLog = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
     Check ($sourceLog -match 'compose up -d --build --force-recreate --wait --wait-timeout 180') 'Source launcher did not wait for health'
 
