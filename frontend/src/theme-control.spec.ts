@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const source = readFileSync(new URL('../public/theme-control.js', import.meta.url), 'utf8')
+const source = readFileSync(resolve(process.cwd(), 'public', 'theme-control.js'), 'utf8')
 const storageKey = 'htp.ui.theme.v1'
 
 function installThemeControl(): void {
