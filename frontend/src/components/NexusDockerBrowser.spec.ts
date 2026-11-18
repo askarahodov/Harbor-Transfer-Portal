@@ -63,23 +63,54 @@ describe('NexusDockerBrowser', () => {
     await vi.advanceTimersByTimeAsync(350)
     await flushPromises()
     expect(exportsApi.listNexusRepositories).toHaveBeenLastCalledWith('proxy-id', 'SDK', undefined)
-    const suggested = wrapper.get(
-      'button[aria-label="Открыть найденный Docker image baseimage/softrust/sdk/sdk"]',
-    )
-    expect(wrapper.findAll('.nexus-browser__matches-list button')).toHaveLength(1)
+    const selector = wrapper.get('select[aria-label="Выбрать Docker image Nexus"]')
+    expect(wrapper.find('.nexus-browser__matches-list').exists()).toBe(false)
+    expect(selector.attributes('size')).toBe('2')
+    expect(selector.findAll('option').filter(option => option.text().includes('baseimage/softrust/sdk/sdk')))
+      .toHaveLength(1)
     expect(wrapper.find('.nexus-browser__exact-fallback').exists()).toBe(false)
     expect(wrapper.get('select[aria-label="Выбрать Docker image Nexus"]').findAll('option')
       .map(option => option.text())).not.toContain('SDK · проверить теги по имени')
     await input.trigger('keydown.enter')
     expect(exportsApi.listNexusTags).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('Короткое совпадение')
-    await suggested.trigger('click')
+    await selector.setValue('baseimage/softrust/sdk/sdk')
     await flushPromises()
     expect(exportsApi.listNexusTags).toHaveBeenCalledWith(
       'proxy-id', 'baseimage/softrust/sdk/sdk', '', undefined,
     )
     expect(wrapper.get('.nexus-browser__versions h4').text())
       .toContain('baseimage/softrust/sdk/sdk')
+    wrapper.unmount()
+  })
+
+  it('keeps 169 matching images in one bounded, scrollable inline list without duplicate chips', async () => {
+    vi.useFakeTimers()
+    const names = Array.from({ length: 169 }, (_, i) =>
+      `baseimage/softrust/team/application-${String(i).padStart(3, '0')}`,
+    )
+    vi.mocked(exportsApi.listNexusRepositories).mockImplementation(async (_id, search) => ({
+      available: true,
+      items: names.filter(name => name.includes(search)),
+      message: null, truncated: false, next_cursor: null,
+    }))
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('input[aria-label="Поиск Docker-образов Nexus"]').setValue('softrust')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushPromises()
+    const list = wrapper.get('select[aria-label="Выбрать Docker image Nexus"]')
+    expect(list.attributes('size')).toBe('7')
+    expect(list.classes()).toContain('nexus-browser__results')
+    expect(list.findAll('option').filter(option => names.includes(option.attributes('value') ?? '')))
+      .toHaveLength(169)
+    expect(wrapper.find('.nexus-browser__matches-list').exists()).toBe(false)
+    expect(wrapper.findAll('button.nexus-browser__match')).toHaveLength(0)
+    expect(wrapper.text()).toContain('Совпадений: 169')
+    await list.setValue(names[168])
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenCalledWith('proxy-id', names[168], '', undefined)
+    expect(wrapper.get('.nexus-browser__versions h4').text()).toContain(names[168])
     wrapper.unmount()
   })
 
