@@ -275,7 +275,14 @@ async def test_real_nexus_inventory_and_docker_tag_browse_isolated_from_harbor(
         assert ("htp-helm-source", "helm", "hosted") in repositories
         assert all(item.format in {"docker", "helm"} for item in visible.items)
 
-        # Docker v2 tags/list is separate from REST inventory/search.
+        # Explicit exact-name browse uses the real HTTPS connector even while
+        # REST Search is configured on the same saved profile.
+        direct = await discovery.tags_page("htp-e2e/source", direct=True)
+        assert direct.available, direct.message
+        assert "1.0.0" in direct.items
+        assert discovery.search_repository == "htp-e2e"
+
+        # Preserve legacy discovery behavior too.
         discovery.search_repository = None
         tags = await discovery.tags("htp-e2e/source")
         assert tags.available, tags.message
