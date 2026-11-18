@@ -46,8 +46,12 @@ if errorlevel 1 (
   exit /b 1
 )
 set "HTTP_PORT=8080"
+set "HTTP_BIND=127.0.0.1"
 for /f "tokens=1,* delims==" %%A in ('findstr /B /C:"PORTAL_HTTP_PORT=" ".env"') do set "HTTP_PORT=%%B"
+for /f "tokens=1,* delims==" %%A in ('findstr /B /C:"PORTAL_HTTP_BIND=" ".env"') do set "HTTP_BIND=%%B"
 if defined PORTAL_HTTP_PORT set "HTTP_PORT=%PORTAL_HTTP_PORT%"
-echo Portal is healthy: http://127.0.0.1:%HTTP_PORT%/
+if defined PORTAL_HTTP_BIND set "HTTP_BIND=%PORTAL_HTTP_BIND%"
+echo Portal is healthy. Internal HTTP listener: http://%HTTP_BIND%:%HTTP_PORT%/
+if /I not "%HTTP_BIND%"=="127.0.0.1" echo Use an approved HTTPS terminator for remote browser access.
 echo New database only: sign in with admin/admin and immediately change the password.
 endlocal
