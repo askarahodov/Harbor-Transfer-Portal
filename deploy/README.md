@@ -181,9 +181,9 @@ Private signing key запрещено включать в delivery bundle ил�
 
 ```bash
 docker compose config
-docker compose build
-# Затем запуск без повторной сборки (при ручной сборке обязательно передайте PORTAL_VCS_REF)
-docker compose up -d --no-build --pull never --wait --wait-timeout 180
+PORTAL_VCS_REF="$(git rev-parse HEAD)" docker compose build
+# Затем запуск без повторной сборки и без pull
+PORTAL_VCS_REF="$(git rev-parse HEAD)" docker compose up -d --no-build --pull never --wait --wait-timeout 180
 ```
 
 Make/host Python не требуются для source quick start; расширенные developer-команды см. в [docs/development.md](../docs/development.md).
