@@ -41,7 +41,7 @@ try {
 
     # Never execute a release payload if a file is modified or omitted from checksums.
     Write-Host 'Verifying offline kit SHA-256 checksums...'
-    $verified = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    $verified = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $basePath = [IO.Path]::GetFullPath($root).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
     $checksums = Get-Content -LiteralPath 'CHECKSUMS.sha256' -Encoding UTF8
     Assert-Condition ($checksums.Count -gt 0) 'Empty checksum manifest'
@@ -131,7 +131,7 @@ try {
         $envContent = $envContent.Replace('# JWT_SECRET=', "JWT_SECRET=$jwtSecret")
         $temporaryEnv = Join-Path $root '.env.tmp'
         Assert-Condition (-not (Test-Path -LiteralPath $temporaryEnv)) 'Stale .env.tmp exists; inspect it before retrying'
-        [IO.File]::WriteAllText($temporaryEnv, $envContent, (New-Object Text.UTF8Encoding($false)))
+        [IO.File]::WriteAllText($temporaryEnv, $envContent, ([Text.UTF8Encoding]::new($false)))
         [IO.File]::Move($temporaryEnv, $envPath)
         Write-Host "Created local .env for $contour; existing configuration is never overwritten."
     }
@@ -164,7 +164,7 @@ try {
                     'up', '-d', '--no-build', '--pull', 'never', '--wait',
                     '--wait-timeout', [string]$timeout)
     Write-Host ''
-    Write-Host "Installation completed: http://127.0.0.1:$port/"
+    Write-Host "Installation completed; internal listener: http://$bind`:$port/"
     if ($scheme -eq 'https') {
         Write-Host 'Remote browser access requires a separately configured site-managed HTTPS terminator.'
     } else {
@@ -173,7 +173,7 @@ try {
     Write-Host 'First login on a new database: admin/admin; change the password immediately.'
     Write-Host 'Next: configure local Harbor profiles and signing/trust keys in Settings.'
 } catch {
-    Write-Error $_.Exception.Message
+    [Console]::Error.WriteLine($_.Exception.Message)
     exit 1
 } finally {
     Pop-Location
