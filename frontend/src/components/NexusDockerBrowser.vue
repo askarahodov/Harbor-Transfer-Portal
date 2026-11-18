@@ -98,6 +98,7 @@ const visibleTags = computed(() =>
   tags.value.slice((versionPage.value - 1) * VERSION_PAGE_SIZE, versionPage.value * VERSION_PAGE_SIZE),
 )
 const selectedRepository = ref('')
+const directTagLookup = ref(false)
 const selectedTag = ref('')
 const inspection = ref<ExactNexusInspection | null>(null)
 const inspectionFromDirect = ref(false)
@@ -155,6 +156,7 @@ function resetCatalog(preserveSelection = false): void {
   // Changing connector or selecting a new image clears the old selection.
   if (!preserveSelection) {
     selectedRepository.value = ''
+    directTagLookup.value = false
     resetTag()
   }
 }
@@ -239,7 +241,9 @@ async function readTags(next = false): Promise<void> {
   tagsBusy.value = true
   tagError.value = null
   try {
-    const data = await listNexusTags(id, repository, search, pageCursor ?? undefined)
+    const data = directTagLookup.value
+      ? await listNexusTags(id, repository, search, pageCursor ?? undefined, true)
+      : await listNexusTags(id, repository, search, pageCursor ?? undefined)
     if (current !== tagGeneration || id !== props.profileId
         || repository !== selectedRepository.value || search !== tagQuery.value.trim()) return
     if (!data.available) {
@@ -264,11 +268,16 @@ async function readTags(next = false): Promise<void> {
     if (current === tagGeneration) tagsBusy.value = false
   }
 }
-function chooseImage(name: string): void {
-  if (name === selectedRepository.value) return
+function chooseImage(name: string, direct = false): void {
+  const mode = Boolean(props.restSearchConfigured && direct)
+  if (name === selectedRepository.value && mode === directTagLookup.value) return
   selectedRepository.value = name
+  directTagLookup.value = mode
   resetTag()
   if (name) void readTags()
+}
+function chooseSelectorImage(name: string): void {
+  chooseImage(name, Boolean(name && !repositories.value.includes(name)))
 }
 
 function openKnownImage(): void {
@@ -281,13 +290,14 @@ function openKnownImage(): void {
   // A known image may already be selected, but its tags/list can have
   // failed earlier. Retry without requiring an image switch; do not discard
   // already selected versions when the list is healthy.
-  if (name === selectedRepository.value) {
+  if (name === selectedRepository.value
+      && directTagLookup.value === Boolean(props.restSearchConfigured)) {
     if (!tagsBusy.value && (tagError.value || !tags.value.length)) {
       resetTag()
       void readTags()
     }
   } else {
-    chooseImage(name)
+    chooseImage(name, true)
   }
 }
 
@@ -324,6 +334,7 @@ async function inspectKnownImage(): Promise<void> {
   }
   if (selectedRepository.value !== name) {
     selectedRepository.value = name
+    directTagLookup.value = Boolean(props.restSearchConfigured)
     resetTag()
   }
   // Exact inspect uses the configured Docker v2 connector and Skopeo; it does
@@ -563,7 +574,7 @@ onBeforeUnmount(() => {
         <label class="nexus-browser__label">
           Docker image / репозиторий
           <select :value="selectedRepository" aria-label="Выбрать Docker image Nexus"
-            @change="chooseImage(($event.target as HTMLSelectElement).value)">
+            @change="chooseSelectorImage(($event.target as HTMLSelectElement).value)">
             <option value="">Выберите образ</option>
             <option v-if="query.trim() && validImageName.test(query.trim()) && !repositories.includes(query.trim()) && selectedRepository !== query.trim()"
               :value="query.trim()">{{ query.trim() }} · проверить теги по имени</option>
@@ -583,7 +594,7 @@ onBeforeUnmount(() => {
         class="nexus-browser__exact-fallback">
         <p class="muted">
           Каталог Nexus может не содержать образ, доступный через Docker pull.
-          Укажите image для чтения тегов или image:tag для прямой проверки SHA-256.
+          Укажите image для чтения тегов через Docker connector или image:tag для прямой проверки SHA-256.
           Точный reference не добавляется в экспорт без успешной проверки digest.
         </p>
         <button type="button" class="secondary-button"
