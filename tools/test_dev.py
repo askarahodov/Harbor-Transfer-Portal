@@ -157,6 +157,21 @@ class DevCliTests(unittest.TestCase):
             self.assertIn("docker compose version", script)
             self.assertIn("Linux containers", script)
 
+    def test_windows_launcher_parses_docker_ostype_without_findstr(self) -> None:
+        cmd = (dev.ROOT / "run.cmd").read_text(encoding="utf-8")
+        self.assertIn('for /f "usebackq delims=" %%O', cmd)
+        self.assertIn('if /I not "%PORTAL_DOCKER_OS%"=="linux"', cmd)
+        self.assertNotIn("findstr", cmd.lower())
+
+    def test_docker_image_entrypoints_are_protected_against_crlf(self) -> None:
+        attributes = (dev.ROOT / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn("*.sh text eol=lf", attributes)
+        self.assertIn("Dockerfile text eol=lf", attributes)
+        backend = (dev.ROOT / "backend/Dockerfile").read_text(encoding="utf-8")
+        frontend = (dev.ROOT / "frontend/Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("sed -i 's/\\r$//'", backend)
+        self.assertIn("sed -i 's/\\r$//'", frontend)
+
     def test_hostless_run_scripts_propagate_vcs_reference(self) -> None:
         shell = (dev.ROOT / "run.sh").read_text(encoding="utf-8")
         cmd = (dev.ROOT / "run.cmd").read_text(encoding="utf-8")
