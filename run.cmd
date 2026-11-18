@@ -14,7 +14,7 @@ if /I not "%DOCKER_OS%"=="linux" (
   echo Start Docker Desktop and switch to Linux containers, then retry.
   exit /b 1
 )
-docker compose version >NUL 2>&1
+call docker compose version >NUL 2>&1
 if errorlevel 1 (
   echo ERROR: Docker Compose v2 is required.
   exit /b 1
@@ -28,7 +28,7 @@ if not exist ".env" (
   if errorlevel 1 exit /b 1
   echo Created .env from template; backend will persist a random JWT secret.
 )
-docker compose config -q
+call docker compose config -q
 if errorlevel 1 (
   echo ERROR: Invalid Compose configuration. Check .env and compose.yaml.
   exit /b 1
@@ -37,10 +37,10 @@ set "PORTAL_VCS_REF=unknown"
 for /f "delims=" %%R in ('git rev-parse HEAD 2^>NUL') do set "PORTAL_VCS_REF=%%R"
 set "WAIT_TIMEOUT=180"
 if defined PORTAL_INSTALL_TIMEOUT_SECONDS set "WAIT_TIMEOUT=%PORTAL_INSTALL_TIMEOUT_SECONDS%"
-docker compose up -d --build --force-recreate --wait --wait-timeout %WAIT_TIMEOUT%
+call docker compose up -d --build --force-recreate --wait --wait-timeout %WAIT_TIMEOUT%
 if errorlevel 1 (
   echo ERROR: Portal failed to become healthy. Inspect:
-  echo   docker compose ps
+  echo   call docker compose ps
   echo   docker compose logs --tail=100
   docker compose ps
   exit /b 1
