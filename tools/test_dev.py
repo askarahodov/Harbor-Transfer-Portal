@@ -30,7 +30,7 @@ class DevCliTests(unittest.TestCase):
         compose_call = calls[-1]
         self.assertEqual(
             compose_call[0],
-            ["docker", "compose", "up", "-d", "--build", "--force-recreate"],
+            ["docker", "compose", "up", "-d", "--build", "--force-recreate", "--wait", "--wait-timeout", "180"],
         )
         self.assertEqual(compose_call[1]["PORTAL_VCS_REF"], "abc123")
 
@@ -143,8 +143,19 @@ class DevCliTests(unittest.TestCase):
         for script in (shell, cmd):
             self.assertIn("docker compose up -d --build --force-recreate", script)
             self.assertIn(".env.example", script)
+            self.assertIn("--wait --wait-timeout 180", script)
+            self.assertIn("docker compose config -q", script)
+            self.assertIn("docker compose port frontend 8080", script)
             self.assertNotIn("python", script.lower())
             self.assertNotIn("make ", script.lower())
+
+    def test_launchers_preflight_docker_before_start(self) -> None:
+        shell = (dev.ROOT / "run.sh").read_text(encoding="utf-8")
+        cmd = (dev.ROOT / "run.cmd").read_text(encoding="utf-8")
+        for script in (shell, cmd):
+            self.assertIn("docker info", script)
+            self.assertIn("docker compose version", script)
+            self.assertIn("Linux containers", script)
 
     def test_hostless_run_scripts_propagate_vcs_reference(self) -> None:
         shell = (dev.ROOT / "run.sh").read_text(encoding="utf-8")
