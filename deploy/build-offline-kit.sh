@@ -80,6 +80,8 @@ for script in install.sh backup.sh restore.sh upgrade.sh uninstall.sh; do
   cp "$ROOT/deploy/offline/$script" "$STAGE/$script"
   chmod 0755 "$STAGE/$script"
 done
+cp "$ROOT/deploy/offline/install.ps1" "$STAGE/install.ps1"
+cp "$ROOT/deploy/offline/install.cmd" "$STAGE/install.cmd"
 cp "$ROOT/deploy/offline/README.md" "$STAGE/README.md"
 cp "$ROOT/.env.example" "$STAGE/.env.example"
 cp "$ROOT/CHANGELOG.md" "$STAGE/CHANGELOG.md"

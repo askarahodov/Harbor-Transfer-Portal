@@ -71,7 +71,7 @@ Release build выполняется заранее в контролируем�
 
 Kit содержит versioned backend/frontend image tar, image-only Compose, installer/lifecycle scripts, configuration template, checksums, release manifest, changelog и release notes.
 
-В закрытом контуре `install.sh` использует `docker load` и запускает Compose с:
+В закрытом контуре Linux `install.sh`, а Windows `install.cmd` / `install.ps1` (Docker Desktop в Linux containers mode) используют `docker load` и запускают Compose с:
 
 ```text
 --no-build --pull never
@@ -79,7 +79,7 @@ Kit содержит versioned backend/frontend image tar, image-only Compose, i
 
 Release Compose дополнительно задаёт `pull_policy: never`. Runtime не должен обращаться к PyPI/npm/apt/get.helm.sh/CDN.
 
-Полная инструкция: [offline/README.md](offline/README.md).
+На Windows поддержаны первичная offline-установка и повторный запуск той же версии, но не native backup/restore/upgrade/uninstall. Полная инструкция: [offline/README.md](offline/README.md).
 
 ## 3. Persistent volume
 

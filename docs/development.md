@@ -127,6 +127,10 @@ Versioned offline kit и его lifecycle scripts (`install.sh`, `backup.sh`, `r
 
 Это ограничение намеренное: документация не должна выдавать POSIX lifecycle scripts за Windows-native поддержку.
 
+## Готовая offline-установка
+
+Source launcher и готовая поставка — разные сценарии. В versioned offline kit на Linux используйте `./install.sh`, на Windows 10/11 с Docker Desktop (Linux containers) — `install.cmd`. Windows-native installer поддерживает только initial install и rerun той же версии; backup/restore/upgrade/uninstall пока Linux-only. См. [offline install](../deploy/offline/README.md).
+
 ## Диагностика
 
 Проверьте:

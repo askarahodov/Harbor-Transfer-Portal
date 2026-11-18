@@ -1,6 +1,6 @@
 # Harbor Transfer Portal — offline install kit
 
-**Граница установки:** корневые `run.sh` и `run.cmd` предназначены только для запуска из исходного checkout с Docker build. Они **не заменяют** подписанный offline release kit в закрытом контуре. Offline installer выполняет `docker load` и Compose `--no-build --pull never`; на Linux используйте штатный `install.sh`, не source launcher. Windows-native offline lifecycle не заявлен.
+**Граница установки:** корневые `run.sh` и `run.cmd` предназначены только для запуска из исходного checkout с Docker build. Они **не заменяют** подписанный offline release kit в закрытом контуре. Offline installer выполняет `docker load` и Compose `--no-build --pull never`; на Linux используйте штатный `install.sh`, не source launcher. Для Windows 10/11 с Docker Desktop в режиме Linux containers теперь предусмотрены `install.cmd` / `install.ps1` для **первичной установки и безопасного повторного запуска той же версии**. Скрипты `backup.sh`, `restore.sh`, `upgrade.sh`, `uninstall.sh` остаются Linux-only: Windows-native lifecycle не прошёл соответствующую квалификацию. Не используйте переустановку другого release kit как замену upgrade.
 
 Этот каталог является шаблоном release payload для закрытого контура. Финальный kit создаётся из **уже собранных release images** в контролируемой build/release среде:
 
@@ -21,6 +21,38 @@ dist/harbor-transfer-portal-v1.0.0-offline-install.tar.gz.sha256
 Packaging fail-closed проверяет canonical product version и OCI `org.opencontainers.image.version`/`revision` labels, поэтому stale или несовместимые images нельзя молча включить в текущий release archive.
 
 ## Установка в закрытом контуре
+
+Перед распаковкой проверьте внешний `.sha256` архива в доверенной среде. На Windows в PowerShell (оба файла рядом):
+
+```powershell
+$archive = 'harbor-transfer-portal-v1.0.0-offline-install.tar.gz'
+$expected = ((Get-Content "$archive.sha256" -Raw) -split '\s+')[0]
+$actual = (Get-FileHash $archive -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw 'Archive checksum mismatch' }
+```
+
+Распакуйте только после успешной проверки, например через встроенный `tar -xzf <archive>.tar.gz`. **Доверенный источник архива и контрольной суммы должен быть установлен отдельно:** SHA-256 подтверждает целостность, но сам по себе не аутентифицирует издателя.
+
+### Windows 10/11 — offline installation
+
+Нужен установленный и запущенный Docker Desktop в режиме Linux containers, Docker Compose v2 и достаточно свободного места. Из папки распакованного kit в обычном `cmd.exe` выполните:
+
+```bat
+install.cmd
+```
+
+Для первого запуска роли TARGET:
+
+```bat
+set PORTAL_CONTOUR=TARGET
+install.cmd
+```
+
+Windows installer проверяет внутренний `CHECKSUMS.sha256`, архитектуру Docker Engine, наличие Compose v2 и свободное место, генерирует локальный JWT secret, загружает строго поставляемые образы и запускает `docker compose up --no-build --pull never --wait`. Существующий `.env` сохраняется; несовпадение версий приводит к отказу. Если Docker Desktop работает в Windows containers mode, установка останавливается до загрузки образов.
+
+**Граница поддержки Windows:** install/rerun только той же версии. Windows-native backup/restore/upgrade/uninstall не поддерживаются; для этих операций нужна отдельная испытанная процедура. Не удаляйте Docker volumes вручную. Для полного recovery/update на Windows требуется отдельное решение до production rollout.
+
+### Linux — offline installation
 
 1. Перенесите архив и его `.sha256` в контур.
 2. Проверьте внешний checksum архива.

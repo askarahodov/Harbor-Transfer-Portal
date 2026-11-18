@@ -42,11 +42,13 @@ cd Harbor-Transfer-Portal
 ./run.sh
 ```
 
-Оба скрипта сохраняют существующий `.env`, при необходимости создают его из `.env.example` и выполняют `docker compose up -d --build --force-recreate`. Секрет JWT при отсутствии значения безопасно генерируется backend и повторно используется из persistent volume; в Git он не попадает. При **первой установке на пустую базу** войдите `admin/admin` и обязательно установите новый пароль от 12 символов. До смены пароля административные и transfer API недоступны. После смены войдите с новым паролем.
+Оба скрипта сохраняют существующий `.env`, при необходимости создают его из `.env.example` и выполняют `docker compose up -d --build --force-recreate --wait`: успешный результат выводится только после прохождения healthcheck контейнеров. Секрет JWT при отсутствии значения безопасно генерируется backend и повторно используется из persistent volume; в Git он не попадает. При **первой установке на пустую базу** войдите `admin/admin` и обязательно установите новый пароль от 12 символов. До смены пароля административные и transfer API недоступны. После смены войдите с новым паролем.
 
 Откройте Portal по адресу `http://127.0.0.1:8080/` или локальную документацию `http://127.0.0.1:8080/docs/`. URL рассчитан на локальный bootstrap; для удалённых браузеров нужен одобренный HTTPS-терминатор. Адрес и порт могут быть изменены через `.env`. Изначальный `HARBOR_URL` является placeholder: добавьте действительный локальный Harbor profile через **Настройки**, прежде чем переносить артефакты.
 
 Разработческий Python launcher: `python3 tools/dev.py setup`, `python3 tools/dev.py doctor`, `python3 tools/dev.py up` (Windows: `py -3`). Он необязателен для `run.sh`/`run.cmd`. Подробнее: [docs/development.md](docs/development.md).
+
+Для закрытого контура используйте **заранее собранный offline kit**, а не source launcher. В распакованном kit: Linux — `./install.sh`, Windows CMD с Docker Desktop (Linux containers) — `install.cmd`. На Windows начальная установка и повторный запуск поддерживаются; штатные backup/restore/upgrade/uninstall пока остаются Linux-only. Полный порядок и ограничения — [offline installation](deploy/offline/README.md).
 
 ### Конфигурация `.env` и Harbor
 
@@ -94,7 +96,7 @@ Docsify JS/CSS включены во frontend image, поэтому для чт�
 |---|---|
 | выполняете перенос | [Пользовательское руководство](docs/user-guide.md) |
 | администрируете Portal / Harbor | [Руководство администратора](docs/admin-guide.md) |
-| устанавливаете Portal в закрытом контуре | [Offline installation guide](deploy/offline/README.md) |
+| устанавливаете Portal в закрытом контуре | [Offline installation guide — Linux/Windows](deploy/offline/README.md) |
 | устраняете проблему | [Troubleshooting](docs/troubleshooting.md) |
 | разрабатываете или сопровождаете проект | [Локальная разработка Windows/Linux](docs/development.md), [карта документации](docs/README.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 
