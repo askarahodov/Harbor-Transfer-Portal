@@ -539,6 +539,69 @@ describe('NexusDockerBrowser', () => {
     wrapper.unmount()
   })
 
+  it('loads a new tag filter while the previous page is still in flight', async () => {
+    vi.useFakeTimers()
+    let resolveOld!: (value: exportsApi.NexusSuggestions) => void
+    vi.mocked(exportsApi.listNexusTags).mockImplementation(async (_id, _repo, search) => {
+      if (!search) return new Promise(resolve => { resolveOld = resolve })
+      return { available: true, items: ['new-tag'], message: null,
+        truncated: false, next_cursor: null }
+    })
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('select[aria-label="Выбрать Docker image Nexus"]').setValue('alpine')
+    await wrapper.get('input[aria-label="Поиск версий Docker"]').setValue('new')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenLastCalledWith('proxy-id', 'alpine', 'new', undefined)
+    resolveOld({ available: true, items: ['stale-tag'], message: null,
+      truncated: false, next_cursor: null })
+    await flushPromises()
+    expect(wrapper.get('table.nexus-browser__table').text()).toContain('new-tag')
+    expect(wrapper.text()).not.toContain('stale-tag')
+    wrapper.unmount()
+  })
+
+  it('allows a fresh exact inspection after editing a pending reference', async () => {
+    let resolveOld!: (value: exportsApi.ExactNexusInspection) => void
+    vi.mocked(exportsApi.inspectExactNexusImage).mockImplementation(async (_id, repository, reference) => {
+      if (reference === 'old') return new Promise(resolve => { resolveOld = resolve })
+      return { repository, reference, digest: DIGEST, media_type: null }
+    })
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('input[aria-label="Имя известного Docker image"]').setValue('team/app')
+    const tagInput = wrapper.get('input[aria-label="Точный tag Docker image"]')
+    await tagInput.setValue('old')
+    await wrapper.get('form.nexus-browser__direct-form').trigger('submit')
+    await tagInput.setValue('new')
+    const submit = wrapper.get('form.nexus-browser__direct-form button[type="submit"]')
+    expect(submit.attributes('disabled')).toBeUndefined()
+    await wrapper.get('form.nexus-browser__direct-form').trigger('submit')
+    await flushPromises()
+    resolveOld({ repository: 'team/app', reference: 'old', digest: DIGEST, media_type: null })
+    await flushPromises()
+    expect(wrapper.get('.nexus-browser__verified').text()).toContain('team/app:new')
+    expect(wrapper.get('.nexus-browser__verified').text()).not.toContain('team/app:old')
+    wrapper.unmount()
+  })
+
+  it('does not offer export when single inspect returns a different reference', async () => {
+    vi.mocked(exportsApi.inspectExactNexusImage).mockResolvedValue({
+      repository: 'team/other', reference: 'v1', digest: DIGEST, media_type: null,
+    })
+    const wrapper = mount(NexusDockerBrowser, { props: { profileId: 'proxy-id' } })
+    await flushPromises()
+    await wrapper.get('input[aria-label="Имя известного Docker image"]').setValue('team/app')
+    await wrapper.get('input[aria-label="Точный tag Docker image"]').setValue('v1')
+    await wrapper.get('form.nexus-browser__direct-form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Ответ Nexus не соответствует')
+    expect(wrapper.find('.nexus-browser__verified').exists()).toBe(false)
+    expect(wrapper.emitted('add')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('paginates 100 tags into compact 25-row tables while retaining selected choices', async () => {
     vi.mocked(exportsApi.listNexusTags).mockResolvedValue({
       available: true, items: Array.from({ length: 100 }, (_, i) => 'v' + String(i).padStart(3, '0')),
