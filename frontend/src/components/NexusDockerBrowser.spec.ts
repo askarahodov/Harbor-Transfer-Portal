@@ -67,6 +67,9 @@ describe('NexusDockerBrowser', () => {
       'button[aria-label="Открыть найденный Docker image baseimage/softrust/sdk/sdk"]',
     )
     expect(wrapper.findAll('.nexus-browser__matches-list button')).toHaveLength(1)
+    expect(wrapper.find('.nexus-browser__exact-fallback').exists()).toBe(false)
+    expect(wrapper.get('select[aria-label="Выбрать Docker image Nexus"]').findAll('option')
+      .map(option => option.text())).not.toContain('SDK · проверить теги по имени')
     await input.trigger('keydown.enter')
     expect(exportsApi.listNexusTags).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('Короткое совпадение')
