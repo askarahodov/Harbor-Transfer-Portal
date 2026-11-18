@@ -36,6 +36,8 @@ else
 fi
 
 http_port=$(sed -n 's/^PORTAL_HTTP_PORT=//p' .env | head -n 1)
+http_bind=$(sed -n 's/^PORTAL_HTTP_BIND=//p' .env | head -n 1)
 [ -n "$http_port" ] || http_port=8080
-printf 'Portal is healthy: http://127.0.0.1:%s/\n' "$http_port"
+[ -n "$http_bind" ] || http_bind=127.0.0.1
+printf 'Portal is healthy. Internal HTTP listener: http://%s:%s/\n' "$http_bind" "$http_port"
 printf '%s\n' 'New database only: sign in with admin/admin and immediately change the password.'
