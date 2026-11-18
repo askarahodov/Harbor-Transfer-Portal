@@ -15,6 +15,8 @@ usage() {
 Harbor Transfer Portal — source checkout
   ./run.sh             first start / rebuild after git update (build + start)
   ./run.sh build       build images only, preserve containers and data
+  ./run.sh build-plain verbose build log for diagnosing BuildKit/DNS failures
+  ./run.sh build-clean verbose no-cache rebuild of images (keeps all data)
   ./run.sh start       start existing images WITHOUT building; wait for health
   ./run.sh doctor      check Git, Docker Engine and Compose v2
   ./run.sh status      list services and health
@@ -31,7 +33,7 @@ action=${1:-up}
 [ "$#" -le 1 ] || { usage; exit 2; }
 
 case "$action" in
-  up|build|start|doctor|status|logs|stop) ;;
+  up|build|build-plain|build-clean|start|doctor|status|logs|stop) ;;
   help|-h|--help) usage; exit 0 ;;
   *) usage; fail "unknown command: $action" ;;
 esac
@@ -83,8 +85,20 @@ show_url() {
 
 build_images() {
   printf 'Building images for Git revision %s...\n' "$vcs"
-  PORTAL_VCS_REF="$vcs" docker compose build || fail \
-    'Image build failed. Check Docker disk, DNS/proxy and BuildKit logs; retry ./run.sh build, then ./run.sh start'
+  case "$action" in
+    build-plain)
+      PORTAL_VCS_REF="$vcs" docker compose --progress plain build || fail \
+        'Verbose build failed. Check BuildKit output, disk, DNS/proxy; no containers or volumes were removed'
+      ;;
+    build-clean)
+      PORTAL_VCS_REF="$vcs" docker compose --progress plain build --no-cache || fail \
+        'No-cache build failed. Check BuildKit output, disk, DNS/proxy; no containers or volumes were removed'
+      ;;
+    *)
+      PORTAL_VCS_REF="$vcs" docker compose build || fail \
+        'Image build failed. Run ./run.sh build-plain for full logs or build-clean if Docker layers are corrupt'
+      ;;
+  esac
 }
 
 start_images() {
@@ -103,7 +117,7 @@ vcs=$(revision)
 
 case "$action" in
   up) build_images; start_images ;;
-  build) build_images; printf 'Build complete. Start with ./run.sh start\n' ;;
+  build|build-plain|build-clean) build_images; printf 'Build complete. Start with ./run.sh start\n' ;;
   start) start_images ;;
   status) PORTAL_VCS_REF="$vcs" docker compose ps ;;
   logs) PORTAL_VCS_REF="$vcs" docker compose logs -f ;;
