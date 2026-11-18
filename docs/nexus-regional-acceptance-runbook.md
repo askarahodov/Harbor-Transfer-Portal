@@ -3,7 +3,7 @@
 > **Состояние: NO-GO / региональная приёмка не выполнена.**
 > Этот документ — исполняемый протокол и форма сбора доказательств, но **не**
 > свидетельство доступа к корпоративным системам. Изменения находятся в
-> [integration Draft #501](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/501) и [Nexus UX Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503),
+> [едином Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503), наследующем #501,
 > не в production или \`main\`. Без подписанного разрешения владельца контуров
 > и фактических тестов в региональной сети статус не может стать GO.
 
