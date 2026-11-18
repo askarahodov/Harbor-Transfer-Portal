@@ -147,3 +147,6 @@ exit /b 0
     if ($null -eq $oldOs) { Remove-Item Env:FAKE_DOCKER_OS -ErrorAction SilentlyContinue } else { $env:FAKE_DOCKER_OS = $oldOs }
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+# Expected negative child-process tests must not leak LASTEXITCODE to the CI shell.
+exit 0
