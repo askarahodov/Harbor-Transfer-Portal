@@ -55,6 +55,7 @@ COPY backend/alembic ./alembic
 COPY backend/docker-entrypoint.sh /usr/local/bin/harbor-transfer-portal-entrypoint
 RUN python -m pip install --no-cache-dir -r requirements-runtime.lock \
     && python -m pip install --no-cache-dir --no-deps --no-build-isolation . \
+    && sed -i 's/\r$//' /usr/local/bin/harbor-transfer-portal-entrypoint \
     && chmod 0755 /usr/local/bin/harbor-transfer-portal-entrypoint
 
 RUN mkdir -p \
