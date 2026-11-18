@@ -27,12 +27,20 @@ class DevCliTests(unittest.TestCase):
         ):
             self.assertEqual(dev.command_up(), 0)
 
+        self.assertEqual(
+            calls[-2][0],
+            ["docker", "compose", "build"],
+        )
         compose_call = calls[-1]
         self.assertEqual(
             compose_call[0],
-            ["docker", "compose", "up", "-d", "--build", "--force-recreate"],
+            [
+                "docker", "compose", "up", "-d", "--no-build",
+                "--pull", "never", "--wait", "--wait-timeout", "180",
+            ],
         )
         self.assertEqual(compose_call[1]["PORTAL_VCS_REF"], "abc123")
+        self.assertEqual(calls[-2][1]["PORTAL_VCS_REF"], "abc123")
 
     def test_build_uses_compose_build_with_revision_identity(self) -> None:
         calls: list[tuple[list[str], dict[str, str] | None]] = []
@@ -135,14 +143,27 @@ class DevCliTests(unittest.TestCase):
                 self.assertEqual(dev.command_up(), 0)
                 self.assertTrue(target.is_file())
                 self.assertIn("JWT_SECRET=", target.read_text(encoding="utf-8"))
-                compose.assert_called_once()
+                self.assertEqual(compose.call_count, 2)
+                self.assertEqual(compose.call_args_list[0].args, ("build",))
+                self.assertEqual(compose.call_args_list[1].args, (
+                    "up", "-d", "--no-build", "--pull", "never",
+                    "--wait", "--wait-timeout", "180",
+                ))
 
     def test_hostless_run_scripts_do_not_require_python_or_make(self) -> None:
         shell = (dev.ROOT / "run.sh").read_text(encoding="utf-8")
         cmd = (dev.ROOT / "run.cmd").read_text(encoding="utf-8")
         for script in (shell, cmd):
-            self.assertIn("docker compose up -d --build --force-recreate", script)
+            self.assertIn("docker compose build", script)
+            self.assertIn(
+                "docker compose up -d --no-build --pull never --wait --wait-timeout 180",
+                script,
+            )
             self.assertIn(".env.example", script)
+            self.assertIn("docker compose down", script)
+            self.assertNotIn("docker compose down -v", script.replace(
+                "'docker compose down -v'", "no-volume-deletion"
+            ))
             self.assertNotIn("python", script.lower())
             self.assertNotIn("make ", script.lower())
 
@@ -150,9 +171,58 @@ class DevCliTests(unittest.TestCase):
         shell = (dev.ROOT / "run.sh").read_text(encoding="utf-8")
         cmd = (dev.ROOT / "run.cmd").read_text(encoding="utf-8")
         for script in (shell, cmd):
-            self.assertIn("git rev-parse HEAD", script)
+            self.assertIn("git rev-parse --verify HEAD", script)
             self.assertIn("PORTAL_VCS_REF", script)
-            self.assertIn("unknown", script)
+            self.assertNotIn("PORTAL_VCS_REF=unknown", script)
+
+    def test_start_uses_existing_images_without_rebuilding(self) -> None:
+        calls = []
+
+        def fake_run(command, *, cwd=dev.ROOT, env=None, capture_output=False, dry_run=False):
+            calls.append((list(command), env))
+            if command[-3:] == ["rev-parse", "--verify", "HEAD"]:
+                return subprocess.CompletedProcess(command, 0, "pinned-sha\n", "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with (
+            patch.object(dev, "ENV_FILE", Path(__file__)),
+            patch.object(dev, "_resolve_executable", side_effect=lambda name: name),
+            patch.object(dev, "_run", side_effect=fake_run),
+        ):
+            self.assertEqual(dev.command_start(), 0)
+        self.assertEqual(calls[-1][0], [
+            "docker", "compose", "up", "-d", "--no-build", "--pull",
+            "never", "--wait", "--wait-timeout", "180",
+        ])
+        self.assertEqual(calls[-1][1]["PORTAL_VCS_REF"], "pinned-sha")
+        self.assertFalse(any("build" in args[:3] for args, _ in calls))
+
+    def test_start_without_env_fails_without_recreating_or_building(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch.object(dev, "ENV_FILE", Path(directory) / "absent"),
+                patch.object(dev, "_docker_compose") as compose,
+            ):
+                with self.assertRaises(dev.DevCliError):
+                    dev.command_start()
+            compose.assert_not_called()
+
+    def test_status_uses_compose_ps_without_mutating_stack(self) -> None:
+        with patch.object(dev, "_docker_compose") as compose:
+            self.assertEqual(dev.command_status(), 0)
+        compose.assert_called_once_with("ps", dry_run=False)
+
+    def test_hostless_launchers_reject_windows_engine_and_preserve_data(self) -> None:
+        shell = (dev.ROOT / "run.sh").read_text(encoding="utf-8")
+        cmd = (dev.ROOT / "run.cmd").read_text(encoding="utf-8")
+        self.assertIn("[ \"$docker_os\" = linux ]", shell)
+        self.assertIn('"%DOCKER_OS%"=="linux"', cmd)
+        self.assertIn("Portal listener:", shell)
+        self.assertIn("docker compose ps", cmd)
+        self.assertIn("docker compose ps", shell)
+        self.assertNotIn("prune", shell + cmd)
+        self.assertNotIn("down -v", cmd)
+        self.assertIn("docker compose down", shell)
 
     def test_launcher_uses_argv_subprocess_without_shell(self) -> None:
         with patch("subprocess.run") as run:
