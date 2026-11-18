@@ -194,10 +194,14 @@ def command_up(*, dry_run: bool = False) -> int:
         "-d",
         "--build",
         "--force-recreate",
+        "--wait",
+        "--wait-timeout",
+        "180",
         env=env,
         dry_run=dry_run,
     )
-    print("Новая пустая база: откройте http://127.0.0.1:8080/ и смените пароль admin/admin.")
+    print("Portal готов: смотрите опубликованный порт через docker compose port frontend 8080.")
+    print("Новая пустая база: войдите admin/admin и обязательно смените пароль.")
     return 0
 
 
