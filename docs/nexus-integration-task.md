@@ -8,7 +8,7 @@
 
 - [Harbor vs Nexus — действительная матрица возможностей](registry-comparison.md);
 - [Nexus test setup / ограничения](nexus-setup.md);
-- [Интеграционный Draft PR #501](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/501), [Nexus UI/поиск Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503), [Issue #504](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/504) и [Epic #414](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/414);
+- [Единый Nexus Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503) (историческая основа #501), [Issue #504](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/504) и [Epic #414](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/414);
 - [Региональная приёмка #434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434) и [#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
 
 **Граница релиза:** в `main` поддержан Harbor; Nexus Docker v2 и legacy Helm HTTP проверены на одноразовых стендах, но **ещё не разрешены для production**. Не использовать это старое ТЗ для запуска работ или оценки готовности.
