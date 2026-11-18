@@ -2,19 +2,21 @@
 import { Monitor, Moon, Sun } from 'lucide-vue-next'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 
+type ThemeChoice = 'system' | 'light' | 'dark'
+
 const choices = [
   { value: 'system', label: 'Системная', icon: Monitor },
   { value: 'light', label: 'Светлая', icon: Sun },
   { value: 'dark', label: 'Тёмная', icon: Moon },
 ] as const
 
-const selected = ref<HtpThemeChoice>(window.HtpTheme?.get() ?? 'system')
+const selected = ref<ThemeChoice>(window.HtpTheme?.get() ?? 'system')
 
 function sync(): void {
   selected.value = window.HtpTheme?.get() ?? 'system'
 }
 
-function change(choice: HtpThemeChoice): void {
+function change(choice: ThemeChoice): void {
   window.HtpTheme?.set(choice)
   selected.value = window.HtpTheme?.get() ?? choice
 }
