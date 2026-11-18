@@ -1,0 +1,33 @@
+name: Windows launcher smoke
+
+on:
+  pull_request:
+    paths:
+      - "run.cmd"
+      - "run.sh"
+      - "tools/dev.py"
+      - "tools/test_dev.py"
+      - "tools/test_windows_launcher.ps1"
+      - ".github/workflows/windows-launcher-smoke.yml"
+      - "docs/install-windows-linux.md"
+  push:
+    paths:
+      - "run.cmd"
+      - "tools/test_windows_launcher.ps1"
+      - ".github/workflows/windows-launcher-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-cmd:
+    name: Windows CMD deployment launcher (mock Docker)
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Test launcher in native CMD, without touching real Docker
+        shell: pwsh
+        run: .\tools\test_windows_launcher.ps1
