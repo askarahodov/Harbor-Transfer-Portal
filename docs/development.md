@@ -55,7 +55,7 @@ py -3 tools/dev.py doctor
 py -3 tools/dev.py up
 ```
 
-Оба коротких скрипта запускают `docker compose up -d --build --force-recreate`. Запуск на Windows требует Docker Desktop в Linux containers mode. `tools/dev.py` не зависит от shell-specific features.
+Оба коротких скрипта сначала выполняют `docker compose build` с точным Git revision, затем `docker compose up -d --no-build --pull never --wait --wait-timeout 180`. На повторном запуске без пересборки используйте `run.cmd start` / `./run.sh start`; проверки Git/Docker/Compose через `doctor`, состояние через `status`, безопасная остановка через `stop`. Запуск на Windows требует Docker Desktop в Linux containers mode. `tools/dev.py` не зависит от shell-specific features. Подробный сценарий: [быстрый запуск Windows/Linux](install-windows-linux.md).
 
 ### Windows PowerShell — optional convenience
 
@@ -79,14 +79,16 @@ py -3 tools/dev.py up
 | `bootstrap` | явно проверяет временный локальный вход `admin/admin` (не выполняется автоматически при каждом запуске) |
 | `doctor` | проверяет Git, Docker, Compose и состояние `.env`, объясняет fallback JWT в volume |
 | `build` | собирает backend/frontend Docker images из текущего Git revision |
-| `up` | автоматически запускает `setup` при отсутствии `.env`, затем build и `--force-recreate` локального stack |
+| `up` | автоматически создаёт `.env` при отсутствии, собирает images и ждёт healthy, без pull на стадии старта |
+| `start` | запускает имеющиеся images с `--no-build --pull never`; не собирает новый SHA |
+| `status` | показывает состояние Compose services |
 | `down` | останавливает stack без удаления persistent volume |
 | `logs` | показывает Compose logs |
 | `compose-config` | валидирует итоговую Compose configuration |
 
 `build` и `up` автоматически передают `PORTAL_VCS_REF=<git HEAD>`. Frontend показывает короткий `UI <revision>` в верхней панели, поэтому после обновления source можно проверить, что браузер действительно обслуживает новую сборку.
 
-Для Linux команды `make up`, `make down`, `make logs` и `make compose-config` остаются convenience aliases и делегируют ту же логику `tools/dev.py`.
+Для Linux команды `make up`, `make start`, `make status`, `make down`, `make logs` и `make compose-config` делегируют ту же логику `tools/dev.py`.
 
 ## Обновление source checkout
 
@@ -105,7 +107,7 @@ py -3 tools/dev.py up
 ```
 
 При разрешённом PowerShell тот же шаг можно выполнить через optional `.\dev.ps1 up`.
-Обе формы пересобирают images и force-recreate контейнеры. Простой restart старого container не считается обновлением source build.
+Обе формы пересобирают images и запускают существующий Compose project с ожиданием health. Docker Compose пересоздаёт нужные сервисы при изменении образов, но не принуждает пересоздавать всё при каждом запуске. Простой `start` без сборки **не обновляет** source revision; сверяйте ревизию в UI.
 
 ## Что именно поддерживается на Windows
 
@@ -132,9 +134,12 @@ Versioned offline kit и его lifecycle scripts (`install.sh`, `backup.sh`, `r
 Проверьте:
 
 ```text
-doctor
-docker compose version
+run.cmd doctor / ./run.sh doctor
+run.cmd status / ./run.sh status
+run.cmd logs / ./run.sh logs
 UI <revision>
 ```
+
+При проблемах BuildKit сначала выполните сборку отдельно (`build`), разберите DNS/proxy/disk, затем запустите готовые images через `start`; штатный launcher гарантирует `PORTAL_VCS_REF`. Для двух экземпляров используйте независимые `COMPOSE_PROJECT_NAME`, `PORTAL_VERSION`, `PORTAL_HTTP_PORT` и volumes — [пример](install-windows-linux.md).
 
 На Windows Docker Desktop должен быть переключён в Linux containers mode. `doctor` проверяет `docker info` и завершится ошибкой, если Docker сообщает другой `OSType`; после переключения повторите `doctor` / `build`.
