@@ -9,6 +9,7 @@ import { useRuntimeStore, type PortalContour } from '@/stores/runtime'
 
 import ContourBadge from './ContourBadge.vue'
 import ModeSwitcher from './ModeSwitcher.vue'
+import ThemeSwitcher from './ThemeSwitcher.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -95,6 +96,7 @@ async function logout(): Promise<void> {
             @switch="switchMode"
           />
           <ContourBadge v-else :contour="runtime.contour" />
+          <ThemeSwitcher />
           <a
             class="docs-button"
             :href="documentationHref"
