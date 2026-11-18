@@ -54,7 +54,20 @@ try {
         throw 'Image build did not receive current PORTAL_VCS_REF'
     }
 
-    $buildCount = @($calls | Where-Object { $_ -match 'args=compose build
+    $buildCount = @($calls | Where-Object { $_ -match 'args=compose build$' }).Count
+    Invoke-Launcher 'build-plain'
+    Invoke-Launcher 'build-clean'
+    $verboseCalls = Get-Content $log
+    if (!($verboseCalls -match ("revision=" + $revision + " args=compose --progress plain build$"))) {
+        throw 'Verbose build did not preserve Git revision or progress=plain'
+    }
+    if (!($verboseCalls -match ("revision=" + $revision + " args=compose --progress plain build --no-cache$"))) {
+        throw 'No-cache build did not preserve Git revision or progress=plain'
+    }
+    if (@($verboseCalls | Where-Object { $_ -match 'args=compose up' }).Count -ne 1) {
+        throw 'Build-only diagnostics must not recreate containers'
+    }
+    Invoke-Launcher 'start'
     Invoke-Launcher 'status'
     Invoke-Launcher 'stop'
     $after = Get-Content $log
