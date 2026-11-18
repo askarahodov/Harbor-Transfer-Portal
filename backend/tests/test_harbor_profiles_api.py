@@ -668,6 +668,7 @@ def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_se
     assert all(req.url.host == "nexus.example.test" for req in requests)
 
     for status, details, expected in [
+        (401, {}, "helm_repository_denied"),
         (403, {}, "helm_repository_denied"),
         (302, {}, "helm_repository_unavailable"),
         (404, {}, "helm_repository_unavailable"),
@@ -695,6 +696,8 @@ def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_se
         assert denied.status_code == 200
         assert denied.json()["ok"] is False
         assert denied.json()["code"] == expected
+        if status in (401, 403, 404):
+            assert f"HTTP {status}" in denied.json()["message"]
         assert [req.url.path for req in requests] == [
             "/service/rest/v1/repositories/helm-team"
         ]
