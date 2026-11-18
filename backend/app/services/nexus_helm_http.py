@@ -361,8 +361,10 @@ class NexusHelmHttpService:
                     async for chunk in response.aiter_bytes():
                         content.extend(chunk)
                         if len(content) > 65536:
-                            return HelmHttpResult(False, code="helm_repository_invalid",
-                                                  message="Metadata Helm repository превышают лимит")
+                            return HelmHttpResult(
+                                False, code="helm_repository_invalid",
+                                message="Metadata Helm repository превышают лимит",
+                            )
                 details = json.loads(content)
             except (ValueError, UnicodeError):
                 return HelmHttpResult(False, code="helm_repository_invalid",
