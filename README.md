@@ -42,7 +42,7 @@ cd Harbor-Transfer-Portal
 ./run.sh
 ```
 
-**Первый запуск:** `run.cmd` или `./run.sh` выполняет два понятных шага: сборку образов с точным Git SHA, затем `docker compose up -d --no-build --pull never --wait`, ожидая healthy. **Повторный запуск без сборки:** `run.cmd start` / `./run.sh start`. **Диагностика:** `doctor`, `status`, `logs`; **остановка без удаления данных:** `stop`. Подробная таблица и действия при зависании BuildKit: [быстрый запуск Windows/Linux](docs/install-windows-linux.md).
+**Первый запуск:** `run.cmd` или `./run.sh` выполняет два понятных шага: сборку образов с точным Git SHA, затем `docker compose up -d --no-build --pull never --wait`, ожидая healthy. **Повторный запуск без сборки:** `run.cmd start` / `./run.sh start`. **Диагностика зависшей сборки:** `build-plain` (подробные логи) и `build-clean` (без кеша), оба сохраняют Git SHA. **Проверка:** `doctor`, `status`, `logs`; **остановка без удаления данных:** `stop`. Подробная таблица и действия при зависании BuildKit: [быстрый запуск Windows/Linux](docs/install-windows-linux.md).
 
 Оба скрипта сохраняют существующий `.env` и при первом запуске копируют `.env.example`; `run.sh` создаёт файл с закрытыми правами. JWT secret при отсутствии значения генерируется backend и сохраняется в persistent volume. При **первой установке на пустую базу** войдите `admin/admin` и обязательно установите новый пароль от 12 символов. До смены пароля административные и transfer API недоступны. После смены войдите с новым паролем.
 
@@ -71,9 +71,13 @@ cd Harbor-Transfer-Portal
 | Проверить окружение | `run.cmd doctor` | `./run.sh doctor` |
 | Первый запуск / обновление SHA | `run.cmd` | `./run.sh` |
 | Только собрать images | `run.cmd build` | `./run.sh build` |
+| Подробный лог BuildKit | `run.cmd build-plain` | `./run.sh build-plain` |
+| Пересобрать без кеша | `run.cmd build-clean` | `./run.sh build-clean` |
 | Запустить **без новой сборки** | `run.cmd start` | `./run.sh start` |
 | Статус / логи | `run.cmd status` / `run.cmd logs` | `./run.sh status` / `./run.sh logs` |
 | Остановить, сохранив данные | `run.cmd stop` | `./run.sh stop` |
+
+Обычный `git clone` устанавливает стабильный Harbor `main`, **не** Nexus Draft #503. Для Nexus RC используйте отдельный checkout с проверенным SHA и отдельной Compose-конфигурацией; см. [инструкцию](docs/install-windows-linux.md).
 
 Скрипты **не вызывают** `docker compose down -v`: эта команда удаляет persistent volume и **не применяется** в штатной эксплуатации. Для двух отдельных установок нужны разные `.env`, `COMPOSE_PROJECT_NAME`, `PORTAL_VERSION` и `PORTAL_HTTP_PORT`.
 
