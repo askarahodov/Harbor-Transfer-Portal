@@ -1,6 +1,7 @@
 - **Начать работу**
   - [Карта документации](/docs/README.md)
   - [Паспорт проекта](/docs/project-passport.md)
+  - [Установка Windows / Linux](/docs/install-windows-linux.md)
   - [Пользовательское руководство](/docs/user-guide.md)
   - [Руководство администратора](/docs/admin-guide.md)
   - [Диагностика](/docs/troubleshooting.md)
