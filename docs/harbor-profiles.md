@@ -9,8 +9,7 @@ Harbor непосредственно в SOURCE Export или TARGET Import.
 
 ## Различие поведения в актуальном Nexus RC
 
-В Nexus-кандидате (интеграция [Draft #501](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/501),
-доработка [Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503))
+В едином Nexus-кандидате ([Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503), наследующем историческую основу #501)
 реализован отдельный SOURCE Nexus Docker v2 workflow. Это **не меняет**
 описанный ниже контракт `main`, где полный Nexus workflow ещё не выпущен.
 Проверка сохранённого профиля по `GET /v2/` подтверждает только доступность
@@ -29,7 +28,7 @@ Registry profile содержит явный `registry_type=harbor|nexus`. На�
 Он теперь показывает явное сообщение о невозможности такого экспорта вместо запросов к
 `/api/v2.0/systeminfo` и `/api/v2.0/projects` Nexus-сервера. Harbor-only API и preview
 отклоняют Nexus профиль с типизированным `nexus_requires_registry_workflow`. Полный Nexus
-SOURCE/TARGET workflow остаётся в [Draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451)
+SOURCE/TARGET workflow остаётся в [едином Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)
 под региональными release gates: **NO-GO** для рабочего развёртывания.
 
 Для сохранённого Nexus профиля в Настройках используется только кнопка
