@@ -129,6 +129,29 @@ describe('NexusDockerBrowser', () => {
     wrapper.unmount()
   })
 
+  it('uses explicit connector tags with configured REST search and retains normal catalog mode', async () => {
+    const wrapper = mount(NexusDockerBrowser, {
+      props: { profileId: 'proxy-id', restSearchConfigured: true },
+    })
+    await flushPromises()
+    await wrapper.get('select[aria-label="Выбрать Docker image Nexus"]').setValue('alpine')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenLastCalledWith('proxy-id', 'alpine', '', undefined)
+    await wrapper.get('input[aria-label="Имя известного Docker image"]').setValue('alpine')
+    await wrapper.findAll('button').find(button => button.text() === 'Показать теги этого образа')!
+      .trigger('click')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenLastCalledWith('proxy-id', 'alpine', '', undefined, true)
+    await wrapper.setProps({ profileId: 'other-id' })
+    await flushPromises()
+    await wrapper.get('select[aria-label="Выбрать Docker image Nexus"]').setValue('bitnami/redis')
+    await flushPromises()
+    expect(exportsApi.listNexusTags).toHaveBeenLastCalledWith(
+      'other-id', 'bitnami/redis', '', undefined,
+    )
+    wrapper.unmount()
+  })
+
   it('offers an exact image in the same selector even if Nexus catalog omits it', async () => {
     vi.mocked(exportsApi.listNexusRepositories).mockResolvedValue({
       available: true, items: [], message: null, truncated: false, next_cursor: null,
