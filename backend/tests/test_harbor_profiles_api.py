@@ -672,11 +672,12 @@ def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_se
         (302, {}, "helm_repository_unavailable"),
         (404, {}, "helm_repository_unavailable"),
         (200, {"name": "other", "format": "helm", "type": "hosted"}, "helm_repository_invalid"),
-        (200, {"name": "helm-team", "format": "docker", "type": "hosted"}, "helm_repository_invalid"),
+        (200, {"name": "helm-team", "format": "docker", "type": "hosted"},
+         "helm_repository_invalid"),
     ]:
         requests.clear()
 
-        def denied_handler(request: httpx.Request) -> httpx.Response:
+        def denied_handler(request: httpx.Request, status=status, details=details) -> httpx.Response:
             requests.append(request)
             return httpx.Response(status, json=details)
 
