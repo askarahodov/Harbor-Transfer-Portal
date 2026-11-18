@@ -322,7 +322,7 @@ function openSearchImage(): void {
     chooseImage(name)
     return
   }
-  if (!name.includes('/') && validImageName.test(name)) {
+  if (!name.includes('/') && /^[A-Za-z0-9._-]+$/.test(name)) {
     catalogExactError.value = 'Короткое совпадение: выберите образ из результатов поиска. Если это точное имя корневого образа, нажмите «Показать теги по точному имени» ниже.'
     return
   }
