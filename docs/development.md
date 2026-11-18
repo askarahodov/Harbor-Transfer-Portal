@@ -55,7 +55,7 @@ py -3 tools/dev.py doctor
 py -3 tools/dev.py up
 ```
 
-Оба коротких скрипта запускают `docker compose up -d --build --force-recreate`. Запуск на Windows требует Docker Desktop в Linux containers mode. `tools/dev.py` не зависит от shell-specific features.
+Оба коротких скрипта выполняют preflight, проверяют Compose configuration и запускают `docker compose up -d --build --force-recreate --wait`, ожидая container health. Запуск на Windows требует Docker Desktop в Linux containers mode. `tools/dev.py` не зависит от shell-specific features.
 
 ### Windows PowerShell — optional convenience
 
@@ -123,9 +123,9 @@ npm run build
 
 ## Offline release boundary
 
-Versioned offline kit и его lifecycle scripts (`install.sh`, `backup.sh`, `restore.sh`, `upgrade.sh`) являются Linux runtime tooling. Windows может использоваться как developer host для source Docker build/run, но native Windows offline installation не заявляется как поддерживаемая без отдельного qualification contract.
+Versioned offline kit включает два способа начальной установки: Linux — `install.sh`, Windows 10/11 + Docker Desktop (Linux containers) — `install.cmd` / `install.ps1`. Linux lifecycle scripts `backup.sh`, `restore.sh`, `upgrade.sh`, `uninstall.sh` остаются Linux-only; их Windows-native аналоги ещё не квалифицированы.
 
-Это ограничение намеренное: документация не должна выдавать POSIX lifecycle scripts за Windows-native поддержку.
+Границы поддержки заданы явно: проверка Windows installer с подменённым Docker в CI — это проверка контракта, а не замена clean-host qualification с реальным Docker Desktop.
 
 ## Готовая offline-установка
 
