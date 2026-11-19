@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finish audited branch cleanup with 10 pinned refs and this merged PR head.
+"""Finish audited branch cleanup with 9 pinned refs and this merged PR head.
 
 Dry-run on the PR; destructive mode only for main push GitHub Actions.
 Never deletes main, Nexus RC, or branches without approved provenance.
@@ -17,7 +17,7 @@ from prune_branch_refs import REPO, gh_json, pages, recheck
 
 MANIFEST = Path(__file__).with_name("final-ref-prune.tsv")
 SELF = "chore/513-final-ref-prune"
-EXPECTED = 10
+EXPECTED = 9
 SHA = re.compile(r"^[0-9a-f]{40}$")
 NAME = re.compile(r"^[A-Za-z0-9._/-]+$")
 
