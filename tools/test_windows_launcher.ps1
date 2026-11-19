@@ -34,7 +34,12 @@ public class DockerStub
             {
                 case "version": Console.WriteLine("Docker Compose version v2"); return 0;
                 case "config": return 0;
-                case "pull": return Environment.GetEnvironmentVariable("HTP_TEST_PULL_FAIL") == "1" ? 22 : 0;
+                case "pull":
+                    // Cached SHA-tagged images should not need network on restarts.
+                    if (Array.IndexOf(args, "--policy") < 0 || Array.IndexOf(args, "missing") < 0) return 23;
+                    if (Environment.GetEnvironmentVariable("HTP_TEST_PULL_FAIL") == "1"
+                        && Environment.GetEnvironmentVariable("HTP_TEST_CACHE_WARM") != "1") return 22;
+                    return 0;
                 case "up": return Environment.GetEnvironmentVariable("HTP_TEST_UP_FAIL") == "1" ? 21 : 0;
                 case "port": Console.WriteLine("127.0.0.1:8082"); return 0;
             }
@@ -79,11 +84,19 @@ public class DockerStub
         }
 
         $env:HTP_TEST_PULL_FAIL = "1"
+        $env:HTP_TEST_CACHE_WARM = "0"
         $output = (& cmd.exe /d /c "run-online.cmd 2>&1" | Out-String)
         if ($LASTEXITCODE -eq 0 -or $output.Contains("127.0.0.1:8082")) {
-            throw "Expected failed GHCR pull to stop before startup; got: $output"
+            throw "Expected missing images and failed GHCR pull to stop before startup; got: $output"
         }
-        Write-Host "Windows run-online.cmd checks passed: downloaded images, failed pull aborts."
+
+        # The same simulated registry outage must not block a fully cached restart.
+        $env:HTP_TEST_CACHE_WARM = "1"
+        $output = (& cmd.exe /d /c "run-online.cmd 2>&1" | Out-String)
+        if ($LASTEXITCODE -ne 0 -or !$output.Contains("127.0.0.1:8082")) {
+            throw "Expected cached GHCR images to survive a registry outage; got: $output"
+        }
+        Write-Host "Windows run-online.cmd checks passed: missing pull, cold fail, warm cache restart."
     }
     finally {
         Pop-Location
@@ -94,6 +107,7 @@ finally {
     Remove-Item Env:HTP_TEST_DOCKER_OS -ErrorAction SilentlyContinue
     Remove-Item Env:HTP_TEST_UP_FAIL -ErrorAction SilentlyContinue
     Remove-Item Env:HTP_TEST_PULL_FAIL -ErrorAction SilentlyContinue
+    Remove-Item Env:HTP_TEST_CACHE_WARM -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $testDir -ErrorAction SilentlyContinue
 }
 

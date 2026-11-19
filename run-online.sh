@@ -25,7 +25,7 @@ revision="$(git rev-parse --verify HEAD 2>/dev/null)" || fail "Не удалос
 export PORTAL_IMAGE_REVISION="$revision"
 
 docker compose -f compose.online.yaml config -q || fail "Ошибка конфигурации Compose или .env."
-docker compose -f compose.online.yaml pull --policy always || fail "Образы недоступны в GHCR: проверьте публикацию этого Git commit, сеть и доступ (docker login ghcr.io)."
+docker compose -f compose.online.yaml pull --policy missing || fail "Образы недоступны в GHCR: проверьте публикацию этого Git commit, сеть и доступ (docker login ghcr.io)."
 if ! docker compose -f compose.online.yaml up -d --no-build --pull never --wait --wait-timeout 180; then
     printf '%s\n' 'Запуск не завершён: проверьте docker compose -f compose.online.yaml ps и docker compose -f compose.online.yaml logs --tail=100.' >&2
     exit 1
