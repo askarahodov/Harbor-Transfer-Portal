@@ -45,7 +45,7 @@ if errorlevel 1 (
   echo ERROR: Ошибка конфигурации Compose или .env. 1>&2
   exit /b 1
 )
-docker compose -f compose.online.yaml pull
+docker compose -f compose.online.yaml pull --policy always
 if errorlevel 1 (
   echo ERROR: Образы недоступны в GHCR. Проверьте публикацию для этого Git commit, сеть и права доступа ^(docker login ghcr.io^). 1>&2
   exit /b 1
