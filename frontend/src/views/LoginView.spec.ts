@@ -23,6 +23,12 @@ async function mountLogin() {
 }
 
 describe('login view', () => {
+  it('offers theme choice before login without requiring authentication', async () => {
+    const { wrapper } = await mountLogin()
+    const theme = wrapper.get('[role="group"][aria-label="Тема оформления"]')
+    expect(theme.findAll('button')).toHaveLength(3)
+    wrapper.unmount()
+  })
   it('exposes the local documentation before authentication', async () => {
     const { wrapper } = await mountLogin()
 

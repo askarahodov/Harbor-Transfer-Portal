@@ -82,7 +82,7 @@ function errorMessage(code: string | null | undefined): string | null {
 .mode-control { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .mode-control__label { color: var(--color-text-muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 .mode-switcher { display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
-.mode-switcher__option { min-height: 34px; border: 0; border-radius: calc(var(--radius-md) - 3px); padding: 0 var(--space-3); background: transparent; color: var(--color-text-muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.mode-switcher__option { min-height: var(--control-height-compact); border: 0; border-radius: calc(var(--radius-md) - 3px); padding: 0 var(--space-3); background: transparent; color: var(--color-text-muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 .mode-switcher__option:hover:not(:disabled), .mode-switcher__option:focus-visible { color: var(--color-text); }
 .mode-switcher__option--active { background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-control); cursor: default; }
 .mode-switcher__option:disabled:not(.mode-switcher__option--active) { opacity: .55; cursor: wait; }

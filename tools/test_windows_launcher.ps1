@@ -34,6 +34,9 @@ public class DockerStub
             {
                 case "version": Console.WriteLine("Docker Compose version v2"); return 0;
                 case "config": return 0;
+                case "build": return 0;
+                case "ps": return 0;
+                case "down": return 0;
                 case "pull":
                     // Cached SHA-tagged images should not need network on restarts.
                     if (Array.IndexOf(args, "--policy") < 0 || Array.IndexOf(args, "missing") < 0) return 23;

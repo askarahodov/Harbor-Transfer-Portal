@@ -43,6 +43,21 @@ def selection(kind: ArtifactKind = ArtifactKind.CONTAINER_IMAGE) -> ExportArtifa
     )
 
 
+def test_harbor_source_rejects_root_nexus_reference_without_lookup() -> None:
+    lookup = FakeLookup(HarborArtifact(digest=DIGEST, type="IMAGE", size=123))
+    selected = ExportArtifactSelection(
+        kind=ArtifactKind.CONTAINER_IMAGE,
+        project=None,
+        repository="baseimage",
+        reference="latest",
+        digest=DIGEST,
+    )
+    with pytest.raises(ExportSelectionResolutionError) as error:
+        resolve_export_selection(lookup, selected)
+    assert error.value.code == "export_selection_invalid"
+    assert lookup.calls == 0
+
+
 def test_resolves_supported_artifact_with_one_harbor_lookup() -> None:
     lookup = FakeLookup(HarborArtifact(digest=DIGEST, type="IMAGE", size=123))
 

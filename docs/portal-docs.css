@@ -759,6 +759,90 @@ body > #app {
   }
 }
 
+/* Readability overrides for Docsify vendor theme in every color mode.
+ * Body copy must not inherit muted/low-opacity vendor colors. Docsify's
+ * bundled core theme supplies light-mode foreground/background on code blocks
+ * and tables; override both together to prevent dark-on-dark combinations.
+ */
+  .markdown-section,
+  .markdown-section p,
+  .markdown-section li,
+  .markdown-section td,
+  .markdown-section strong,
+  .markdown-section em,
+  .markdown-section blockquote p,
+  .markdown-section blockquote li {
+    color: var(--color-text);
+    opacity: 1;
+  }
+
+  .markdown-section a,
+  .markdown-section a:visited {
+    color: var(--color-action);
+    opacity: 1;
+  }
+
+  .markdown-section blockquote,
+  .markdown-section blockquote p,
+  .markdown-section blockquote li {
+    background: var(--color-info-surface);
+    color: var(--color-info-text);
+  }
+
+  .markdown-section table,
+  .markdown-section tr,
+  .markdown-section th,
+  .markdown-section td {
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .markdown-section th {
+    background: var(--color-surface-subtle);
+  }
+
+  .markdown-section pre,
+  .markdown-section pre[data-lang],
+  .markdown-section pre > code,
+  .markdown-section pre[data-lang] > code,
+  .markdown-section code,
+  .markdown-section code[class*='language-'] {
+    background: var(--color-surface-subtle);
+    color: var(--color-text);
+    text-shadow: none;
+    opacity: 1;
+  }
+
+  /* Disable light-only Prism token pigments in dark mode: a uniform readable
+   * foreground is preferable to unreadable syntax coloring. */
+  .markdown-section pre code .token,
+  .markdown-section pre code .token.comment,
+  .markdown-section pre code .token.punctuation,
+  .markdown-section pre code .token.string,
+  .markdown-section pre code .token.keyword,
+  .markdown-section pre code .token.function,
+  .markdown-section pre code .token.number,
+  .markdown-section pre code .token.operator {
+    color: var(--color-text);
+    background: transparent;
+    text-shadow: none;
+    opacity: 1;
+  }
+
+  .markdown-section .docsify-pagination-container a,
+  .markdown-section .pagination-item-title,
+  .markdown-section .pagination-item-subtitle {
+    color: var(--color-text);
+  }
+
+  .docs-page-toc__item a,
+  .docs-context,
+  .sidebar .search .matching-post,
+  .sidebar .search .matching-post p {
+    color: var(--color-text-muted);
+    opacity: 1;
+  }
+
 /* Same three-mode selection and semantic colors as the Portal header. */
 html[data-theme='light'] { color-scheme: light; }
 html[data-theme='dark'] { color-scheme: dark; }
@@ -779,7 +863,7 @@ html[data-theme='dark'] { color-scheme: dark; }
   background: var(--color-surface-subtle);
 }
 .docs-theme-switcher button {
-  min-height: 36px;
+  min-height: var(--control-height-compact);
   display: inline-flex;
   align-items: center;
   justify-content: center;

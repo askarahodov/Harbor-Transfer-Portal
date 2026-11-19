@@ -67,6 +67,18 @@ describe('PageShell release identity', () => {
   })
 })
 
+describe('PageShell theme control', () => {
+  it('makes system, light and dark modes available in every workspace', async () => {
+    const wrapper = await mountShell('viewer', 'TARGET')
+    const theme = wrapper.get('[role="group"][aria-label="Тема оформления"]')
+    expect(theme.findAll('button')).toHaveLength(3)
+    expect(theme.get('[aria-label="Тема: Системная"]').attributes('aria-pressed')).toBe('true')
+    expect(theme.get('[aria-label="Тема: Светлая"]').exists()).toBe(true)
+    expect(theme.get('[aria-label="Тема: Тёмная"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+})
+
 describe('PageShell documentation', () => {
   it('links each workspace to the most relevant documentation page or block', async () => {
     const wrapper = await mountShell('admin', 'SOURCE', '/export')

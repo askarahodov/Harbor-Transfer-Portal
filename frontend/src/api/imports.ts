@@ -86,6 +86,8 @@ export type ImportPreview = {
   bundle_filename: string | null
   intake_mode: ImportIntakeMode | null
   source_harbor: string | null
+  source_registry_type?: 'harbor' | 'nexus' | null
+  source_registry?: string | null
   source_portal_version: string | null
   source_created_at: string | null
   source_created_by: string | null
@@ -125,6 +127,7 @@ export type ImportDestinationArtifactPlan = {
   final_reference: string | null
   project_exists: boolean
   write_allowed: boolean
+  write_permission_verified?: boolean | null
   target_digest: string | null
   classification: ImportPreviewState
   error_code: string | null

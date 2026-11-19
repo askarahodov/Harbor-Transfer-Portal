@@ -419,6 +419,97 @@ def test_private_key_permissions_are_rejected(tmp_path: Path) -> None:
     assert exc.value.code == "bundle_signing_key_permissions"
 
 
+def test_oversized_signing_key_is_rejected_before_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    key_path = settings.bundle_signing_private_key_file
+    key_path.write_bytes(b"x" * 1025)
+    os.chmod(key_path, 0o600)
+    settings = settings.model_copy(update={"bundle_key_material_max_bytes": 1024})
+    service = BundlePackageService(settings)
+    real_open = os.open
+
+    def guarded_open(file, flags, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if Path(file) == key_path:
+            pytest.fail("oversized signing key must be rejected before open")
+        return real_open(file, flags, *args, **kwargs)
+
+    monkeypatch.setattr(package_module.os, "open", guarded_open)
+    with pytest.raises(BundlePackageError) as exc:
+        service._load_signing_private_key()
+
+    assert exc.value.code == "bundle_signing_key_invalid"
+    assert "размер" in exc.value.message
+
+
+def test_oversized_trusted_key_is_rejected_before_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    trusted_path = settings.bundle_trusted_public_keys_dir / "source.pem"
+    trusted_path.write_bytes(b"x" * 1025)
+    settings = settings.model_copy(update={"bundle_key_material_max_bytes": 1024})
+    service = BundlePackageService(settings)
+    real_open = os.open
+
+    def guarded_open(file, flags, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if Path(file) == trusted_path:
+            pytest.fail("oversized trusted key must be rejected before open")
+        return real_open(file, flags, *args, **kwargs)
+
+    monkeypatch.setattr(package_module.os, "open", guarded_open)
+    with pytest.raises(BundlePackageError) as exc:
+        service._load_trusted_public_keys()
+
+    assert exc.value.code == "bundle_trusted_key_invalid"
+    assert "размер" in exc.value.message
+
+
+@pytest.mark.parametrize("key_kind", ["signing", "trusted"])
+def test_key_reader_rejects_symlink_swap_between_metadata_check_and_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    key_kind: str,
+) -> None:
+    settings = _settings(tmp_path)
+    if key_kind == "signing":
+        key_path = settings.bundle_signing_private_key_file
+        load = BundlePackageService(settings)._load_signing_private_key
+    else:
+        key_path = settings.bundle_trusted_public_keys_dir / "source.pem"
+        load = BundlePackageService(settings)._load_trusted_public_keys
+    replacement = tmp_path / "replacement.pem"
+    replacement.write_bytes(key_path.read_bytes())
+    os.chmod(replacement, 0o600)
+    real_open = os.open
+    swapped = False
+
+    def swap_then_open(file, flags, *args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal swapped
+        if Path(file) == key_path and not swapped:
+            swapped = True
+            key_path.unlink()
+            try:
+                key_path.symlink_to(replacement)
+            except OSError as exc:
+                pytest.skip(f"symlink creation is unavailable: {exc}")
+        return real_open(file, flags, *args, **kwargs)
+
+    monkeypatch.setattr(package_module.os, "open", swap_then_open)
+    with pytest.raises(BundlePackageError) as exc:
+        load()
+
+    assert swapped
+    assert exc.value.code == (
+        "bundle_signing_key_invalid"
+        if key_kind == "signing"
+        else "bundle_trusted_key_invalid"
+    )
+
+
 def test_target_contour_cannot_build_signed_bundle(tmp_path: Path) -> None:
     settings = _settings(tmp_path, contour=PortalContour.TARGET)
     service = BundlePackageService(settings)
@@ -567,3 +658,105 @@ def test_runtime_manifest_schema_matches_normative_document(tmp_path: Path) -> N
         )
     )
     assert runtime_schema == normative
+
+
+def test_nexus_bundle_v11_round_trip_signed_without_harbor_field(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    service = BundlePackageService(settings)
+    built = service.build_bundle(
+        source=BundleSource(
+            contour="SOURCE",
+            registry_type="nexus",
+            registry="https://docker-nexus.internal",
+            portal_version="0.1.0",
+        ),
+        created_by="operator",
+        artifacts=_inputs(tmp_path)[:1],
+        delivery_id=DELIVERY_ID,
+        created_at=datetime(2026, 9, 11, 9, 0, tzinfo=UTC),
+    )
+    verified = service.verify_bundle(
+        built.archive_path, sidecar_path=built.sidecar_path
+    )
+    assert verified.manifest.schema_version == "1.1"
+    assert verified.manifest.source.registry_type == "nexus"
+    assert verified.manifest.source.registry == "https://docker-nexus.internal"
+    assert verified.manifest.source.harbor is None
+    with tarfile.open(built.archive_path, "r:gz") as archive:
+        manifest = json.load(archive.extractfile("manifest.json"))
+    assert manifest["source"]["registry_type"] == "nexus"
+    assert "harbor" not in manifest["source"]
+
+
+def test_nexus_origin_tamper_breaks_signature(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    service = BundlePackageService(settings)
+    built = service.build_bundle(
+        source=BundleSource(
+            contour="SOURCE", registry_type="nexus",
+            registry="https://docker-nexus.internal",
+        ),
+        created_by="operator",
+        artifacts=_inputs(tmp_path)[:1],
+        delivery_id=DELIVERY_ID,
+        created_at=datetime(2026, 9, 11, 9, 0, tzinfo=UTC),
+    )
+    tampered = tmp_path / "nexus-origin-tampered.tar.gz"
+
+    def transform(name: str, payload: bytes) -> bytes:
+        if name != "manifest.json":
+            return payload
+        manifest = json.loads(payload)
+        manifest["source"]["registry"] = "https://attacker.invalid"
+        return _canonical(manifest)
+
+    _rewrite_archive(built.archive_path, tampered, transform)
+    with pytest.raises(BundlePackageError) as error:
+        service.verify_bundle(tampered)
+    assert error.value.code == "bundle_signature_untrusted"
+
+
+@pytest.mark.parametrize("source_kind", ["legacy_as_1_1", "nexus_as_1_0"])
+def test_even_newly_resigned_bundle_cannot_relabel_source_version(
+    tmp_path: Path, source_kind: str,
+) -> None:
+    """An authorized signing key must not bypass v1.0/v1.1 provenance rules."""
+    settings = _settings(tmp_path)
+    service = BundlePackageService(settings)
+    nexus_source = BundleSource(
+        contour="SOURCE", registry_type="nexus",
+        registry="https://docker-nexus.internal",
+    )
+    source = (
+        BundleSource(contour="SOURCE", harbor="harbor.source.local")
+        if source_kind == "legacy_as_1_1" else nexus_source
+    )
+    built = service.build_bundle(
+        source=source, created_by="operator",
+        artifacts=_inputs(tmp_path)[:1], delivery_id=DELIVERY_ID,
+        created_at=datetime(2026, 9, 11, 9, 0, tzinfo=UTC),
+    )
+    with tarfile.open(built.archive_path, "r:gz") as archive:
+        manifest_stream = archive.extractfile("manifest.json")
+        assert manifest_stream is not None
+        manifest = json.load(manifest_stream)
+    manifest["schema_version"] = "1.1" if source_kind == "legacy_as_1_1" else "1.0"
+    modified = _canonical(manifest)
+    private_key = serialization.load_pem_private_key(
+        settings.bundle_signing_private_key_file.read_bytes(), password=None,
+    )
+    assert isinstance(private_key, Ed25519PrivateKey)
+    signature = private_key.sign(modified)
+    tampered = tmp_path / f"invalid-provenance-{source_kind}.tar.gz"
+
+    def transform(name: str, payload: bytes) -> bytes:
+        if name == "manifest.json":
+            return modified
+        if name == "manifest.sig":
+            return signature
+        return payload
+
+    _rewrite_archive(built.archive_path, tampered, transform)
+    with pytest.raises(BundlePackageError) as exc:
+        service.verify_bundle(tampered)
+    assert exc.value.code == "bundle_schema_invalid"

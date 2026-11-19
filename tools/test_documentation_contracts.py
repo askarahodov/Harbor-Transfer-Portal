@@ -64,7 +64,26 @@ class DocumentationContractTests(unittest.TestCase):
 
         self.assertNotIn("Windows 10/11 (с WSL 2)", readme)
         self.assertIn("### Windows 10/11 — CMD", readme)
-        self.assertIn("docker compose up -d --build --force-recreate", readme)
+        self.assertIn("docker compose up -d --no-build --pull never --wait", readme)
+        self.assertIn("run.cmd start", readme)
+        self.assertIn("./run.sh start", readme)
+        self.assertIn("install-windows-linux.md", readme)
+        quickstart = self.read("docs/install-windows-linux.md")
+        self.assertIn("run.cmd doctor", quickstart)
+        self.assertIn("./run.sh doctor", quickstart)
+        for action in ("build-plain", "build-clean"):
+            self.assertIn(f"run.cmd {action}", readme)
+            self.assertIn(f"./run.sh {action}", readme)
+            self.assertIn(f"run.cmd {action}", quickstart)
+            self.assertIn(f"./run.sh {action}", quickstart)
+            self.assertIn(action, self.read("run.cmd"))
+            self.assertIn(action, self.read("run.sh"))
+        self.assertIn("COMPOSE_PROJECT_NAME", quickstart)
+        self.assertIn("не удаляют", quickstart)
+        self.assertIn("COMPOSE_PROJECT_NAME=htp-nexus-rc", quickstart)
+        self.assertIn("PORTAL_HTTP_PORT=8081", quickstart)
+        self.assertIn("Windows-native offline kit пока не квалифицирован", quickstart)
+        self.assertIn("не перезаписывая", quickstart)
         self.assertIn("### Windows CMD — canonical path", development)
         self.assertIn("py -3 tools/dev.py up", development)
         self.assertIn("PowerShell scripts разрешены", development)
@@ -285,8 +304,12 @@ class DocumentationContractTests(unittest.TestCase):
 
         for document in (compare, nexus_setup, docs_index):
             self.assertIn("Draft", document)
-            self.assertIn("#451", document)
+            self.assertIn("#501", document)
+            self.assertIn("#503", document)
             self.assertIn("NO-GO", document)
+        # Historical qualification remains discoverable but must not be
+        # presented as the current Nexus integration head.
+        self.assertIn("#451", self.read("docs/nexus-release-readiness-2026-11-03.md"))
         self.assertNotIn("добавлен в v1.0.0 как альтернатива", compare)
         self.assertNotIn("Helm Charts (OCI)** | ✅", compare)
         self.assertNotIn("с 3.40+", compare + nexus_setup)

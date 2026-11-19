@@ -715,7 +715,7 @@ onMounted(loadKeys)
 .card { display: grid; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 .card--wide { grid-column: 1 / -1; }
 .card h2 { margin: 0; }
-.card button, .replace-action { min-height: 42px; border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-action-surface); color: var(--color-on-accent); font: inherit; cursor: pointer; }
+.card button, .replace-action { min-height: var(--control-height); border: 0; border-radius: var(--radius-md); padding: 0 var(--space-4); background: var(--color-action-surface); color: var(--color-on-accent); font: inherit; cursor: pointer; }
 .card button:disabled { opacity: .6; cursor: wait; }
 .card button.secondary { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-control); }
 .card button.danger { background: var(--color-surface); color: var(--color-danger-text); border: 1px solid var(--color-danger-text); }

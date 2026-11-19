@@ -162,6 +162,47 @@ describe('TARGET import wizard view', () => {
     expect(wrapper.find('.overwrite-confirmation').exists()).toBe(false)
   })
 
+  it('shows signed Nexus SOURCE provenance without pretending unmapped node is writable', async () => {
+    sessionStorage.setItem('htp.import.operation-id', '51')
+    vi.spyOn(importsApi, 'getOperation').mockResolvedValue(operation('READY'))
+    const preview = conflictPreview()
+    preview.source_harbor = null
+    preview.source_registry_type = 'nexus'
+    preview.source_registry = 'https://docker-nexus.example.test'
+    preview.artifacts[0] = {
+      ...preview.artifacts[0]!,
+      repository: 'node',
+      reference: '18-alpine',
+      classification: 'UNKNOWN',
+      target_digest: null,
+      message: 'Выберите Harbor TARGET project и проверьте Destination plan',
+    }
+    vi.spyOn(importsApi, 'getImportPreview').mockResolvedValue(preview)
+    const runtime = useRuntimeStore(pinia)
+    runtime.setContour('TARGET')
+    const auth = useAuthStore(pinia)
+    auth.initialized = true
+    auth.user = { id: 1, username: 'operator', role: 'operator', is_active: true }
+
+    const wrapper = mount(ImportView, {
+      global: {
+        plugins: [pinia],
+        stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('SOURCE Nexus')
+    expect(wrapper.text()).toContain('https://docker-nexus.example.test')
+    expect(wrapper.text()).not.toContain('SOURCE Harbor')
+    expect(wrapper.text()).toContain('TARGET ещё не проверен')
+    const importButton = wrapper.findAll('button').find((item) =>
+      item.text().includes('Импортировать NEW'),
+    )
+    expect(importButton?.attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
   it('offers safe skip-existing action when TARGET plan contains conflicts', async () => {
     sessionStorage.setItem('htp.import.operation-id', '51')
     vi.spyOn(importsApi, 'getOperation')

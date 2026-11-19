@@ -6,6 +6,33 @@
 
 Административная настройка Harbor, пользователей, TLS/CA и ключей описана отдельно в [admin-guide.md](admin-guide.md). Переключение универсального runtime SOURCE/TARGET — в [runtime-mode.md](runtime-mode.md). Технический формат переносимого пакета определяет [Offline Bundle Protocol v1](offline-bundle-v1.md).
 
+## Nexus SOURCE на тестовом RC (не входит в baseline `main`)
+
+Этот раздел относится к [Nexus Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503),
+а не к production-релизу. В SOURCE мастер позволяет выбрать профиль
+`registry_type=nexus` с Docker Registry v2 и доступом только к
+разрешённому connector.
+
+1. Для известного полного `image:tag` (например, `baseimage/softrust/sdk/sdk:8.0.413`)
+   вставьте его в общий поиск либо укажите имя и тег в прямой проверке.
+   Portal запрашивает SHA-256 digest; образ не добавляется до успешной проверки.
+2. Для точного имени без тега откройте список версий. Отметьте нужные теги,
+   проверьте digest и добавьте их к выбору.
+3. Для неполного пути (`baseimage/softrust/`) нужен настроенный Nexus REST Search
+   с HTTPS Nexus UI URL и точным Docker repository. Результаты `/_catalog`
+   не гарантируют полного списка Docker proxy/group.
+4. «Удалить» удаляет выбранный **конкретный тег**; повторное удаление не должно
+   создавать дубликат, а другие теги с тем же digest должны сохраняться.
+5. Продолжите обычный SOURCE workflow: верификация → подписанный bundle →
+   архив, `.sha256` и `.htp-handoff.json` → физический перенос.
+   TARGET принимает bundle только после проверки доверенного ключа,
+   preview и destination plan. Изолированный RC не равен региональной приёмке.
+
+Подробности: [Nexus setup](nexus-setup.md),
+[сравнение возможностей](registry-comparison.md),
+[региональный runbook](nexus-regional-acceptance-runbook.md).
+До завершения #434/#436 сохраняется **NO-GO** для Nexus production.
+
 ## 1. Что важно понимать до начала
 
 Harbor Transfer Portal использует **один universal software/deployment**, который в каждый момент работает в одной runtime-роли:

@@ -222,21 +222,13 @@ async def test_generic_connect_error_remains_unavailable(monkeypatch):
     assert not result.ok
     assert result.code == "registry_unavailable"
 
+
 @pytest.mark.asyncio
-async def test_explicit_https_tls_verify_false_is_honored_without_changing_profile(monkeypatch):
-    observed = []
-    original = httpx.AsyncClient
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            200, headers={"Docker-Distribution-API-Version": "registry/2.0"}
-        )
-    )
+async def test_remote_https_tls_verify_false_is_rejected_before_network(monkeypatch):
+    def forbidden_client(**_kwargs):
+        pytest.fail("remote HTTPS must not be probed with TLS verification disabled")
 
-    def factory(**kwargs):
-        observed.append(kwargs["verify"])
-        return original(transport=transport, **kwargs)
-
-    monkeypatch.setattr("app.services.registry_probe.httpx.AsyncClient", factory)
+    monkeypatch.setattr("app.services.registry_probe.httpx.AsyncClient", forbidden_client)
     configured = EffectiveHarborSettings(
         url="https://nexus.example.test",
         username="operator",
@@ -245,6 +237,48 @@ async def test_explicit_https_tls_verify_false_is_honored_without_changing_profi
         ca_file=None,
     )
     result = await probe(configured)
-    assert result.ok
-    assert observed == [False]
+    assert not result.ok
+    assert result.code == "nexus_tls_verification_required"
     assert configured.verify_tls is False
+
+
+@pytest.mark.asyncio
+async def test_remote_http_without_credentials_is_rejected_before_network(monkeypatch):
+    def forbidden_client(**_kwargs):
+        pytest.fail("remote HTTP must be rejected even without credentials")
+
+    monkeypatch.setattr("app.services.registry_probe.httpx.AsyncClient", forbidden_client)
+    configured = EffectiveHarborSettings(
+        url="http://nexus.example.test",
+        username=None,
+        password=None,
+        verify_tls=False,
+        ca_file=None,
+    )
+    result = await probe(configured)
+    assert not result.ok
+    assert result.code == "registry_insecure_transport"
+
+
+@pytest.mark.asyncio
+async def test_loopback_http_remains_available_for_disposable_registry(monkeypatch):
+    original = httpx.AsyncClient
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, headers={"Docker-Distribution-API-Version": "registry/2.0"}
+        )
+    )
+
+    def factory(**kwargs):
+        return original(transport=transport, **kwargs)
+
+    monkeypatch.setattr("app.services.registry_probe.httpx.AsyncClient", factory)
+    configured = EffectiveHarborSettings(
+        url="http://127.0.0.1:8082",
+        username="operator",
+        password="temporary-test-password",
+        verify_tls=False,
+        ca_file=None,
+    )
+    result = await probe(configured)
+    assert result.ok and result.code == "registry_connection_ok"

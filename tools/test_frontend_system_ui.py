@@ -152,8 +152,11 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertGreaterEqual(compose.count("VCS_REF: ${PORTAL_VCS_REF:-unknown}"), 2)
         self.assertIn("python3 tools/dev.py up", makefile)
         self.assertIn('env["PORTAL_VCS_REF"] = _git_revision', launcher)
-        self.assertIn('"--build"', launcher)
-        self.assertIn('"--force-recreate"', launcher)
+        # Image build is separated from the no-pull startup phase so
+        # failures are diagnosable without recreating a healthy stack.
+        self.assertIn('_docker_compose("build", env=env, dry_run=dry_run)', launcher)
+        self.assertIn('"--no-build", "--pull", "never", "--wait", "--wait-timeout", "180"', launcher)
+        self.assertNotIn('"--force-recreate"', launcher)
         self.assertIn("ENV PORTAL_FRONTEND_REVISION=${VCS_REF}", dockerfile)
         self.assertIn("revision: '$revision'", entrypoint)
 
@@ -249,6 +252,35 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertIn("@media (max-width: 768px)", docs_css)
         self.assertNotIn("#0B1E3A", docs_css)
         self.assertNotIn("#2563EB", docs_css)
+        # Docsify vendor styles need readable article colors regardless of
+        # system preference or a forced light/dark theme.
+        self.assertIn("html[data-theme='dark']", docs_css)
+        self.assertIn("html[data-theme='light']", docs_css)
+        self.assertIn("data-theme-choice=\"system\"", docs_index)
+        self.assertIn("data-theme-choice=\"light\"", docs_index)
+        self.assertIn("data-theme-choice=\"dark\"", docs_index)
+        self.assertIn('src="/theme-control.js"', docs_index)
+        self.assertIn("syncDocsTheme", docs_index)
+        self.assertIn("htp-theme-change", docs_index)
+        shared_script = (_REPOSITORY_ROOT / "frontend/public/theme-control.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("htp.ui.theme.v1", shared_script)
+        self.assertIn("window.addEventListener('storage'", shared_script)
+        self.assertIn("document.documentElement.setAttribute('data-theme'", shared_script)
+        portal_index = (_REPOSITORY_ROOT / "frontend/index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('src="/theme-control.js"', portal_index)
+        self.assertLess(
+            portal_index.index('src="/theme-control.js"'),
+            portal_index.index('src="/src/main.ts"'),
+        )
+        self.assertIn(".markdown-section pre code .token", docs_css)
+        self.assertIn(".markdown-section blockquote p", docs_css)
+        self.assertIn(".markdown-section td", docs_css)
+        self.assertIn("text-shadow: none;", docs_css)
+        self.assertIn("color: var(--color-text);", docs_css)
 
         self.assertNotIn("](#/", sidebar)
         markdown_links = re.findall(r"\]\((/[^)#?]+\.md)\)", sidebar)

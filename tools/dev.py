@@ -178,30 +178,46 @@ def command_doctor(*, dry_run: bool = False) -> int:
 
 def command_build(*, dry_run: bool = False) -> int:
     """Build backend/frontend Docker images from the current source revision."""
-    _require_env_file()
+    if not dry_run:
+        _require_env_file()
     env = _compose_environment(dry_run=dry_run)
     _docker_compose("build", env=env, dry_run=dry_run)
     return 0
 
 
-def command_up(*, dry_run: bool = False) -> int:
-    """Build and force-recreate the local stack from the current revision."""
-    if not ENV_FILE.is_file():
-        command_setup(dry_run=dry_run)
+def _start_images(*, dry_run: bool = False) -> int:
+    """Run already-built images without network pulls or an implicit rebuild."""
+    if not dry_run:
+        _require_env_file()
     env = _compose_environment(dry_run=dry_run)
     _docker_compose(
-        "up",
-        "-d",
-        "--build",
-        "--force-recreate",
-        "--wait",
-        "--wait-timeout",
-        "180",
-        env=env,
-        dry_run=dry_run,
+        "up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "180",
+        env=env, dry_run=dry_run,
     )
-    print("Portal готов: смотрите опубликованный порт через docker compose port frontend 8080.")
-    print("Новая пустая база: войдите admin/admin и обязательно смените пароль.")
+    raw = ENV_FILE.read_text(encoding="utf-8") if ENV_FILE.is_file() else ""
+    match = re.search(r"(?m)^PORTAL_HTTP_PORT=(\d+)$", raw)
+    port = os.environ.get("PORTAL_HTTP_PORT") or (match.group(1) if match else "8080")
+    print(f"Portal: http://127.0.0.1:{port}/  Docs: /docs/")
+    print("Если база пустая: войдите admin/admin и обязательно смените пароль.")
+    print("Проверьте revision в UI: 'start' не пересобирает старые images.")
+    return 0
+
+
+def command_start(*, dry_run: bool = False) -> int:
+    """Start existing images, preserving volumes and without Docker build/pull."""
+    return _start_images(dry_run=dry_run)
+
+
+def command_up(*, dry_run: bool = False) -> int:
+    """Explicit two-phase source deployment: build images, then wait for health."""
+    if not ENV_FILE.is_file():
+        command_setup(dry_run=dry_run)
+    command_build(dry_run=dry_run)
+    return _start_images(dry_run=dry_run)
+
+
+def command_status(*, dry_run: bool = False) -> int:
+    _docker_compose("ps", dry_run=dry_run)
     return 0
 
 
@@ -270,7 +286,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ("doctor", "проверить Git/Docker/Compose и локальную конфигурацию"),
         ("bootstrap", "явно проверить временный local admin/admin до его смены"),
         ("build", "собрать backend/frontend Docker images из текущего Git revision"),
-        ("up", "собрать и force-recreate локальный Compose stack"),
+        ("up", "двухэтапный запуск: собрать images, затем дождаться healthy без pull"),
+        ("start", "запустить уже собранные images без пересборки"),
+        ("status", "показать состояние сервисов и health"),
         ("down", "остановить локальный Compose stack без удаления volume"),
         ("logs", "показывать логи локального Compose stack"),
         ("compose-config", "проверить итоговую Docker Compose configuration"),
@@ -288,6 +306,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "bootstrap": command_bootstrap,
         "build": command_build,
         "up": command_up,
+        "start": command_start,
+        "status": command_status,
         "down": command_down,
         "logs": command_logs,
         "compose-config": command_compose_config,

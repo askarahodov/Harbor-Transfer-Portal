@@ -10,6 +10,7 @@ from app.api.import_retries import router as import_retries_router
 from app.api.imports import router as imports_router
 from app.api.key_settings import router as key_settings_router
 from app.api.operations import router as operations_router
+from app.api.registry_source import router as registry_source_router
 from app.api.runtime import router as runtime_router
 from app.api.settings import router as settings_router
 from app.api.transfer_settings import router as transfer_settings_router
@@ -20,6 +21,7 @@ api_router.include_router(health_router)
 api_router.include_router(auth_router)
 api_router.include_router(users_router)
 api_router.include_router(harbor_router)
+api_router.include_router(registry_source_router)
 api_router.include_router(harbor_projects_router)
 api_router.include_router(settings_router)
 api_router.include_router(transfer_settings_router)

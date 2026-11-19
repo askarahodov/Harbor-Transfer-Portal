@@ -121,6 +121,8 @@ class ImportPreviewProjectionOrchestrator(ImportOrchestrator):
                 "bundle_filename": operation.bundle_filename,
                 "intake_mode": intake_mode,
                 "source_harbor": verified.manifest.source.harbor,
+                "source_registry_type": verified.manifest.source.registry_type,
+                "source_registry": verified.manifest.source.registry,
                 "source_portal_version": verified.manifest.source.portal_version,
                 "source_created_at": verified.manifest.created_at,
                 "source_created_by": verified.manifest.created_by,

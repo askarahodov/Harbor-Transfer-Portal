@@ -67,11 +67,15 @@ class HarborArtifactsPage(BaseModel):
 
 
 class HarborSelectableProfileResponse(BaseModel):
+    nexus_format: str = "docker"
     id: str
     name: str
     url: str
     registry_type: Literal["harbor", "nexus"] = "harbor"
     is_default: bool = False
+    # Safe connector binding metadata, never the service account credentials.
+    nexus_search_url: str | None = None
+    nexus_search_repository: str | None = None
 
 
 class HarborSelectableProfilesResponse(BaseModel):

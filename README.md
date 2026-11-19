@@ -64,7 +64,9 @@ cd Harbor-Transfer-Portal
 ./run.sh
 ```
 
-Оба скрипта проверяют Docker Engine, Docker Compose v2 и Linux container mode, сохраняют существующий `.env`, при необходимости создают его из `.env.example`, валидируют Compose config и выполняют `docker compose up -d --build --force-recreate --wait --wait-timeout 180`. Успех объявляется только после прохождения healthcheck обоих сервисов. При ошибке запуск завершается ненулевым кодом и предлагает команды диагностики. Скрипты выводят фактически опубликованный host/port через `docker compose port frontend 8080`. Секрет JWT при отсутствии значения безопасно генерируется backend и повторно используется из persistent volume; в Git он не попадает. При **первой установке на пустую базу** войдите `admin/admin` и обязательно установите новый пароль от 12 символов. До смены пароля административные и transfer API недоступны. После смены войдите с новым паролем.
+**Первый запуск:** `run.cmd` или `./run.sh` выполняет два понятных шага: сборку образов с точным Git SHA, затем `docker compose up -d --no-build --pull never --wait --wait-timeout 180`, ожидая healthy. **Повторный запуск без сборки:** `run.cmd start` / `./run.sh start`. **Диагностика зависшей сборки:** `build-plain` (подробные логи) и `build-clean` (без кеша), оба сохраняют Git SHA. **Проверка:** `doctor`, `status`, `logs`; **остановка без удаления данных:** `stop`. Подробная таблица и действия при зависании BuildKit: [быстрый запуск Windows/Linux](docs/install-windows-linux.md).
+
+Оба скрипта проверяют Docker Engine, Docker Compose v2 и Linux container mode, сохраняют существующий `.env`, при необходимости создают его из `.env.example`, валидируют Compose config и выполняют двухфазный запуск: `docker compose build`, затем `docker compose up -d --no-build --pull never --wait --wait-timeout 180`. Успех объявляется только после прохождения healthcheck обоих сервисов. При ошибке запуск завершается ненулевым кодом и предлагает команды диагностики. Фактически опубликованный host/port выводится через `docker compose port frontend 8080`. `run.sh` создаёт новый `.env` с закрытыми правами. JWT secret при отсутствии значения безопасно генерируется backend и повторно используется из persistent volume; в Git он не попадает. При **первой установке на пустую базу** войдите `admin/admin` и обязательно установите новый пароль от 12 символов. До смены пароля административные и transfer API недоступны. После смены войдите с новым паролем.
 
 **Если HTTP-порт занят:** сначала проверьте `docker ps --format 'table {{.Names}}\t{{.Ports}}'` и выберите действительно свободный порт. Измените `PORTAL_HTTP_PORT` в созданном `.env`, например на `8082`, **только если этот порт свободен**, затем повторите `run.cmd` или `./run.sh`. Уже работающие установки и их данные не нужно останавливать или удалять; для смены порта **не выполняйте `docker compose down -v`**. Скрипт покажет фактический опубликованный адрес.
 
@@ -88,16 +90,20 @@ cd Harbor-Transfer-Portal
 
 ### Полезные команды
 
-```text
-docker compose ps
-docker compose logs -f
-docker compose down
-docker compose down -v
-docker compose restart
-docker compose up -d --build --force-recreate
-```
+| Действие | Windows CMD | Linux |
+|---|---|---|
+| Проверить окружение | `run.cmd doctor` | `./run.sh doctor` |
+| Первый запуск / обновление SHA | `run.cmd` | `./run.sh` |
+| Только собрать images | `run.cmd build` | `./run.sh build` |
+| Подробный лог BuildKit | `run.cmd build-plain` | `./run.sh build-plain` |
+| Пересобрать без кеша | `run.cmd build-clean` | `./run.sh build-clean` |
+| Запустить **без новой сборки** | `run.cmd start` | `./run.sh start` |
+| Статус / логи | `run.cmd status` / `run.cmd logs` | `./run.sh status` / `./run.sh logs` |
+| Остановить, сохранив данные | `run.cmd stop` | `./run.sh stop` |
 
-`docker compose down -v` удаляет persistent volume и предназначен только для осознанного сброса локальных данных.
+Обычный `git clone` устанавливает стабильный Harbor `main`, **не** Nexus Draft #503. Для Nexus RC используйте отдельный checkout с проверенным SHA и отдельной Compose-конфигурацией; см. [инструкцию](docs/install-windows-linux.md).
+
+Скрипты **не вызывают** `docker compose down -v`: эта команда удаляет persistent volume и **не применяется** в штатной эксплуатации. Для двух отдельных установок нужны разные `.env`, `COMPOSE_PROJECT_NAME`, `PORTAL_VERSION` и `PORTAL_HTTP_PORT`.
 
 ### Доступ
 
@@ -118,7 +124,8 @@ Docsify JS/CSS включены во frontend image, поэтому для чт�
 |---|---|
 | выполняете перенос | [Пользовательское руководство](docs/user-guide.md) |
 | администрируете Portal / Harbor | [Руководство администратора](docs/admin-guide.md) |
-| устанавливаете Portal в закрытом контуре | [Offline installation guide](deploy/offline/README.md) |
+| устанавливаете Portal на Windows/Linux из Git | [Быстрый запуск Windows/Linux](docs/install-windows-linux.md) |
+| устанавливаете Portal в закрытом контуре Linux | [Offline installation guide](deploy/offline/README.md) |
 | устраняете проблему | [Troubleshooting](docs/troubleshooting.md) |
 | разрабатываете или сопровождаете проект | [Локальная разработка Windows/Linux](docs/development.md), [карта документации](docs/README.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 
@@ -165,7 +172,7 @@ Harbor TARGET
 | Runtime SOURCE/TARGET и ключи | [Runtime mode](docs/runtime-mode.md), [Key management](docs/key-management.md) |
 | Архитектура и разработка | [Windows/Linux development](docs/development.md), [карта документации](docs/README.md), [Architecture](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Тестирование и CI | [Testing](docs/testing.md) |
-| Релиз | [Release notes v1.0.0](docs/release-notes-v1.0.0.md), [CHANGELOG.md](CHANGELOG.md) |
+| Релиз | [Release notes v1.0.0](docs/release-notes-v1.0.0.md), [Nexus release candidate: статус и приёмка](docs/nexus-release-readiness-2026-11-03.md), [CHANGELOG.md](CHANGELOG.md) |
 
 Исторический `docs/harbor-transfer-portal.md` не определяет текущее runtime, protocol или security behavior.
 
