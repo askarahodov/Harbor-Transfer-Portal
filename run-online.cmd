@@ -7,12 +7,12 @@ if errorlevel 1 (
   echo ERROR: Docker не найден. Установите Docker Desktop. 1>&2
   exit /b 1
 )
-docker info >NUL 2>NUL
+call docker info >NUL 2>NUL
 if errorlevel 1 (
   echo ERROR: Docker Engine недоступен. Запустите Docker Desktop. 1>&2
   exit /b 1
 )
-docker compose version >NUL 2>NUL
+call docker compose version >NUL 2>NUL
 if errorlevel 1 (
   echo ERROR: Docker Compose v2 недоступен. 1>&2
   exit /b 1
@@ -40,23 +40,23 @@ if not defined PORTAL_IMAGE_REVISION (
   exit /b 1
 )
 
-docker compose -f compose.online.yaml config -q
+call docker compose -f compose.online.yaml config -q
 if errorlevel 1 (
   echo ERROR: Ошибка конфигурации Compose или .env. 1>&2
   exit /b 1
 )
-docker compose -f compose.online.yaml pull --policy missing
+call docker compose -f compose.online.yaml pull --policy missing
 if errorlevel 1 (
   echo ERROR: Образы недоступны в GHCR. Проверьте публикацию для этого Git commit, сеть и права доступа ^(docker login ghcr.io^). 1>&2
   exit /b 1
 )
-docker compose -f compose.online.yaml up -d --no-build --pull never --wait --wait-timeout 180
+call docker compose -f compose.online.yaml up -d --no-build --pull never --wait --wait-timeout 180
 if errorlevel 1 (
   echo ERROR: Портал не готов. Проверьте docker compose -f compose.online.yaml ps и docker compose -f compose.online.yaml logs --tail=100. 1>&2
   exit /b 1
 )
 echo Portal готов из готовых GHCR образов. Опубликованный адрес ^(host:port^):
-docker compose -f compose.online.yaml port frontend 8080
+call docker compose -f compose.online.yaml port frontend 8080
 if errorlevel 1 exit /b 1
 echo На новой базе войдите admin/admin и обязательно смените пароль.
 endlocal
