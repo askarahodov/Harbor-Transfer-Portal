@@ -13,45 +13,49 @@ try {
     Set-Content -Path (Join-Path $testDir "git.cmd") -Encoding ASCII -Value '@echo off', 'echo 1111111111111111111111111111111111111111'
     Copy-Item (Join-Path $root ".env.example") (Join-Path $testDir ".env.example")
 
-    $source = @'
-using System;
-public class DockerStub
-{
-    public static int Main(string[] args)
-    {
-        if (args.Length == 0) return 90;
-        if (args[0] == "info")
-        {
-            if (args.Length > 1 && args[1] == "--format")
-                Console.WriteLine(Environment.GetEnvironmentVariable("HTP_TEST_DOCKER_OS") ?? "linux");
-            return 0;
-        }
-        if (args[0] == "compose" && args.Length > 1)
-        {
-            // The online launcher selects a compose file using "-f compose.online.yaml".
-            int commandIndex = args.Length > 3 && args[1] == "-f" ? 3 : 1;
-            switch (args[commandIndex])
-            {
-                case "version": Console.WriteLine("Docker Compose version v2"); return 0;
-                case "config": return 0;
-                case "build": return 0;
-                case "ps": return 0;
-                case "down": return 0;
-                case "pull":
-                    // Cached SHA-tagged images should not need network on restarts.
-                    if (Array.IndexOf(args, "--policy") < 0 || Array.IndexOf(args, "missing") < 0) return 23;
-                    if (Environment.GetEnvironmentVariable("HTP_TEST_PULL_FAIL") == "1"
-                        && Environment.GetEnvironmentVariable("HTP_TEST_CACHE_WARM") != "1") return 22;
-                    return 0;
-                case "up": return Environment.GetEnvironmentVariable("HTP_TEST_UP_FAIL") == "1" ? 21 : 0;
-                case "port": Console.WriteLine("127.0.0.1:8082"); return 0;
-            }
-        }
-        return 91;
-    }
-}
+    $dockerStub = @'
+@echo off
+if /I "%~1"=="info" (
+    if /I "%~2"=="--format" echo %HTP_TEST_DOCKER_OS%
+    exit /b 0
+)
+if /I "%~1"=="compose" (
+    if /I "%~2"=="version" (
+        echo Docker Compose version v2
+        exit /b 0
+    )
+    if /I "%~2"=="config" exit /b 0
+    if /I "%~2"=="build" exit /b 0
+    if /I "%~2"=="ps" exit /b 0
+    if /I "%~2"=="down" exit /b 0
+    if /I "%~2"=="port" (
+        echo 127.0.0.1:8082
+        exit /b 0
+    )
+    if /I "%~2"=="up" (
+        if "%HTP_TEST_UP_FAIL%"=="1" exit /b 21
+        exit /b 0
+    )
+    if /I "%~2"=="-f" (
+        if /I "%~4"=="config" exit /b 0
+        if /I "%~4"=="pull" (
+            if "%HTP_TEST_PULL_FAIL%"=="1" if not "%HTP_TEST_CACHE_WARM%"=="1" exit /b 22
+            exit /b 0
+        )
+        if /I "%~4"=="up" (
+            if "%HTP_TEST_UP_FAIL%"=="1" exit /b 21
+            exit /b 0
+        )
+        if /I "%~4"=="port" (
+            echo 127.0.0.1:8082
+            exit /b 0
+        )
+    )
+)
+exit /b 0
 '@
-    Add-Type -TypeDefinition $source -OutputAssembly (Join-Path $testDir "docker.exe") -OutputType ConsoleApplication
+    Set-Content -Path (Join-Path $testDir "docker.cmd") -Encoding ASCII -Value $dockerStub
+
     $env:PATH = "$testDir;$oldPath"
 
     Push-Location $testDir
