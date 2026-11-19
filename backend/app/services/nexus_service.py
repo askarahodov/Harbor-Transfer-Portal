@@ -550,7 +550,9 @@ class NexusService:
             parsed = urlsplit(nexus.url)
             port = parsed.port
         except ValueError as exc:
-            raise NexusServiceError("nexus_url_invalid", "URL локального Nexus некорректен") from exc
+            raise NexusServiceError(
+                "nexus_url_invalid", "URL локального Nexus некорректен"
+            ) from exc
 
         if (
             parsed.scheme not in {"http", "https"}
