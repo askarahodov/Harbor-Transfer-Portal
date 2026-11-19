@@ -238,6 +238,26 @@ class CiScopeTest(TestCase):
             with self.subTest(path=path):
                 self.assertEqual(classify_paths([path], root=root), Scope(compose=True))
 
+    def test_online_image_launchers_run_compose_gate(self):
+        root = self._root()
+        for path in ("run-online.sh", "run-online.cmd"):
+            with self.subTest(path=path):
+                self.assertEqual(classify_paths([path], root=root), Scope(compose=True))
+        self.assertEqual(
+            classify_paths(["compose.online.yaml"], root=root),
+            Scope(compose=True),
+        )
+
+    def test_ghcr_publish_workflow_triggers_full_workflow_validation(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths([".github/workflows/publish-images.yml"], root=root),
+            Scope(
+                backend=True, frontend=True, protocol=True, security=True,
+                integration=True, compose=True, docs=True,
+            ),
+        )
+
     def test_backend_dockerfile_runs_runtime_integration(self):
         root = self._root()
         self.assertEqual(
