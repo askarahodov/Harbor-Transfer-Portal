@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
+import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -44,6 +45,7 @@ async function signOut(): Promise<void> {
   <main class="change-page">
     <section class="change-card" aria-labelledby="change-title">
       <p class="eyebrow">Harbor Transfer Portal</p>
+      <ThemeSwitcher class="change-theme" />
       <h1 id="change-title">Обязательная смена пароля</h1>
       <p>Это временная учётная запись. До смены пароля остальные разделы портала недоступны.</p>
       <form class="change-form" @submit.prevent="submit">
@@ -64,6 +66,7 @@ async function signOut(): Promise<void> {
 <style scoped>
 .change-page { min-height: 100vh; display: grid; place-items: center; padding: var(--space-6); background: var(--color-surface-subtle); }
 .change-card { width: min(100%, 460px); padding: var(--space-8); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-md); }
+.change-theme { margin-top: var(--space-2); }
 .change-card h1 { margin: var(--space-2) 0 var(--space-4); color: var(--color-text); }
 .change-card p { color: var(--color-text-muted); }
 .eyebrow { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--color-action); }
