@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -176,6 +177,7 @@ class DevCliTests(unittest.TestCase):
         root = dev.ROOT
         config = (root / "compose.online.yaml").read_text(encoding="utf-8")
         self.assertIn("name: harbor-transfer-portal-online", config)
+        self.assertTrue((root / "run-online.sh").stat().st_mode & stat.S_IXUSR)
         self.assertNotIn("build:", config)
         self.assertEqual(config.count("pull_policy: never"), 2)
         self.assertIn("ghcr.io/askarahodov/harbor-transfer-portal-backend:sha-", config)
