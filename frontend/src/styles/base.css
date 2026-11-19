@@ -1,5 +1,7 @@
 * { box-sizing: border-box; }
 html { color-scheme: light dark; }
+html[data-theme='light'] { color-scheme: light; }
+html[data-theme='dark'] { color-scheme: dark; }
 body {
   margin: 0;
   min-width: 320px;

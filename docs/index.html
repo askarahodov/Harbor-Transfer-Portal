@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="Локальная документация Harbor Transfer Portal" />
     <title>Harbor Transfer Portal — Документация</title>
+    <script src="/theme-control.js"></script>
     <link rel="stylesheet" href="/docs/_portal/tokens.css" />
     <link rel="stylesheet" href="/docs/_vendor/core.min.css" />
     <link rel="stylesheet" href="/docs/portal-docs.css" />
@@ -20,7 +21,20 @@
         <span class="docs-context__separator" aria-hidden="true">/</span>
         <span id="docs-page-title" class="docs-context__page">Карта документации</span>
       </div>
-      <a class="docs-portal-link" href="/">Назад в портал</a>
+      <div class="docs-topbar__actions">
+        <div class="docs-theme-switcher" role="group" aria-label="Тема оформления">
+          <button type="button" data-theme-choice="system" aria-pressed="true" aria-label="Тема: Системная" title="Системная">
+            <span aria-hidden="true">▣</span><span class="docs-theme-switcher__label">Системная</span>
+          </button>
+          <button type="button" data-theme-choice="light" aria-pressed="false" aria-label="Тема: Светлая" title="Светлая">
+            <span aria-hidden="true">☀</span><span class="docs-theme-switcher__label">Светлая</span>
+          </button>
+          <button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="Тема: Тёмная" title="Тёмная">
+            <span aria-hidden="true">☾</span><span class="docs-theme-switcher__label">Тёмная</span>
+          </button>
+        </div>
+        <a class="docs-portal-link" href="/">Назад в портал</a>
+      </div>
     </header>
 
     <div id="app">Загрузка документации…</div>
@@ -35,6 +49,21 @@
     </aside>
 
     <script>
+      function syncDocsTheme() {
+        var selected = window.HtpTheme ? window.HtpTheme.get() : 'system'
+        document.querySelectorAll('[data-theme-choice]').forEach(function (button) {
+          button.setAttribute('aria-pressed', button.dataset.themeChoice === selected ? 'true' : 'false')
+        })
+      }
+      document.querySelectorAll('[data-theme-choice]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          if (window.HtpTheme) window.HtpTheme.set(button.dataset.themeChoice)
+          syncDocsTheme()
+        })
+      })
+      window.addEventListener('htp-theme-change', syncDocsTheme)
+      syncDocsTheme()
+
       function currentDocsRoute() {
         var hash = window.location.hash || '#/'
         return hash.split('?')[0]

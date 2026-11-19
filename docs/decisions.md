@@ -36,13 +36,13 @@
 
 ### Theme policy — system light/dark
 
-На 2026-09-16 портал поддерживает **системную светлую и тёмную цветовые схемы** через `prefers-color-scheme`; отдельный пользовательский переключатель темы и собственное хранилище preference не вводятся.
+Первоначально (2026-09-16) портал поддерживал светлую и тёмную темы только через системный `prefers-color-scheme`. В ноябре 2026 восстановлена уже разработанная в Nexus RC (#503) независимая функция ручного выбора **Системная / Светлая / Тёмная**. Выбор хранится в локальном браузерном `localStorage` под ключом `htp.ui.theme.v1`, синхронизируется между вкладками на одном origin и в /docs/. При отсутствии сохранённого выбора портал следует системной теме; при недоступном хранилище ручной выбор работает до закрытия вкладки. Серверное состояние и контейнеры не затрагиваются.
 
 Правила реализации:
 
 - palette primitives (`--color-deep-harbor`, `--color-cloud-white` и другие) остаются неизменяемыми исходными цветами и используются только внутри `tokens.css`;
 - views/components используют semantic aliases (`--color-surface`, `--color-text`, `--color-border`, `--color-action`, status aliases и другие), поэтому смена режима не меняет смысл palette tokens;
-- dark mode переопределяет только semantic aliases внутри `@media (prefers-color-scheme: dark)`;
+- dark mode переопределяет semantic aliases внутри `@media (prefers-color-scheme: dark)` при отсутствии явного выбора, а `:root[data-theme='dark']` принудительно применяет ту же палитру при ручном выборе;
 - Element Plus получает те же semantic aliases, чтобы custom controls и UI-kit не расходились по теме;
 - `tools/check_design_tokens.py` автоматически проверяет WCAG-контраст text/status/control/focus пар **отдельно для light и dark**, запрещает raw/named color hardcodes, прямые palette references и неизвестные color tokens в Vue-файлах;
 - `prefers-reduced-motion` поддерживается независимо от цветовой схемы и продолжает глобально сокращать переходы и анимации.

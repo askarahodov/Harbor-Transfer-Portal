@@ -37,6 +37,36 @@ class FrontendSystemUiPolicyTests(unittest.TestCase):
         self.assertIn("Theme policy — system light/dark", decisions)
         self.assertNotIn("Theme policy — light-only", decisions)
 
+    def test_explicit_theme_controls_are_recovered_from_nexus_rc(self) -> None:
+        root = _REPOSITORY_ROOT
+        control = (root / "frontend/public/theme-control.js").read_text(encoding="utf-8")
+        index = (root / "frontend/index.html").read_text(encoding="utf-8")
+        shell = (root / "frontend/src/components/PageShell.vue").read_text(encoding="utf-8")
+        login = (root / "frontend/src/views/LoginView.vue").read_text(encoding="utf-8")
+        change_password = (
+            root / "frontend/src/views/ChangePasswordView.vue"
+        ).read_text(encoding="utf-8")
+        switcher = (root / "frontend/src/components/ThemeSwitcher.vue").read_text(
+            encoding="utf-8"
+        )
+        tokens = (root / "frontend/src/styles/tokens.css").read_text(encoding="utf-8")
+        docs = (root / "docs/index.html").read_text(encoding="utf-8")
+
+        self.assertIn("htp.ui.theme.v1", control)
+        self.assertIn("window.addEventListener('storage'", control)
+        self.assertIn('<script src="/theme-control.js"></script>', index)
+        self.assertIn('<script src="/theme-control.js"></script>', docs)
+        for path in (shell, login, change_password):
+            self.assertIn("<ThemeSwitcher", path)
+        for label in ("Системная", "Светлая", "Тёмная"):
+            self.assertIn(label, switcher)
+            self.assertIn(label, docs)
+        self.assertIn(":root:not([data-theme])", tokens)
+        self.assertIn(":root[data-theme='dark']", tokens)
+        self.assertIn('data-theme-choice="system"', docs)
+        self.assertIn('data-theme-choice="light"', docs)
+        self.assertIn('data-theme-choice="dark"', docs)
+
     def test_destructive_buttons_use_dedicated_action_pair(self) -> None:
         base_css = (_REPOSITORY_ROOT / "frontend/src/styles/base.css").read_text(encoding="utf-8")
         tokens_css = (_REPOSITORY_ROOT / "frontend/src/styles/tokens.css").read_text(encoding="utf-8")
