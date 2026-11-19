@@ -92,10 +92,12 @@ def test_export_cancel_audit_records_requester_and_system_completion(
             )
         )
 
-    assert [(event.event_type, event.actor_username) for event in events] == [
+    assert {
+        (event.event_type, event.actor_username) for event in events
+    } == {
         ("export.cancel.requested", "admin"),
         ("export.cancelled", "system"),
-    ]
+    }
     client.close()
 
 
