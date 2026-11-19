@@ -40,7 +40,7 @@ cd Harbor-Transfer-Portal
 Скрипты создают `.env` из `.env.example` только если файла ещё нет, определяют Git SHA выбранного checkout, проверяют Docker и Compose, выполняют:
 
 ```text
-docker compose -f compose.online.yaml pull
+docker compose -f compose.online.yaml pull --policy always
 docker compose -f compose.online.yaml up -d --no-build --pull never --wait --wait-timeout 180
 ```
 
