@@ -52,7 +52,7 @@ def audit(candidates):
     active = {
         p["head"]["ref"]
         for p in pages("pulls?state=open")
-        if (p.get("head") or {}).get("repo", {}).get("full_name") == REPO
+        if (((p.get("head") or {}).get("repo")) or {}).get("full_name") == REPO
     }
     live = {r["name"]: r for r in pages("branches")}
     problems = []
