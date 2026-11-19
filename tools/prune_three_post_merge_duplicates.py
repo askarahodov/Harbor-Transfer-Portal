@@ -42,7 +42,7 @@ TARGETS = (
         "replacement_pr": 128,
         "replacement_head_ref": "docs/p7-4-discovery-size-followup",
         "replacement_head_sha": "15c01da84764658111c69656d246b359ca5dc9eb",
-        "replacement_merge_sha": "43e1a229863c49b5963e8204b3b17546928af20",
+        "replacement_merge_sha": "43e1a229863c49b5963e8204b3b17546928af20d",
         "ahead": 1,
         "files": ("docs/troubleshooting.md",),
         "patch_mode": "exact",
