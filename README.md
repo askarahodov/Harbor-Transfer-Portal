@@ -14,6 +14,28 @@
 
 ![Dashboard](docs/img/screenshots/dashboard.png)
 
+## Запуск из готовых Docker-образов через интернет (Windows/Linux)
+
+Для установки **без локальной сборки** используйте образы из GitHub Container Registry (GHCR). При успешном CI на `main` GitHub Actions публикует оба образа с одинаковым тегом исходного коммита `sha-<git-sha>`. Это отдельный сценарий от source launchers ниже:
+
+Windows CMD:
+
+```bat
+git clone https://github.com/askarahodov/Harbor-Transfer-Portal.git
+cd Harbor-Transfer-Portal
+run-online.cmd
+```
+
+Linux:
+
+```sh
+git clone https://github.com/askarahodov/Harbor-Transfer-Portal.git
+cd Harbor-Transfer-Portal
+./run-online.sh
+```
+
+Образы **сначала должны быть опубликованы** по результатам успешного CI на `main`. Скрипты выполняют `docker compose pull`, затем `up --no-build --pull never --wait`, не пересобирая backend/frontend на целевом хосте. GHCR packages могут быть приватными: нужен `docker login ghcr.io` с разрешённым доступом либо отдельно настроенная публичная видимость. На этом этапе поддерживается **linux/amd64**. Онлайн-стек использует **отдельный Compose project/volume**, не затрагивая старую установку; чтобы не конфликтовать по HTTP, задайте свободный `PORTAL_HTTP_PORT` в `.env`. Подробнее: [Установка из GHCR](docs/online-install.md).
+
 ## Быстрый старт
 
 ### Требования
