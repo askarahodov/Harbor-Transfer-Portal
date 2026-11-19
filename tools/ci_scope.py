@@ -187,6 +187,7 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
     areas: set[str] = set()
     workflow_changed = path in {
         PurePosixPath(".github/workflows/ci.yml"),
+        PurePosixPath(".github/workflows/publish-images.yml"),
         PurePosixPath("tools/ci_scope.py"),
     }
 
@@ -237,6 +238,9 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
         path_text
         in {
             "compose.yaml",
+            "compose.online.yaml",
+            "run-online.sh",
+            "run-online.cmd",
             ".dockerignore",
             ".gitattributes",
             "run.cmd",

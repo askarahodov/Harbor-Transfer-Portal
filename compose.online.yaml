@@ -1,0 +1,66 @@
+# Online-only source-free deployment. The launchers explicitly pull matching SHA-tagged
+# prebuilt images; Compose then starts with --no-build --pull never.
+# Separate project identity protects an existing source deployment/volume.
+name: harbor-transfer-portal-online
+
+services:
+  backend:
+    image: ghcr.io/askarahodov/harbor-transfer-portal-backend:sha-${PORTAL_IMAGE_REVISION:?Run run-online.sh or run-online.cmd to select a CI-published image}
+    pull_policy: never
+    env_file:
+      - .env
+    environment:
+      PORTAL_CONTOUR: ${PORTAL_CONTOUR:-SOURCE}
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    volumes:
+      - portal-data:/app/data
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "${PORTAL_LOG_MAX_SIZE:-10m}"
+        max-file: "${PORTAL_LOG_MAX_FILES:-5}"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2).read()"
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+
+  frontend:
+    image: ghcr.io/askarahodov/harbor-transfer-portal-frontend:sha-${PORTAL_IMAGE_REVISION:?Run run-online.sh or run-online.cmd to select a CI-published image}
+    pull_policy: never
+    environment:
+      PORTAL_CONTOUR: ${PORTAL_CONTOUR:-SOURCE}
+    ports:
+      - "${PORTAL_HTTP_BIND:-127.0.0.1}:${PORTAL_HTTP_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "${PORTAL_LOG_MAX_SIZE:-10m}"
+        max-file: "${PORTAL_LOG_MAX_FILES:-5}"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -q -O /dev/null http://127.0.0.1:8080/healthz"
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+
+volumes:
+  portal-data:

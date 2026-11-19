@@ -8,6 +8,9 @@ $oldPath = $env:PATH
 New-Item -ItemType Directory -Path $testDir | Out-Null
 try {
     Copy-Item (Join-Path $root "run.cmd") (Join-Path $testDir "run.cmd")
+    Copy-Item (Join-Path $root "run-online.cmd") (Join-Path $testDir "run-online.cmd")
+    Copy-Item (Join-Path $root "compose.online.yaml") (Join-Path $testDir "compose.online.yaml")
+    Set-Content -Path (Join-Path $testDir "git.cmd") -Encoding ASCII -Value '@echo off', 'echo 1111111111111111111111111111111111111111'
     Copy-Item (Join-Path $root ".env.example") (Join-Path $testDir ".env.example")
 
     $source = @'
@@ -25,10 +28,13 @@ public class DockerStub
         }
         if (args[0] == "compose" && args.Length > 1)
         {
-            switch (args[1])
+            // The online launcher selects a compose file using "-f compose.online.yaml".
+            int commandIndex = args.Length > 3 && args[1] == "-f" ? 3 : 1;
+            switch (args[commandIndex])
             {
                 case "version": Console.WriteLine("Docker Compose version v2"); return 0;
                 case "config": return 0;
+                case "pull": return Environment.GetEnvironmentVariable("HTP_TEST_PULL_FAIL") == "1" ? 22 : 0;
                 case "up": return Environment.GetEnvironmentVariable("HTP_TEST_UP_FAIL") == "1" ? 21 : 0;
                 case "port": Console.WriteLine("127.0.0.1:8082"); return 0;
             }
@@ -63,6 +69,21 @@ public class DockerStub
         }
 
         Write-Host "Windows run.cmd checks passed: CRLF OSType, wrong mode, failed startup."
+
+        # Real online Windows script must pull matching images, then start without build.
+        $env:HTP_TEST_UP_FAIL = "0"
+        $env:HTP_TEST_PULL_FAIL = "0"
+        $output = (& cmd.exe /d /c "run-online.cmd 2>&1" | Out-String)
+        if ($LASTEXITCODE -ne 0 -or !$output.Contains("127.0.0.1:8082")) {
+            throw "Expected GHCR pull-only success; got: $output"
+        }
+
+        $env:HTP_TEST_PULL_FAIL = "1"
+        $output = (& cmd.exe /d /c "run-online.cmd 2>&1" | Out-String)
+        if ($LASTEXITCODE -eq 0 -or $output.Contains("127.0.0.1:8082")) {
+            throw "Expected failed GHCR pull to stop before startup; got: $output"
+        }
+        Write-Host "Windows run-online.cmd checks passed: downloaded images, failed pull aborts."
     }
     finally {
         Pop-Location
@@ -72,6 +93,7 @@ finally {
     $env:PATH = $oldPath
     Remove-Item Env:HTP_TEST_DOCKER_OS -ErrorAction SilentlyContinue
     Remove-Item Env:HTP_TEST_UP_FAIL -ErrorAction SilentlyContinue
+    Remove-Item Env:HTP_TEST_PULL_FAIL -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $testDir -ErrorAction SilentlyContinue
 }
 

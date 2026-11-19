@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -171,6 +172,29 @@ class DevCliTests(unittest.TestCase):
         frontend = (dev.ROOT / "frontend/Dockerfile").read_text(encoding="utf-8")
         self.assertIn("sed -i 's/\\r$//'", backend)
         self.assertIn("sed -i 's/\\r$//'", frontend)
+
+    def test_prebuilt_online_install_has_no_build_or_project_collision(self) -> None:
+        root = dev.ROOT
+        config = (root / "compose.online.yaml").read_text(encoding="utf-8")
+        self.assertIn("name: harbor-transfer-portal-online", config)
+        self.assertTrue((root / "run-online.sh").stat().st_mode & stat.S_IXUSR)
+        self.assertNotIn("build:", config)
+        self.assertEqual(config.count("pull_policy: never"), 2)
+        self.assertIn("ghcr.io/askarahodov/harbor-transfer-portal-backend:sha-", config)
+        self.assertIn("ghcr.io/askarahodov/harbor-transfer-portal-frontend:sha-", config)
+        self.assertIn("PORTAL_IMAGE_REVISION:?", config)
+        for path in ("run-online.sh", "run-online.cmd"):
+            with self.subTest(path=path):
+                script = (root / path).read_text(encoding="utf-8")
+                self.assertIn("docker compose -f compose.online.yaml pull --policy always", script)
+                self.assertIn(
+                    "docker compose -f compose.online.yaml up -d --no-build --pull never",
+                    script,
+                )
+                self.assertNotIn("--build", script)
+                self.assertIn("git rev-parse --verify HEAD", script)
+                self.assertIn("PORTAL_IMAGE_REVISION", script)
+                self.assertIn(".env.example", script)
 
     def test_hostless_run_scripts_propagate_vcs_reference(self) -> None:
         shell = (dev.ROOT / "run.sh").read_text(encoding="utf-8")
