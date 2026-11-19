@@ -5,6 +5,9 @@ on:
     paths:
       - "run.cmd"
       - "run.sh"
+      - "run-online.cmd"
+      - "run-online.sh"
+      - "compose.online.yaml"
       - "tools/dev.py"
       - "tools/test_dev.py"
       - "tools/test_windows_launcher.ps1"
@@ -14,6 +17,7 @@ on:
   push:
     paths:
       - "run.cmd"
+      - "run-online.cmd"
       - "tools/test_windows_launcher.ps1"
       - "tools/test_linux_launcher.sh"
       - ".github/workflows/windows-launcher-smoke.yml"
