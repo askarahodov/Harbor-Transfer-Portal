@@ -184,7 +184,7 @@ class DevCliTests(unittest.TestCase):
         for path in ("run-online.sh", "run-online.cmd"):
             with self.subTest(path=path):
                 script = (root / path).read_text(encoding="utf-8")
-                self.assertIn("docker compose -f compose.online.yaml pull", script)
+                self.assertIn("docker compose -f compose.online.yaml pull --policy always", script)
                 self.assertIn(
                     "docker compose -f compose.online.yaml up -d --no-build --pull never",
                     script,
