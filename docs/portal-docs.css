@@ -758,3 +758,55 @@ body > #app {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Same three-mode selection and semantic colors as the Portal header. */
+html[data-theme='light'] { color-scheme: light; }
+html[data-theme='dark'] { color-scheme: dark; }
+.docs-topbar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.docs-theme-switcher {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+.docs-theme-switcher button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.docs-theme-switcher button:hover { border-color: var(--color-border-control); }
+.docs-theme-switcher button[aria-pressed='true'] {
+  background: var(--color-surface);
+  border-color: var(--color-action);
+  color: var(--color-action);
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+@media (max-width: 1180px) {
+  .docs-theme-switcher__label { display: none; }
+  .docs-theme-switcher button { min-width: 32px; }
+}
+@media (max-width: 600px) {
+  .docs-brand__name { display: none; }
+  .docs-topbar__actions { gap: var(--space-1); }
+  .docs-portal-link { padding: 0 var(--space-2); font-size: 11px; }
+}
