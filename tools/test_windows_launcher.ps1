@@ -28,7 +28,9 @@ public class DockerStub
         }
         if (args[0] == "compose" && args.Length > 1)
         {
-            switch (args[1])
+            // The online launcher selects a compose file using "-f compose.online.yaml".
+            int commandIndex = args.Length > 3 && args[1] == "-f" ? 3 : 1;
+            switch (args[commandIndex])
             {
                 case "version": Console.WriteLine("Docker Compose version v2"); return 0;
                 case "config": return 0;
