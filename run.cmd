@@ -17,9 +17,10 @@ if errorlevel 1 (
   echo ERROR: Docker Compose v2 недоступен. 1>&2
   exit /b 1
 )
-docker info --format "{{.OSType}}" 2>NUL | findstr /x /c:"linux" >NUL
-if errorlevel 1 (
-  echo ERROR: Требуется Docker Desktop в режиме Linux containers. 1>&2
+set "PORTAL_DOCKER_OS="
+for /f "usebackq delims=" %%O in (`docker info --format "{{.OSType}}" 2^>NUL`) do set "PORTAL_DOCKER_OS=%%O"
+if /I not "%PORTAL_DOCKER_OS%"=="linux" (
+  echo ERROR: Требуется Docker Desktop в режиме Linux containers ^(OSType=%PORTAL_DOCKER_OS%^). 1>&2
   exit /b 1
 )
 

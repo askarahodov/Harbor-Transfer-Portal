@@ -68,6 +68,7 @@ COPY --from=docsify-extensions-vendor /vendor/prism/package/components/prism-yam
 COPY --from=docsify-extensions-vendor /vendor/prism/package/components/prism-python.min.js /usr/share/nginx/html/docs/_vendor/prism-python.min.js
 COPY --from=docsify-extensions-vendor /vendor/prism/package/components/prism-sql.min.js /usr/share/nginx/html/docs/_vendor/prism-sql.min.js
 
-RUN chmod 0755 /docker-entrypoint.d/40-runtime-config.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.d/40-runtime-config.sh \
+    && chmod 0755 /docker-entrypoint.d/40-runtime-config.sh
 
 EXPOSE 8080

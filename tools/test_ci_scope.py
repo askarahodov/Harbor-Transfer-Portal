@@ -227,6 +227,17 @@ class CiScopeTest(TestCase):
             Scope(backend=True, security=True, integration=True),
         )
 
+    def test_windows_launcher_and_line_endings_run_compose(self):
+        root = self._root()
+        for path in (
+            "run.cmd",
+            "run.sh",
+            ".gitattributes",
+            "tools/test_windows_launcher.ps1",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(classify_paths([path], root=root), Scope(compose=True))
+
     def test_backend_dockerfile_runs_runtime_integration(self):
         root = self._root()
         self.assertEqual(
