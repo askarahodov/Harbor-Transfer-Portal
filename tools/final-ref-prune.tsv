@@ -1,0 +1,12 @@
+# Pinned exact refs for final 10-item cleanup, plus own PR head dynamically after merge.
+# ref<TAB>SHA<TAB>merged|superseded<TAB>original PR<TAB>replacement PR or -
+chore/513-prune-merged-refs-once	583f84676ae6dcb288f9ccc2ae8cea50c62286d3	merged	514	-
+chore/513-prune-superseded-pr-refs-once	eade7507a5b089b6f99b2a38dc9a3a1dfce167c2	merged	515	-
+docs/source-port-occupied-current	92da34135c2e4f300f21fbfb4ad73e5a95b1403d	merged	516	-
+dependabot/npm_and_yarn/frontend/npm_and_yarn-be6b667233	e5a8f090d841edbcc72aff29b2eb2b47f70479f6	merged	511	-
+docs/occupied-port-quickstart	084dbdbefcde5ea66287443918d4339d64245cde	superseded	508	516
+docs/p7-4-current-state	179ec5bce007f42536624ae8f9dcddf656248fc1	superseded	126	127
+docs/sync-current-history-harbor-contracts	5d88986836a2306437f66f58abcf65f765be4c5a	superseded	384	385
+docs/ai-agent-workflow-20261109	0b450c47dbe90deac1788462702eae59fb273545	superseded	470	473
+fix/settings-retention-whole-units-20261111	87a1993ee825cf49d9731d7b4a8f481be970f7ce	superseded	493	502
+fix/285-browser-handoff-intake	ec6f2e74fe5bef21484ebedb19df561065614a3e	superseded	286	288
