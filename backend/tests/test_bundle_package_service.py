@@ -419,6 +419,97 @@ def test_private_key_permissions_are_rejected(tmp_path: Path) -> None:
     assert exc.value.code == "bundle_signing_key_permissions"
 
 
+def test_oversized_signing_key_is_rejected_before_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    key_path = settings.bundle_signing_private_key_file
+    key_path.write_bytes(b"x" * 1025)
+    os.chmod(key_path, 0o600)
+    settings = settings.model_copy(update={"bundle_key_material_max_bytes": 1024})
+    service = BundlePackageService(settings)
+    real_open = os.open
+
+    def guarded_open(file, flags, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if Path(file) == key_path:
+            pytest.fail("oversized signing key must be rejected before open")
+        return real_open(file, flags, *args, **kwargs)
+
+    monkeypatch.setattr(package_module.os, "open", guarded_open)
+    with pytest.raises(BundlePackageError) as exc:
+        service._load_signing_private_key()
+
+    assert exc.value.code == "bundle_signing_key_invalid"
+    assert "размер" in exc.value.message
+
+
+def test_oversized_trusted_key_is_rejected_before_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    trusted_path = settings.bundle_trusted_public_keys_dir / "source.pem"
+    trusted_path.write_bytes(b"x" * 1025)
+    settings = settings.model_copy(update={"bundle_key_material_max_bytes": 1024})
+    service = BundlePackageService(settings)
+    real_open = os.open
+
+    def guarded_open(file, flags, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if Path(file) == trusted_path:
+            pytest.fail("oversized trusted key must be rejected before open")
+        return real_open(file, flags, *args, **kwargs)
+
+    monkeypatch.setattr(package_module.os, "open", guarded_open)
+    with pytest.raises(BundlePackageError) as exc:
+        service._load_trusted_public_keys()
+
+    assert exc.value.code == "bundle_trusted_key_invalid"
+    assert "размер" in exc.value.message
+
+
+@pytest.mark.parametrize("key_kind", ["signing", "trusted"])
+def test_key_reader_rejects_symlink_swap_between_metadata_check_and_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    key_kind: str,
+) -> None:
+    settings = _settings(tmp_path)
+    if key_kind == "signing":
+        key_path = settings.bundle_signing_private_key_file
+        load = BundlePackageService(settings)._load_signing_private_key
+    else:
+        key_path = settings.bundle_trusted_public_keys_dir / "source.pem"
+        load = BundlePackageService(settings)._load_trusted_public_keys
+    replacement = tmp_path / "replacement.pem"
+    replacement.write_bytes(key_path.read_bytes())
+    os.chmod(replacement, 0o600)
+    real_open = os.open
+    swapped = False
+
+    def swap_then_open(file, flags, *args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal swapped
+        if Path(file) == key_path and not swapped:
+            swapped = True
+            key_path.unlink()
+            try:
+                key_path.symlink_to(replacement)
+            except OSError as exc:
+                pytest.skip(f"symlink creation is unavailable: {exc}")
+        return real_open(file, flags, *args, **kwargs)
+
+    monkeypatch.setattr(package_module.os, "open", swap_then_open)
+    with pytest.raises(BundlePackageError) as exc:
+        load()
+
+    assert swapped
+    assert exc.value.code == (
+        "bundle_signing_key_invalid"
+        if key_kind == "signing"
+        else "bundle_trusted_key_invalid"
+    )
+
+
 def test_target_contour_cannot_build_signed_bundle(tmp_path: Path) -> None:
     settings = _settings(tmp_path, contour=PortalContour.TARGET)
     service = BundlePackageService(settings)

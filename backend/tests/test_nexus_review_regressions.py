@@ -40,6 +40,63 @@ def service(tmp_path: Path) -> NexusService:
     return obj
 
 
+@pytest.mark.parametrize(
+    ("url", "verify_tls", "expected_code"),
+    [
+        ("http://nexus.example.test:8082", True, "nexus_insecure_transport"),
+        ("https://nexus.example.test:8443", False, "nexus_tls_verification_required"),
+    ],
+)
+@pytest.mark.parametrize("operation", ["inspect", "export"])
+@pytest.mark.asyncio
+async def test_direct_source_operations_reject_insecure_remote_transport(
+    service: NexusService,
+    tmp_path: Path,
+    url: str,
+    verify_tls: bool,
+    expected_code: str,
+    operation: str,
+) -> None:
+    service._resolve_nexus.return_value = SimpleNamespace(
+        url=url,
+        username="operator",
+        password="source-secret",
+        verify_tls=verify_tls,
+        ca_file=None,
+    )
+    image = ImageReference("team/app", "1.0.0")
+
+    with pytest.raises(NexusServiceError) as caught:
+        if operation == "inspect":
+            await service.inspect_image(image)
+        else:
+            await service.export_image(image, service.payload_root / "export")
+
+    assert caught.value.code == expected_code
+    service._run_checked.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:8082",
+        "http://[::1]:8082",
+        "http://localhost:8082",
+    ],
+)
+def test_registry_host_allows_loopback_http_for_disposable_test_registry(
+    service: NexusService,
+    url: str,
+) -> None:
+    nexus = SimpleNamespace(url=url, verify_tls=False)
+    assert service._registry_host(nexus) == url.split("//", 1)[1]
+
+
+def test_registry_host_allows_verified_remote_https(service: NexusService) -> None:
+    nexus = SimpleNamespace(url="https://nexus.example.test:8443", verify_tls=True)
+    assert service._registry_host(nexus) == "nexus.example.test:8443"
+
+
 def test_export_rejects_path_outside_payload_root(service: NexusService, tmp_path: Path):
     with pytest.raises(NexusServiceError, match="разрешённого data root"):
         service._validate_export_path(tmp_path / "outside")

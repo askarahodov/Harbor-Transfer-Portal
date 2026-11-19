@@ -172,6 +172,17 @@ async def test_helm_settings_probe_rejects_invalid_or_oversized_metadata(
 
 
 @pytest.mark.asyncio
+async def test_remote_helm_https_requires_tls_verification(client_service):
+    service, state, _data, _digest = client_service
+    service.verify = False
+
+    with pytest.raises(NexusHelmHttpError, match="TLS"):
+        await service.list_charts("helm-a")
+
+    assert state["calls"] == []
+
+
+@pytest.mark.asyncio
 async def test_helm_index_and_download_with_checksum(client_service, tmp_path: Path):
     service, state, _data, digest = client_service
     result = await service.list_charts("helm-a")

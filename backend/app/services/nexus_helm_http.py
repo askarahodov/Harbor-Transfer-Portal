@@ -36,6 +36,7 @@ from app.services.helm_oci_service import (
     HelmTargetState,
 )
 from app.services.nexus_discovery import NexusDiscoveryService
+from app.services.nexus_transport import nexus_transport_error
 
 _REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _CHART = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\Z")
@@ -188,6 +189,9 @@ class NexusHelmHttpService:
         return repository
 
     def _client(self) -> httpx.AsyncClient:
+        transport_error = nexus_transport_error(self.base_url, bool(self.verify))
+        if transport_error is not None:
+            raise NexusHelmHttpError(*transport_error)
         auth = (
             httpx.BasicAuth(self.username, self.password or "")
             if self.username

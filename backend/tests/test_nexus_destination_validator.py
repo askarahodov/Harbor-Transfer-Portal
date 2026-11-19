@@ -96,6 +96,41 @@ async def test_target_credentials_never_sent_over_http(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("url", "verify", "expected_code"),
+    [
+        ("http://target.example.invalid", False, "nexus_insecure_transport"),
+        ("https://target.example.invalid", False, "nexus_tls_verification_required"),
+    ],
+)
+async def test_target_remote_insecure_origin_is_rejected_without_network(
+    monkeypatch: pytest.MonkeyPatch,
+    url: str,
+    verify: bool,
+    expected_code: str,
+) -> None:
+    def forbidden_client(**kwargs):  # type: ignore[no-untyped-def]
+        pytest.fail("remote insecure Nexus transport must be rejected before HTTP")
+
+    monkeypatch.setattr(
+        "app.services.nexus_destination_validator.httpx.AsyncClient",
+        forbidden_client,
+    )
+    validator = NexusDestinationValidator.__new__(NexusDestinationValidator)
+    validator.settings = Settings(_env_file=None)
+    validator._url = url
+    validator._registry_host = "target.example.invalid"
+    validator._username = None
+    validator._password = None
+    validator._verify = verify
+
+    result = await validator.validate("test-project", "test-project/image")
+    assert not result.project_exists
+    assert not result.write_allowed
+    assert result.error_code == expected_code
+
+
+@pytest.mark.asyncio
 async def test_local_disposable_target_http_loopback_is_allowed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

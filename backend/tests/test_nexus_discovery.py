@@ -275,6 +275,24 @@ async def test_rest_search_never_sends_credentials_over_http(discovery) -> None:
 
 
 @pytest.mark.asyncio
+async def test_remote_https_discovery_requires_tls_verification(discovery) -> None:
+    service, seen, _response = discovery
+    service.verify = False
+
+    docker = await service.catalog()
+    assert not docker.available
+    assert seen == []
+
+    service.search_url = "https://nexus-ui.example.test"
+    service.search_repository = "docker-all"
+    rest = await service.catalog()
+    inventory = await service.inventory()
+    assert not rest.available
+    assert not inventory.available
+    assert seen == []
+
+
+@pytest.mark.asyncio
 async def test_inventory_returns_only_visible_docker_and_helm_repositories(
     discovery,
 ) -> None:

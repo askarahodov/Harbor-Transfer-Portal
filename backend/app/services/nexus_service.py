@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.services.harbor_profiles import HarborProfileService
 from app.services.harbor_settings import EffectiveHarborSettings, HarborSettingsService
+from app.services.nexus_transport import nexus_transport_error
 
 _DIGEST_PATTERN = r"sha256:[a-f0-9]{64}"
 _REPOSITORY_PATTERN = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
@@ -545,14 +546,35 @@ class NexusService:
     def _registry_host(nexus: EffectiveHarborSettings) -> str:
         if not nexus.url:
             raise NexusServiceError("nexus_not_configured", "Локальный Nexus не настроен")
-        parsed = urlsplit(nexus.url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname or not parsed.netloc:
+        try:
+            parsed = urlsplit(nexus.url)
+            port = parsed.port
+        except ValueError as exc:
+            raise NexusServiceError("nexus_url_invalid", "URL локального Nexus некорректен") from exc
+
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or not parsed.netloc
+            or (port is not None and port == 0)
+        ):
             raise NexusServiceError("nexus_url_invalid", "URL локального Nexus некорректен")
-        if parsed.path not in {"", "/"} or parsed.query or parsed.fragment or parsed.username:
+        if (
+            parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.netloc.endswith(":")
+        ):
             raise NexusServiceError(
                 "nexus_url_invalid",
                 "URL Nexus для OCI registry не должен содержать path/query/userinfo",
             )
+
+        transport_error = nexus_transport_error(nexus.url, nexus.verify_tls)
+        if transport_error is not None:
+            raise NexusServiceError(*transport_error)
         return parsed.netloc
 
     @staticmethod

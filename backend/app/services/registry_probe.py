@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from app.services.harbor_settings import EffectiveHarborSettings
+from app.services.nexus_transport import nexus_transport_error
 
 
 @dataclass(frozen=True)
@@ -64,10 +65,13 @@ async def probe_docker_v2(
             "registry_invalid_endpoint",
             "Укажите корневой адрес Docker Registry v2, не Nexus UI",
         )
-    if parsed.scheme == "http" and profile.username and profile.password:
-        return _result(
-            "registry_insecure_transport", "Проверка пароля по незашифрованному HTTP запрещена"
-        )
+    transport_error = nexus_transport_error(profile.url, profile.verify_tls)
+    if transport_error is not None:
+        code, message = transport_error
+        # Keep the registry probe's existing public error code stable.
+        if code == "nexus_insecure_transport":
+            code = "registry_insecure_transport"
+        return _result(code, message)
     verify: bool | str = profile.verify_tls
     if profile.verify_tls and profile.ca_file:
         verify = str(profile.ca_file)

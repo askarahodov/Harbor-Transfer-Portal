@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.services.harbor_profiles import HarborProfileService
 from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
+from app.services.nexus_transport import nexus_transport_error
 
 _REPOSITORY = re.compile(
     r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
@@ -63,6 +64,9 @@ class NexusDiscoveryService:
             or parsed.username or parsed.password
         ):
             raise HarborSettingsError("nexus_url_invalid", "Нужен корневой URL Docker v2 connector")
+        transport_error = nexus_transport_error(url, effective.verify_tls)
+        if transport_error is not None:
+            raise HarborSettingsError(*transport_error)
         self.url = url.rstrip("/")
         self.search_url = profile.nexus_search_url
         self.search_repository = profile.nexus_search_repository
@@ -95,6 +99,9 @@ class NexusDiscoveryService:
             or parsed.path not in {"", "/"}
         ):
             return NexusRepositoryInventory(False, (), "Нужен корневой Nexus UI HTTPS URL")
+        transport_error = nexus_transport_error(self.search_url, bool(self.verify))
+        if transport_error is not None:
+            return NexusRepositoryInventory(False, (), transport_error[1])
         auth = (
             httpx.BasicAuth(self.username, self.password or "")
             if self.username else None
@@ -310,6 +317,9 @@ class NexusDiscoveryService:
             return DiscoveryResult(
                 False, (), "Некорректный Nexus REST Search HTTPS URL или repository"
             )
+        transport_error = nexus_transport_error(self.search_url, bool(self.verify))
+        if transport_error is not None:
+            return DiscoveryResult(False, (), transport_error[1])
         auth = httpx.BasicAuth(self.username, self.password or "") if self.username else None
         params = {"repository": self.search_repository, "format": "docker"}
         # Exact image name is a Nexus-native search criterion: enumerate only
@@ -388,8 +398,14 @@ class NexusDiscoveryService:
             )
         except ValueError:
             valid = False
-        if not valid or (self.username and parsed.scheme != "https"):
-            return DiscoveryResult(False, (), "Нужен корректный HTTPS Docker v2 connector")
+        transport_error = nexus_transport_error(self.url, bool(self.verify))
+        if not valid or transport_error is not None:
+            message = (
+                transport_error[1]
+                if transport_error is not None
+                else "Нужен корректный Docker v2 connector"
+            )
+            return DiscoveryResult(False, (), message)
         path = (
             "/v2/_catalog" if repository is None
             else "/v2/" + "/".join(quote(x, safe="") for x in repository.split("/")) + "/tags/list"
@@ -462,6 +478,9 @@ class NexusDiscoveryService:
             return DiscoveryResult(
                 False, (), "Nexus REST Search требует корректный HTTPS URL"
             )
+        transport_error = nexus_transport_error(self.search_url, bool(self.verify))
+        if transport_error is not None:
+            return DiscoveryResult(False, (), transport_error[1])
         if _NEXUS_REPO.fullmatch(self.search_repository) is None:
             return DiscoveryResult(False, (), "Некорректный Nexus Docker repository")
         auth = (
@@ -557,10 +576,9 @@ class NexusDiscoveryService:
         `last` cursor is read only from the validated result names; never
         follow an untrusted Link URL or redirect registry credentials.
         """
-        if self.username and urlsplit(self.url).scheme != "https":
-            return DiscoveryResult(
-                False, (), "Nexus Docker v2 browse с учётными данными требует HTTPS"
-            )
+        transport_error = nexus_transport_error(self.url, bool(self.verify))
+        if transport_error is not None:
+            return DiscoveryResult(False, (), transport_error[1])
         auth = (
             httpx.BasicAuth(self.username, self.password or "")
             if self.username else None

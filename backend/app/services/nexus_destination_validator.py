@@ -8,7 +8,6 @@ the operator must verify write permissions on their target namespace.
 
 from __future__ import annotations
 
-from ipaddress import ip_address
 from urllib.parse import urlsplit
 
 import httpx
@@ -18,6 +17,7 @@ from app.config import Settings
 from app.services.harbor_destination_validator import DestinationCapability
 from app.services.harbor_profiles import HarborProfileService
 from app.services.harbor_settings import HarborSettingsError, HarborSettingsService
+from app.services.nexus_transport import nexus_transport_error
 
 
 class NexusDestinationValidator:
@@ -65,17 +65,10 @@ class NexusDestinationValidator:
         return self._registry_host
 
     async def validate(self, project: str, repository: str) -> DestinationCapability:
-        # Local disposable Nexus E2E uses a loopback connector; never send
-        # credentials over unencrypted connections to a non-loopback host.
-        parsed = urlsplit(self._url)
-        try:
-            loopback = ip_address(parsed.hostname or "").is_loopback
-        except ValueError:
-            loopback = False
-        if parsed.scheme != "https" and self._username and not loopback:
+        transport_error = nexus_transport_error(self._url, bool(self._verify))
+        if transport_error is not None:
             return DestinationCapability(
-                False, False, "nexus_insecure_transport",
-                "Передача учётных данных TARGET Nexus требует HTTPS",
+                False, False, transport_error[0], transport_error[1]
             )
         # Only one read-only connector probe: Nexus has no Harbor project API.
         # A successful GET does not claim that registry push is permitted.

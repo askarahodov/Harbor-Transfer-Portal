@@ -147,13 +147,19 @@ server {
 
 Проверьте, что Docker token/auth challenge совместим с внешним HTTPS-адресом и сертификат доверен стороне Portal. Для внутреннего CA используйте NEXUS_CA_FILE либо установите CA в профиль Nexus. **Не отключайте** TLS verification в production.
 
-**Безопасность credentials:** проверки подключения, SOURCE Docker v2 browse и TARGET preflight
-не отправляют Basic Auth по HTTP на удалённые адреса. Для изолированного
-тестового TARGET connector допускается буквальный loopback IP `127.0.0.1`/`::1`;
-это **не разрешение** на HTTP между серверами. Для сервисных учётных записей используйте HTTPS
-на внешнем адресе Docker connector (при необходимости с TLS termination на reverse proxy),
-а Nexus REST Search API также настройте через HTTPS. Внутренний HTTP connector,
-закрытый reverse proxy, не означает, что Portal должен подключаться к нему по HTTP.
+**Транспортная политика Portal:** любой удалённый Nexus endpoint обязан
+использовать HTTPS с включённой проверкой TLS-сертификата — даже если профиль
+не содержит credentials. Удалённый HTTP и удалённый HTTPS с `verify_tls=false`
+отклоняются до сетевого запроса. HTTP и отключённая TLS-проверка допустимы
+только для буквального loopback `127.0.0.1`, `::1` или имени `localhost`
+в изолированных тестах; это **не разрешение** на HTTP между серверами.
+
+Проверки подключения, SOURCE Docker v2 browse, TARGET preflight и Helm HTTP
+не отправляют Basic Auth по HTTP на удалённые адреса. Для сервисных учётных
+записей используйте HTTPS на внешнем адресе Docker connector (при необходимости
+с TLS termination на reverse proxy), а Nexus REST Search API также настройте
+через HTTPS. Внутренний HTTP connector, закрытый reverse proxy, не означает,
+что Portal должен подключаться к нему по HTTP.
 
 Пример настроек Portal:
 
