@@ -588,7 +588,7 @@ def test_nexus_profile_connection_api_checks_v2_without_harbor_or_image(
 def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_setting(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    """Helm uses index.yaml, not Docker /v2/, and keeps saved TLS behavior."""
+    """Helm keeps the saved TLS setting but fails closed until remote TLS is verified."""
     import httpx
 
     client, app, tokens = _app_client(tmp_path)
@@ -622,6 +622,7 @@ def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_se
         profile = HarborProfileService(session, app.state.settings).get(profile_id)
         assert profile.nexus_format == "helm"
         assert profile.nexus_search_repository == "helm-team"
+        assert profile.verify_tls is False
 
     selectable = client.get("/api/harbor/profiles", headers=_auth(tokens["operator"]))
     assert selectable.status_code == 200
@@ -632,6 +633,32 @@ def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_se
     verifies = []
     real_async_client = httpx.AsyncClient
 
+    def forbidden_client(**kwargs):
+        raise AssertionError("unverified remote Nexus must be rejected before HTTP")
+
+    monkeypatch.setattr("app.services.nexus_helm_http.httpx.AsyncClient", forbidden_client)
+    blocked = client.post(
+        f"/api/settings/harbor/profiles/{profile_id}/test-registry", headers=headers
+    )
+    assert blocked.status_code == 200
+    assert blocked.json() == {
+        "ok": False,
+        "code": "nexus_tls_verification_required",
+        "message": "Для удалённого Nexus обязательна проверка TLS",
+        "version": None,
+    }
+    assert requests == []
+    assert verifies == []
+    assert PROFILE_SECRET not in blocked.text
+
+    # The false value remains persisted; enable verified TLS only for the
+    # following mocked read-path checks.
+    with app.state.session_factory() as session:
+        profile = HarborProfileService(session, app.state.settings).get(profile_id)
+        assert profile.verify_tls is False
+        profile.verify_tls = True
+        session.commit()
+
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         if request.url.path == "/service/rest/v1/repositories/helm-team":
@@ -639,7 +666,7 @@ def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_se
                 "name": "helm-team", "format": "helm", "type": "hosted",
             })
         if request.url.path == "/repository/helm-team/index.yaml":
-            return httpx.Response(200, text="apiVersion: v1\nentries: {}\n")
+            return httpx.Response(200, text="apiVersion: v1\\nentries: {}\\n")
         return httpx.Response(404)
 
     def factory(**kwargs):
@@ -659,7 +686,7 @@ def test_nexus_helm_http_profile_is_bound_to_one_repository_and_preserves_tls_se
         "message": "Helm HTTP index.yaml доступен",
         "version": None,
     }
-    assert verifies == [False]
+    assert verifies == [True]
     assert [str(req.url.path) for req in requests] == [
         "/service/rest/v1/repositories/helm-team",
         "/repository/helm-team/index.yaml",
