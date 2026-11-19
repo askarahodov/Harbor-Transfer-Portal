@@ -34,7 +34,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/prune_final_refs.py
-      - name: Apply final 10 + own merged cleanup branch
+      - name: Apply final nine + own merged cleanup branch
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,7 +44,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          echo "Issue #513 — final 10 pinned refs and the cleanup PR's own branch" >> "$GITHUB_STEP_SUMMARY"
+          echo "Issue #513 — final nine pinned refs and the cleanup PR's own branch" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
             echo "PR dry-run: no refs deleted." >> "$GITHUB_STEP_SUMMARY"
           fi
