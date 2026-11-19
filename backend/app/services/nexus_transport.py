@@ -43,11 +43,11 @@ def nexus_transport_error(
     if parsed.scheme == "http" and not loopback:
         return (
             "nexus_insecure_transport",
-            "Удалённый Nexus Docker registry требует HTTPS",
+            "Удалённый Nexus требует HTTPS",
         )
     if parsed.scheme == "https" and not loopback and not verify_tls:
         return (
             "nexus_tls_verification_required",
-            "Для удалённого Nexus Docker registry обязательна проверка TLS",
+            "Для удалённого Nexus обязательна проверка TLS",
         )
     return None
