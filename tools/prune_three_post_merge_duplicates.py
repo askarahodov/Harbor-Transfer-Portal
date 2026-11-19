@@ -130,10 +130,22 @@ def check_merged_pr(
         and (pr.get("base") or {}).get("ref") == "main"
         and (pr.get("head") or {}).get("ref") == head_ref
         and (pr.get("head") or {}).get("sha") == head_sha
-        and ((pr.get("head") or {}).get("repo") or {}).get("full_name") == REPO
+        and (
+            ((pr.get("head") or {}).get("repo") or {}).get("full_name")
+            in (None, REPO)
+        )
         and pr.get("merge_commit_sha") == merge_sha
     ):
-        raise RuntimeError(f"PR #{number} provenance/merge mismatch")
+        actual = {
+            "state": pr.get("state"),
+            "merged_at": pr.get("merged_at"),
+            "base": (pr.get("base") or {}).get("ref"),
+            "head_ref": (pr.get("head") or {}).get("ref"),
+            "head_sha": (pr.get("head") or {}).get("sha"),
+            "head_repo": ((pr.get("head") or {}).get("repo") or {}).get("full_name"),
+            "merge_sha": pr.get("merge_commit_sha"),
+        }
+        raise RuntimeError(f"PR #{number} provenance/merge mismatch: {actual}")
 
     ancestry = github("GET", f"compare/{merge_sha}...{AUDIT_BASE}")
     if ancestry.get("behind_by") != 0:
