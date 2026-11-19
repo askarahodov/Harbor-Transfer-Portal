@@ -1,4 +1,6 @@
 # Exact GitHub issue #513 branch audit; no main/open PR/unique history candidates.
+# 180 merged directly into main + 8 already fully contained in main.
+# Excludes 20 PRs merged only into Nexus RC branch; preserve until Nexus disposition.
 # branch<TAB>expected SHA<TAB>merged:PR_NUMBER|contained
 chore/311-release-version-invariant	d0bbede87af95cbace4db092c55c195507bcd38d	merged:313
 chore/ai-agent-execution-contract	e7ff8bb7f0a310ddff563f4baafa679477124c7b	merged:473
@@ -71,8 +73,6 @@ feat/harbor-profiles-domain	9f8fd739493c5f6f5f55b287215da53f9d3a9926	merged:358
 feat/import-skip-existing-conflicts	77edfa69e7588e71d4785ebc3faf72e4f9c63669	merged:389
 feat/key-lifecycle-rotation	613e5224c8cd83e5bf85bbe3946c90e667b543f6	merged:263
 feat/local-docsify-documentation	a50dcfbab40671338ef285610d77ad7148f199c0	merged:371
-feat/nexus-compact-image-selector-20261106	cab4cb4d0043c1714c95e1f9f08681932704a6b0	merged:458
-feat/nexus-harbor-parity-version-table-20261106	b0b709aec87e879ee1e258aa2085307716683e68	merged:456
 feat/p1-2-backend-foundation	d56cdd50ae17e9d75867ea25493619ab58873b76	merged:29
 feat/p1-3-frontend-foundation	aa4822f302dc97212eb2e60e2ae5abef78228cb7	merged:31
 feat/p1-4-compose-runtime	7b0fb449f91aeffc077736faa97ee96f4d21e327	merged:34
@@ -108,7 +108,6 @@ feature/298-version-combobox	ccf752736aa2fa145020f8793d6b244b551cf0f1	merged:306
 feature/299-artifact-selector	c924e701fccb479742481d473df6e4825ad5e509	merged:305
 feature/299-searchable-artifact-selector	6f18db8ae8cc79aa229c2fbe71b7dca6a7f132f3	merged:304
 feature/314-export-version-list	de376a8203eb4a72d8eb5c2668017666495256ab	merged:315
-feature/nexus-helm-http-profiles-497	f12dec3eae94800711e43f7b364c47d1d40dd14a	merged:499
 fix/120-bounded-package-key-reads-v2	cd3e80b36ef7d260091b5de4829547696ad73801	merged:129
 fix/146-offline-installer-hardening	0a43a98a4035870cbab98f72784c93de3368706b	merged:147
 fix/161-package-user-guide	dcccbcee833ea47596baf015edea3169db260880	merged:164
@@ -134,39 +133,23 @@ fix/dependency-lock-parity-pyjwt-215	cafffdf558844d56c7481c6f190f139bbaa859c8	me
 fix/docsify-routing-layout	bf861ffbe57bc336ddd1b2613dafaf48c5ba1286	merged:388
 fix/docsify-sidebar-rendering	5d6c65943edb139b9039629d290d604fb9773544	merged:393
 fix/export-completed-bundle-missing-recovery-20261111	d8096e5621f3d48f026d9818a664bb93d1db817f	merged:489
-fix/export-unexpected-artifact-attribution-422	1a3c6561e2103bbb7043bc522781118c9373bf7c	merged:462
 fix/export-worker-complete-failure-422	35aecdcfb5d95b2876a7be9acc614ebb3ac9de69	merged:475
 fix/export-worker-error-diagnostics-20261103	350557987ad67ebde2ac94dbeba0a93fa37f1202	merged:423
 fix/frontend-stale-build-identity	0430a7de41d6bf5dfc1e7ed6245fada68d343e5e	merged:347
 fix/harbor-nested-repository-encoding	86b862293c4a7e1754f32c705d5cf2a9791cfa48	merged:359
 fix/harbor-profile-activation-boundary	4923a90c92a7d696d184b368c680eea0c01ab17c	merged:368
 fix/harbor-profiles-crud-ux-20261103	809a9c227eff06e3781ae50ba58cc0eb15257bbe	merged:427
-fix/harbor-target-root-image-token-scope-468	e6150174875ea6f98f5dfe25f8dab2efc397d207	merged:468
 fix/helm-oci-security-followup	ce0093826972c0621aae6c98b485b0bf9762121a	merged:49
 fix/history-semantic-tokens	e89f3ff2c5663dbe0fe173173359cc84180aacca	merged:98
-fix/import-preview-nexus-root-image-mapping-469	18b678f1b144769f2e4db9af2294c27e718d2314	merged:469
 fix/import-restore-no-clobber-477	d3b481ad1a6b1839666cdb06eca93df69d04f568	merged:478
 fix/import-workspace-duplicate-form	531e0651afec90cbd51eb601f4767e0e476f0d6a	merged:345
-fix/nexus-catalog-search-pagination	f1cf4c48b759e34f4ce3cd1bace5ebd137f97241	merged:460
-fix/nexus-denied-push-failure-472	10b13a27e05d231e2da975c0c39e329b319c0ba6	merged:472
-fix/nexus-docker-canonical-image-path-467	fb887a33abbad600f2d9cfbb1ad3eb334ea09cda	merged:467
-fix/nexus-group-rest-scope-464	8ecf69874084aeb5fa8eedeebb3628a1d430ec5c	merged:464
-fix/nexus-helm-export-error-attribution-20261106	72d3031744e3d0ba9990caee51244528180b8c7a	merged:452
-fix/nexus-helm-hosted-target-gate-20261106	9eb6b8c2603d9fce5a4cd8f52bfb492b87837d93	merged:454
-fix/nexus-helm-target-identity-and-spec-20261106	ff15ca21a41e8ce92271f1f0bd3798fc6ba19dc4	merged:453
-fix/nexus-known-image-tag-retry-20261106	6ad40faffcbe6952f8a4768432e825b215a37af8	merged:459
 fix/nexus-profile-probe-main-20261111	7f4bb1525bd905085f4a8288d2f52bcc39169dd3	merged:491
-fix/nexus-proxy-direct-image-flow-20261106	6ab55c13b104b9b99d55e81ff1aad35acb5da3bf	merged:455
-fix/nexus-target-preflight-403-acl	3569015e5129815561c8349ebfe78b11525d262c	merged:474
-fix/nexus-target-write-permission-evidence-471	4735f4af7923f0f741d1b1f9818bab85008a798a	merged:471
 fix/online-install-reuse-cached-images	3d4f62e912eab7f327d19aba933af7a6bce3b6dc	merged:512
 fix/p3-3-harbor-url-secret-redaction	9768cdcc5174c32f6e2ad6445f7bc7aa1da9f3ce	merged:46
 fix/p4-4-queued-worker-recovery	1352a139d6286a3ed7f9d0650e8996140aa59cb9	merged:76
 fix/p6-2-2-incoming-archive-limit	586f2470b99d816986e2c75e0b0f0bbee4b56a27	merged:115
 fix/p6-2-3-atomic-key-commit	cb9f28b2bbe8ce73fca01d1eb84eb08210d3c02a	merged:119
 fix/p6-2-3-confirm-replace-hardening	11622a17453783e92e863c354fb980341d9f290f	merged:125
-fix/refresh-nexus-profile-after-edit-463	5bf170fa4ca3befb329969effb160af2e0c2b2eb	merged:463
-fix/regional-preflight-docker-search-parity	9070285d7b8033a5a7cf6e657610b7d2d2a62a2d	merged:461
 fix/restore-main-after-stale-retry-merge	18108f8a9149c70e09fe4aad6445b196a6e059ba	merged:215
 fix/retention-units-main-reconcile-20261113	013d04fe5e8e71cc70a5a483305ed47c1cfb0214	merged:502
 fix/review-2026-11-03-ci-nexus	ead3e175c7464f54397366e8d8b2379392619166	merged:415
@@ -176,7 +159,6 @@ fix/skopeo-network-diagnostics	f9a1fe3596d97040b3cb9ace907b9fd199e86f61	merged:4
 fix/skopeo-oci-reference	2e8d8f793a62a9276ead01703771def939466856	merged:245
 fix/windows-cmd-ostype-crlf	230ab979e47922b7f265ee8624e549b200a30e45	merged:509
 hardening/185-runtime-mode-lifecycle	a1cc792dde621c3412611f848076d869dcba1b79	merged:209
-integration/nexus-main-sync-resolved-20261110	43383e8ebad362e9bca39f5212123ed59066fac9	merged:480
 perf/177-harbor-browse-pagination	95d094ce0d2c046b13c8800743be3dba92426d81	merged:181
 refactor/169-shared-ed25519-fingerprint	63c4988ac63081dfd54d4842d38a2b36a6a4199c	merged:171
 refactor/170-frontend-presentation-helpers	81b99f025fe54a44c09681351d946fbbd80805ae	merged:172
