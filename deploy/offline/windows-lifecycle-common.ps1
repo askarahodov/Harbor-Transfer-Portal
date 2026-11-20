@@ -132,6 +132,7 @@ function Write-PortalAtomic([string]$Path, [string]$Text) {
     $hadDestination = Test-Path -LiteralPath $full
     $backup = $full + '.bak.' + [guid]::NewGuid().ToString('N')
     $replaced = $false
+    $createdDestination = $false
     try {
         [IO.File]::WriteAllText($temporary, '', ([Text.UTF8Encoding]::new($false)))
         Set-PortalPrivateFileAcl $temporary
@@ -141,6 +142,7 @@ function Write-PortalAtomic([string]$Path, [string]$Text) {
             $replaced = $true
         } else {
             [IO.File]::Move($temporary, $full)
+            $createdDestination = $true
         }
         Set-PortalPrivateFileAcl $full
         if ($replaced -and (Test-Path -LiteralPath $backup)) {
@@ -158,7 +160,7 @@ function Write-PortalAtomic([string]$Path, [string]$Text) {
             } catch {
                 throw "Atomic update failed and the previous file is preserved at '$backup': $($_.Exception.Message)"
             }
-        } elseif (-not $hadDestination -and (Test-Path -LiteralPath $full)) {
+        } elseif ($createdDestination -and (Test-Path -LiteralPath $full)) {
             Remove-Item -LiteralPath $full -Force
         }
         throw
