@@ -6,7 +6,7 @@ function Check([bool]$Condition,[string]$Message){if(-not $Condition){throw "Win
 function Run-Portal([string]$Kit,[string]$Action,[string[]]$Extra=@()){
  $script=Join-Path $Kit 'windows-lifecycle.ps1'
  $previous=$ErrorActionPreference;$ErrorActionPreference='Continue'
- try{& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -Action $Action @Extra;$code=$LASTEXITCODE}
+ try{$output=@(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -Action $Action @Extra 2>&1);$code=$LASTEXITCODE;foreach($line in $output){Write-Host $line}}
  finally{$ErrorActionPreference=$previous}
  return [int]$code
 }
