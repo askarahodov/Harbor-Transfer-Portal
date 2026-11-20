@@ -9,9 +9,78 @@ from __future__ import annotations
 import re
 import subprocess
 from collections.abc import Iterable
+from urllib.parse import urlsplit
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_SCP_REMOTE_RE = re.compile(r"^(?P<user>[^@]+)@(?P<host>[^:]+):(?P<path>.+)$")
+_INVALID_REF_CHARS = set(" ~^:?*[\\")
+
+
+def _valid_branch_name(name: str) -> bool:
+    if (
+        not name
+        or name == "@"
+        or name.startswith("/")
+        or name.endswith("/")
+        or name.endswith(".")
+        or "//" in name
+        or ".." in name
+        or "@{" in name
+        or any(ord(ch) < 32 or ord(ch) == 127 or ch in _INVALID_REF_CHARS for ch in name)
+    ):
+        return False
+    components = name.split("/")
+    return all(
+        component not in {"", ".", ".."}
+        and not component.startswith(".")
+        and not component.endswith(".")
+        and not component.endswith(".lock")
+        for component in components
+    )
+
+
+def _is_expected_github_remote(remote_url: str, repository_full_name: str) -> bool:
+    """Accept only the exact public GitHub repository over HTTPS or SSH."""
+    remote = remote_url.strip()
+    if not remote:
+        return False
+
+    if "://" in remote:
+        parsed = urlsplit(remote)
+        if parsed.scheme not in {"https", "ssh"}:
+            return False
+        if parsed.hostname is None or parsed.hostname.casefold() != "github.com":
+            return False
+        if parsed.query or parsed.fragment:
+            return False
+        try:
+            port = parsed.port
+        except ValueError:
+            return False
+        allowed_ports = {None, 443} if parsed.scheme == "https" else {None, 22}
+        if port not in allowed_ports:
+            return False
+        if parsed.scheme == "https" and (parsed.username or parsed.password):
+            return False
+        if parsed.scheme == "ssh" and (
+            parsed.username not in {None, "git"} or parsed.password
+        ):
+            return False
+        path = parsed.path.lstrip("/")
+    else:
+        match = _SCP_REMOTE_RE.fullmatch(remote)
+        if (
+            match is None
+            or match.group("user") != "git"
+            or match.group("host").casefold() != "github.com"
+        ):
+            return False
+        path = match.group("path")
+
+    if path.endswith(".git"):
+        path = path[:-4]
+    return path.casefold() == repository_full_name.casefold()
 
 
 def delete_refs(
@@ -35,14 +104,7 @@ def delete_refs(
 
     names: set[str] = set()
     for name, expected_sha in refs:
-        if (
-            not name
-            or name.startswith("/")
-            or name.endswith("/")
-            or ".." in name.split("/")
-            or any(ch.isspace() for ch in name)
-            or ":" in name
-        ):
+        if not _valid_branch_name(name):
             raise ValueError(f"invalid branch name: {name!r}")
         if name in names:
             raise ValueError(f"duplicate branch name: {name}")
@@ -65,8 +127,9 @@ def delete_refs(
         capture_output=True,
         check=False,
     )
-    remote_url = remote.stdout.strip().replace(":", "/")
-    if remote.returncode or f"github.com/{repository_full_name}" not in remote_url:
+    if remote.returncode or not _is_expected_github_remote(
+        remote.stdout, repository_full_name
+    ):
         raise RuntimeError("origin is not the expected GitHub repository")
 
     command = ["git", "push", "--atomic"]
