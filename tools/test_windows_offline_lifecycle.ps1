@@ -25,7 +25,7 @@ try{
  $docker='@echo off'+[Environment]::NewLine+'if /I "%~1"=="info" echo linux'+[Environment]::NewLine+'echo %*>>"%HTP_DOCKER_LOG%"'+[Environment]::NewLine+'exit /b 0'+[Environment]::NewLine
  [IO.File]::WriteAllText((Join-Path $bin 'docker.cmd'),$docker,[Text.Encoding]::ASCII)
  $env:PATH="$bin;$oldPath";$env:HTP_DOCKER_LOG=Join-Path $tmp 'docker.log';[IO.File]::WriteAllText($env:HTP_DOCKER_LOG,'')
- foreach($script in $scripts){
+ foreach($script in ($scripts | Where-Object { $_ -like '*.ps1' })){
   $tokens=$null;$errors=$null
   [Management.Automation.Language.Parser]::ParseFile((Join-Path $kit $script),[ref]$tokens,[ref]$errors)|Out-Null
   Check ($errors.Count -eq 0) "PowerShell parse errors in $script : $($errors -join '; ')"
