@@ -163,6 +163,18 @@ public class DockerStub {
     New-TestKit $kit2 '1.0.1'
     New-TestKit $kit3 '1.0.2'
 
+    # A tampered shared helper must be rejected before any PowerShell code from it executes.
+    $integrityKit = Join-Path $tmp 'kit-tampered-helper'
+    New-TestKit $integrityKit '1.0.3'
+    $helperMarker = Join-Path $tmp 'tampered-helper-executed.txt'
+    $helperPayload = "[IO.File]::WriteAllText('$helperMarker','executed')"
+    [IO.File]::AppendAllText((Join-Path $integrityKit 'windows-lifecycle-common.ps1'),[Environment]::NewLine + $helperPayload)
+    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG,'')
+    $tamperedHelperCode = Run-PortalScript $integrityKit 'start.ps1' @('-InstallDir',$integrityKit)
+    Check ($tamperedHelperCode -ne 0) 'Lifecycle entrypoint accepted a modified shared helper'
+    Check (-not (Test-Path -LiteralPath $helperMarker)) 'Modified shared helper executed before checksum rejection'
+    Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -eq '') 'Tampered helper reached Docker before checksum rejection'
+
     foreach ($script in (Get-ChildItem -LiteralPath $kit1 -Filter '*.ps1' -File)) {
         $tokens = $null; $errors = $null
         [Management.Automation.Language.Parser]::ParseFile($script.FullName,[ref]$tokens,[ref]$errors) | Out-Null
