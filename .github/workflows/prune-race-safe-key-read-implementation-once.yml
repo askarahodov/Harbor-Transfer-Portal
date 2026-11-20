@@ -1,0 +1,54 @@
+name: One-time cleanup of merged race-safe key-read implementation branch (#513)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/prune-race-safe-key-read-implementation-once.yml
+      - tools/prune_race_safe_key_read_implementation_once.py
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/prune-race-safe-key-read-implementation-once.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: issue-513-race-safe-key-read-implementation
+  cancel-in-progress: false
+
+jobs:
+  safe-prune:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify script syntax
+        run: python3 -m py_compile tools/prune_race_safe_key_read_implementation_once.py
+
+      - name: Preflight exact ref, merged security PR and current implementation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/prune_race_safe_key_read_implementation_once.py
+
+      - name: Delete only after approved merge into main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_PRUNE_ENABLE: issue-513-race-safe-key-read-implementation
+        run: python3 tools/prune_race_safe_key_read_implementation_once.py --apply
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          echo "Issue #513 — merged bounded-key-read implementation branch from PR #530" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            echo "PR dry-run only; no refs deleted." >> "$GITHUB_STEP_SUMMARY"
+          fi
