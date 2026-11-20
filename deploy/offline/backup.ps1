@@ -4,14 +4,16 @@ param([string]$InstallDir = $PSScriptRoot, [string]$BackupDir = '')
 $paused = $false
 $tmp = $null
 try {
-    $dir = [IO.Path]::GetFullPath($InstallDir)
+    $kit = Assert-PortalKit $InstallDir
+    $dir = $kit.Root
     $envPath = Join-Path $dir '.env'
     $envText = Read-PortalEnv $envPath
     $version = Read-PortalSetting $envText 'PORTAL_VERSION'
     $contour = Read-PortalSetting $envText 'PORTAL_CONTOUR'
     Assert-Portal ($version -match '^[A-Za-z0-9._-]+$') 'Invalid PORTAL_VERSION'
     Assert-Portal ($contour -in @('SOURCE','TARGET')) 'Invalid PORTAL_CONTOUR'
-    Assert-PortalDocker
+    Assert-Portal ((Read-PortalSetting $envText 'PORTAL_VERSION') -eq $kit.Version) 'Kit/.env version mismatch'
+    Assert-PortalDocker $kit.Architecture
     $image = "harbor-transfer-portal-backend:$version"
     Invoke-PortalDocker @('image','inspect',$image) | Out-Null
     $volume = 'harbor-transfer-portal_portal-data'

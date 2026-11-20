@@ -82,7 +82,7 @@ for script in install.sh backup.sh restore.sh upgrade.sh uninstall.sh; do
 done
 
 # Windows lifecycle scripts are part of the same checksummed, versioned kit.
-for script in install.ps1 install.cmd windows-lifecycle-common.ps1 backup.ps1 restore.ps1 upgrade.ps1 uninstall.ps1; do
+for script in install.ps1 install.cmd start.ps1 stop.ps1 windows-lifecycle-common.ps1 backup.ps1 restore.ps1 upgrade.ps1 uninstall.ps1; do
   cp "$ROOT/deploy/offline/$script" "$STAGE/$script"
 done
 cp "$ROOT/deploy/offline/README.md" "$STAGE/README.md"

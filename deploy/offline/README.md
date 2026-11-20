@@ -175,7 +175,8 @@ Offline release contract не основан только на документ�
 
 The release kit ships PowerShell 5.1+ wrappers alongside the Linux scripts. Use Docker Desktop in Linux-containers mode and Compose v2.
 
-- First install / same-version rerun: `install.cmd` (or `install.ps1`). It verifies every kit checksum before loading images; it never builds or pulls images.
+- First install / same-version rerun: `install.cmd` (or `install.ps1`).
+- Start with health wait: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\start.ps1`; stop without data removal: `.\\stop.ps1`. It verifies every kit checksum before loading images; it never builds or pulls images.
 - Backup: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\backup.ps1`. The ZIP contains `.env`, a persistent-volume snapshot, metadata and per-file hashes; the archive and sidecar are secret-bearing backup material.
 - Restore: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\restore.ps1 -BackupArchive <path.zip> -ConfirmRestore`. Restore requires the matching version kit and contour.
 - Upgrade: unpack the new version into a separate directory, then run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <new-kit>\\upgrade.ps1 -NewKitDir <new-kit> -InstallDir <current-kit>`. It creates a mandatory pre-upgrade backup, preserves the stable Docker project/volume identity, and attempts matching-kit rollback on failed startup. Keep both kits and the backup until post-upgrade acceptance.

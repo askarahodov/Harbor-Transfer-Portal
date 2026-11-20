@@ -40,7 +40,7 @@ function Assert-PortalDocker([string]$ExpectedArch = '') {
 }
 function Assert-PortalKit([string]$KitDir) {
     $root = [IO.Path]::GetFullPath($KitDir)
-    $required = @('release-version.txt','release-arch.txt','CHECKSUMS.sha256','compose.yaml','.env.example','images/backend.tar','images/frontend.tar','install.ps1','install.cmd','backup.ps1','restore.ps1','upgrade.ps1','uninstall.ps1','windows-lifecycle-common.ps1')
+    $required = @('release-version.txt','release-arch.txt','CHECKSUMS.sha256','compose.yaml','.env.example','images/backend.tar','images/frontend.tar','install.ps1','install.cmd','start.ps1','stop.ps1','backup.ps1','restore.ps1','upgrade.ps1','uninstall.ps1','windows-lifecycle-common.ps1')
     foreach ($file in $required) {
         Assert-Portal (Test-Path -LiteralPath (Join-Path $root $file) -PathType Leaf) "Missing kit file: $file"
     }
