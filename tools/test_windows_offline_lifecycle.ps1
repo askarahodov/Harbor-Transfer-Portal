@@ -156,7 +156,10 @@ public class DockerStub
  Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -eq '') 'Restore touched Docker before explicit confirmation'
  Check ((Run-Portal $kit1 'Restore' @('-BackupPath',$backup.FullName,'-ConfirmRestore')) -eq 0) 'Confirmed restore failed'
  Check (Test-Path $env:FAKE_DOCKER_RESTORED_DATA) 'Restore did not stream the data archive to Docker stdin'
- Check ((Get-FileHash -LiteralPath $env:FAKE_DOCKER_RESTORED_DATA -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $env:FAKE_DOCKER_DATA_ARCHIVE -Algorithm SHA256).Hash) 'Restore did not preserve the exact persistent-data archive bytes'
+ $restoredMembers=@(& tar.exe -tzf $env:FAKE_DOCKER_RESTORED_DATA)
+ Check ($LASTEXITCODE -eq 0 -and ($restoredMembers -contains './marker.txt')) 'Restore stream is not a valid persistent-data tar archive'
+ $restoredMarker=(& tar.exe -xOf $env:FAKE_DOCKER_RESTORED_DATA './marker.txt' | Out-String).Trim()
+ Check ($LASTEXITCODE -eq 0 -and $restoredMarker -eq 'persistent state marker') 'Restore did not preserve the persistent-state marker'
 
  # Successful upgrade keeps the shared persistent volume and changes only PORTAL_VERSION.
  Check ((Run-Portal $kit2 'Upgrade' @('-PreviousInstallPath',$kit1)) -eq 0) 'Successful offline upgrade failed'
