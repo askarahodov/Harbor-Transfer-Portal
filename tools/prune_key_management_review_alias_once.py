@@ -8,6 +8,8 @@ import subprocess
 import sys
 from urllib.parse import quote
 
+from atomic_ref_cleanup import delete_refs
+
 REPO = "askarahodov/Harbor-Transfer-Portal"
 OWN = "chore/513-prune-key-management-review-alias-once"
 ENABLE = "issue-513-key-management-review-alias"
@@ -135,7 +137,33 @@ def check_ref(name: str, expected_sha: str):
     if details.get("protected") or (details.get("commit") or {}).get("sha") != expected_sha:
         raise RuntimeError(f"Branch protected or HEAD changed: {name}")
 
+def read_ref_sha(name: str) -> str | None:
+    encoded = quote(name, safe="/")
+    try:
+        ref = github("GET", f"git/ref/heads/{encoded}")
+    except RuntimeError as error:
+        if "404" in str(error) or "Not Found" in str(error):
+            return None
+        raise
+    if ref.get("ref") != f"refs/heads/{name}":
+        raise RuntimeError(f"Unexpected ref response for {name}")
+    sha = (ref.get("object") or {}).get("sha")
+    if not sha:
+        raise RuntimeError(f"Ref has no object SHA: {name}")
+    return sha
+
+def target_already_absent() -> bool:
+    sha = read_ref_sha(TARGET["branch"])
+    if sha is None:
+        print("PASS: target ref is already absent; one-shot cleanup is a no-op")
+        return True
+    if sha != TARGET["sha"]:
+        raise RuntimeError("Target ref moved since audit")
+    return False
+
 def audit():
+    if target_already_absent():
+        return False
     main_ref = github("GET", "git/ref/heads/main")
     main_sha = (main_ref.get("object") or {}).get("sha")
     if not main_sha:
@@ -191,12 +219,18 @@ def audit():
         raise RuntimeError("Target branch has PR provenance; manual review required")
 
     check_ref(TARGET["branch"], TARGET["sha"])
+    own_sha = read_ref_sha(OWN)
+    if own_sha is None:
+        raise RuntimeError("Cleanup branch is missing before the compare-and-swap dry-run")
+    check_ref(OWN, own_sha)
+    print(delete_refs(REPO, [(TARGET["branch"], TARGET["sha"]), (OWN, own_sha)], dry_run=True))
     print(
         "PASS review/p6-2-3-key-management: no PR provenance; issues #23/#110/#118/#121 completed; "
         "PRs #117/#119/#125 merged; current main retains managed SOURCE/TARGET key API, "
         "atomic rotation/replacement, hardening tests, UI and full docs"
     )
     print("PASS: exact live SHA, 15-commit/14-path delta, current replacement SHAs; dry-run only")
+    return True
 
 def apply_guard():
     expected = {
@@ -237,20 +271,19 @@ def main():
     apply = args == ["--apply"]
     if apply:
         apply_guard()
-    audit()
+    should_delete = audit()
+    if not should_delete:
+        return 0
     if not apply:
         print("DRY RUN: no refs deleted")
         return 0
 
     own_sha = own_merged_pr()
-    check_ref(TARGET["branch"], TARGET["sha"])
-    check_ref(OWN, own_sha)
-    check_ref(TARGET["branch"], TARGET["sha"])
-    github("DELETE", f"git/refs/heads/{quote(TARGET['branch'], safe='/')}")
-    print(f"DELETED: {TARGET['branch']}")
-    check_ref(OWN, own_sha)
-    github("DELETE", f"git/refs/heads/{quote(OWN, safe='/')}")
-    print("DELETED: one-shot cleanup branch; all other refs untouched")
+    refs = [(TARGET["branch"], TARGET["sha"]), (OWN, own_sha)]
+    for name, expected_sha in refs:
+        check_ref(name, expected_sha)
+    print(delete_refs(REPO, refs, dry_run=False))
+    print("DELETED: exact target ref and cleanup ref via atomic compare-and-swap")
     return 0
 
 if __name__ == "__main__":
