@@ -18,7 +18,7 @@ try{
  Invoke-PortalDocker @('load','-i',(Join-Path $kit.Root 'images/backend.tar')) | Out-Null
  Invoke-PortalDocker @('load','-i',(Join-Path $kit.Root 'images/frontend.tar')) | Out-Null
  foreach($image in @("harbor-transfer-portal-backend:$v","harbor-transfer-portal-frontend:$v")){Invoke-PortalDocker @('image','inspect',$image)|Out-Null;$a=(Invoke-PortalDocker @('image','inspect','--format','{{.Architecture}}',$image) -Capture|Select-Object -First 1).Trim();if($a-in @('x86_64','x64')){$a='amd64'};if($a-eq'aarch64'){$a='arm64'};Assert-Portal ($a-eq$kit.Architecture) "Image architecture mismatch: $image"}
- $mount='type=bind,source='+$tmp+',target=/backup';$listing=Invoke-PortalDocker @('run','--rm','--pull','never','--network','none','--user','0:0','--entrypoint','tar','--mount',$mount,"harbor-transfer-portal-backend:$v",'-tzf','/backup/portal-data.tar.gz') -Capture
+ $mount='type=bind,source='+$tmp+',target=/backup,readonly';$listing=Invoke-PortalDocker @('run','--rm','--pull','never','--network','none','--user','0:0','--entrypoint','tar','--mount',$mount,"harbor-transfer-portal-backend:$v",'-tzf','/backup/portal-data.tar.gz') -Capture
  foreach($entry in $listing){$m=$entry.Trim();Assert-Portal (-not [IO.Path]::IsPathRooted($m) -and -not ($m -match '(^|[\\/])\.\.([\\/]|$)')) "Unsafe data archive path: $m"}
  $types=Invoke-PortalDocker @('run','--rm','--pull','never','--network','none','--user','0:0','--entrypoint','tar','--mount',$mount,"harbor-transfer-portal-backend:$v",'-tvzf','/backup/portal-data.tar.gz') -Capture
  foreach($line in $types){$kind=$line.Trim().Substring(0,1);Assert-Portal ($kind -in @('-','d')) 'Backup data archive contains a link or special file'}
