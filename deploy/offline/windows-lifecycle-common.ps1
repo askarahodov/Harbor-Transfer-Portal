@@ -129,13 +129,39 @@ function Write-PortalAtomic([string]$Path, [string]$Text) {
     $parent = Split-Path -Parent $full
     Assert-PortalNoReparsePath $parent -MustExist | Out-Null
     $temporary = $full + '.tmp.' + [guid]::NewGuid().ToString('N')
+    $hadDestination = Test-Path -LiteralPath $full
+    $backup = $full + '.bak.' + [guid]::NewGuid().ToString('N')
+    $replaced = $false
     try {
         [IO.File]::WriteAllText($temporary, '', ([Text.UTF8Encoding]::new($false)))
         Set-PortalPrivateFileAcl $temporary
         [IO.File]::WriteAllText($temporary, $Text, ([Text.UTF8Encoding]::new($false)))
-        if (Test-Path -LiteralPath $full) { [IO.File]::Replace($temporary, $full, $null) }
-        else { [IO.File]::Move($temporary, $full) }
+        if ($hadDestination) {
+            [IO.File]::Replace($temporary, $full, $backup)
+            $replaced = $true
+        } else {
+            [IO.File]::Move($temporary, $full)
+        }
         Set-PortalPrivateFileAcl $full
+        if ($replaced -and (Test-Path -LiteralPath $backup)) {
+            Set-PortalPrivateFileAcl $backup
+            Remove-Item -LiteralPath $backup -Force
+            $replaced = $false
+        }
+    } catch {
+        if ($replaced -and (Test-Path -LiteralPath $backup)) {
+            try {
+                if (Test-Path -LiteralPath $full) { Remove-Item -LiteralPath $full -Force }
+                [IO.File]::Move($backup, $full)
+                Set-PortalPrivateFileAcl $full
+                $replaced = $false
+            } catch {
+                throw "Atomic update failed and the previous file is preserved at '$backup': $($_.Exception.Message)"
+            }
+        } elseif (-not $hadDestination -and (Test-Path -LiteralPath $full)) {
+            Remove-Item -LiteralPath $full -Force
+        }
+        throw
     } finally {
         if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
     }
