@@ -1060,9 +1060,14 @@ class BundlePackageService:
     def _load_signing_private_key(self) -> Ed25519PrivateKey:
         path = self.settings.bundle_signing_private_key_file.absolute()
         self._validate_private_key_file(path)
+        material = self._read_key_material(
+            path,
+            error_code="bundle_signing_key_invalid",
+            error_message="SOURCE signing private key не читается как PEM Ed25519 key",
+        )
         try:
-            key = serialization.load_pem_private_key(path.read_bytes(), password=None)
-        except (OSError, ValueError, TypeError) as exc:
+            key = serialization.load_pem_private_key(material, password=None)
+        except (ValueError, TypeError) as exc:
             raise BundlePackageError(
                 "bundle_signing_key_invalid",
                 "SOURCE signing private key не читается как PEM Ed25519 key",
@@ -1090,9 +1095,14 @@ class BundlePackageService:
         keys: list[Ed25519PublicKey] = []
         for path in key_files:
             self._validate_trusted_key_file(path)
+            material = self._read_key_material(
+                path,
+                error_code="bundle_trusted_key_invalid",
+                error_message=f"Trusted public key некорректен: {path.name}",
+            )
             try:
-                key = serialization.load_pem_public_key(path.read_bytes())
-            except (OSError, ValueError, TypeError) as exc:
+                key = serialization.load_pem_public_key(material)
+            except (ValueError, TypeError) as exc:
                 raise BundlePackageError(
                     "bundle_trusted_key_invalid",
                     f"Trusted public key некорректен: {path.name}",
@@ -1104,6 +1114,23 @@ class BundlePackageService:
                 )
             keys.append(key)
         return tuple(keys)
+
+    def _read_key_material(
+        self,
+        path: Path,
+        *,
+        error_code: str,
+        error_message: str,
+    ) -> bytes:
+        limit = self.settings.bundle_key_material_max_bytes
+        try:
+            with path.open("rb") as stream:
+                material = stream.read(limit + 1)
+        except OSError as exc:
+            raise BundlePackageError(error_code, error_message) from exc
+        if len(material) > limit:
+            raise BundlePackageError(error_code, error_message)
+        return material
 
     def _validate_private_key_file(self, path: Path) -> None:
         try:
