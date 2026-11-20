@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1 - Windows offline lifecycle acceptance candidate (not released)
+
+### Added
+- Windows PowerShell 5.1+ lifecycle wrappers for managing the Linux-container offline runtime from Windows 10/11 with Docker Desktop.
+- Checksummed Windows install, start, stop, backup, restore, upgrade and uninstall entrypoints in the versioned offline kit.
+
+### Validation status
+- This version is a test-only candidate used to exercise the 1.0.0 to 1.0.1 upgrade path.
+- It is not a published or production-approved release; do not deploy or tag it as a production release.
+
 All notable user-facing changes to Harbor Transfer Portal are documented here.
 The project follows Semantic Versioning for product releases.
 
