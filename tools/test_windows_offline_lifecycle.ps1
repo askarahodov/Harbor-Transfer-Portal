@@ -306,7 +306,9 @@ public class DockerStub {
     $restoreRunLines = @($restoreLog -split '\r?\n' | Where-Object { $_ -match '^run ' })
     Check ($restoreRunLines.Count -ge 5) 'Restore did not run all isolated helper operations'
     Check (@($restoreRunLines | Where-Object { $_ -notmatch '--user 0:0' }).Count -eq 0) 'Restore helper containers must use root for volume ownership and restricted bind-mount access'
-    Check (@($restoreRunLines | Where-Object { $_ -notmatch 'target=/backup,readonly' }).Count -eq 0) 'Restore helper containers must mount backup material read-only'
+    $archiveReadLines = @($restoreRunLines | Where-Object { $_ -match ' -tzf | -tvzf | -xzf ' })
+    Check ($archiveReadLines.Count -eq 3) 'Restore did not validate and extract the archive through three read-only operations'
+    Check (@($archiveReadLines | Where-Object { $_ -notmatch 'target=/backup,readonly' }).Count -eq 0) 'Restore helper containers must mount backup material read-only'
 
     $oldEnvBeforeUpgrade = [IO.File]::ReadAllText((Join-Path $kit1 '.env'))
     $upgradeCode = Run-PortalScript $kit2 'upgrade.ps1' @('-NewKitDir',$kit2,'-InstallDir',$kit1)
