@@ -107,6 +107,18 @@ exit /b 0
     Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'load -i')) 'Mismatched release loaded images'
     [IO.File]::WriteAllText($envPath, $initial)
 
+    foreach ($duplicate in @(
+        "PORTAL_VERSION=0.9.0",
+        "PORTAL_CONTOUR=SOURCE"
+    )) {
+        [IO.File]::WriteAllText($envPath, $initial + [Environment]::NewLine + $duplicate + [Environment]::NewLine)
+        [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
+        $failureCode = Expect-InstallerFailure (Join-Path $kit 'install.ps1')
+        Check ($failureCode -ne 0) "Duplicate critical setting was accepted: $duplicate"
+        Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'load -i|compose .*up')) 'Duplicate .env setting reached image load or startup'
+    }
+    [IO.File]::WriteAllText($envPath, $initial)
+
     $env:FAKE_DOCKER_OS = 'windows'
     [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
     $failureCode = Expect-InstallerFailure (Join-Path $kit 'install.ps1')
