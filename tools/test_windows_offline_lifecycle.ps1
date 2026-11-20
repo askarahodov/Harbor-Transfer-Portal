@@ -298,6 +298,7 @@ public class DockerStub {
     Remove-Item Env:FAKE_DOCKER_TAR_MEMBER -ErrorAction SilentlyContinue
     Remove-Item Env:FAKE_DOCKER_TAR_TYPE -ErrorAction SilentlyContinue
 
+    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG,'')
     $restoreCode = Run-PortalScript $kit1 'restore.ps1' @('-InstallDir',$kit1,'-BackupArchive',$backupArchive.FullName,'-ConfirmRestore')
     Check ($restoreCode -eq 0) 'Confirmed matching-version restore failed'
     Check (Test-Path -LiteralPath $env:FAKE_DOCKER_RESTORED_DATA) 'Restore did not extract persistent data'
