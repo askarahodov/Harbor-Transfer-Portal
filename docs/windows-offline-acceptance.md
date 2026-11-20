@@ -57,7 +57,50 @@ Expected: both installs complete without build/pull, the .env hash is unchanged 
     $backupDir = Join-Path $env:TEMP 'htp-windows-acceptance-backups'
     New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
     $backupOutput = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\backup.ps1 -BackupDir $backupDir
-    $backup = [string]($backupOutput | Where-Object { $_ -is [string] -and $_.Trim() -match '\.zip$' } | Select-Object -Last 1)
+    $backup = $backupOutput | Where-Object { $_ -is [string] -and $_.Trim() -match '\.zip
+    if (-not (Test-Path "$backup.sha256")) { throw 'Backup sidecar missing' }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\restore.ps1 -BackupArchive $backup -ConfirmRestore
+    if ($LASTEXITCODE -ne 0) { throw 'Matching-version restore failed' }
+    Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8080/api/health
+
+Expected: the backup ZIP and sidecar exist, restore requires explicit confirmation, the matching kit restores the volume and .env, and health returns successfully. Treat the ZIP and .env as secret-bearing; never attach them to CI artifacts or issue comments.
+
+## 5. Uninstall preservation and final cleanup
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1
+    docker volume inspect harbor-transfer-portal_portal-data
+    if (-not (Test-Path .\.env)) { throw '.env was not preserved by default uninstall' }
+    .\start.ps1
+    .\uninstall.ps1 -PurgeData -ConfirmPurge DELETE_PORTAL_DATA
+
+Expected: default uninstall leaves the volume and .env intact and the kit can start again. The final purge is destructive and is allowed only on this disposable host after the backup has been verified.
+
+## 6. Upgrade acceptance
+
+Upgrade requires a second, strictly newer stable-version kit of the same architecture (for example 1.0.0 to 1.1.0). Do not manufacture a version by editing release-version.txt; the image labels and checksums must match the real candidate release.
+
+On a disposable host with the previous kit installed, unpack the newer kit side-by-side and run from the newer directory:
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\upgrade.ps1 -NewKitDir $newKitDir -InstallDir $oldKitDir
+
+Record the pre-upgrade backup path and verify the following:
+- old workload is paused immediately after the backup snapshot;
+- the new version starts and passes Compose health before the upgrade reports UPGRADE_OK;
+- .env settings other than PORTAL_VERSION and persistent runtime state survive.
+
+A separate negative run must use an intentionally unhealthy but correctly versioned candidate image/kit. Confirm the upgrade exits non-zero, reports ROLLBACK_OK, restores the matching previous-version backup and returns the old Portal to healthy state. If it reports ROLLBACK_FAILED, preserve both kits and the backup and stop; do not attempt another startup against the volume.
+
+## 7. Evidence to retain
+
+Attach only non-secret evidence to the PR/issue:
+- Windows edition/build, PowerShell version, Docker Desktop/Engine and Compose versions;
+- tested commit SHA, kit version, architecture, outer archive SHA-256;
+- command transcript with secret values redacted;
+- docker compose ps and health-check output before/after restart and restore;
+- .env hash before/after rerun (never .env contents);
+- confirmation that default uninstall preserved the volume and explicit purge removed it.
+
+Never attach .env, backup ZIPs, private keys, Harbor credentials, or full environment dumps. } | Select-Object -Last 1
     if (-not (Test-Path "$backup.sha256")) { throw 'Backup sidecar missing' }
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\restore.ps1 -BackupArchive $backup -ConfirmRestore
     if ($LASTEXITCODE -ne 0) { throw 'Matching-version restore failed' }
