@@ -84,6 +84,13 @@ class CiScopeTest(TestCase):
             Scope(frontend=True),
         )
 
+    def test_canonical_product_version_change_runs_release_qualification(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["backend/app/__init__.py"], root=root),
+            Scope(backend=True, integration=True),
+        )
+
     def test_runtime_dependency_graph_runs_security_and_transfer_integration(self):
         root = self._root()
         for path in (
