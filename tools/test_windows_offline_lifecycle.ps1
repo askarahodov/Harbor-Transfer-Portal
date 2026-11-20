@@ -22,7 +22,7 @@ try{
  }
  [IO.File]::WriteAllLines((Join-Path $kit 'CHECKSUMS.sha256'),$manifest,[Text.UTF8Encoding]::new($false))
  [IO.File]::WriteAllText((Join-Path $kit '.env'),("PORTAL_VERSION=1.0.0"+[Environment]::NewLine+"PORTAL_CONTOUR=SOURCE"+[Environment]::NewLine))
- $docker='@echo off'+[Environment]::NewLine+'if /I "%~1"=="info" echo linux'+[Environment]::NewLine+'echo %*>>"%HTP_DOCKER_LOG%"'+[Environment]::NewLine+'exit /b 0'+[Environment]::NewLine
+ $docker='@echo off'+[Environment]::NewLine+'if /I "%~1"=="info" if "%~3"=="{{.OSType}}" echo linux'+[Environment]::NewLine+'if /I "%~1"=="info" if "%~3"=="{{.Architecture}}" echo x86_64'+[Environment]::NewLine+'echo %*>>"%HTP_DOCKER_LOG%"'+[Environment]::NewLine+'exit /b 0'+[Environment]::NewLine
  [IO.File]::WriteAllText((Join-Path $bin 'docker.cmd'),$docker,[Text.Encoding]::ASCII)
  $env:PATH="$bin;$oldPath";$env:HTP_DOCKER_LOG=Join-Path $tmp 'docker.log';[IO.File]::WriteAllText($env:HTP_DOCKER_LOG,'')
  foreach($script in ($scripts | Where-Object { $_ -like '*.ps1' })){
@@ -47,9 +47,11 @@ try{
  $backup=[IO.File]::ReadAllText((Join-Path $kit 'backup.ps1'))
  Check ($backup.Contains("'pause'") -and $backup.Contains("'unpause'")) 'Backup does not pause/unpause services'
  Check ($backup.Contains("'--pull','never'") -and $backup.Contains("'--network','none'")) 'Backup is not offline-only'
+ Check ($backup.Contains('Backend image architecture mismatch')) 'Backup does not verify local image architecture'
  $restore=[IO.File]::ReadAllText((Join-Path $kit 'restore.ps1'))
  Check ($restore.Contains('$ConfirmRestore') -and $restore.Contains('matching kit version')) 'Restore lacks confirmation/version pin'
  Check ($restore.Contains('CHECKSUMS.sha256') -and $restore.Contains('portal-data.tar.gz')) 'Restore lacks checksum/data validation'
+ Check ($restore.Contains("images/backend.tar") -and $restore.Contains("images/frontend.tar")) 'Restore does not reload matching offline images'
  $upgrade=[IO.File]::ReadAllText((Join-Path $kit 'upgrade.ps1'))
  Check ($upgrade.Contains('backup.ps1') -and $upgrade.Contains('restore.ps1') -and $upgrade.Contains('ROLLBACK_OK')) 'Upgrade lacks backup/rollback workflow'
  $common=[IO.File]::ReadAllText((Join-Path $kit 'windows-lifecycle-common.ps1'))

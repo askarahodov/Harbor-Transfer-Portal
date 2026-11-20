@@ -16,6 +16,10 @@ try {
     Assert-PortalDocker $kit.Architecture
     $image = "harbor-transfer-portal-backend:$version"
     Invoke-PortalDocker @('image','inspect',$image) | Out-Null
+    $imageArch = (Invoke-PortalDocker @('image','inspect','--format','{{.Architecture}}',$image) -Capture | Select-Object -First 1).Trim()
+    if ($imageArch -in @('x86_64','x64')) { $imageArch = 'amd64' }
+    if ($imageArch -eq 'aarch64') { $imageArch = 'arm64' }
+    Assert-Portal ($imageArch -eq $kit.Architecture) 'Backend image architecture mismatch'
     $volume = 'harbor-transfer-portal_portal-data'
     Invoke-PortalDocker @('volume','inspect',$volume) | Out-Null
     if (-not $BackupDir) { $BackupDir = Join-Path $dir 'backups' }
@@ -52,7 +56,7 @@ try {
 } finally {
     if ($paused) {
         try { Invoke-PortalDocker ((Get-PortalComposeArgs $dir $envPath) + @('unpause')) | Out-Null }
-        catch { [Console]::Error.WriteLine('CRITICAL: failed to unpause Portal after backup') }
+        catch { [Console]::Error.WriteLine('CRITICAL: failed to unpause Portal after backup'); throw 'Backup failed because Portal could not be unpaused' }
     }
     if ($tmp -and (Test-Path -LiteralPath $tmp)) { Remove-Item -LiteralPath $tmp -Recurse -Force }
 }
