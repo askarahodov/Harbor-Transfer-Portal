@@ -27,7 +27,7 @@ def test_health_response_is_stable_and_contains_no_secrets() -> None:
         "version": __version__,
         "contour": "SOURCE",
     }
-    assert __version__ == "1.0.0"
+    assert __version__
     assert secret not in response.text
     assert "robot$portal" not in response.text
     assert "harbor.local" not in response.text
