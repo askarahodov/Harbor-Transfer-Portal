@@ -40,14 +40,42 @@ def _settings(tmp_path: Path, contour: PortalContour) -> Settings:
 
 
 def _forbid_key_read(monkeypatch: pytest.MonkeyPatch, blocked: Path) -> None:
-    original = Path.read_bytes
+    original = Path.open
 
-    def guarded_read(path: Path) -> bytes:
+    def guarded_open(path: Path, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
         if path == blocked:
-            raise AssertionError("oversized key material must be rejected before read_bytes()")
-        return original(path)
+            pytest.fail("oversized key material must be rejected before open()")
+        return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_bytes", guarded_read)
+    monkeypatch.setattr(Path, "open", guarded_open)
+
+
+def _grow_key_after_metadata_check(
+    monkeypatch: pytest.MonkeyPatch,
+    target: Path,
+    extra: bytes,
+) -> None:
+    """Grow the same inode after the hardened reader validates fstat/lstat.
+
+    This tests the descriptor-based reader, not the old Path.open implementation.
+    """
+    original_fdopen = os.fdopen
+    grown = False
+
+    def growing_fdopen(fd: int, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        nonlocal grown
+        info = os.fstat(fd)
+        target_info = target.stat()
+        if not grown and (info.st_dev, info.st_ino) == (
+            target_info.st_dev,
+            target_info.st_ino,
+        ):
+            with target.open("ab") as stream:
+                stream.write(extra)
+            grown = True
+        return original_fdopen(fd, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "fdopen", growing_fdopen)
 
 
 def test_oversized_signing_key_is_rejected_before_read_bytes(
@@ -78,6 +106,50 @@ def test_oversized_trusted_key_is_rejected_before_read_bytes(
     path = next(settings.bundle_trusted_public_keys_dir.glob("*.pem")).absolute()
     path.write_bytes(b"x" * 65)
     _forbid_key_read(monkeypatch, path)
+
+    with pytest.raises(BundlePackageError) as exc_info:
+        BundlePackageService(settings)._load_trusted_public_keys()
+
+    assert exc_info.value.code == "bundle_trusted_key_invalid"
+
+
+def test_signing_key_growth_after_stat_is_rejected_by_bounded_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limit = 256
+    settings = _settings(tmp_path, PortalContour.SOURCE).model_copy(
+        update={"bundle_key_material_max_bytes": limit}
+    )
+    path = settings.bundle_signing_private_key_file.absolute()
+    assert path.stat().st_size <= limit
+    _grow_key_after_metadata_check(
+        monkeypatch,
+        path,
+        b"x" * (limit + 1),
+    )
+
+    with pytest.raises(BundlePackageError) as exc_info:
+        BundlePackageService(settings)._load_signing_private_key()
+
+    assert exc_info.value.code == "bundle_signing_key_invalid"
+
+
+def test_trusted_key_growth_after_stat_is_rejected_by_bounded_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limit = 256
+    settings = _settings(tmp_path, PortalContour.TARGET).model_copy(
+        update={"bundle_key_material_max_bytes": limit}
+    )
+    path = next(settings.bundle_trusted_public_keys_dir.glob("*.pem")).absolute()
+    assert path.stat().st_size <= limit
+    _grow_key_after_metadata_check(
+        monkeypatch,
+        path,
+        b"x" * (limit + 1),
+    )
 
     with pytest.raises(BundlePackageError) as exc_info:
         BundlePackageService(settings)._load_trusted_public_keys()
