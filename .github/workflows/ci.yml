@@ -217,7 +217,7 @@ jobs:
   integration:
     name: Integration — интеграционные тесты
     needs: [scope, backend, frontend]
-    if: ${{ always() && needs.scope.outputs.integration == 'true' && needs.backend.result == 'success' && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') }}
+    if: ${{ always() && needs.scope.outputs.integration == 'true' && (needs.backend.result == 'success' || needs.backend.result == 'skipped') && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -239,6 +239,12 @@ jobs:
 
       - name: Интеграционные тесты
         run: make test-registry-integration
+
+      - name: Clean-host offline kit qualification (SOURCE and TARGET)
+        run: sh deploy/qualify-clean-offline-install.sh
+
+      - name: Isolated SOURCE to physical bundle to TARGET acceptance
+        run: sh deploy/qualify-isolated-transfer.sh
 
   compose:
     name: Compose — проверка docker-compose
