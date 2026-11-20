@@ -64,7 +64,7 @@ function Read-PortalEnv([string]$Path) {
     $version = Read-PortalSetting $text 'PORTAL_VERSION'
     $contour = Read-PortalSetting $text 'PORTAL_CONTOUR'
     Assert-Portal (-not [string]::IsNullOrWhiteSpace($version)) 'Missing PORTAL_VERSION in .env'
-    Assert-Portal ($contour -in @('SOURCE','TARGET')) 'PORTAL_CONTOUR must occur exactly once and be SOURCE or TARGET'
+    Assert-Portal ($contour -cin @('SOURCE','TARGET')) 'PORTAL_CONTOUR must occur exactly once and be SOURCE or TARGET'
     return $text
 }
 function Invoke-PortalDocker([string[]]$DockerArgs, [switch]$Capture) {
