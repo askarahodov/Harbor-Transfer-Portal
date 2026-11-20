@@ -54,6 +54,7 @@ try{
  Check ($restore.Contains("images/backend.tar") -and $restore.Contains("images/frontend.tar")) 'Restore does not reload matching offline images'
  $upgrade=[IO.File]::ReadAllText((Join-Path $kit 'upgrade.ps1'))
  Check ($upgrade.Contains('backup.ps1') -and $upgrade.Contains('restore.ps1') -and $upgrade.Contains('ROLLBACK_OK')) 'Upgrade lacks backup/rollback workflow'
+ Check ($upgrade.Contains('Downgrade or non-increasing version change is not supported')) 'Upgrade must reject downgrade/non-increasing versions'
  $common=[IO.File]::ReadAllText((Join-Path $kit 'windows-lifecycle-common.ps1'))
  Check ($common.Contains('CHECKSUMS.sha256') -and $common.Contains('ReparsePoint')) 'Kit verification lacks checksum/path safety'
  $start=[IO.File]::ReadAllText((Join-Path $kit 'start.ps1'))
