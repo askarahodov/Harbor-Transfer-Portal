@@ -50,6 +50,7 @@ try{
  Check ($backup.Contains('Backend image architecture mismatch')) 'Backup does not verify local image architecture'
  $restore=[IO.File]::ReadAllText((Join-Path $kit 'restore.ps1'))
  Check ($restore.Contains('$ConfirmRestore') -and $restore.Contains('matching kit version')) 'Restore lacks confirmation/version pin'
+ Check ($restore.Contains('Backup archive must not be a reparse point') -and $restore.Contains('Backup sidecar must not be a reparse point')) 'Restore must reject symlinked backup inputs'
  Check ($restore.Contains('CHECKSUMS.sha256') -and $restore.Contains('portal-data.tar.gz')) 'Restore lacks checksum/data validation'
  Check ($restore.Contains("images/backend.tar") -and $restore.Contains("images/frontend.tar")) 'Restore does not reload matching offline images'
  $upgrade=[IO.File]::ReadAllText((Join-Path $kit 'upgrade.ps1'))

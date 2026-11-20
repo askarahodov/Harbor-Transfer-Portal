@@ -1,7 +1,8 @@
 [CmdletBinding()]
-param([string]$InstallDir = $PSScriptRoot, [string]$BackupDir = '')
+param([string]$InstallDir = $PSScriptRoot, [string]$BackupDir = '', [switch]$KeepPaused)
 . (Join-Path $PSScriptRoot 'windows-lifecycle-common.ps1')
 $paused = $false
+$backupCompleted = $false
 $tmp = $null
 try {
     $kit = Assert-PortalKit $InstallDir
@@ -49,14 +50,19 @@ try {
     $outerHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText("$archive.sha256","$outerHash  $([IO.Path]::GetFileName($archive))",[Text.UTF8Encoding]::new($false))
     Write-Host "Backup created; it contains secrets and must be protected: $archive"
+    $backupCompleted = $true
     Write-Output $archive
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)
     exit 1
 } finally {
     if ($paused) {
-        try { Invoke-PortalDocker ((Get-PortalComposeArgs $dir $envPath) + @('unpause')) | Out-Null }
-        catch { [Console]::Error.WriteLine('CRITICAL: failed to unpause Portal after backup'); throw 'Backup failed because Portal could not be unpaused' }
+        if ($KeepPaused -and $backupCompleted) {
+            Write-Host 'Portal remains paused for the caller to complete the offline upgrade transaction.'
+        } else {
+            try { Invoke-PortalDocker ((Get-PortalComposeArgs $dir $envPath) + @('unpause')) | Out-Null }
+            catch { [Console]::Error.WriteLine('CRITICAL: failed to unpause Portal after backup'); throw 'Backup failed because Portal could not be unpaused' }
+        }
     }
     if ($tmp -and (Test-Path -LiteralPath $tmp)) { Remove-Item -LiteralPath $tmp -Recurse -Force }
 }

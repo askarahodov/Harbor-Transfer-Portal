@@ -166,6 +166,7 @@ for required in \
   docs/release-notes-v1.0.0.md \
   docs/user-guide.md \
   docs/browser-transport.md \
+  docs/windows-offline-acceptance.md \
   images/backend.tar \
   images/frontend.tar; do
   [ -f "$KIT/$required" ] || fail "missing release payload file: $required"
