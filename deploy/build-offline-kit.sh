@@ -80,6 +80,11 @@ for script in install.sh backup.sh restore.sh upgrade.sh uninstall.sh; do
   cp "$ROOT/deploy/offline/$script" "$STAGE/$script"
   chmod 0755 "$STAGE/$script"
 done
+
+# Windows lifecycle scripts are part of the same checksummed, versioned kit.
+for script in install.ps1 install.cmd windows-lifecycle-common.ps1 backup.ps1 restore.ps1 upgrade.ps1 uninstall.ps1; do
+  cp "$ROOT/deploy/offline/$script" "$STAGE/$script"
+done
 cp "$ROOT/deploy/offline/README.md" "$STAGE/README.md"
 cp "$ROOT/.env.example" "$STAGE/.env.example"
 cp "$ROOT/CHANGELOG.md" "$STAGE/CHANGELOG.md"

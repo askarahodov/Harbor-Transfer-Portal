@@ -1,0 +1,49 @@
+Set-StrictMode -Version Latest
+$ErrorActionPreference='Stop'
+function Check([bool]$Ok,[string]$Message){if(-not$Ok){throw "Windows lifecycle test failed: $Message"}}
+$root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$tmp=Join-Path ([IO.Path]::GetTempPath()) ('htp-win-lifecycle-'+[guid]::NewGuid().ToString('N'))
+$kit=Join-Path $tmp 'kit';$bin=Join-Path $tmp 'bin';New-Item -ItemType Directory -Path $kit,$bin|Out-Null
+$oldPath=$env:PATH;$oldLog=$env:HTP_DOCKER_LOG
+try{
+ $scripts=@('windows-lifecycle-common.ps1','backup.ps1','restore.ps1','upgrade.ps1','uninstall.ps1')
+ foreach($f in $scripts){Copy-Item (Join-Path $root ('deploy/offline/'+$f)) (Join-Path $kit $f)}
+ [IO.File]::WriteAllText((Join-Path $kit '.env'),("PORTAL_VERSION=1.0.0"+[Environment]::NewLine+"PORTAL_CONTOUR=SOURCE"+[Environment]::NewLine))
+ $docker='@echo off'+[Environment]::NewLine+'if /I "%~1"=="info" echo linux'+[Environment]::NewLine+'echo %*>>"%HTP_DOCKER_LOG%"'+[Environment]::NewLine+'exit /b 0'+[Environment]::NewLine
+ [IO.File]::WriteAllText((Join-Path $bin 'docker.cmd'),$docker,[Text.Encoding]::ASCII)
+ $env:PATH="$bin;$oldPath";$env:HTP_DOCKER_LOG=Join-Path $tmp 'docker.log';[IO.File]::WriteAllText($env:HTP_DOCKER_LOG,'')
+ foreach($script in $scripts){
+  $tokens=$null;$errors=$null
+  [Management.Automation.Language.Parser]::ParseFile((Join-Path $kit $script),[ref]$tokens,[ref]$errors)|Out-Null
+  Check ($errors.Count -eq 0) "PowerShell parse errors in $script : $($errors -join '; ')"
+ }
+ & (Join-Path $kit 'uninstall.ps1') -InstallDir $kit
+ Check ($LASTEXITCODE -eq 0) 'Non-destructive uninstall failed'
+ $log=[IO.File]::ReadAllText($env:HTP_DOCKER_LOG)
+ Check ($log -match 'down --remove-orphans') 'Uninstall did not stop Compose project'
+ Check (-not($log -match '--volumes')) 'Default uninstall attempted to delete persistent data'
+ [IO.File]::WriteAllText($env:HTP_DOCKER_LOG,'')
+ & (Join-Path $kit 'uninstall.ps1') -InstallDir $kit -PurgeData
+ Check ($LASTEXITCODE -ne 0) 'Purge without confirmation unexpectedly succeeded'
+ Check (-not([IO.File]::ReadAllText($env:HTP_DOCKER_LOG)-match 'down')) 'Unconfirmed purge reached Docker mutation'
+ [IO.File]::WriteAllText($env:HTP_DOCKER_LOG,'')
+ & (Join-Path $kit 'uninstall.ps1') -InstallDir $kit -PurgeData -ConfirmPurge DELETE_PORTAL_DATA
+ Check ($LASTEXITCODE -eq 0) 'Confirmed purge failed'
+ Check ([IO.File]::ReadAllText($env:HTP_DOCKER_LOG)-match 'down --remove-orphans --volumes') 'Confirmed purge did not remove volume'
+ $backup=[IO.File]::ReadAllText((Join-Path $kit 'backup.ps1'))
+ Check ($backup.Contains("'pause'") -and $backup.Contains("'unpause'")) 'Backup does not pause/unpause services'
+ Check ($backup.Contains("'--pull','never'") -and $backup.Contains("'--network','none'")) 'Backup is not offline-only'
+ $restore=[IO.File]::ReadAllText((Join-Path $kit 'restore.ps1'))
+ Check ($restore.Contains('$ConfirmRestore') -and $restore.Contains('matching kit version')) 'Restore lacks confirmation/version pin'
+ Check ($restore.Contains('CHECKSUMS.sha256') -and $restore.Contains('portal-data.tar.gz')) 'Restore lacks checksum/data validation'
+ $upgrade=[IO.File]::ReadAllText((Join-Path $kit 'upgrade.ps1'))
+ Check ($upgrade.Contains('backup.ps1') -and $upgrade.Contains('restore.ps1') -and $upgrade.Contains('ROLLBACK_OK')) 'Upgrade lacks backup/rollback workflow'
+ $common=[IO.File]::ReadAllText((Join-Path $kit 'windows-lifecycle-common.ps1'))
+ Check ($common.Contains('CHECKSUMS.sha256') -and $common.Contains('ReparsePoint')) 'Kit verification lacks checksum/path safety'
+ Write-Host 'Windows offline lifecycle tests passed.'
+}finally{
+ $env:PATH=$oldPath
+ if($null -eq $oldLog){Remove-Item Env:HTP_DOCKER_LOG -ErrorAction SilentlyContinue}else{$env:HTP_DOCKER_LOG=$oldLog}
+ Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+exit 0

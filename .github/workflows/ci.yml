@@ -274,6 +274,21 @@ jobs:
         shell: powershell
         run: .\tools\test_windows_launcher.ps1
 
+  windows-offline-lifecycle:
+    name: Windows Offline — install and lifecycle contracts
+    needs: scope
+    if: needs.scope.outputs.compose == 'true'
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Test Windows prebuilt offline installer
+        shell: powershell
+        run: .\tools\test_install_windows.ps1
+      - name: Test Windows lifecycle safety contracts
+        shell: powershell
+        run: .\tools\test_windows_offline_lifecycle.ps1
+
   docs:
     name: Docs — проверка документации
     needs: scope
@@ -291,7 +306,7 @@ jobs:
 
   quality-gate:
     name: Quality Gate
-    needs: [scope, backend, frontend, protocol, security, integration, compose, windows-launcher, docs]
+    needs: [scope, backend, frontend, protocol, security, integration, compose, windows-launcher, windows-offline-lifecycle, docs]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -306,6 +321,7 @@ jobs:
           INTEGRATION_RESULT: ${{ needs.integration.result }}
           COMPOSE_RESULT: ${{ needs.compose.result }}
           WINDOWS_RESULT: ${{ needs['windows-launcher'].result }}
+          WINDOWS_OFFLINE_RESULT: ${{ needs['windows-offline-lifecycle'].result }}
           DOCS_RESULT: ${{ needs.docs.result }}
           BACKEND_REQUIRED: ${{ needs.scope.outputs.backend }}
           FRONTEND_REQUIRED: ${{ needs.scope.outputs.frontend }}
@@ -314,11 +330,12 @@ jobs:
           INTEGRATION_REQUIRED: ${{ needs.scope.outputs.integration }}
           COMPOSE_REQUIRED: ${{ needs.scope.outputs.compose }}
           WINDOWS_REQUIRED: ${{ needs.scope.outputs.compose }}
+          WINDOWS_OFFLINE_REQUIRED: ${{ needs.scope.outputs.compose }}
           DOCS_REQUIRED: ${{ needs.scope.outputs.docs }}
         run: |
           set -euo pipefail
           [[ "$SCOPE_RESULT" == "success" ]] || { echo "Scope failed: $SCOPE_RESULT"; exit 1; }
-          for area in BACKEND FRONTEND PROTOCOL SECURITY INTEGRATION COMPOSE WINDOWS DOCS; do
+          for area in BACKEND FRONTEND PROTOCOL SECURITY INTEGRATION COMPOSE WINDOWS WINDOWS_OFFLINE DOCS; do
             result_key="${area}_RESULT"
             required_key="${area}_REQUIRED"
             result="${!result_key}"

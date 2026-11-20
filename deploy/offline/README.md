@@ -169,3 +169,17 @@ Offline release contract не основан только на документ�
 - **Acceptance — isolated SOURCE → TARGET transfer** проверяет реальный image + Helm chart через SOURCE export, signed physical bundle boundary и отдельный TARGET registry, включая receipt/history/report, replay `SKIPPED`, conflict default-deny и tamper rejection до mutation.
 
 Эти gates входят в общий CI `quality-gate` для соответствующего release/transfer scope. Они уже реализованы и являются частью v1 release qualification, а не будущей работой.
+
+
+## Windows 10/11 offline lifecycle
+
+The release kit ships PowerShell 5.1+ wrappers alongside the Linux scripts. Use Docker Desktop in Linux-containers mode and Compose v2.
+
+- First install / same-version rerun: `install.cmd` (or `install.ps1`). It verifies every kit checksum before loading images; it never builds or pulls images.
+- Backup: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\backup.ps1`. The ZIP contains `.env`, a persistent-volume snapshot, metadata and per-file hashes; the archive and sidecar are secret-bearing backup material.
+- Restore: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\restore.ps1 -BackupArchive <path.zip> -ConfirmRestore`. Restore requires the matching version kit and contour.
+- Upgrade: unpack the new version into a separate directory, then run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <new-kit>\\upgrade.ps1 -NewKitDir <new-kit> -InstallDir <current-kit>`. It creates a mandatory pre-upgrade backup, preserves the stable Docker project/volume identity, and attempts matching-kit rollback on failed startup. Keep both kits and the backup until post-upgrade acceptance.
+- Stop/uninstall without deleting data: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\uninstall.ps1`. Persistent volume and `.env` remain.
+- Destructive data purge: add `-PurgeData -ConfirmPurge DELETE_PORTAL_DATA`. Without the exact confirmation phrase, volume deletion is refused.
+
+Windows lifecycle is supported only for the same CPU architecture and same-version restore. Cross-architecture upgrade and direct downgrade are not supported. Keep the old kit and a verified backup for recovery. These scripts do not qualify a real clean Windows host by themselves; CI mock-Docker tests must pass, followed by a controlled Windows Docker Desktop acceptance run before production rollout.
