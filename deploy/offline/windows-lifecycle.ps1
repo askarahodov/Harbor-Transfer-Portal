@@ -59,6 +59,8 @@ function Kit([string]$Path,[switch]$Windows){
   $file=[IO.Path]::GetFullPath((Join-Path $Path ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)))
   $prefix=[IO.Path]::GetFullPath($Path).TrimEnd('\','/')+[IO.Path]::DirectorySeparatorChar
   Assert ($file.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) "Checksum path escapes kit: $rel"
+  $cursor=$Path;$parts=$rel.Split('/')
+  for($i=0;$i -lt ($parts.Length-1);$i++){$cursor=Join-Path $cursor $parts[$i];Assert-Directory $cursor "Payload directory $($parts[$i])"}
   Assert-File $file $rel
   $actual=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
   Assert ($actual.Equals($hash,[StringComparison]::OrdinalIgnoreCase)) "SHA-256 mismatch: $rel"
@@ -152,12 +154,18 @@ function Check-Images([string]$Version,[string]$Arch){
  foreach($image in @("harbor-transfer-portal-backend:$Version","harbor-transfer-portal-frontend:$Version")){
   Docker-Output @('image','inspect',$image)|Out-Null
   $got=Normalize-Arch (Docker-Output @('image','inspect','--format','{{.Architecture}}',$image))
-  Assert ($got -eq $Arch) "Image architecture mismatch for $image: $got"
+  Assert ($got -eq $Arch) "Image architecture mismatch for $($image): $got"
   $label=Docker-Output @('image','inspect','--format','{{ index .Config.Labels "org.opencontainers.image.version" }}',$image)
-  Assert ($label -eq $Version) "Image release label mismatch for $image: $label"
+  Assert ($label -eq $Version) "Image release label mismatch for $($image): $label"
  }
 }
+function Check-FreeSpace([string]$Dir){
+ $required=(Get-Item -LiteralPath (Join-Path $Dir 'images/backend.tar')).Length+(Get-Item -LiteralPath (Join-Path $Dir 'images/frontend.tar')).Length+512MB
+ $root=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Dir));$drive=[IO.DriveInfo]::new($root)
+ Assert ($drive.AvailableFreeSpace -ge $required) "Not enough free disk space; require at least $required bytes"
+}
 function Load-Images([string]$Dir,[string]$Version,[string]$Arch){
+ Check-FreeSpace $Dir
  Docker @('load','-i',(Join-Path $Dir 'images/backend.tar'));Docker @('load','-i',(Join-Path $Dir 'images/frontend.tar'));Check-Images $Version $Arch
 }
 function New-Environment([string]$Dir,[string]$Version){

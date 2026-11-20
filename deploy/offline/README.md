@@ -1,6 +1,6 @@
 # Harbor Transfer Portal — offline install kit
 
-**Граница установки:** корневые `run.sh` и `run.cmd` предназначены только для запуска из исходного checkout с Docker build. Они **не заменяют** offline release kit в закрытом контуре. Offline installer выполняет `docker load` и Compose `--no-build --pull never`; Linux использует штатные shell scripts, Windows 10/11 — PowerShell 5.1+ lifecycle wrappers. Windows поддерживает первичную установку, повторный запуск, start/stop, backup/restore, upgrade с matching-version rollback и uninstall. Это не является заявлением о clean-host production qualification: перед реальным rollout требуется отдельная проверка на целевой Windows Docker Desktop и утверждённом release artifact.
+**Граница установки:** корневые `run.sh` и `run.cmd` предназначены только для запуска из исходного checkout с Docker build. Они **не заменяют** offline release kit в закрытом контуре. Offline installer выполняет `docker load` и Compose `--no-build --pull never`; Linux использует штатные shell scripts, а не source launcher, Windows 10/11 — PowerShell 5.1+ lifecycle wrappers. Windows поддерживает первичную установку, повторный запуск, start/stop, backup/restore, upgrade с matching-version rollback и uninstall. Это не является заявлением о clean-host production qualification: перед реальным rollout требуется отдельная проверка на целевой Windows Docker Desktop и утверждённом release artifact.
 
 Этот каталог является шаблоном release payload для закрытого контура. Финальный kit создаётся из **уже собранных release images** в контролируемой build/release среде:
 
@@ -109,9 +109,9 @@ $env:PORTAL_CONTOUR = 'SOURCE' # or TARGET, for the first database bootstrap onl
 | Запустить | `start.cmd` |
 | Остановить контейнеры, сохранив volume | `stop.cmd` |
 | Создать backup | `backup.cmd` |
-| Backup в отдельный каталог | `backup.cmd -BackupDirectory 'D:\\PortalBackups'` |
-| Восстановить matching-version backup | `restore.cmd -BackupPath 'D:\\PortalBackups\\backup.tar.gz' -ConfirmRestore` |
-| Обновить с предыдущего release kit | `upgrade.cmd -PreviousInstallPath 'C:\\Portal\\previous-kit'` |
+| Backup в отдельный каталог | `backup.cmd -BackupDirectory 'D:\PortalBackups'` |
+| Восстановить matching-version backup | `restore.cmd -BackupPath 'D:\PortalBackups\backup.tar.gz' -ConfirmRestore` |
+| Обновить с предыдущего release kit | `upgrade.cmd -PreviousInstallPath 'C:\Portal\previous-kit'` |
 | Безопасно удалить контейнеры | `uninstall.cmd` |
 | Удалить также persistent volume | `uninstall.cmd -PurgeData -ConfirmPurge` |
 

@@ -11,8 +11,8 @@ install.cmd
 start.cmd
 stop.cmd
 backup.cmd
-restore.cmd -BackupPath "D:\\PortalBackups\\backup.tar.gz" -ConfirmRestore
-upgrade.cmd -PreviousInstallPath "C:\\Portal\\previous-kit"
+restore.cmd -BackupPath "D:\PortalBackups\backup.tar.gz" -ConfirmRestore
+upgrade.cmd -PreviousInstallPath "C:\Portal\previous-kit"
 uninstall.cmd
 ```
 
