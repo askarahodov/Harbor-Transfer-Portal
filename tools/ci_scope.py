@@ -157,6 +157,9 @@ def _is_local_registry_integration_path(path: PurePosixPath, path_text: str) -> 
     if path_text in {
         "backend/Dockerfile",
         "backend/app/domain/bundle.py",
+        # The canonical application version drives release image tags and the
+        # offline-kit manifest; a version bump must run release qualification.
+        "backend/app/__init__.py",
     }:
         return True
     if (
