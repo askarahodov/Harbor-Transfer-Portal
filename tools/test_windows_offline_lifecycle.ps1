@@ -169,11 +169,21 @@ public class DockerStub {
     $helperMarker = Join-Path $tmp 'tampered-helper-executed.txt'
     $helperPayload = "[IO.File]::WriteAllText('$helperMarker','executed')"
     [IO.File]::AppendAllText((Join-Path $integrityKit 'windows-lifecycle-common.ps1'),[Environment]::NewLine + $helperPayload)
-    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG,'')
-    $tamperedHelperCode = Run-PortalScript $integrityKit 'start.ps1' @('-InstallDir',$integrityKit)
-    Check ($tamperedHelperCode -ne 0) 'Lifecycle entrypoint accepted a modified shared helper'
-    Check (-not (Test-Path -LiteralPath $helperMarker)) 'Modified shared helper executed before checksum rejection'
-    Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -eq '') 'Tampered helper reached Docker before checksum rejection'
+    $tamperedEntrypoints = @(
+        @{ Name = 'start.ps1'; Args = @('-InstallDir',$integrityKit) },
+        @{ Name = 'stop.ps1'; Args = @('-InstallDir',$integrityKit) },
+        @{ Name = 'backup.ps1'; Args = @('-InstallDir',$integrityKit) },
+        @{ Name = 'restore.ps1'; Args = @('-BackupArchive',(Join-Path $tmp 'unused-backup.zip'),'-InstallDir',$integrityKit) },
+        @{ Name = 'upgrade.ps1'; Args = @('-NewKitDir',$kit2,'-InstallDir',$integrityKit) },
+        @{ Name = 'uninstall.ps1'; Args = @('-InstallDir',$integrityKit) }
+    )
+    foreach ($entrypoint in $tamperedEntrypoints) {
+        [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG,'')
+        $tamperedHelperCode = Run-PortalScript $integrityKit $entrypoint.Name $entrypoint.Args
+        Check ($tamperedHelperCode -ne 0) "$($entrypoint.Name) accepted a modified shared helper"
+        Check (-not (Test-Path -LiteralPath $helperMarker)) "$($entrypoint.Name) executed modified shared helper before checksum rejection"
+        Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -eq '') "$($entrypoint.Name) reached Docker before checksum rejection"
+    }
 
     foreach ($script in (Get-ChildItem -LiteralPath $kit1 -Filter '*.ps1' -File)) {
         $tokens = $null; $errors = $null
