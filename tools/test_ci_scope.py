@@ -296,6 +296,10 @@ class CiScopeTest(TestCase):
             classify_paths(["deploy/qualify-isolated-transfer.sh"], root=root),
             Scope(integration=True, compose=True),
         )
+        self.assertEqual(
+            classify_paths(["deploy/qualify-clean-offline-install.sh"], root=root),
+            Scope(integration=True, compose=True),
+        )
 
     def test_release_runtime_scripts_keep_transfer_integration_scope(self):
         root = self._root()
