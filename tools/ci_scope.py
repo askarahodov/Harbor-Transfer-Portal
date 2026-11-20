@@ -246,6 +246,8 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
             "run.cmd",
             "run.sh",
             "tools/test_windows_launcher.ps1",
+            "tools/test_install_windows.ps1",
+            "tools/test_windows_offline_lifecycle.ps1",
             "Makefile",
             "backend/Dockerfile",
             "frontend/Dockerfile",
