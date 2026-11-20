@@ -25,6 +25,7 @@ try {
     $volume = 'harbor-transfer-portal_portal-data'
     Invoke-PortalDocker @('volume','inspect',$volume) | Out-Null
     if (-not $BackupDir) { $BackupDir = Join-Path $dir 'backups' }
+    $BackupDir = Assert-PortalNoReparsePath ([IO.Path]::GetFullPath($BackupDir))
     New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
     $BackupDir = Assert-PortalNoReparsePath $BackupDir -MustExist
     $backupRoot = [IO.Path]::GetPathRoot($BackupDir)
@@ -41,6 +42,7 @@ try {
     $archive = Join-Path $BackupDir "harbor-transfer-portal-backup-v$version-$stamp.zip"
     Assert-Portal (-not (Test-Path -LiteralPath $archive)) 'Backup archive already exists'
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ('htp-backup-' + [guid]::NewGuid().ToString('N'))
+    $tmp = Assert-PortalNoReparsePath $tmp
     New-Item -ItemType Directory -Path $tmp | Out-Null
     Set-PortalPrivateDirectoryAcl $tmp
     $compose = Get-PortalComposeArgs $dir $envPath

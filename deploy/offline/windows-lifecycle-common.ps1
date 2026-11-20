@@ -125,7 +125,9 @@ function Set-PortalEnvVersion([string]$Text, [string]$Version) {
     return [regex]::Replace($Text, '(?m)^PORTAL_VERSION=[^\r\n]*', "PORTAL_VERSION=$Version")
 }
 function Write-PortalAtomic([string]$Path, [string]$Text) {
-    $full = [IO.Path]::GetFullPath($Path)
+    $full = Assert-PortalNoReparsePath $Path
+    $parent = Split-Path -Parent $full
+    Assert-PortalNoReparsePath $parent -MustExist | Out-Null
     $temporary = $full + '.tmp.' + [guid]::NewGuid().ToString('N')
     try {
         [IO.File]::WriteAllText($temporary, '', ([Text.UTF8Encoding]::new($false)))
