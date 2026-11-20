@@ -173,9 +173,10 @@ function New-Environment([string]$Dir,[string]$Version){
  if(Test-Path -LiteralPath $path){$text=EnvText $path;Assert ((Setting $text 'PORTAL_VERSION') -ceq $Version) "Existing .env is configured for another version; use upgrade.cmd";Write-Host 'Existing .env preserved.';return $text}
  $contour=if($env:PORTAL_CONTOUR){$env:PORTAL_CONTOUR}else{'SOURCE'};Assert ($contour -cin @('SOURCE','TARGET')) 'PORTAL_CONTOUR must be SOURCE or TARGET'
  $template=[IO.File]::ReadAllText((Join-Path $Dir '.env.example'))
- foreach($pair in @(@('PORTAL_CONTOUR',$contour),@('PORTAL_VERSION',$Version))){
-  Assert ([regex]::IsMatch($template,"(?m)^$($pair[0])=")) "Template missing $($pair[0])"
-  $template=[regex]::Replace($template,"(?m)^$($pair[0])=[^\r\n]*",($pair[0]+'='+$pair[1]))
+ foreach($key in @('PORTAL_CONTOUR','PORTAL_VERSION')){
+  $value=if($key -eq 'PORTAL_CONTOUR'){$contour}else{$Version}
+  Assert ([regex]::IsMatch($template,"(?m)^$key=")) "Template missing $key"
+  $template=[regex]::Replace($template,"(?m)^$key=[^\r\n]*",($key+'='+$value))
  }
  Assert ($template.Contains('# JWT_SECRET=')) 'Template missing JWT_SECRET placeholder'
  $rng=[Security.Cryptography.RandomNumberGenerator]::Create()
