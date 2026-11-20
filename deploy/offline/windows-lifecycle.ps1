@@ -93,7 +93,7 @@ function Docker-Output([string[]]$DockerArguments,[switch]$AllowFailure){
  if($code -ne 0){if($AllowFailure){return $null};throw "Docker failed ($code): docker $($DockerArguments -join ' ') $text"}
  return $text.Trim()
 }
-function Docker([string[]]$DockerArguments,[switch]$Quiet){$out=Docker-Output $DockerArguments;if(-not $Quiet -and $out){Write-Host $out}}
+function Invoke-DockerCommand([string[]]$DockerArguments,[switch]$Quiet){$out=Docker-Output $DockerArguments;if(-not $Quiet -and $out){Write-Host $out}}
 function Docker-Process([string[]]$DockerArguments,[bool]$InputStream,[bool]$OutputStream){
  $cmd=Get-Command docker -ErrorAction SilentlyContinue;Assert ($null -ne $cmd) 'Docker CLI is not installed'
  $p=New-Object System.Diagnostics.ProcessStartInfo;$p.FileName=$cmd.Source
@@ -166,7 +166,7 @@ function Check-FreeSpace([string]$Dir){
 }
 function Load-Images([string]$Dir,[string]$Version,[string]$Arch){
  Check-FreeSpace $Dir
- Docker @('load','-i',(Join-Path $Dir 'images/backend.tar'));Docker @('load','-i',(Join-Path $Dir 'images/frontend.tar'));Check-Images $Version $Arch
+ Invoke-DockerCommand @('load','-i',(Join-Path $Dir 'images/backend.tar'));Invoke-DockerCommand @('load','-i',(Join-Path $Dir 'images/frontend.tar'));Check-Images $Version $Arch
 }
 function New-Environment([string]$Dir,[string]$Version){
  $path=Join-Path $Dir '.env'
@@ -184,7 +184,7 @@ function New-Environment([string]$Dir,[string]$Version){
 }
 function Start-Portal([string]$Dir,[string]$Version){
  $text=EnvText (Join-Path $Dir '.env');Check-Transport $text;Compose-Check $Dir
- Docker ((Compose-Args $Dir)+@('up','-d','--no-build','--pull','never','--wait','--wait-timeout',[string](Timeout-Seconds)))
+ Invoke-DockerCommand ((Compose-Args $Dir)+@('up','-d','--no-build','--pull','never','--wait','--wait-timeout',[string](Timeout-Seconds)))
  Write-Host ("Portal "+$Version+" is healthy.")
 }
 function Archive-Lines([string]$Path,[switch]$VerboseListing){
@@ -223,7 +223,7 @@ function New-Backup([string]$Dir,[string]$Destination,[switch]$LeavePaused,[ref]
  $paused=$false;$WasPaused.Value=$false
  try{
   $running=Docker-Output ($compose+@('ps','--status','running','-q'))
-  if($running){Docker ($compose+@('pause')) -Quiet;$paused=$true}
+  if($running){Invoke-DockerCommand ($compose+@('pause')) -Quiet;$paused=$true}
   $data=Join-Path $tmp 'portal-data.tar.gz'
   Docker-ToFile @('run','--rm','--pull','never','--network','none','-v',"$($script:Volume):/app/data:ro",'--entrypoint','tar',$backend,'-C','/app/data','-czf','-','.') $data
   Copy-Item -LiteralPath (Join-Path $Dir '.env') -Destination (Join-Path $tmp '.env');Protect-File (Join-Path $tmp '.env');Protect-File $data
@@ -236,11 +236,11 @@ function New-Backup([string]$Dir,[string]$Destination,[switch]$LeavePaused,[ref]
   $outer=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
   [IO.File]::WriteAllText(($archive+'.sha256'),($outer+'  '+$name+[Environment]::NewLine),([Text.UTF8Encoding]::new($false)));Protect-File ($archive+'.sha256')
   if($paused -and $LeavePaused){$WasPaused.Value=$true;$paused=$false;Write-Host 'Portal remains paused for transactional upgrade.'}
-  elseif($paused){Docker ($compose+@('unpause')) -Quiet;$paused=$false}
+  elseif($paused){Invoke-DockerCommand ($compose+@('unpause')) -Quiet;$paused=$false}
   Write-Host 'Backup created; it contains credentials and signing material and must be protected.'
   return $archive
  }finally{
-  if($paused){try{Docker ($compose+@('unpause')) -Quiet}catch{Write-Warning 'Failed to unpause Portal after backup; inspect Compose state.'}}
+  if($paused){try{Invoke-DockerCommand ($compose+@('unpause')) -Quiet}catch{Write-Warning 'Failed to unpause Portal after backup; inspect Compose state.'}}
   if(Test-Path $tmp){Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue}
  }
 }
@@ -267,12 +267,12 @@ function Restore-Data([string]$Dir,[string]$Archive,[switch]$WindowsKit){
   $current=Join-Path $Dir '.env'
   if(Test-Path $current){$now=EnvText $current;Assert ((Setting $now 'PORTAL_VERSION') -ceq $v) 'Restore refuses a version change';Assert ((Setting $now 'PORTAL_CONTOUR') -ceq $c) 'Restore refuses a contour change'}
   $data=Join-Path $tmp 'portal-data.tar.gz';Check-DataArchive $data;Docker-Host $kit.Arch|Out-Null;Load-Images $Dir $v $kit.Arch
-  Write-Private (Join-Path $Dir '.env') $saved;$compose=Compose-Args $Dir;Docker ($compose+@('down','--remove-orphans'))
+  Write-Private (Join-Path $Dir '.env') $saved;$compose=Compose-Args $Dir;Invoke-DockerCommand ($compose+@('down','--remove-orphans'))
   if($null -eq (Docker-Output @('volume','inspect',$script:Volume) -AllowFailure)){Docker-Output @('volume','create',$script:Volume)|Out-Null}
   $image="harbor-transfer-portal-backend:$v"
-  Docker @('run','--rm','--pull','never','--network','none','-v',"$($script:Volume):/app/data",'--entrypoint','sh',$image,'-c','find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +')
+  Invoke-DockerCommand @('run','--rm','--pull','never','--network','none','-v',"$($script:Volume):/app/data",'--entrypoint','sh',$image,'-c','find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +')
   Docker-FromFile @('run','--rm','-i','--pull','never','--network','none','-v',"$($script:Volume):/app/data",'--entrypoint','tar',$image,'-C','/app/data','-xzf','-') $data
-  Docker @('run','--rm','--pull','never','--network','none','-v',"$($script:Volume):/app/data",'--entrypoint','chown',$image,'-R','10001:10001','/app/data')
+  Invoke-DockerCommand @('run','--rm','--pull','never','--network','none','-v',"$($script:Volume):/app/data",'--entrypoint','chown',$image,'-R','10001:10001','/app/data')
   Start-Portal $Dir $v;Write-Host "RESTORE_OK: version $v, contour $c."
  }finally{Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue}
 }
@@ -289,7 +289,7 @@ function Start-Action([string]$Dir){
  Check-Images $settings.Version $kit.Arch;Start-Portal $Dir $settings.Version
 }
 function Stop-Action([string]$Dir){
- Kit $Dir -Windows|Out-Null;Docker-Host|Out-Null;Env-Settings $Dir|Out-Null;Compose-Check $Dir;Docker ((Compose-Args $Dir)+@('stop'))
+ Kit $Dir -Windows|Out-Null;Docker-Host|Out-Null;Env-Settings $Dir|Out-Null;Compose-Check $Dir;Invoke-DockerCommand ((Compose-Args $Dir)+@('stop'))
  Write-Host 'STOP_OK: containers stopped; .env and persistent volume preserved.'
 }
 function Backup-Action([string]$Dir,[string]$Destination){
@@ -329,14 +329,14 @@ function Upgrade-Action([string]$NewDir,[string]$OldDir){
   }
   throw
  }finally{
-  if($paused -and -not $startAttempted){try{Docker ((Compose-Args $OldDir)+@('unpause')) -Quiet}catch{Write-Warning 'Previous Portal remains paused; inspect Docker Compose state.'}}
+  if($paused -and -not $startAttempted){try{Invoke-DockerCommand ((Compose-Args $OldDir)+@('unpause')) -Quiet}catch{Write-Warning 'Previous Portal remains paused; inspect Docker Compose state.'}}
  }
 }
 function Uninstall-Action([string]$Dir,[switch]$DeleteData,[switch]$Confirmed){
  $kit=Kit $Dir -Windows;Docker-Host $kit.Arch|Out-Null;$settings=Env-Settings $Dir;Assert ($settings.Version -ceq $kit.Version) 'Installed .env version does not match this release kit';Compose-Check $Dir
  Assert (-not ($Confirmed -and -not $DeleteData)) '-ConfirmPurge requires -PurgeData'
- if($DeleteData){Assert $Confirmed 'Data deletion requires both -PurgeData and -ConfirmPurge';Write-Warning 'Persistent Docker volume will be permanently deleted.';Docker ((Compose-Args $Dir)+@('down','--remove-orphans','--volumes'));Write-Host 'UNINSTALL_OK: volume removed; .env and release files preserved.'}
- else{Docker ((Compose-Args $Dir)+@('down','--remove-orphans'));Write-Host 'UNINSTALL_OK: containers removed; .env, volume and backups preserved.'}
+ if($DeleteData){Assert $Confirmed 'Data deletion requires both -PurgeData and -ConfirmPurge';Write-Warning 'Persistent Docker volume will be permanently deleted.';Invoke-DockerCommand ((Compose-Args $Dir)+@('down','--remove-orphans','--volumes'));Write-Host 'UNINSTALL_OK: volume removed; .env and release files preserved.'}
+ else{Invoke-DockerCommand ((Compose-Args $Dir)+@('down','--remove-orphans'));Write-Host 'UNINSTALL_OK: containers removed; .env, volume and backups preserved.'}
 }
 try{
  $dir=if($InstallPath){[IO.Path]::GetFullPath($InstallPath)}else{$script:Root}
