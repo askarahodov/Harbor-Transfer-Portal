@@ -168,7 +168,7 @@ def audit():
     for number, expected in TARGET["replacement_prs"].items():
         check_replacement_pr(number, expected)
 
-    delta = github("GET", f"compare/main...{quote(TARGET['branch'], safe='/')}")
+    delta = github("GET", f"compare/main...{TARGET['sha']}")
     if delta.get("ahead_by") != TARGET["expected_ahead"]:
         raise RuntimeError("Target branch unique commit count changed")
     if {item["filename"] for item in delta.get("files") or []} != TARGET["expected_files"]:
