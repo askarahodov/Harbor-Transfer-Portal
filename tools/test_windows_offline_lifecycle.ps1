@@ -273,6 +273,8 @@ public class DockerStub {
     Check ((Get-Acl -LiteralPath $backupDir).AreAccessRulesProtected) 'Backup directory ACL is not protected'
     Check ((Get-Acl -LiteralPath $backupArchive.FullName).AreAccessRulesProtected) 'Backup archive ACL is not protected'
     Check ((Get-Acl -LiteralPath ($backupArchive.FullName + '.sha256')).AreAccessRulesProtected) 'Backup sidecar ACL is not protected'
+    $backupLog = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
+    Check ($backupLog -match 'run .*--user 0:0') 'Backup helper must use root to write through the restricted NTFS bind mount'
 
     $logBeforeRestore = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
     $unconfirmedRestore = Run-PortalScript $kit1 'restore.ps1' @('-InstallDir',$kit1,'-BackupArchive',$backupArchive.FullName)
@@ -300,6 +302,10 @@ public class DockerStub {
     Check ($restoreCode -eq 0) 'Confirmed matching-version restore failed'
     Check (Test-Path -LiteralPath $env:FAKE_DOCKER_RESTORED_DATA) 'Restore did not extract persistent data'
     Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_RESTORED_DATA) -eq 'persistent-data-marker') 'Restore data did not match the backup snapshot'
+    $restoreLog = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
+    $restoreRunLines = @($restoreLog -split '\r?\n' | Where-Object { $_ -match '^run ' })
+    Check ($restoreRunLines.Count -ge 5) 'Restore did not run all isolated helper operations'
+    Check (@($restoreRunLines | Where-Object { $_ -notmatch '--user 0:0' }).Count -eq 0) 'Restore helper containers must use root for volume ownership and restricted bind-mount access'
 
     $oldEnvBeforeUpgrade = [IO.File]::ReadAllText((Join-Path $kit1 '.env'))
     $upgradeCode = Run-PortalScript $kit2 'upgrade.ps1' @('-NewKitDir',$kit2,'-InstallDir',$kit1)
