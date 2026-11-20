@@ -238,6 +238,15 @@ class CiScopeTest(TestCase):
             with self.subTest(path=path):
                 self.assertEqual(classify_paths([path], root=root), Scope(compose=True))
 
+    def test_windows_offline_lifecycle_tests_run_compose(self):
+        root = self._root()
+        for path in (
+            "tools/test_install_windows.ps1",
+            "tools/test_windows_offline_lifecycle.ps1",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(classify_paths([path], root=root), Scope(compose=True))
+
     def test_online_image_launchers_run_compose_gate(self):
         root = self._root()
         for path in ("run-online.sh", "run-online.cmd"):
