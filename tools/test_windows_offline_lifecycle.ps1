@@ -5,8 +5,10 @@ $ErrorActionPreference = 'Stop'
 function Check([bool]$Condition,[string]$Message){if(-not $Condition){throw "Windows offline lifecycle test failed: $Message"}}
 function Run-Portal([string]$Kit,[string]$Action,[string[]]$Extra=@()){
  $script=Join-Path $Kit 'windows-lifecycle.ps1'
- & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -Action $Action @Extra
- return [int]$LASTEXITCODE
+ $previous=$ErrorActionPreference;$ErrorActionPreference='Continue'
+ try{& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -Action $Action @Extra;$code=$LASTEXITCODE}
+ finally{$ErrorActionPreference=$previous}
+ return [int]$code
 }
 function New-TestKit([string]$Root,[string]$Destination,[string]$Version){
  New-Item -ItemType Directory -Path (Join-Path $Destination 'images') -Force|Out-Null
@@ -190,12 +192,12 @@ public class DockerStub
  [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG,'')
  Check ((Run-Portal $badKit 'Install') -ne 0) 'Tampered release payload was accepted'
  Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -eq '') 'Tampered kit reached Docker'
- $env:FAKE_DOCKER_OS='windows'
- Check ((Run-Portal $badKit 'Install') -ne 0) 'Windows-container mode was accepted'
+ $modeKit=Join-Path $temp 'mode-kit';New-Item -ItemType Directory -Path $modeKit|Out-Null;New-TestKit $root $modeKit '1.0.4'
+ $env:FAKE_DOCKER_OS='windows';[IO.File]::WriteAllText($env:FAKE_DOCKER_LOG,'')
+ Check ((Run-Portal $modeKit 'Install') -ne 0) 'Windows-container mode was accepted'
  Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'load -i')) 'Wrong Docker mode loaded images'
- $env:FAKE_DOCKER_OS='linux'
- $env:FAKE_DOCKER_UP_FAIL='1'
- Check ((Run-Portal $badKit 'Install') -ne 0) 'Unhealthy startup was accepted'
+ $env:FAKE_DOCKER_OS='linux';$env:FAKE_DOCKER_UP_FAIL='1'
+ Check ((Run-Portal $modeKit 'Install') -ne 0) 'Unhealthy startup was accepted'
  Remove-Item Env:FAKE_DOCKER_UP_FAIL -ErrorAction SilentlyContinue
 
  Write-Host 'Windows offline lifecycle contracts passed: install/rerun, start/stop, backup/restore, upgrade rollback, safe/purge uninstall, checksum and Docker-mode failures.'

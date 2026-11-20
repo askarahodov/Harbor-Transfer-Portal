@@ -64,6 +64,9 @@ function Kit([string]$Path,[switch]$Windows){
   Assert ($actual.Equals($hash,[StringComparison]::OrdinalIgnoreCase)) "SHA-256 mismatch: $rel"
  }
  foreach($f in @('release-version.txt','release-arch.txt','compose.yaml','.env.example','images/backend.tar','images/frontend.tar')){Assert ($seen.Contains($f)) "Required file is not checksummed: $f"}
+ $composeText=[IO.File]::ReadAllText((Join-Path $Path 'compose.yaml'))
+ Assert ([regex]::IsMatch($composeText,'(?m)^name:\s*harbor-transfer-portal\s*$')) 'Release Compose must keep the stable harbor-transfer-portal project identity'
+ Assert ([regex]::IsMatch($composeText,'(?m)^  portal-data:\s*$')) 'Release Compose must keep the portal-data persistent volume'
  if($Windows){
   foreach($f in @('windows-lifecycle.ps1','install.cmd','start.cmd','stop.cmd','backup.cmd','restore.cmd','upgrade.cmd','uninstall.cmd')){
    Assert ($seen.Contains($f)) "Windows lifecycle file is not checksummed: $f";Assert-File (Join-Path $Path $f) $f
@@ -73,7 +76,7 @@ function Kit([string]$Path,[switch]$Windows){
 }
 function Quote-Arg([string]$s){
  if($s.Length -eq 0){return '""'};if($s -notmatch '[\s"]'){return $s}
- $b=New-Object Text.StringBuilder;[void]$b.Append('"');$slashes=0
+ $b=New-Object System.Text.StringBuilder;[void]$b.Append('"');$slashes=0
  foreach($ch in $s.ToCharArray()){
   if($ch -eq '\'){$slashes++;continue}
   if($ch -eq '"'){if($slashes -gt 0){[void]$b.Append(('\'*(2*$slashes+1)))}else{[void]$b.Append('\')};[void]$b.Append('"');$slashes=0;continue}
@@ -91,20 +94,20 @@ function Docker-Output([string[]]$DockerArguments,[switch]$AllowFailure){
 function Docker([string[]]$DockerArguments,[switch]$Quiet){$out=Docker-Output $DockerArguments;if(-not $Quiet -and $out){Write-Host $out}}
 function Docker-Process([string[]]$DockerArguments,[bool]$InputStream,[bool]$OutputStream){
  $cmd=Get-Command docker -ErrorAction SilentlyContinue;Assert ($null -ne $cmd) 'Docker CLI is not installed'
- $p=New-Object Diagnostics.ProcessStartInfo;$p.FileName=$cmd.Source
+ $p=New-Object System.Diagnostics.ProcessStartInfo;$p.FileName=$cmd.Source
  $p.Arguments=(($DockerArguments|ForEach-Object{Quote-Arg ([string]$_)}) -join ' ')
  $p.UseShellExecute=$false;$p.CreateNoWindow=$true;$p.RedirectStandardInput=$InputStream;$p.RedirectStandardOutput=$OutputStream;$p.RedirectStandardError=$true
  return $p
 }
 function Docker-ToFile([string[]]$DockerArguments,[string]$Path){
- $p=New-Object Diagnostics.Process;$p.StartInfo=Docker-Process $DockerArguments $false $true;Assert $p.Start() 'Could not start Docker snapshot process'
+ $p=New-Object System.Diagnostics.Process;$p.StartInfo=Docker-Process $DockerArguments $false $true;Assert $p.Start() 'Could not start Docker snapshot process'
  $err=$p.StandardError.ReadToEndAsync()
  try{$f=[IO.File]::Create($Path);try{$p.StandardOutput.BaseStream.CopyTo($f)}finally{$f.Dispose()};$p.WaitForExit();$e=$err.Result;Assert ($p.ExitCode -eq 0) "Docker snapshot failed ($($p.ExitCode)): $e"}
  catch{if(-not $p.HasExited){$p.Kill();$p.WaitForExit()};if(Test-Path $Path){Remove-Item $Path -Force};throw}
  finally{$p.Dispose()}
 }
 function Docker-FromFile([string[]]$DockerArguments,[string]$Path){
- $p=New-Object Diagnostics.Process;$p.StartInfo=Docker-Process $DockerArguments $true $false;Assert $p.Start() 'Could not start Docker restore process'
+ $p=New-Object System.Diagnostics.Process;$p.StartInfo=Docker-Process $DockerArguments $true $false;Assert $p.Start() 'Could not start Docker restore process'
  $err=$p.StandardError.ReadToEndAsync()
  try{$f=[IO.File]::OpenRead($Path);try{$f.CopyTo($p.StandardInput.BaseStream)}finally{$f.Dispose();$p.StandardInput.Close()};$p.WaitForExit();$e=$err.Result;Assert ($p.ExitCode -eq 0) "Docker restore failed ($($p.ExitCode)): $e"}
  catch{if(-not $p.HasExited){$p.Kill();$p.WaitForExit()};throw}
@@ -266,7 +269,9 @@ function Restore-Data([string]$Dir,[string]$Archive,[switch]$WindowsKit){
  }finally{Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue}
 }
 function Install-Portal([string]$Dir){
- $kit=Kit $Dir -Windows;Docker-Host $kit.Arch|Out-Null;$text=New-Environment $Dir $kit.Version;Check-Transport $text;Compose-Check $Dir
+ $kit=Kit $Dir -Windows;Docker-Host $kit.Arch|Out-Null;$text=New-Environment $Dir $kit.Version
+ $settings=Env-Settings $Dir;Assert ($settings.Version -ceq $kit.Version) 'Installed .env version does not match this release kit'
+ Check-Transport $text;Compose-Check $Dir
  Load-Images $Dir $kit.Version $kit.Arch;Start-Portal $Dir $kit.Version
  Write-Host 'INSTALL_OK: local prebuilt images only; no build or pull. Change admin/admin immediately on a new database.'
 }
