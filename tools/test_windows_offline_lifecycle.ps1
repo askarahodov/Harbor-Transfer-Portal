@@ -182,7 +182,7 @@ public class DockerStub
  Check (-not (Test-Path (Join-Path $kit3 '.env'))) 'Failed upgrade left the new .env active'
  $restoredEnv=[IO.File]::ReadAllText((Join-Path $kit2 '.env'))
  Check ($restoredEnv -match '(?m)^PORTAL_VERSION=1\.0\.1') 'Failed upgrade did not restore previous version'
- Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'chown -R 10001:10001') 'Rollback did not restore persistent data ownership'
+ Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'chown .* -R 10001:10001 /app/data') 'Rollback did not restore persistent data ownership'
  Remove-Item Env:FAKE_DOCKER_UP_FAIL_ONCE -ErrorAction SilentlyContinue
 
  # Safe uninstall preserves the volume; purge requires two explicit switches.
