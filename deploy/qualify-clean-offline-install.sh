@@ -219,7 +219,7 @@ qualify_contour() {
   )
   wait_runtime "$kit"
   restored_marker=$(docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
-    exec -T backend cat /app/data/.clean-install-qualification | tr -d '\\r\\n')
+    exec -T backend cat /app/data/.clean-install-qualification | tr -d '\r\n')
   [ "$restored_marker" = clean-install-persistent ] \
     || fail 'clean-host restore did not recover persistent data from backup'
 
