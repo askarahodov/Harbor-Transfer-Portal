@@ -51,15 +51,21 @@ function Set-PortalPrivateDirectoryAcl([string]$Path) {
     Assert-Portal ($LASTEXITCODE -eq 0) "Could not restrict directory permissions: $full"
 }
 function Read-PortalSetting([string]$Text, [string]$Name, [string]$Default = '') {
-    $match = [regex]::Match($Text, "(?m)^$([regex]::Escape($Name))=([^\r\n]*)")
-    if ($match.Success) { return $match.Groups[1].Value.Trim() }
+    $matches = [regex]::Matches($Text, "(?m)^$([regex]::Escape($Name))=([^\r\n]*)")
+    Assert-Portal ($matches.Count -le 1) "Duplicate setting in .env or metadata: $Name"
+    if ($matches.Count -eq 1) { return $matches[0].Groups[1].Value.Trim() }
     return $Default
 }
 function Read-PortalEnv([string]$Path) {
     $full = Assert-PortalNoReparsePath $Path -MustExist
     Assert-Portal (Test-Path -LiteralPath $full -PathType Leaf) "Missing .env: $full"
     Set-PortalPrivateFileAcl $full
-    return [IO.File]::ReadAllText($full)
+    $text = [IO.File]::ReadAllText($full)
+    $version = Read-PortalSetting $text 'PORTAL_VERSION'
+    $contour = Read-PortalSetting $text 'PORTAL_CONTOUR'
+    Assert-Portal (-not [string]::IsNullOrWhiteSpace($version)) 'Missing PORTAL_VERSION in .env'
+    Assert-Portal ($contour -in @('SOURCE','TARGET')) 'PORTAL_CONTOUR must occur exactly once and be SOURCE or TARGET'
+    return $text
 }
 function Invoke-PortalDocker([string[]]$DockerArgs, [switch]$Capture) {
     if ($Capture) {
