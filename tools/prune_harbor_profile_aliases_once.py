@@ -10,7 +10,7 @@ import time
 from urllib.parse import quote
 
 REPO = "askarahodov/Harbor-Transfer-Portal"
-OWN = "chore/513-prune-harbor-profile-aliases-once"
+OWN = "chore/513-finalize-harbor-profile-alias-prune"
 ENABLE = "issue-513-harbor-profile-aliases"
 AUDIT_BASE = "ddda010e37c5c4164f7d9a4b8e10ace2574df3de"
 
