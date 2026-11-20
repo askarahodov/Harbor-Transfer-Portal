@@ -44,7 +44,7 @@ $kit2 = Join-Path $tmp 'kit-1.0.1'
 $kit3 = Join-Path $tmp 'kit-1.0.2'
 New-Item -ItemType Directory -Path $bin -Force | Out-Null
 $oldPath = $env:PATH
-$envNames = @('FAKE_DOCKER_LOG','FAKE_DOCKER_STATE','FAKE_DOCKER_DATA_ARCHIVE','FAKE_DOCKER_RESTORED_DATA','FAKE_DOCKER_PAUSE_FAIL','FAKE_DOCKER_UP_FAIL_ONCE','FAKE_DOCKER_OS')
+$envNames = @('FAKE_DOCKER_LOG','FAKE_DOCKER_STATE','FAKE_DOCKER_DATA_ARCHIVE','FAKE_DOCKER_RESTORED_DATA','FAKE_DOCKER_PAUSE_FAIL','FAKE_DOCKER_PAUSE_PARTIAL','FAKE_DOCKER_UP_FAIL_ONCE','FAKE_DOCKER_OS')
 $oldEnv = @{}
 foreach ($name in $envNames) { $oldEnv[$name] = [Environment]::GetEnvironmentVariable($name) }
 
@@ -94,10 +94,19 @@ public class DockerStub {
             if (Has(args, "version")) { Console.WriteLine("Docker Compose version v2.30.0"); return 0; }
             if (Has(args, "ps")) {
                 string status = After(args, "--status"), state = State();
-                if ((status == "running" && state == "running") || (status == "paused" && state == "paused") || (String.IsNullOrEmpty(status) && state == "running")) Console.WriteLine("fake-running-container");
+                if (status == "running" && state == "running") { Console.WriteLine("fake-a"); Console.WriteLine("fake-b"); }
+                else if (status == "running" && state == "partial") Console.WriteLine("fake-b");
+                else if (status == "paused" && state == "paused") { Console.WriteLine("fake-a"); Console.WriteLine("fake-b"); }
+                else if (status == "paused" && state == "partial") Console.WriteLine("fake-a");
+                else if (String.IsNullOrEmpty(status) && state == "running") { Console.WriteLine("fake-a"); Console.WriteLine("fake-b"); }
                 return 0;
             }
-            if (Has(args, "pause")) { SetState("paused"); if (Env("FAKE_DOCKER_PAUSE_FAIL") == "1") return 41; return 0; }
+            if (Has(args, "pause")) {
+                if (Env("FAKE_DOCKER_PAUSE_PARTIAL") == "1") { SetState("partial"); return 0; }
+                SetState("paused");
+                if (Env("FAKE_DOCKER_PAUSE_FAIL") == "1") return 41;
+                return 0;
+            }
             if (Has(args, "unpause")) { SetState("running"); return 0; }
             if (Has(args, "stop") || Has(args, "down")) { SetState("stopped"); return 0; }
             if (Has(args, "up")) {
@@ -208,8 +217,17 @@ public class DockerStub {
     $partialPauseCode = Run-PortalScript $kit1 'backup.ps1' @('-InstallDir',$kit1)
     Check ($partialPauseCode -ne 0) 'Injected partial pause failure unexpectedly succeeded'
     Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_STATE).Trim() -eq 'running') 'Partial pause failure left Portal paused'
-    Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG).Contains('unpause fake-running-container')) 'Partial pause recovery did not unpause the originally running container'
+    Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG).Contains('unpause fake-a')) 'Partial pause recovery did not unpause the originally running container'
     Remove-Item Env:FAKE_DOCKER_PAUSE_FAIL -ErrorAction SilentlyContinue
+
+    # A successful pause command must still prove that every previously running container is paused.
+    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG,'')
+    $env:FAKE_DOCKER_PAUSE_PARTIAL = '1'
+    $partialSuccessCode = Run-PortalScript $kit1 'backup.ps1' @('-InstallDir',$kit1)
+    Check ($partialSuccessCode -ne 0) 'Incomplete pause reported success and produced a snapshot'
+    Check (([IO.File]::ReadAllText($env:FAKE_DOCKER_STATE)).Trim() -eq 'running') 'Incomplete pause recovery left Portal paused'
+    Check (([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)).Contains('unpause fake-a')) 'Incomplete pause recovery did not unpause the partially paused container'
+    Remove-Item Env:FAKE_DOCKER_PAUSE_PARTIAL -ErrorAction SilentlyContinue
 
     [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG,'')
     $env:FAKE_DOCKER_OS = 'windows'

@@ -51,6 +51,11 @@ try {
     if ($runningIds.Count -gt 0) {
         $pauseAttempted = $true
         Invoke-PortalDocker ($compose + @('pause')) | Out-Null
+        $paused = Invoke-PortalDocker ($compose + @('ps','--status','paused','-q')) -Capture
+        $pausedIds = @($paused | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+        foreach ($containerId in $runningIds) {
+            Assert-Portal ($pausedIds -contains $containerId) "Container $containerId did not enter paused state; refusing an inconsistent snapshot"
+        }
     }
     $mount = 'type=bind,source=' + $tmp + ',target=/backup'
     Invoke-PortalDocker @('run','--rm','--pull','never','--network','none','--entrypoint','tar','-v',($volume + ':/app/data:ro'),'--mount',$mount,$image,'-czf','/backup/portal-data.tar.gz','-C','/app/data','.') | Out-Null
