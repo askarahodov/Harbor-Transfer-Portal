@@ -123,6 +123,13 @@ sh "$ROOT/deploy/build-offline-kit.sh" "$VERSION" "$DIST"
 ARCHIVE="$DIST/harbor-transfer-portal-v${VERSION}-offline-install.tar.gz"
 [ -f "$ARCHIVE" ] || fail 'release archive was not created'
 [ -f "$ARCHIVE.sha256" ] || fail 'external archive checksum was not created'
+
+# The outer release package must be byte-for-byte reproducible for the same staged payload.
+DIST_REPEAT="$TMP/dist-repeat"
+mkdir -p "$DIST_REPEAT"
+sh "$ROOT/deploy/build-offline-kit.sh" "$VERSION" "$DIST_REPEAT"
+cmp -s "$ARCHIVE" "$DIST_REPEAT/harbor-transfer-portal-v${VERSION}-offline-install.tar.gz" \
+  || fail 'offline release archive is not reproducible for identical inputs'
 (
   cd "$DIST"
   sha256sum -c "$(basename "$ARCHIVE").sha256"
@@ -144,12 +151,22 @@ for required in \
   restore.sh \
   upgrade.sh \
   uninstall.sh \
+  install.ps1 \
+  install.cmd \
+  start.ps1 \
+  stop.ps1 \
+  windows-lifecycle-common.ps1 \
+  backup.ps1 \
+  restore.ps1 \
+  upgrade.ps1 \
+  uninstall.ps1 \
   release-version.txt \
   release-arch.txt \
   release-manifest.json \
   docs/release-notes-v1.0.0.md \
   docs/user-guide.md \
   docs/browser-transport.md \
+  docs/windows-offline-acceptance.md \
   images/backend.tar \
   images/frontend.tar; do
   [ -f "$KIT/$required" ] || fail "missing release payload file: $required"
