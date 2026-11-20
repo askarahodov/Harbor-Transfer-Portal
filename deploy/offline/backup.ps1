@@ -71,7 +71,23 @@ try {
     foreach ($name in @('backup-metadata.txt','CHECKSUMS.sha256','portal-data.tar.gz')) {
         Set-PortalPrivateFileAcl (Join-Path $tmp $name)
     }
-    Compress-Archive -Path (Join-Path $tmp '*') -DestinationPath $archive -CompressionLevel Optimal
+    $archiveFiles = @(
+        (Join-Path $tmp '.env'),
+        (Join-Path $tmp 'CHECKSUMS.sha256'),
+        (Join-Path $tmp 'backup-metadata.txt'),
+        (Join-Path $tmp 'portal-data.tar.gz')
+    )
+    Compress-Archive -LiteralPath $archiveFiles -DestinationPath $archive -CompressionLevel Optimal
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead($archive)
+    try {
+        $names = @($zip.Entries | ForEach-Object { $_.FullName })
+        $expectedNames = @('.env','CHECKSUMS.sha256','backup-metadata.txt','portal-data.tar.gz')
+        Assert-Portal ((($names | Sort-Object) -join '|') -ceq (($expectedNames | Sort-Object) -join '|')) 'Backup archive layout is incomplete or unexpected'
+    } finally {
+        $zip.Dispose()
+    }
     Set-PortalPrivateFileAcl $archive
     $outerHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText("$archive.sha256","$outerHash  $([IO.Path]::GetFileName($archive))",[Text.UTF8Encoding]::new($false))
