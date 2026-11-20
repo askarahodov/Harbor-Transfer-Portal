@@ -2,6 +2,24 @@
 
 Этот документ относится к release kit Harbor Transfer Portal и описывает эксплуатационные операции без доступа в интернет.
 
+## Windows 10/11 offline lifecycle
+
+Из распакованного Windows release kit в CMD используйте `install.cmd`, `start.cmd`, `stop.cmd`, `backup.cmd`, `restore.cmd`, `upgrade.cmd` и `uninstall.cmd`. Требуются PowerShell 5.1+, Docker Desktop в режиме Linux containers и Compose v2.
+
+```bat
+install.cmd
+start.cmd
+stop.cmd
+backup.cmd
+restore.cmd -BackupPath "D:\\PortalBackups\\backup.tar.gz" -ConfirmRestore
+upgrade.cmd -PreviousInstallPath "C:\\Portal\\previous-kit"
+uninstall.cmd
+```
+
+Restore выполняется только matching-version kit и требует явного `-ConfirmRestore`. Upgrade сначала создаёт backup, затем переносит только `PORTAL_VERSION` в копию прежнего `.env`; при failed health check автоматически пытается восстановить предыдущие SQLite state и runtime mode из backup. `UPGRADE_FAILED / ROLLBACK_OK` — upgrade отклонён, предыдущая версия восстановлена. `ROLLBACK_FAILED` — не запускайте ни один release против volume до ручного recovery.
+
+Обычный uninstall сохраняет `.env` и named volume. Удаление volume требует обеих опций `-PurgeData -ConfirmPurge`. Backup содержит секреты и должен храниться с ограниченным NTFS ACL. Windows CI использует mock Docker для проверки контракта; реальная clean-host проверка Docker Desktop остаётся отдельным release gate.
+
 ## Backup
 
 В каталоге установленного kit выполните:

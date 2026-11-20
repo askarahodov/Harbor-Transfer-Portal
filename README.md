@@ -118,7 +118,7 @@ Docsify JS/CSS включены во frontend image, поэтому для чт�
 |---|---|
 | выполняете перенос | [Пользовательское руководство](docs/user-guide.md) |
 | администрируете Portal / Harbor | [Руководство администратора](docs/admin-guide.md) |
-| устанавливаете Portal в закрытом контуре | [Offline installation guide](deploy/offline/README.md) |
+| устанавливаете Portal в закрытом контуре (Linux/Windows offline kit) | [Offline installation guide](deploy/offline/README.md) |
 | устраняете проблему | [Troubleshooting](docs/troubleshooting.md) |
 | разрабатываете или сопровождаете проект | [Локальная разработка Windows/Linux](docs/development.md), [карта документации](docs/README.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 

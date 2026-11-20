@@ -1,6 +1,6 @@
 # Harbor Transfer Portal — offline install kit
 
-**Граница установки:** корневые `run.sh` и `run.cmd` предназначены только для запуска из исходного checkout с Docker build. Они **не заменяют** подписанный offline release kit в закрытом контуре. Offline installer выполняет `docker load` и Compose `--no-build --pull never`; на Linux используйте штатный `install.sh`, не source launcher. Windows-native offline lifecycle не заявлен.
+**Граница установки:** корневые `run.sh` и `run.cmd` предназначены только для запуска из исходного checkout с Docker build. Они **не заменяют** offline release kit в закрытом контуре. Offline installer выполняет `docker load` и Compose `--no-build --pull never`; Linux использует штатные shell scripts, Windows 10/11 — PowerShell 5.1+ lifecycle wrappers. Windows поддерживает первичную установку, повторный запуск, start/stop, backup/restore, upgrade с matching-version rollback и uninstall. Это не является заявлением о clean-host production qualification: перед реальным rollout требуется отдельная проверка на целевой Windows Docker Desktop и утверждённом release artifact.
 
 Этот каталог является шаблоном release payload для закрытого контура. Финальный kit создаётся из **уже собранных release images** в контролируемой build/release среде:
 
@@ -83,6 +83,49 @@ PORTAL_BROWSER_SCHEME=https
 После первого запуска настройте через admin UI **только Harbor profiles локального security-контура этой installation**, их CA/credentials и требуемое key material. В одной installation может быть несколько именованных profiles, но SOURCE credentials не должны ссылаться на TARGET-контур и наоборот. В universal installation SOURCE private signing key и TARGET trusted public keys могут сосуществовать в persistent storage, но active semantics жёстко разделяются текущим runtime mode.
 
 Полный штатный пользовательский перенос выполняется через browser: в SOURCE role выбирается SOURCE Harbor profile и артефакты, затем скачиваются **три файла одной delivery** — bundle, `.sha256` и signed `.htp-handoff.json`. В TARGET role выбирается TARGET Harbor profile, переносится полный triplet, signed handoff проверяется до Bundle v1 preview, после чего Portal выполняет verify/preview/import через UI. Пошаговая процедура находится прямо в release kit: `docs/user-guide.md`.
+
+## Windows 10/11 — offline lifecycle
+
+Требования: Windows 10/11, Windows PowerShell 5.1 или новее, Docker Desktop в режиме **Linux containers**, Docker Compose v2, свободное место для двух prebuilt images. Windows containers mode и локальная сборка образов не поддерживаются.
+
+Перед распаковкой проверьте внешний checksum архива в PowerShell. SHA-256 подтверждает целостность, но не подлинность издателя: используйте архив и sidecar только из утверждённого доверенного release channel.
+
+```powershell
+$archive = 'harbor-transfer-portal-v1.0.0-offline-install.tar.gz'
+$expected = ((Get-Content "$archive.sha256" -Raw) -split '\s+')[0]
+$actual = (Get-FileHash $archive -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw 'Archive checksum mismatch' }
+tar.exe -xzf $archive
+cd .\harbor-transfer-portal-v1.0.0-offline-install
+$env:PORTAL_CONTOUR = 'SOURCE' # or TARGET, for the first database bootstrap only
+.\install.cmd
+```
+
+Команды выполняются из распакованного каталога соответствующего release kit:
+
+| Операция | Команда |
+|---|---|
+| Установить / повторно проверить установку | `install.cmd` |
+| Запустить | `start.cmd` |
+| Остановить контейнеры, сохранив volume | `stop.cmd` |
+| Создать backup | `backup.cmd` |
+| Backup в отдельный каталог | `backup.cmd -BackupDirectory 'D:\\PortalBackups'` |
+| Восстановить matching-version backup | `restore.cmd -BackupPath 'D:\\PortalBackups\\backup.tar.gz' -ConfirmRestore` |
+| Обновить с предыдущего release kit | `upgrade.cmd -PreviousInstallPath 'C:\\Portal\\previous-kit'` |
+| Безопасно удалить контейнеры | `uninstall.cmd` |
+| Удалить также persistent volume | `uninstall.cmd -PurgeData -ConfirmPurge` |
+
+Windows lifecycle contract:
+
+- Installer проверяет каждый перечисленный SHA-256, release version, архитектуру Docker Engine и image labels до запуска; образы загружаются только через `docker load`.
+- Все Compose startup команды используют `--no-build --pull never --wait`; lifecycle не скачивает образы, пакеты или helper binaries.
+- Существующий `.env` не перезаписывается; новый создаётся с криптографически случайным JWT secret и ограниченными NTFS ACL.
+- Backup включает `.env` и persistent volume, поэтому содержит секреты. Каталог backup ограничивается ACL текущего пользователя и SYSTEM; храните backup в соответствии с политикой secret retention.
+- Restore требует явный `-ConfirmRestore`, проверяет внешний sidecar, строгий allowlist архива, внутренние checksums, version, contour и volume identity до изменения установки. Используйте kit той же версии, что и backup.
+- Upgrade сначала создаёт обязательный backup и quiesces предыдущую установку. Если новая версия не проходит health/readiness, скрипт восстанавливает прежние `.env` и persistent volume matching-version images. Итог `UPGRADE_FAILED / ROLLBACK_OK` означает, что upgrade не состоялся, но предыдущая версия восстановлена; `ROLLBACK_FAILED` требует ручного recovery по сохранённому backup.
+- Обычный uninstall сохраняет `.env`, named volume и backup. Purge требует одновременно `-PurgeData -ConfirmPurge`; host-side `.env` и release files всё равно не удаляются.
+
+CI проверяет Windows сценарии с mock Docker, включая backup/restore stream contract и failed-upgrade rollback. Это не заменяет реальную clean-host проверку на поддерживаемой Windows Docker Desktop: не объявляйте Windows offline lifecycle production-qualified до получения такого evidence.
 
 ## Backup
 

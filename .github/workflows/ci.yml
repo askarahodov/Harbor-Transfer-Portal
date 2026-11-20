@@ -273,6 +273,9 @@ jobs:
       - name: Run Windows batch smoke with CRLF Docker output
         shell: powershell
         run: .\tools\test_windows_launcher.ps1
+      - name: Run Windows offline lifecycle contracts (mock Docker)
+        shell: powershell
+        run: .\tools\test_windows_offline_lifecycle.ps1
 
   docs:
     name: Docs — проверка документации

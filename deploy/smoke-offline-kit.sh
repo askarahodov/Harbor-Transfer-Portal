@@ -144,6 +144,14 @@ for required in \
   restore.sh \
   upgrade.sh \
   uninstall.sh \
+  windows-lifecycle.ps1 \
+  install.cmd \
+  start.cmd \
+  stop.cmd \
+  backup.cmd \
+  restore.cmd \
+  upgrade.cmd \
+  uninstall.cmd \
   release-version.txt \
   release-arch.txt \
   release-manifest.json \
@@ -156,6 +164,10 @@ for required in \
 done
 for executable in install.sh backup.sh restore.sh upgrade.sh uninstall.sh; do
   [ -x "$KIT/$executable" ] || fail "release script is not executable: $executable"
+done
+for windows_file in windows-lifecycle.ps1 install.cmd start.cmd stop.cmd backup.cmd restore.cmd upgrade.cmd uninstall.cmd; do
+  grep -Eq "^[0-9a-f]{64}  $windows_file$" "$KIT/CHECKSUMS.sha256" || \
+    fail "Windows lifecycle file is not covered by CHECKSUMS.sha256: $windows_file"
 done
 [ ! -e "$KIT/.env" ] || fail 'release payload must not contain .env'
 if grep -Eq '^[[:space:]]+build:' "$KIT/compose.yaml"; then
