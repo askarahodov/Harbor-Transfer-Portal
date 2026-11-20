@@ -9,6 +9,8 @@ import sys
 import time
 from urllib.parse import quote
 
+from atomic_ref_cleanup import delete_refs
+
 REPO = "askarahodov/Harbor-Transfer-Portal"
 OWN = "chore/513-finalize-harbor-profile-alias-prune"
 ENABLE = "issue-513-harbor-profile-aliases"
@@ -202,7 +204,36 @@ def check_ref(name: str, expected_sha: str):
     if details.get("protected") or (details.get("commit") or {}).get("sha") != expected_sha:
         raise RuntimeError(f"Branch protected or HEAD changed: {name}")
 
+def read_ref_sha(name: str) -> str | None:
+    encoded = quote(name, safe="/")
+    try:
+        ref = github("GET", f"git/ref/heads/{encoded}")
+    except RuntimeError as error:
+        if "404" in str(error) or "Not Found" in str(error):
+            return None
+        raise
+    if ref.get("ref") != f"refs/heads/{name}":
+        raise RuntimeError(f"Unexpected ref response for {name}")
+    sha = (ref.get("object") or {}).get("sha")
+    if not sha:
+        raise RuntimeError(f"Ref has no object SHA: {name}")
+    return sha
+
+def targets_already_absent() -> bool:
+    shas = [read_ref_sha(target["branch"]) for target in TARGETS]
+    if all(sha is None for sha in shas):
+        print("PASS: all target refs are already absent; one-shot cleanup is a no-op")
+        return True
+    if any(sha is None for sha in shas):
+        raise RuntimeError("Only part of the target ref set is absent; refusing partial cleanup")
+    for target, sha in zip(TARGETS, shas):
+        if sha != target["sha"]:
+            raise RuntimeError(f"Target ref moved since audit: {target['branch']}")
+    return False
+
 def audit():
+    if targets_already_absent():
+        return False
     main_ref = github("GET", "git/ref/heads/main")
     main_sha = (main_ref.get("object") or {}).get("sha")
     if not main_sha:
@@ -266,6 +297,13 @@ def audit():
         "CI-scope tooling, frontend and regressions"
     )
     print("PASS: exact live SHAs, exact delta scopes, all 45 current-main file SHAs pinned; dry-run only")
+    own_sha = read_ref_sha(OWN)
+    if own_sha is None:
+        raise RuntimeError("Cleanup branch is missing before the compare-and-swap dry-run")
+    check_ref(OWN, own_sha)
+    refs = [(target["branch"], target["sha"]) for target in TARGETS] + [(OWN, own_sha)]
+    print(delete_refs(REPO, refs, dry_run=True))
+    return True
 
 def apply_guard():
     expected = {
@@ -311,23 +349,19 @@ def main():
     apply = args == ["--apply"]
     if apply:
         apply_guard()
-    audit()
+    should_delete = audit()
+    if not should_delete:
+        return 0
     if not apply:
         print("DRY RUN: no refs deleted")
         return 0
 
     own_sha = own_merged_pr()
-    for target in TARGETS:
-        check_ref(target["branch"], target["sha"])
-    check_ref(OWN, own_sha)
-    for target in TARGETS:
-        check_ref(target["branch"], target["sha"])
-    for target in TARGETS:
-        github("DELETE", f"git/refs/heads/{quote(target['branch'], safe='/')}")
-        print(f"DELETED: {target['branch']}")
-    check_ref(OWN, own_sha)
-    github("DELETE", f"git/refs/heads/{quote(OWN, safe='/')}")
-    print("DELETED: one-shot cleanup branch; all other refs untouched")
+    refs = [(target["branch"], target["sha"]) for target in TARGETS] + [(OWN, own_sha)]
+    for name, expected_sha in refs:
+        check_ref(name, expected_sha)
+    print(delete_refs(REPO, refs, dry_run=False))
+    print("DELETED: both exact target refs and cleanup ref via atomic compare-and-swap")
     return 0
 
 if __name__ == "__main__":
