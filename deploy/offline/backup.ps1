@@ -31,6 +31,12 @@ try {
     Assert-Portal ($BackupDir.TrimEnd('\','/') -ne $backupRoot.TrimEnd('\','/')) 'Backup destination cannot be a filesystem root'
     Assert-Portal ((Get-Item -LiteralPath $BackupDir -Force).PSIsContainer) 'Backup destination must be a directory'
     Set-PortalPrivateDirectoryAcl $BackupDir
+    foreach ($existingBackup in @(Get-ChildItem -LiteralPath $BackupDir -Filter 'harbor-transfer-portal-backup-*' -File -Force)) {
+        Set-PortalPrivateFileAcl $existingBackup.FullName
+    }
+    Assert-Portal (-not $dir.Equals($BackupDir, [StringComparison]::OrdinalIgnoreCase)) 'Backup destination cannot be the installation directory'
+    $backupPrefix = $BackupDir.TrimEnd('\\','/') + [IO.Path]::DirectorySeparatorChar
+    Assert-Portal (-not $dir.StartsWith($backupPrefix, [StringComparison]::OrdinalIgnoreCase)) 'Backup destination cannot contain the installation directory'
     $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
     $archive = Join-Path $BackupDir "harbor-transfer-portal-backup-v$version-$stamp.zip"
     Assert-Portal (-not (Test-Path -LiteralPath $archive)) 'Backup archive already exists'

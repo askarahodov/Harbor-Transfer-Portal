@@ -88,7 +88,7 @@ PORTAL_BROWSER_SCHEME=https
 
 Windows 10/11 supports install, same-version rerun, start/stop, backup, matching-version restore, upgrade with automatic matching-version rollback, and safe uninstall. Use the PowerShell 5.1+ wrappers shipped in the release kit; Docker Desktop must use Linux containers and Compose v2. The kit must be extracted on NTFS.
 
-The installer, lifecycle scripts and backup operation protect .env, temporary snapshots, backup directories, ZIP archives and SHA-256 sidecars with NTFS ACLs limited to the current user, SYSTEM and local Administrators. Existing contents of a selected backup directory are also re-protected; use a dedicated NTFS directory. ACL enforcement failures stop the operation. The ZIP and persistent data contain secrets and must never be attached to CI artifacts or issue comments.
+The installer, lifecycle scripts and backup operation protect .env, temporary snapshots, backup directories, ZIP archives and SHA-256 sidecars with NTFS ACLs limited to the current user, SYSTEM and local Administrators. Existing Harbor Transfer Portal backup files in a selected backup directory are also re-protected; use a dedicated NTFS directory. ACL enforcement failures stop the operation. The ZIP and persistent data contain secrets and must never be attached to CI artifacts or issue comments.
 
 ## Backup
 

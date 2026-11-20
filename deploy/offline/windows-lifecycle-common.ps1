@@ -49,11 +49,6 @@ function Set-PortalPrivateDirectoryAcl([string]$Path) {
     Assert-Portal ($LASTEXITCODE -eq 0) "Could not reset ACL before protecting directory: $full"
     & $icacls.Source $full '/inheritance:r' '/grant:r' ($identity + ':(OI)(CI)F') 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' *> $null
     Assert-Portal ($LASTEXITCODE -eq 0) "Could not restrict directory permissions: $full"
-    foreach ($child in @(Get-ChildItem -LiteralPath $full -Force)) {
-        Assert-Portal (($child.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) "Reparse point in private directory: $($child.FullName)"
-        if ($child.PSIsContainer) { Set-PortalPrivateDirectoryAcl $child.FullName }
-        else { Set-PortalPrivateFileAcl $child.FullName }
-    }
 }
 function Read-PortalSetting([string]$Text, [string]$Name, [string]$Default = '') {
     $match = [regex]::Match($Text, "(?m)^$([regex]::Escape($Name))=([^\r\n]*)")

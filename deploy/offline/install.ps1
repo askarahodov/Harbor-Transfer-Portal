@@ -2,10 +2,31 @@
 # Uses only the prebuilt Linux images supplied in this kit.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'windows-lifecycle-common.ps1')
-
 function Assert-Condition([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "Installation failed: $Message" }
+}
+function Assert-InstallerNoReparsePath([string]$Path, [switch]$MustExist) {
+    Assert-Condition (-not [string]::IsNullOrWhiteSpace($Path)) 'Path is required'
+    $full = [IO.Path]::GetFullPath($Path)
+    $rootPath = [IO.Path]::GetPathRoot($full)
+    Assert-Condition (-not [string]::IsNullOrWhiteSpace($rootPath)) "Path has no filesystem root: $Path"
+    $cursor = $rootPath
+    if (Test-Path -LiteralPath $cursor) {
+        $rootItem = Get-Item -LiteralPath $cursor -Force
+        Assert-Condition (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) "Reparse-point filesystem root is not allowed: $cursor"
+    }
+    $separators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    foreach ($part in $full.Substring($rootPath.Length).Split($separators, [StringSplitOptions]::RemoveEmptyEntries)) {
+        $cursor = Join-Path $cursor $part
+        if (Test-Path -LiteralPath $cursor) {
+            $item = Get-Item -LiteralPath $cursor -Force
+            Assert-Condition (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) "Reparse point in path is not allowed: $cursor"
+        } elseif ($MustExist) {
+            throw "Required path component is missing: $cursor"
+        }
+    }
+    if ($MustExist) { Assert-Condition (Test-Path -LiteralPath $full) "Required path does not exist: $full" }
+    return $full
 }
 
 function Get-Setting([string]$Text, [string]$Name, [string]$Default) {
@@ -30,12 +51,12 @@ function Normalize-Arch([string]$Arch) {
 }
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$root = Assert-PortalNoReparsePath $root -MustExist
+$root = Assert-InstallerNoReparsePath $root -MustExist
 Push-Location -LiteralPath $root
 try {
     $required = @(
         'release-version.txt', 'release-arch.txt', 'CHECKSUMS.sha256',
-        'compose.yaml', '.env.example', 'images/backend.tar', 'images/frontend.tar'
+        'compose.yaml', '.env.example', 'images/backend.tar', 'images/frontend.tar', 'windows-lifecycle-common.ps1'
     )
     foreach ($file in $required) {
         Assert-Condition (Test-Path -LiteralPath $file -PathType Leaf) "Missing release file: $file"
@@ -61,7 +82,7 @@ try {
         $path = [IO.Path]::GetFullPath((Join-Path $root $relative))
         Assert-Condition ($path.StartsWith($basePath, [StringComparison]::OrdinalIgnoreCase)) "Path escapes release kit: $relative"
         Assert-Condition (Test-Path -LiteralPath $path -PathType Leaf) "Missing checked file: $relative"
-        $path = Assert-PortalNoReparsePath $path -MustExist
+        $path = Assert-InstallerNoReparsePath $path -MustExist
         Assert-Condition (Test-Path -LiteralPath $path -PathType Leaf) "Missing checked file: $relative"
         $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
         Assert-Condition ($actual.Equals($expected, [StringComparison]::OrdinalIgnoreCase)) "SHA-256 mismatch: $relative"
@@ -72,9 +93,12 @@ try {
         }
     }
     # Installer files also have to be checksummed by the release builder.
-    foreach ($file in @('install.ps1', 'install.cmd')) {
+    foreach ($file in @('install.ps1', 'install.cmd', 'windows-lifecycle-common.ps1')) {
         Assert-Condition ($verified.Contains($file)) "Installer missing from checksum manifest: $file"
     }
+
+    # Only load shared lifecycle code after its checksum has been verified.
+    . (Join-Path $root 'windows-lifecycle-common.ps1')
 
     $version = (Get-Content -LiteralPath 'release-version.txt' -Raw).Trim()
     $releaseArch = (Get-Content -LiteralPath 'release-arch.txt' -Raw).Trim()

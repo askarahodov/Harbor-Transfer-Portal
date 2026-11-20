@@ -49,7 +49,7 @@ try{
  Check ($backup.Contains("'--pull','never'") -and $backup.Contains("'--network','none'")) 'Backup is not offline-only'
  Check ($backup.Contains('Backend image architecture mismatch')) 'Backup does not verify local image architecture'
  Check ($backup.Contains('Set-PortalPrivateDirectoryAcl') -and $backup.Contains('Set-PortalPrivateFileAcl')) 'Backup does not restrict secret-bearing NTFS paths'
- Check ($backup.Contains('$pauseAttempted') -and $backup.Contains("'unpause',$containerId")) 'Backup does not recover partially paused containers'
+ Check ($backup.Contains('$pauseAttempted') -and $backup.Contains("'unpause'," + '$containerId')) 'Backup does not recover partially paused containers'
  $restore=[IO.File]::ReadAllText((Join-Path $kit 'restore.ps1'))
  Check ($restore.Contains('$ConfirmRestore') -and $restore.Contains('matching kit version')) 'Restore lacks confirmation/version pin'
  Check ($restore.Contains('Backup archive must not be a reparse point') -and $restore.Contains('Backup sidecar must not be a reparse point')) 'Restore must reject symlinked backup inputs'
