@@ -257,8 +257,13 @@ public class DockerStub {
     Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'pause|down|up')) 'Wrong Docker mode reached a workload mutation'
     $env:FAKE_DOCKER_OS = 'linux'
 
+    $envFileForBackup = Get-Item -LiteralPath (Join-Path $kit1 '.env') -Force
+    $envAttributesBeforeBackup = $envFileForBackup.Attributes
+    $envFileForBackup.Attributes = $envAttributesBeforeBackup -bor [IO.FileAttributes]::Hidden
     [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG,'')
     $backupCode = Run-PortalScript $kit1 'backup.ps1' @('-InstallDir',$kit1)
+    $envFileForBackup = Get-Item -LiteralPath (Join-Path $kit1 '.env') -Force
+    $envFileForBackup.Attributes = $envAttributesBeforeBackup
     Check ($backupCode -eq 0) 'Backup failed'
     Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_STATE).Trim() -eq 'running') 'Successful backup did not resume Portal'
     $backupDir = Join-Path $kit1 'backups'
