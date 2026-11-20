@@ -123,6 +123,13 @@ sh "$ROOT/deploy/build-offline-kit.sh" "$VERSION" "$DIST"
 ARCHIVE="$DIST/harbor-transfer-portal-v${VERSION}-offline-install.tar.gz"
 [ -f "$ARCHIVE" ] || fail 'release archive was not created'
 [ -f "$ARCHIVE.sha256" ] || fail 'external archive checksum was not created'
+
+# The outer release package must be byte-for-byte reproducible for the same staged payload.
+DIST_REPEAT="$TMP/dist-repeat"
+mkdir -p "$DIST_REPEAT"
+sh "$ROOT/deploy/build-offline-kit.sh" "$VERSION" "$DIST_REPEAT"
+cmp -s "$ARCHIVE" "$DIST_REPEAT/harbor-transfer-portal-v${VERSION}-offline-install.tar.gz" \
+  || fail 'offline release archive is not reproducible for identical inputs'
 (
   cd "$DIST"
   sha256sum -c "$(basename "$ARCHIVE").sha256"

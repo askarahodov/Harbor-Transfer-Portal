@@ -18,7 +18,7 @@ dist/harbor-transfer-portal-v1.0.0-offline-install.tar.gz.sha256
 
 Для успешного CI `push` в `main` тот же архив, который прошёл clean-host qualification для SOURCE и TARGET, сохраняется как GitHub Actions artifact `harbor-transfer-portal-offline-install-<commit-sha>`. Artifact содержит только versioned release archive и его внешний `.sha256`; перед переносом используйте оба файла из одного artifact.
 
-Packaging fail-closed проверяет canonical product version и OCI `org.opencontainers.image.version`/`revision` labels, поэтому stale или несовместимые images нельзя молча включить в текущий release archive.
+Packaging fail-closed проверяет canonical product version и OCI `org.opencontainers.image.version`/`revision` labels, поэтому stale или несовместимые images нельзя молча включить в текущий release archive. Внешний tar.gz собирается детерминированно: фиксируются порядок файлов, owner/group, timestamps и gzip header; `make test-offline-kit` проверяет побайтовую повторяемость для одинакового staged payload.
 
 ## Установка в закрытом контуре
 

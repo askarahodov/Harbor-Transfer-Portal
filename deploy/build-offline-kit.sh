@@ -22,6 +22,7 @@ esac
 command -v docker >/dev/null 2>&1 || fail 'docker is required'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is required'
 command -v tar >/dev/null 2>&1 || fail 'tar is required'
+command -v gzip >/dev/null 2>&1 || fail 'gzip is required'
 
 BACKEND_IMAGE="harbor-transfer-portal-backend:$VERSION"
 FRONTEND_IMAGE="harbor-transfer-portal-frontend:$VERSION"
@@ -128,7 +129,16 @@ EOF
 )
 
 ARCHIVE="$OUT_DIR/$PACKAGE_NAME.tar.gz"
-tar -C "$TMP" -czf "$ARCHIVE" "$PACKAGE_NAME"
+SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-0}
+case "$SOURCE_DATE_EPOCH" in
+  ''|*[!0-9]*) fail 'SOURCE_DATE_EPOCH must be a non-negative integer' ;;
+esac
+# Normalize ordering, ownership, timestamps and gzip headers so packaging is
+# deterministic for identical staged payload bytes and release metadata.
+tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+  --format=posix --pax-option=delete=atime,delete=ctime \
+  -C "$TMP" -cf "$TMP/$PACKAGE_NAME.tar" "$PACKAGE_NAME"
+gzip -n -c "$TMP/$PACKAGE_NAME.tar" > "$ARCHIVE"
 (
   cd "$OUT_DIR"
   sha256sum "$(basename "$ARCHIVE")" > "$(basename "$ARCHIVE").sha256"
