@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.2 - intentionally unhealthy rollback acceptance candidate (not released)
+
+### Test-only behavior
+- The offline kit backend healthcheck is deliberately configured to fail so the Windows upgrade helper must execute its rollback path.
+- The OCI images remain versioned 1.0.2 and match this candidate source revision; the failure is introduced only by the test kit Compose healthcheck.
+
+### Safety
+- This candidate is intentionally unusable as a running release.
+- Use only as the newer candidate in a disposable 1.0.1 to 1.0.2 rollback test. Never deploy, tag, publish or merge it.
+
 ## 1.0.1 - Windows offline lifecycle acceptance candidate (not released)
 
 ### Added
