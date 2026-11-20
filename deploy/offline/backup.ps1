@@ -58,7 +58,8 @@ try {
         }
     }
     $mount = 'type=bind,source=' + $tmp + ',target=/backup'
-    Invoke-PortalDocker @('run','--rm','--pull','never','--network','none','--entrypoint','tar','-v',($volume + ':/app/data:ro'),'--mount',$mount,$image,'-czf','/backup/portal-data.tar.gz','-C','/app/data','.') | Out-Null
+    # The restricted NTFS bind mount is accessed by a one-off root helper; the data volume remains read-only.
+    Invoke-PortalDocker @('run','--rm','--pull','never','--network','none','--user','0:0','--entrypoint','tar','-v',($volume + ':/app/data:ro'),'--mount',$mount,$image,'-czf','/backup/portal-data.tar.gz','-C','/app/data','.') | Out-Null
     Copy-Item -LiteralPath $envPath -Destination (Join-Path $tmp '.env')
     Set-PortalPrivateFileAcl (Join-Path $tmp '.env')
     $metadata = @("product=harbor-transfer-portal","version=$version","contour=$contour","created_at_utc=$stamp","volume=$volume") -join [Environment]::NewLine
