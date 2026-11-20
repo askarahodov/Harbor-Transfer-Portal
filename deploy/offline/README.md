@@ -1,6 +1,6 @@
 # Harbor Transfer Portal — offline install kit
 
-**Граница установки:** корневые `run.sh` и `run.cmd` предназначены только для запуска из исходного checkout с Docker build. Они **не заменяют** подписанный offline release kit в закрытом контуре. Offline installer выполняет `docker load` и Compose `--no-build --pull never`; на Linux используйте штатный `install.sh`, не source launcher. Windows-native offline lifecycle не заявлен.
+**Граница установки:** корневые `run.sh` и `run.cmd` предназначены только для запуска из исходного checkout с Docker build. Они **не заменяют** versioned offline release kit в закрытом контуре. Offline installer выполняет `docker load` и Compose `--no-build --pull never`; на Linux используйте штатный `install.sh`, не source launcher. Windows 10/11 PowerShell 5.1+ lifecycle wrappers are included; clean-host production qualification still requires controlled acceptance.
 
 Этот каталог является шаблоном release payload для закрытого контура. Финальный kit создаётся из **уже собранных release images** в контролируемой build/release среде:
 
@@ -83,6 +83,12 @@ PORTAL_BROWSER_SCHEME=https
 После первого запуска настройте через admin UI **только Harbor profiles локального security-контура этой installation**, их CA/credentials и требуемое key material. В одной installation может быть несколько именованных profiles, но SOURCE credentials не должны ссылаться на TARGET-контур и наоборот. В universal installation SOURCE private signing key и TARGET trusted public keys могут сосуществовать в persistent storage, но active semantics жёстко разделяются текущим runtime mode.
 
 Полный штатный пользовательский перенос выполняется через browser: в SOURCE role выбирается SOURCE Harbor profile и артефакты, затем скачиваются **три файла одной delivery** — bundle, `.sha256` и signed `.htp-handoff.json`. В TARGET role выбирается TARGET Harbor profile, переносится полный triplet, signed handoff проверяется до Bundle v1 preview, после чего Portal выполняет verify/preview/import через UI. Пошаговая процедура находится прямо в release kit: `docs/user-guide.md`.
+
+## Windows 10/11 — offline lifecycle
+
+Windows 10/11 supports install, same-version rerun, start/stop, backup, matching-version restore, upgrade with automatic matching-version rollback, and safe uninstall. Use the PowerShell 5.1+ wrappers shipped in the release kit; Docker Desktop must use Linux containers and Compose v2. The kit must be extracted on NTFS.
+
+The installer, lifecycle scripts and backup operation protect .env, temporary snapshots, backup directories, ZIP archives and SHA-256 sidecars with NTFS ACLs limited to the current user, SYSTEM and local Administrators. Existing contents of a selected backup directory are also re-protected; use a dedicated NTFS directory. ACL enforcement failures stop the operation. The ZIP and persistent data contain secrets and must never be attached to CI artifacts or issue comments.
 
 ## Backup
 

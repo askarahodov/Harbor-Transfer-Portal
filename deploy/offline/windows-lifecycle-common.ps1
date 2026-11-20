@@ -4,16 +4,67 @@ $ErrorActionPreference = 'Stop'
 function Assert-Portal([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
+function Assert-PortalNoReparsePath([string]$Path, [switch]$MustExist) {
+    Assert-Portal (-not [string]::IsNullOrWhiteSpace($Path)) 'Path is required'
+    $full = [IO.Path]::GetFullPath($Path)
+    $root = [IO.Path]::GetPathRoot($full)
+    Assert-Portal (-not [string]::IsNullOrWhiteSpace($root)) "Path has no filesystem root: $Path"
+    $cursor = $root
+    if (Test-Path -LiteralPath $cursor) {
+        $rootItem = Get-Item -LiteralPath $cursor -Force
+        Assert-Portal (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) "Reparse-point filesystem root is not allowed: $cursor"
+    }
+    $relative = $full.Substring($root.Length)
+    $separators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    foreach ($part in $relative.Split($separators, [StringSplitOptions]::RemoveEmptyEntries)) {
+        $cursor = Join-Path $cursor $part
+        if (Test-Path -LiteralPath $cursor) {
+            $item = Get-Item -LiteralPath $cursor -Force
+            Assert-Portal (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) "Reparse point in path is not allowed: $cursor"
+        } elseif ($MustExist) {
+            throw "Required path component is missing: $cursor"
+        }
+    }
+    if ($MustExist) { Assert-Portal (Test-Path -LiteralPath $full) "Required path does not exist: $full" }
+    return $full
+}
+function Set-PortalPrivateFileAcl([string]$Path) {
+    $full = Assert-PortalNoReparsePath $Path -MustExist
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $icacls = Get-Command icacls.exe -ErrorAction SilentlyContinue
+    Assert-Portal ($null -ne $icacls) 'icacls.exe is required to protect Portal secrets on Windows'
+    & $icacls.Source $full '/reset' *> $null
+    Assert-Portal ($LASTEXITCODE -eq 0) "Could not reset ACL before protecting secret file: $full"
+    & $icacls.Source $full '/inheritance:r' '/grant:r' ($identity + ':F') 'SYSTEM:F' 'BUILTIN\Administrators:F' *> $null
+    Assert-Portal ($LASTEXITCODE -eq 0) "Could not restrict secret file permissions: $full"
+}
+function Set-PortalPrivateDirectoryAcl([string]$Path) {
+    $full = Assert-PortalNoReparsePath $Path -MustExist
+    $item = Get-Item -LiteralPath $full -Force
+    Assert-Portal $item.PSIsContainer "Expected a directory for private ACL: $full"
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $icacls = Get-Command icacls.exe -ErrorAction SilentlyContinue
+    Assert-Portal ($null -ne $icacls) 'icacls.exe is required to protect Portal backups on Windows'
+    & $icacls.Source $full '/reset' *> $null
+    Assert-Portal ($LASTEXITCODE -eq 0) "Could not reset ACL before protecting directory: $full"
+    & $icacls.Source $full '/inheritance:r' '/grant:r' ($identity + ':(OI)(CI)F') 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' *> $null
+    Assert-Portal ($LASTEXITCODE -eq 0) "Could not restrict directory permissions: $full"
+    foreach ($child in @(Get-ChildItem -LiteralPath $full -Force)) {
+        Assert-Portal (($child.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) "Reparse point in private directory: $($child.FullName)"
+        if ($child.PSIsContainer) { Set-PortalPrivateDirectoryAcl $child.FullName }
+        else { Set-PortalPrivateFileAcl $child.FullName }
+    }
+}
 function Read-PortalSetting([string]$Text, [string]$Name, [string]$Default = '') {
     $match = [regex]::Match($Text, "(?m)^$([regex]::Escape($Name))=([^\r\n]*)")
     if ($match.Success) { return $match.Groups[1].Value.Trim() }
     return $Default
 }
 function Read-PortalEnv([string]$Path) {
-    Assert-Portal (Test-Path -LiteralPath $Path -PathType Leaf) "Missing .env: $Path"
-    $item = Get-Item -LiteralPath $Path -Force
-    Assert-Portal (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) '.env must not be a reparse point'
-    return [IO.File]::ReadAllText($Path)
+    $full = Assert-PortalNoReparsePath $Path -MustExist
+    Assert-Portal (Test-Path -LiteralPath $full -PathType Leaf) "Missing .env: $full"
+    Set-PortalPrivateFileAcl $full
+    return [IO.File]::ReadAllText($full)
 }
 function Invoke-PortalDocker([string[]]$DockerArgs, [switch]$Capture) {
     if ($Capture) {
@@ -39,7 +90,8 @@ function Assert-PortalDocker([string]$ExpectedArch = '') {
     }
 }
 function Assert-PortalKit([string]$KitDir) {
-    $root = [IO.Path]::GetFullPath($KitDir)
+    $root = Assert-PortalNoReparsePath $KitDir -MustExist
+    Assert-Portal (Test-Path -LiteralPath $root -PathType Container) "Release kit is not a directory: $root"
     $required = @('release-version.txt','release-arch.txt','CHECKSUMS.sha256','compose.yaml','.env.example','images/backend.tar','images/frontend.tar','install.ps1','install.cmd','start.ps1','stop.ps1','backup.ps1','restore.ps1','upgrade.ps1','uninstall.ps1','windows-lifecycle-common.ps1')
     foreach ($file in $required) {
         Assert-Portal (Test-Path -LiteralPath (Join-Path $root $file) -PathType Leaf) "Missing kit file: $file"
@@ -55,9 +107,8 @@ function Assert-PortalKit([string]$KitDir) {
         Assert-Portal ($seen.Add($relative)) "Duplicate kit path: $relative"
         $path = [IO.Path]::GetFullPath((Join-Path $root ($relative -replace '/', [IO.Path]::DirectorySeparatorChar)))
         Assert-Portal ($path.StartsWith($root.TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) "Path escapes kit: $relative"
+        $path = Assert-PortalNoReparsePath $path -MustExist
         Assert-Portal (Test-Path -LiteralPath $path -PathType Leaf) "Missing checked file: $relative"
-        $item = Get-Item -LiteralPath $path -Force
-        Assert-Portal (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) "Reparse point in kit: $relative"
         $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
         Assert-Portal ($actual.Equals($expected, [StringComparison]::OrdinalIgnoreCase)) "Checksum mismatch: $relative"
     }
@@ -79,11 +130,15 @@ function Set-PortalEnvVersion([string]$Text, [string]$Version) {
     return [regex]::Replace($Text, '(?m)^PORTAL_VERSION=[^\r\n]*', "PORTAL_VERSION=$Version")
 }
 function Write-PortalAtomic([string]$Path, [string]$Text) {
-    $temporary = $Path + '.tmp.' + [guid]::NewGuid().ToString('N')
+    $full = [IO.Path]::GetFullPath($Path)
+    $temporary = $full + '.tmp.' + [guid]::NewGuid().ToString('N')
     try {
+        [IO.File]::WriteAllText($temporary, '', ([Text.UTF8Encoding]::new($false)))
+        Set-PortalPrivateFileAcl $temporary
         [IO.File]::WriteAllText($temporary, $Text, ([Text.UTF8Encoding]::new($false)))
-        if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($temporary, $Path, $null) }
-        else { [IO.File]::Move($temporary, $Path) }
+        if (Test-Path -LiteralPath $full) { [IO.File]::Replace($temporary, $full, $null) }
+        else { [IO.File]::Move($temporary, $full) }
+        Set-PortalPrivateFileAcl $full
     } finally {
         if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
     }

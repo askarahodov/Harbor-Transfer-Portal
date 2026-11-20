@@ -31,7 +31,7 @@ $oldLog = $env:FAKE_DOCKER_LOG
 $oldOs = $env:FAKE_DOCKER_OS
 
 try {
-    foreach ($name in @('install.cmd', 'install.ps1', 'compose.yaml', '.env.example')) {
+    foreach ($name in @('install.cmd', 'install.ps1', 'windows-lifecycle-common.ps1', 'compose.yaml', '.env.example')) {
         $source = if ($name -eq '.env.example') { Join-Path $root $name } else { Join-Path $root "deploy/offline/$name" }
         Copy-Item -LiteralPath $source -Destination (Join-Path $kit $name)
     }
@@ -80,6 +80,10 @@ exit /b 0
     Check ($initial.Contains('PORTAL_CONTOUR=TARGET')) 'Bootstrap contour not saved'
     Check ($initial.Contains('PORTAL_VERSION=1.0.0')) 'Version not saved'
     Check ($initial -match '(?m)^JWT_SECRET=[a-f0-9]{64}\r?$') 'Strong JWT secret missing'
+    $envAcl = Get-Acl -LiteralPath $envPath
+    Check ($envAcl.AreAccessRulesProtected) '.env inherited permissions instead of using a protected ACL'
+    $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    Check (@($envAcl.Access | Where-Object { $_.IdentityReference.Value -eq $currentIdentity -and $_.FileSystemRights.ToString().Contains('FullControl') }).Count -gt 0) '.env ACL does not grant the installer user full control'
     $dockerLog = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
     Check ($dockerLog.Contains('load -i images/backend.tar')) 'Backend image not loaded'
     Check ($dockerLog.Contains('load -i images/frontend.tar')) 'Frontend image not loaded'

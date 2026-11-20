@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param([string]$InstallDir = $PSScriptRoot, [string]$BackupDir = '', [switch]$KeepPaused)
 . (Join-Path $PSScriptRoot 'windows-lifecycle-common.ps1')
-$paused = $false
+$pauseAttempted = $false
+$runningIds = @()
 $backupCompleted = $false
 $tmp = $null
 try {
@@ -25,20 +26,28 @@ try {
     Invoke-PortalDocker @('volume','inspect',$volume) | Out-Null
     if (-not $BackupDir) { $BackupDir = Join-Path $dir 'backups' }
     New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
+    $BackupDir = Assert-PortalNoReparsePath $BackupDir -MustExist
+    $backupRoot = [IO.Path]::GetPathRoot($BackupDir)
+    Assert-Portal ($BackupDir.TrimEnd('\','/') -ne $backupRoot.TrimEnd('\','/')) 'Backup destination cannot be a filesystem root'
+    Assert-Portal ((Get-Item -LiteralPath $BackupDir -Force).PSIsContainer) 'Backup destination must be a directory'
+    Set-PortalPrivateDirectoryAcl $BackupDir
     $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
-    $archive = Join-Path ([IO.Path]::GetFullPath($BackupDir)) "harbor-transfer-portal-backup-v$version-$stamp.zip"
+    $archive = Join-Path $BackupDir "harbor-transfer-portal-backup-v$version-$stamp.zip"
     Assert-Portal (-not (Test-Path -LiteralPath $archive)) 'Backup archive already exists'
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ('htp-backup-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp | Out-Null
+    Set-PortalPrivateDirectoryAcl $tmp
     $compose = Get-PortalComposeArgs $dir $envPath
     $running = Invoke-PortalDocker ($compose + @('ps','--status','running','-q')) -Capture
-    if (($running -join '').Trim()) {
+    $runningIds = @($running | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+    if ($runningIds.Count -gt 0) {
+        $pauseAttempted = $true
         Invoke-PortalDocker ($compose + @('pause')) | Out-Null
-        $paused = $true
     }
     $mount = 'type=bind,source=' + $tmp + ',target=/backup'
     Invoke-PortalDocker @('run','--rm','--pull','never','--network','none','--entrypoint','tar','-v',($volume + ':/app/data:ro'),'--mount',$mount,$image,'-czf','/backup/portal-data.tar.gz','-C','/app/data','.') | Out-Null
     Copy-Item -LiteralPath $envPath -Destination (Join-Path $tmp '.env')
+    Set-PortalPrivateFileAcl (Join-Path $tmp '.env')
     $metadata = @("product=harbor-transfer-portal","version=$version","contour=$contour","created_at_utc=$stamp","volume=$volume") -join [Environment]::NewLine
     [IO.File]::WriteAllText((Join-Path $tmp 'backup-metadata.txt'),$metadata,([Text.UTF8Encoding]::new($false)))
     $hashes = foreach ($name in @('.env','backup-metadata.txt','portal-data.tar.gz')) {
@@ -46,9 +55,15 @@ try {
         "$hash  $name"
     }
     [IO.File]::WriteAllLines((Join-Path $tmp 'CHECKSUMS.sha256'),$hashes,[Text.UTF8Encoding]::new($false))
+    foreach ($name in @('backup-metadata.txt','CHECKSUMS.sha256','portal-data.tar.gz')) {
+        Set-PortalPrivateFileAcl (Join-Path $tmp $name)
+    }
     Compress-Archive -Path (Join-Path $tmp '*') -DestinationPath $archive -CompressionLevel Optimal
+    Set-PortalPrivateFileAcl $archive
     $outerHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText("$archive.sha256","$outerHash  $([IO.Path]::GetFileName($archive))",[Text.UTF8Encoding]::new($false))
+    Set-PortalPrivateFileAcl "$archive.sha256"
+    Write-Host "Backup created; it contains secrets and must be protected: $archive"
     Write-Host "Backup created; it contains secrets and must be protected: $archive"
     $backupCompleted = $true
     Write-Output $archive
@@ -56,12 +71,25 @@ try {
     [Console]::Error.WriteLine($_.Exception.Message)
     exit 1
 } finally {
-    if ($paused) {
+    if ($pauseAttempted) {
         if ($KeepPaused -and $backupCompleted) {
             Write-Host 'Portal remains paused for the caller to complete the offline upgrade transaction.'
         } else {
-            try { Invoke-PortalDocker ((Get-PortalComposeArgs $dir $envPath) + @('unpause')) | Out-Null }
-            catch { [Console]::Error.WriteLine('CRITICAL: failed to unpause Portal after backup'); throw 'Backup failed because Portal could not be unpaused' }
+            try {
+                $pausedOutput = Invoke-PortalDocker ($compose + @('ps','--status','paused','-q')) -Capture
+                $pausedIds = @($pausedOutput | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+                $unpauseFailures = @()
+                foreach ($containerId in $pausedIds) {
+                    if ($runningIds -contains $containerId) {
+                        try { Invoke-PortalDocker @('unpause',$containerId) | Out-Null }
+                        catch { $unpauseFailures += $containerId }
+                    }
+                }
+                if ($unpauseFailures.Count -gt 0) { throw "Could not unpause original running containers: $($unpauseFailures -join ', ')" }
+            } catch {
+                [Console]::Error.WriteLine('CRITICAL: failed to restore the pre-backup running state')
+                throw 'Backup failed because Portal could not be safely resumed'
+            }
         }
     }
     if ($tmp -and (Test-Path -LiteralPath $tmp)) { Remove-Item -LiteralPath $tmp -Recurse -Force }

@@ -2,6 +2,7 @@
 # Uses only the prebuilt Linux images supplied in this kit.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'windows-lifecycle-common.ps1')
 
 function Assert-Condition([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "Installation failed: $Message" }
@@ -29,6 +30,7 @@ function Normalize-Arch([string]$Arch) {
 }
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = Assert-PortalNoReparsePath $root -MustExist
 Push-Location -LiteralPath $root
 try {
     $required = @(
@@ -59,9 +61,8 @@ try {
         $path = [IO.Path]::GetFullPath((Join-Path $root $relative))
         Assert-Condition ($path.StartsWith($basePath, [StringComparison]::OrdinalIgnoreCase)) "Path escapes release kit: $relative"
         Assert-Condition (Test-Path -LiteralPath $path -PathType Leaf) "Missing checked file: $relative"
-        Assert-Condition (
-            -not (([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReparsePoint) -ne 0)
-        ) "Symbolic links are not allowed in release payload: $relative"
+        $path = Assert-PortalNoReparsePath $path -MustExist
+        Assert-Condition (Test-Path -LiteralPath $path -PathType Leaf) "Missing checked file: $relative"
         $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
         Assert-Condition ($actual.Equals($expected, [StringComparison]::OrdinalIgnoreCase)) "SHA-256 mismatch: $relative"
     }
@@ -97,11 +98,10 @@ try {
 
     $envPath = Join-Path $root '.env'
     if (Test-Path -LiteralPath $envPath) {
+        $envPath = Assert-PortalNoReparsePath $envPath -MustExist
         $envItem = Get-Item -LiteralPath $envPath -Force
         Assert-Condition (-not $envItem.PSIsContainer) 'Existing .env must be a regular file'
-        Assert-Condition (
-            -not (($envItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
-        ) 'Existing .env must not be a symbolic link'
+        Set-PortalPrivateFileAcl $envPath
         $envContent = [IO.File]::ReadAllText($envPath)
         $configuredVersion = Get-Setting $envContent 'PORTAL_VERSION' ''
         Assert-Condition ($configuredVersion -ceq $version) "Existing .env version '$configuredVersion' is not '$version'; use the supported upgrade procedure"
@@ -129,10 +129,7 @@ try {
         }
         Assert-Condition ($envContent.Contains('# JWT_SECRET=')) 'Template missing JWT secret placeholder'
         $envContent = $envContent.Replace('# JWT_SECRET=', "JWT_SECRET=$jwtSecret")
-        $temporaryEnv = Join-Path $root '.env.tmp'
-        Assert-Condition (-not (Test-Path -LiteralPath $temporaryEnv)) 'Stale .env.tmp exists; inspect it before retrying'
-        [IO.File]::WriteAllText($temporaryEnv, $envContent, ([Text.UTF8Encoding]::new($false)))
-        [IO.File]::Move($temporaryEnv, $envPath)
+        Write-PortalAtomic $envPath $envContent
         Write-Host "Created local .env for $contour; existing configuration is never overwritten."
     }
 

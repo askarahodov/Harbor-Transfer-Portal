@@ -48,6 +48,8 @@ try{
  Check ($backup.Contains("'pause'") -and $backup.Contains("'unpause'")) 'Backup does not pause/unpause services'
  Check ($backup.Contains("'--pull','never'") -and $backup.Contains("'--network','none'")) 'Backup is not offline-only'
  Check ($backup.Contains('Backend image architecture mismatch')) 'Backup does not verify local image architecture'
+ Check ($backup.Contains('Set-PortalPrivateDirectoryAcl') -and $backup.Contains('Set-PortalPrivateFileAcl')) 'Backup does not restrict secret-bearing NTFS paths'
+ Check ($backup.Contains('$pauseAttempted') -and $backup.Contains("'unpause',$containerId")) 'Backup does not recover partially paused containers'
  $restore=[IO.File]::ReadAllText((Join-Path $kit 'restore.ps1'))
  Check ($restore.Contains('$ConfirmRestore') -and $restore.Contains('matching kit version')) 'Restore lacks confirmation/version pin'
  Check ($restore.Contains('Backup archive must not be a reparse point') -and $restore.Contains('Backup sidecar must not be a reparse point')) 'Restore must reject symlinked backup inputs'
@@ -58,12 +60,30 @@ try{
  Check ($upgrade.Contains('Downgrade or non-increasing version change is not supported')) 'Upgrade must reject downgrade/non-increasing versions'
  $common=[IO.File]::ReadAllText((Join-Path $kit 'windows-lifecycle-common.ps1'))
  Check ($common.Contains('CHECKSUMS.sha256') -and $common.Contains('ReparsePoint')) 'Kit verification lacks checksum/path safety'
+ . (Join-Path $kit 'windows-lifecycle-common.ps1')
+ $aclDir=Join-Path $tmp 'acl-test';New-Item -ItemType Directory -Path $aclDir|Out-Null
+ Set-PortalPrivateDirectoryAcl $aclDir
+ $secretFile=Join-Path $aclDir '.env';Write-PortalAtomic $secretFile 'JWT_SECRET=test-secret'
+ Check ((Get-Acl -LiteralPath $aclDir).AreAccessRulesProtected) 'Backup directory ACL still inherits broad permissions'
+ $fileAcl=Get-Acl -LiteralPath $secretFile
+ Check ($fileAcl.AreAccessRulesProtected) 'Secret file ACL still inherits broad permissions'
+ $currentIdentity=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+ Check (@($fileAcl.Access | Where-Object { $_.IdentityReference.Value -eq $currentIdentity -and $_.FileSystemRights.ToString().Contains('FullControl') }).Count -gt 0) 'Secret file ACL does not grant current user full control'
+ $outside=Join-Path $tmp 'outside';New-Item -ItemType Directory -Path $outside|Out-Null
+ $sentinel=Join-Path $outside 'sentinel.txt';[IO.File]::WriteAllText($sentinel,'outside')
+ $junction=Join-Path $tmp 'junction';$mklinkCommand='mklink /J "'+$junction+'" "'+$outside+'"'
+ & $env:ComSpec /d /c $mklinkCommand *> $null
+ Check (Test-Path -LiteralPath $junction) 'Could not create junction test fixture'
+ $junctionRejected=$false
+ try { Assert-PortalNoReparsePath (Join-Path $junction 'sentinel.txt') -MustExist | Out-Null } catch { $junctionRejected=$true }
+ Check ($junctionRejected) 'Path validation accepted a file reached through a parent junction'
  $start=[IO.File]::ReadAllText((Join-Path $kit 'start.ps1'))
  Check ($start.Contains('--no-build') -and $start.Contains('--pull') -and $start.Contains('--wait')) 'Start must use prebuilt images and health readiness'
  $stop=[IO.File]::ReadAllText((Join-Path $kit 'stop.ps1'))
  Check ($stop.Contains("@('stop')")) 'Stop must not remove containers or data'
  Write-Host 'Windows offline lifecycle tests passed.'
 }finally{
+ if (Test-Path -LiteralPath (Join-Path $tmp 'junction')) { & $env:ComSpec /d /c ('rmdir "'+(Join-Path $tmp 'junction')+'"') *> $null }
  $env:PATH=$oldPath
  if($null -eq $oldLog){Remove-Item Env:HTP_DOCKER_LOG -ErrorAction SilentlyContinue}else{$env:HTP_DOCKER_LOG=$oldLog}
  Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
