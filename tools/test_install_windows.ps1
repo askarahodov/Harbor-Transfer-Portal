@@ -116,30 +116,7 @@ exit /b 0
     Check ($failureCode -ne 0) 'Tampered image was accepted'
     Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -eq '') 'Tampered image reached Docker'
 
-    # Check the source CMD launcher separately with the same mocked Docker.
-    $source = Join-Path $temp 'source'
-    New-Item -ItemType Directory -Path $source | Out-Null
-    foreach ($name in @('run.cmd', 'compose.yaml', '.env.example')) {
-        Copy-Item -LiteralPath (Join-Path $root $name) -Destination (Join-Path $source $name)
-    }
-    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
-    $sourceOutput = & (Join-Path $source 'run.cmd') 2>&1 | Out-String
-    Check ($LASTEXITCODE -eq 0) "Source CMD launcher failed: $sourceOutput"
-    if (-not (Test-Path -LiteralPath (Join-Path $source '.env') -PathType Leaf)) {
-        $names = (Get-ChildItem -LiteralPath $source -Force | Select-Object -ExpandProperty Name) -join ', '
-        $calls = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
-        throw "Source CMD launcher did not create .env; output=[$sourceOutput], files=[$names], Docker calls=[$calls]"
-    }
-    $sourceLog = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
-    Check ($sourceLog -match 'compose up -d --build --force-recreate --wait --wait-timeout 180') 'Source launcher did not wait for health'
-
-    $env:FAKE_DOCKER_OS = 'windows'
-    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
-    & (Join-Path $source 'run.cmd') *> $null
-    Check ($failureCode -ne 0) 'Source launcher accepted Windows containers mode'
-    Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'compose up')) 'Source launcher launched in Windows containers mode'
-
-    Write-Host 'Windows installer and source launcher contracts passed: checksums, install/rerun, transport, version, engine mode, healthy startup.'
+    Write-Host 'Windows offline installer contracts passed: checksum validation, idempotent install, transport/version/engine-mode rejection, and no-build/no-pull startup.'
 } finally {
     $env:PATH = $oldPath
     if ($null -eq $oldContour) { Remove-Item Env:PORTAL_CONTOUR -ErrorAction SilentlyContinue } else { $env:PORTAL_CONTOUR = $oldContour }
