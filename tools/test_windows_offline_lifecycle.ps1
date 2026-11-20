@@ -52,7 +52,7 @@ try{
  Check ($backup.Contains('$pauseAttempted') -and $backup.Contains("'unpause'," + '$containerId')) 'Backup does not recover partially paused containers'
  $restore=[IO.File]::ReadAllText((Join-Path $kit 'restore.ps1'))
  Check ($restore.Contains('$ConfirmRestore') -and $restore.Contains('matching kit version')) 'Restore lacks confirmation/version pin'
- Check ($restore.Contains('Backup archive must not be a reparse point') -and $restore.Contains('Backup sidecar must not be a reparse point')) 'Restore must reject symlinked backup inputs'
+ Check ($restore.Contains('Assert-PortalNoReparsePath') -and $restore.Contains('Backup sidecar required')) 'Restore must reject symlinked backup inputs'
  Check ($restore.Contains('CHECKSUMS.sha256') -and $restore.Contains('portal-data.tar.gz')) 'Restore lacks checksum/data validation'
  Check ($restore.Contains("images/backend.tar") -and $restore.Contains("images/frontend.tar")) 'Restore does not reload matching offline images'
  $upgrade=[IO.File]::ReadAllText((Join-Path $kit 'upgrade.ps1'))
@@ -60,6 +60,7 @@ try{
  Check ($upgrade.Contains('Downgrade or non-increasing version change is not supported')) 'Upgrade must reject downgrade/non-increasing versions'
  $common=[IO.File]::ReadAllText((Join-Path $kit 'windows-lifecycle-common.ps1'))
  Check ($common.Contains('CHECKSUMS.sha256') -and $common.Contains('ReparsePoint')) 'Kit verification lacks checksum/path safety'
+ Check ($common.Contains('Assert-PortalNoReparsePath') -and $common.Contains('Set-PortalPrivateFileAcl')) 'Shared path and secret ACL helpers are missing'
  . (Join-Path $kit 'windows-lifecycle-common.ps1')
  $aclDir=Join-Path $tmp 'acl-test';New-Item -ItemType Directory -Path $aclDir|Out-Null
  Set-PortalPrivateDirectoryAcl $aclDir
