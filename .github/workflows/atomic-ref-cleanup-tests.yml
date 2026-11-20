@@ -1,0 +1,22 @@
+name: Atomic ref cleanup helper tests
+
+on:
+  pull_request:
+    paths:
+      - tools/atomic_ref_cleanup.py
+      - tools/test_atomic_ref_cleanup.py
+      - tools/prune_harbor_profile_aliases_once.py
+      - tools/prune_key_management_review_alias_once.py
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - name: Test server-enforced ref deletion leases
+        run: python3 -m unittest discover -s tools -p 'test_atomic_ref_cleanup.py' -v
