@@ -30,9 +30,10 @@ function Assert-InstallerNoReparsePath([string]$Path, [switch]$MustExist) {
 }
 
 function Get-Setting([string]$Text, [string]$Name, [string]$Default) {
-    $match = [regex]::Match($Text, "(?m)^$([regex]::Escape($Name))=([^\r\n]*)")
-    if ($match.Success -and $match.Groups[1].Value.Length -gt 0) {
-        return $match.Groups[1].Value.Trim()
+    $matches = [regex]::Matches($Text, "(?m)^$([regex]::Escape($Name))=([^\r\n]*)")
+    Assert-Condition ($matches.Count -le 1) "Duplicate setting in .env: $Name"
+    if ($matches.Count -eq 1 -and $matches[0].Groups[1].Value.Length -gt 0) {
+        return $matches[0].Groups[1].Value.Trim()
     }
     return $Default
 }
@@ -129,6 +130,8 @@ try {
         $envContent = [IO.File]::ReadAllText($envPath)
         $configuredVersion = Get-Setting $envContent 'PORTAL_VERSION' ''
         Assert-Condition ($configuredVersion -ceq $version) "Existing .env version '$configuredVersion' is not '$version'; use the supported upgrade procedure"
+        $configuredContour = Get-Setting $envContent 'PORTAL_CONTOUR' ''
+        Assert-Condition ($configuredContour -cin @('SOURCE', 'TARGET')) 'Existing .env must contain exactly one valid PORTAL_CONTOUR'
         Write-Host 'Existing .env preserved.'
     } else {
         $contour = if ($env:PORTAL_CONTOUR) { $env:PORTAL_CONTOUR } else { 'SOURCE' }
@@ -148,10 +151,10 @@ try {
         )) {
             $key = $pair[0]
             $value = $pair[1]
-            Assert-Condition ([regex]::IsMatch($envContent, "(?m)^$key=")) "Template missing $key"
+            Assert-Condition ([regex]::Matches($envContent, "(?m)^$key=").Count -eq 1) "Template must contain exactly one $key"
             $envContent = [regex]::Replace($envContent, "(?m)^$key=[^\r\n]*", "$key=$value")
         }
-        Assert-Condition ($envContent.Contains('# JWT_SECRET=')) 'Template missing JWT secret placeholder'
+        Assert-Condition ([regex]::Matches($envContent, '(?m)^# JWT_SECRET=').Count -eq 1) 'Template must contain exactly one JWT secret placeholder'
         $envContent = $envContent.Replace('# JWT_SECRET=', "JWT_SECRET=$jwtSecret")
         Write-PortalAtomic $envPath $envContent
         Write-Host "Created local .env for $contour; existing configuration is never overwritten."
