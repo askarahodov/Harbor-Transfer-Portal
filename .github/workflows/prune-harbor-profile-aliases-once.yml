@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/prune-harbor-profile-aliases-once.yml
+      - tools/prune_harbor_profile_aliases_once.py
 
 permissions:
   contents: write
