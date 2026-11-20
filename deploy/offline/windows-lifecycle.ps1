@@ -36,12 +36,18 @@ function Protect-Directory([string]$Path){
  Assert ($LASTEXITCODE -eq 0) "Could not restrict backup directory permissions: $Path"
 }
 function Write-Private([string]$Path,[string]$Text){
- $tmp=Join-Path (Split-Path -Parent $Path) ('.htp-'+[Guid]::NewGuid().ToString('N')+'.tmp')
+ $dir=Split-Path -Parent $Path
+ $tmp=Join-Path $dir ('.htp-'+[Guid]::NewGuid().ToString('N')+'.tmp')
+ $backup=$Path+'.htp-old-'+[Guid]::NewGuid().ToString('N')
  try{
   [IO.File]::WriteAllText($tmp,$Text,([Text.UTF8Encoding]::new($false)))
-  if(Test-Path -LiteralPath $Path){Assert-File $Path 'Destination';[IO.File]::Replace($tmp,$Path,$null)}else{[IO.File]::Move($tmp,$Path)}
+  if(Test-Path -LiteralPath $Path){Assert-File $Path 'Destination';[IO.File]::Replace($tmp,$Path,$backup);if(Test-Path -LiteralPath $backup){Remove-Item -LiteralPath $backup -Force}}
+  else{[IO.File]::Move($tmp,$Path)}
   Protect-File $Path
- }finally{if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue}}
+ }finally{
+  if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue}
+  if(Test-Path -LiteralPath $backup){Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue}
+ }
 }
 function Kit([string]$Path,[switch]$Windows){
  Assert-Directory $Path 'Release kit'
