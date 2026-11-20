@@ -439,6 +439,8 @@ grep -F 'compose --env-file' "$FAKE_LOG" | grep -F ' down --remove-orphans' >/de
   fail 'restore must stop existing Compose workload before replacing data'
 [ "$(grep -c '^run .*--pull never --network none' "$FAKE_LOG")" -eq 3 ] || \
   fail 'restore data operations must use local backend image with no-pull/no-network boundary'
+[ "$(grep -c '^run --rm --pull never --network none --user 0:0' "$FAKE_LOG")" -eq 3 ] || \
+  fail 'restore helpers must use explicit root access for restricted host backup mounts and volume ownership'
 grep -F 'run --rm --pull never --network none' "$FAKE_LOG" | grep -F -- '--entrypoint tar' | grep -F ':/backup/portal-data.tar.gz:ro' >/dev/null || \
   fail 'restore must mount verified persistent data read-only into the local backend image'
 grep -F 'compose --env-file' "$FAKE_LOG" | grep -F ' up -d --no-build --pull never --wait --wait-timeout 180' >/dev/null || \
