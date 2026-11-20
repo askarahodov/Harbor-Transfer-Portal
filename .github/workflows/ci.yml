@@ -249,7 +249,7 @@ jobs:
         run: sh deploy/qualify-isolated-transfer.sh
 
       - name: Publish qualified offline release artifact
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: harbor-transfer-portal-offline-install-${{ github.sha }}
