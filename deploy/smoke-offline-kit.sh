@@ -144,6 +144,15 @@ for required in \
   restore.sh \
   upgrade.sh \
   uninstall.sh \
+  install.ps1 \
+  install.cmd \
+  start.ps1 \
+  stop.ps1 \
+  windows-lifecycle-common.ps1 \
+  backup.ps1 \
+  restore.ps1 \
+  upgrade.ps1 \
+  uninstall.ps1 \
   release-version.txt \
   release-arch.txt \
   release-manifest.json \
