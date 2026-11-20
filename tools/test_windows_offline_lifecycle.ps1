@@ -6,8 +6,21 @@ $tmp=Join-Path ([IO.Path]::GetTempPath()) ('htp-win-lifecycle-'+[guid]::NewGuid(
 $kit=Join-Path $tmp 'kit';$bin=Join-Path $tmp 'bin';New-Item -ItemType Directory -Path $kit,$bin|Out-Null
 $oldPath=$env:PATH;$oldLog=$env:HTP_DOCKER_LOG
 try{
- $scripts=@('windows-lifecycle-common.ps1','start.ps1','stop.ps1','backup.ps1','restore.ps1','upgrade.ps1','uninstall.ps1')
+ $scripts=@('windows-lifecycle-common.ps1','install.ps1','install.cmd','start.ps1','stop.ps1','backup.ps1','restore.ps1','upgrade.ps1','uninstall.ps1')
  foreach($f in $scripts){Copy-Item (Join-Path $root ('deploy/offline/'+$f)) (Join-Path $kit $f)}
+ Copy-Item (Join-Path $root 'deploy/offline/compose.yaml') (Join-Path $kit 'compose.yaml')
+ Copy-Item (Join-Path $root '.env.example') (Join-Path $kit '.env.example')
+ New-Item -ItemType Directory -Path (Join-Path $kit 'images') -Force | Out-Null
+ [IO.File]::WriteAllText((Join-Path $kit 'release-version.txt'),('1.0.0'+[Environment]::NewLine))
+ [IO.File]::WriteAllText((Join-Path $kit 'release-arch.txt'),('amd64'+[Environment]::NewLine))
+ [IO.File]::WriteAllText((Join-Path $kit 'images/backend.tar'),'fake-backend')
+ [IO.File]::WriteAllText((Join-Path $kit 'images/frontend.tar'),'fake-frontend')
+ $manifest=foreach($file in (Get-ChildItem -LiteralPath $kit -File -Recurse | Sort-Object FullName)){
+  $relative=$file.FullName.Substring($kit.Length+1).Replace('\','/')
+  $hash=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+  "$hash  $relative"
+ }
+ [IO.File]::WriteAllLines((Join-Path $kit 'CHECKSUMS.sha256'),$manifest,[Text.UTF8Encoding]::new($false))
  [IO.File]::WriteAllText((Join-Path $kit '.env'),("PORTAL_VERSION=1.0.0"+[Environment]::NewLine+"PORTAL_CONTOUR=SOURCE"+[Environment]::NewLine))
  $docker='@echo off'+[Environment]::NewLine+'if /I "%~1"=="info" echo linux'+[Environment]::NewLine+'echo %*>>"%HTP_DOCKER_LOG%"'+[Environment]::NewLine+'exit /b 0'+[Environment]::NewLine
  [IO.File]::WriteAllText((Join-Path $bin 'docker.cmd'),$docker,[Text.Encoding]::ASCII)
