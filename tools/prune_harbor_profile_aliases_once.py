@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from urllib.parse import quote
 
 REPO = "askarahodov/Harbor-Transfer-Portal"
@@ -285,18 +286,23 @@ def apply_guard():
 
 def own_merged_pr() -> str:
     merge_sha = os.environ["GITHUB_SHA"]
-    related = github("GET", f"commits/{merge_sha}/pulls")
-    matches = [
-        pr for pr in related
-        if pr.get("merged_at")
-        and pr.get("merge_commit_sha") == merge_sha
-        and (pr.get("base") or {}).get("ref") == "main"
-        and (pr.get("head") or {}).get("ref") == OWN
-        and ((pr.get("head") or {}).get("repo") or {}).get("full_name") in (None, REPO)
-    ]
-    if len(matches) != 1 or not (matches[0].get("head") or {}).get("sha"):
-        raise RuntimeError("Cannot identify exactly one merged cleanup PR")
-    return matches[0]["head"]["sha"]
+    # The push event can arrive before the commits/{sha}/pulls association is indexed.
+    # Retry that read-only lookup; never weaken the exact merge/head checks.
+    for attempt in range(10):
+        related = github("GET", f"commits/{merge_sha}/pulls")
+        matches = [
+            pr for pr in related
+            if pr.get("merged_at")
+            and pr.get("merge_commit_sha") == merge_sha
+            and (pr.get("base") or {}).get("ref") == "main"
+            and (pr.get("head") or {}).get("ref") == OWN
+            and ((pr.get("head") or {}).get("repo") or {}).get("full_name") in (None, REPO)
+        ]
+        if len(matches) == 1 and (matches[0].get("head") or {}).get("sha"):
+            return matches[0]["head"]["sha"]
+        if attempt < 9:
+            time.sleep(3)
+    raise RuntimeError("Cannot identify exactly one merged cleanup PR after bounded retries")
 
 def main():
     args = sys.argv[1:]
