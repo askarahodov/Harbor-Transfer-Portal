@@ -193,6 +193,21 @@ public class DockerStub {
     Check ($commonText.Contains('Assert-PortalNoReparsePath') -and $commonText.Contains('Set-PortalPrivateFileAcl')) 'Shared path and secret ACL helpers are missing'
     . $commonPath
 
+    $activeEnvPath = Join-Path $kit1 '.env'
+    $activeEnvOriginal = [IO.File]::ReadAllText($activeEnvPath)
+    foreach ($duplicate in @(
+        "PORTAL_VERSION=0.9.0",
+        "PORTAL_CONTOUR=TARGET"
+    )) {
+        [IO.File]::WriteAllText($activeEnvPath, $activeEnvOriginal + [Environment]::NewLine + $duplicate + [Environment]::NewLine)
+        $duplicateRejected = $false
+        try { Read-PortalEnv $activeEnvPath | Out-Null } catch { $duplicateRejected = $true }
+        Check ($duplicateRejected) "Shared .env reader accepted duplicate critical setting: $duplicate"
+    }
+    [IO.File]::WriteAllText($activeEnvPath, $activeEnvOriginal)
+
+
+
     $aclDir = Join-Path $tmp 'acl-test'; New-Item -ItemType Directory -Path $aclDir | Out-Null
     Set-PortalPrivateDirectoryAcl $aclDir
     $secretFile = Join-Path $aclDir '.env'
