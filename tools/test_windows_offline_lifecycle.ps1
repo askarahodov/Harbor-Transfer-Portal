@@ -208,6 +208,12 @@ public class DockerStub {
 
 
 
+    [IO.File]::WriteAllText($activeEnvPath, $activeEnvOriginal.Replace('PORTAL_CONTOUR=SOURCE', 'PORTAL_CONTOUR=source'))
+    $invalidContourRejected = $false
+    try { Read-PortalEnv $activeEnvPath | Out-Null } catch { $invalidContourRejected = $true }
+    Check ($invalidContourRejected) 'Shared .env reader accepted a case-mismatched contour'
+    [IO.File]::WriteAllText($activeEnvPath, $activeEnvOriginal)
+
     $aclDir = Join-Path $tmp 'acl-test'; New-Item -ItemType Directory -Path $aclDir | Out-Null
     Set-PortalPrivateDirectoryAcl $aclDir
     $secretFile = Join-Path $aclDir '.env'
