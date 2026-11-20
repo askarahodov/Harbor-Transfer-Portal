@@ -3,6 +3,26 @@
 All notable user-facing changes to Harbor Transfer Portal are documented here.
 The project follows Semantic Versioning for product releases.
 
+## Unreleased — Nexus Docker v2 (release candidate; NOT in main)
+
+This section records **draft PR changes**, not published product features.
+Release version, merge, offline kit and regional deployment have **not** been approved.
+Detailed evidence and acceptance tracker: [Nexus release readiness](docs/nexus-release-readiness-2026-11-03.md).
+
+### Proposed improvements (draft; not shipped)
+- Nexus Docker Registry v2 connection probe, independent of any particular image (#438).
+- Type-aware Nexus SOURCE exact repository/tag inspection and selection, without Harbor browse API calls (#439).
+- Nexus SOURCE export preview/digest revalidation; fail-closed legacy Helm rejection (#440).
+- Signed Nexus origin in Bundle v1.1, maintaining historical Harbor v1.0 canonical metadata (#441).
+- Full disposable Nexus 3.69.0-02 OSS SOURCE API → signed bundle → download test (#442).
+- Nexus TARGET Docker v2 destination planning and disposable SOURCE→TARGET API E2E: separate hosted connectors, signed handoff, digest/receipt, SAME and conflict default-deny/explicit skip (#446, draft; not shipped).
+
+### Verified / not yet verified
+- Integrated draft branch #442: [CI success](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41633770476), [Nexus Docker v2 E2E success](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41633770502).
+- CI verified for disposable Nexus TARGET import E2E (#446): [Nexus E2E](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41649019315). Not verified: real corporate TARGET/network acceptance (#436), physical isolation and mixed registry combinations (#434), remaining UX (#431), Helm decision (#435).
+- Independent Harbor export incident #422 remains open.
+- **Release gate: NO-GO** pending the items above and review/merges.
+
 ## 1.0.0 - 2026-09-14
 
 ### Added

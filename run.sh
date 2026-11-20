@@ -1,35 +1,128 @@
 #!/usr/bin/env sh
+# Cross-platform source checkout launcher (Linux / Docker Desktop Linux engine).
+# Production offline releases use deploy/offline/install.sh instead.
 set -eu
 
 cd "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 fail() {
-    printf '%s\n' "ERROR: $*" >&2
-    exit 1
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 2
 }
 
-command -v docker >/dev/null 2>&1 || fail "Docker не найден. Установите Docker Engine и Compose v2."
-docker info >/dev/null 2>&1 || fail "Docker Engine недоступен. Запустите Docker и проверьте права пользователя."
-docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 недоступен. Установите Compose plugin."
-docker_os="$(docker info --format '{{.OSType}}' 2>/dev/null)" || fail "Не удалось определить Docker OSType."
-[ "$docker_os" = linux ] || fail "Нужен Docker в режиме Linux containers (текущий OSType: $docker_os)."
+usage() {
+  cat <<'HELP'
+Harbor Transfer Portal — source checkout
+  ./run.sh             first start / rebuild after git update (build + start)
+  ./run.sh build       build images only, preserve containers and data
+  ./run.sh build-plain verbose build log for diagnosing BuildKit/DNS failures
+  ./run.sh build-clean verbose no-cache rebuild of images (keeps all data)
+  ./run.sh start       start existing images WITHOUT building; wait for health
+  ./run.sh doctor      check Git, Docker Engine and Compose v2
+  ./run.sh status      list services and health
+  ./run.sh logs        follow service logs (Ctrl+C to stop watching)
+  ./run.sh stop        stop containers, KEEP persistent volumes
+  ./run.sh help        show this help
 
-if [ ! -f .env ]; then
-    [ -f .env.example ] || fail "Не найден .env.example."
-    cp .env.example .env
-    chmod 600 .env
-    printf '%s\n' '.env создан из шаблона. JWT_SECRET сгенерирует backend и сохранит в volume.'
-fi
+Use separate .env, COMPOSE_PROJECT_NAME and PORTAL_VERSION for a test RC.
+Never use 'docker compose down -v' on an installation with retained data.
+HELP
+}
 
-revision="$(git rev-parse HEAD 2>/dev/null || printf '%s' unknown)"
-export PORTAL_VCS_REF="$revision"
+action=${1:-up}
+[ "$#" -le 1 ] || { usage; exit 2; }
 
-docker compose config -q || fail "Ошибка конфигурации Compose или .env."
-if ! docker compose up -d --build --force-recreate --wait --wait-timeout 180; then
-    printf '%s\n' 'Запуск не завершён: проверьте docker compose ps и docker compose logs --tail=100.' >&2
-    exit 1
-fi
+case "$action" in
+  up|build|build-plain|build-clean|start|doctor|status|logs|stop) ;;
+  help|-h|--help) usage; exit 0 ;;
+  *) usage; fail "unknown command: $action" ;;
+esac
 
-printf '%s\n' 'Portal готов. Опубликованный адрес (host:port):'
-docker compose port frontend 8080 || fail "Не удалось определить опубликованный порт."
-printf '%s\n' 'На новой базе войдите admin/admin и обязательно смените пароль.'
+require() {
+  command -v "$1" >/dev/null 2>&1 || fail "$1 not found on PATH"
+}
+
+revision() {
+  git rev-parse --verify HEAD 2>/dev/null || fail 'Cannot determine Git SHA; use a Git checkout'
+}
+
+doctor() {
+  require git
+  require docker
+  git --version
+  docker --version
+  docker compose version || fail 'Docker Compose v2 is required'
+  docker info >/dev/null 2>&1 || fail 'Docker Engine not running; start Docker Desktop or Docker service'
+  docker_os=$(docker info --format '{{.OSType}}') || fail 'Cannot inspect Docker engine'
+  [ "$docker_os" = linux ] || fail 'Switch Docker Desktop to Linux containers'
+  printf 'Docker engine: linux containers OK\n'
+  if [ -f .env ] && [ ! -L .env ]; then
+    printf '.env: existing configuration kept\n'
+  elif [ -e .env ] || [ -L .env ]; then
+    fail '.env must be a regular file (not directory/symlink)'
+  else
+    printf '.env: not created yet (first up will create it)\n'
+  fi
+}
+
+ensure_env() {
+  [ -e .env ] || [ -L .env ] || {
+    [ -f .env.example ] || fail 'Missing .env.example'
+    (umask 077; cp .env.example .env) || fail 'Failed to create .env'
+    printf 'Created .env from template (existing values will not be overwritten).\n'
+  }
+  [ -f .env ] && [ ! -L .env ] || fail '.env must be a regular non-symlink file'
+}
+
+show_url() {
+  port=${PORTAL_HTTP_PORT:-$(sed -n 's/^PORTAL_HTTP_PORT=//p' .env | head -n 1)}
+  bind=${PORTAL_HTTP_BIND:-$(sed -n 's/^PORTAL_HTTP_BIND=//p' .env | head -n 1)}
+  port=${port:-8080}
+  bind=${bind:-127.0.0.1}
+  printf 'Portal listener: http://%s:%s/  (Docs: /docs/)\n' "$bind" "$port"
+  printf 'On a NEW database: login admin/admin and change the password immediately.\n'
+}
+
+build_images() {
+  printf 'Building images for Git revision %s...\n' "$vcs"
+  case "$action" in
+    build-plain)
+      PORTAL_VCS_REF="$vcs" docker compose --progress plain build || fail \
+        'Verbose build failed. Check BuildKit output, disk, DNS/proxy; no containers or volumes were removed'
+      ;;
+    build-clean)
+      PORTAL_VCS_REF="$vcs" docker compose --progress plain build --no-cache || fail \
+        'No-cache build failed. Check BuildKit output, disk, DNS/proxy; no containers or volumes were removed'
+      ;;
+    *)
+      PORTAL_VCS_REF="$vcs" docker compose build || fail \
+        'Image build failed. Run ./run.sh build-plain for full logs or build-clean if Docker layers are corrupt'
+      ;;
+  esac
+}
+
+start_images() {
+  printf 'Starting prebuilt images (no build, no pull) ...\n'
+  PORTAL_VCS_REF="$vcs" docker compose up -d --no-build --pull never --wait --wait-timeout 180 || fail \
+    'Startup/health check failed. Run ./run.sh status and ./run.sh logs; build missing images with ./run.sh build'
+  PORTAL_VCS_REF="$vcs" docker compose ps
+  show_url
+  printf 'Published address (host:port):\\n'
+  PORTAL_VCS_REF="$vcs" docker compose port frontend 8080 || fail 'Cannot determine published frontend port'
+  printf 'Check UI revision matches %s (start does not rebuild stale images).\n' "$vcs"
+}
+
+doctor
+if [ "$action" = doctor ]; then exit 0; fi
+ensure_env
+docker compose config -q || fail 'Compose configuration is invalid; check .env and compose.yaml'
+vcs=$(revision)
+
+case "$action" in
+  up) build_images; start_images ;;
+  build|build-plain|build-clean) build_images; printf 'Build complete. Start with ./run.sh start\n' ;;
+  start) start_images ;;
+  status) PORTAL_VCS_REF="$vcs" docker compose ps ;;
+  logs) PORTAL_VCS_REF="$vcs" docker compose logs -f ;;
+  stop) PORTAL_VCS_REF="$vcs" docker compose down; printf 'Stopped. Persistent volume preserved.\n' ;;
+esac

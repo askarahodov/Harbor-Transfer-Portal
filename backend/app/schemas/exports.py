@@ -20,7 +20,9 @@ _HELM_VERSION_PATTERN = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}$")
 
 class ExportArtifactSelection(BaseModel):
     kind: ArtifactKind
-    project: str = Field(min_length=1, max_length=256, pattern=_PROJECT_PATTERN)
+    # Root-level Nexus Docker images have no namespace. Harbor still requires
+    # a project and is checked against the bound registry profile at preview.
+    project: str | None = Field(min_length=1, max_length=256, pattern=_PROJECT_PATTERN)
     repository: str = Field(min_length=1, max_length=512, pattern=_REPOSITORY_PATTERN)
     reference: str = Field(min_length=1, max_length=256)
     digest: str = Field(pattern=_SHA256_PATTERN)
@@ -36,6 +38,8 @@ class ExportArtifactSelection(BaseModel):
             ):
                 raise ValueError("container image reference must be an OCI tag or sha256 digest")
             return self
+        if self.project is None:
+            raise ValueError("Helm export requires a repository project")
         if _HELM_VERSION_PATTERN.fullmatch(self.reference) is None:
             raise ValueError("Helm export requires a valid version/tag reference")
         return self
@@ -71,11 +75,12 @@ class ExportSelectionRequest(BaseModel):
 
 class ExportResolvedArtifactResponse(BaseModel):
     kind: ArtifactKind
-    project: str
+    project: str | None
     repository: str
     reference: str
     source_digest: str
     size_bytes: int | None = None
+    media_type: str | None = None
 
 
 class ExportPreviewResponse(BaseModel):

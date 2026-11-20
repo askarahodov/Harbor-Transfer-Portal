@@ -171,6 +171,30 @@ afterEach(() => {
 })
 
 describe('import wizard store', () => {
+  it('updates a cached Nexus profile on import wizard entry without changing its identity', async () => {
+    sessionStorage.setItem('htp.harbor.profile-id', 'nexus-profile')
+    const nexus = {
+      id: 'nexus-profile', name: 'Nexus proxy', url: 'https://docker.example.test',
+      is_default: true, registry_type: 'nexus' as const,
+    }
+    const list = vi.spyOn(exportsApi, 'listHarborProfiles')
+      .mockResolvedValueOnce({ items: [nexus] })
+      .mockResolvedValueOnce({
+        items: [{
+          ...nexus,
+          nexus_search_url: 'https://nexus-ui.example.test/',
+          nexus_search_repository: 'docker-proxy',
+        }],
+      })
+    const store = useImportWizardStore()
+    await store.initialize()
+    expect(store.selectedHarborProfile?.nexus_search_repository).toBeUndefined()
+    await store.initialize()
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(store.selectedHarborProfileId).toBe('nexus-profile')
+    expect(store.selectedHarborProfile?.nexus_search_repository).toBe('docker-proxy')
+  })
+
   it('uses shared profile preference and locks to persisted operation binding', async () => {
     const store = useImportWizardStore()
     await store.loadHarborProfiles()

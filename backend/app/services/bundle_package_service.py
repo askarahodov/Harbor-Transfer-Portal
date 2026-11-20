@@ -371,7 +371,7 @@ class BundlePackageService:
     ) -> BundleManifest:
         try:
             return BundleManifest(
-                schema_version="1.0",
+                schema_version="1.1" if source.registry_type == "nexus" else "1.0",
                 delivery_id=identifier,
                 created_at=created_at,
                 created_by=created_by,
@@ -1059,12 +1059,7 @@ class BundlePackageService:
 
     def _load_signing_private_key(self) -> Ed25519PrivateKey:
         path = self.settings.bundle_signing_private_key_file.absolute()
-        self._validate_private_key_file(path)
-        material = self._read_key_material(
-            path,
-            error_code="bundle_signing_key_invalid",
-            error_message="SOURCE signing private key не читается как PEM Ed25519 key",
-        )
+        material = self._read_key_material(path, private_key=True)
         try:
             key = serialization.load_pem_private_key(material, password=None)
         except (ValueError, TypeError) as exc:
@@ -1094,12 +1089,7 @@ class BundlePackageService:
             )
         keys: list[Ed25519PublicKey] = []
         for path in key_files:
-            self._validate_trusted_key_file(path)
-            material = self._read_key_material(
-                path,
-                error_code="bundle_trusted_key_invalid",
-                error_message=f"Trusted public key некорректен: {path.name}",
-            )
+            material = self._read_key_material(path, private_key=False)
             try:
                 key = serialization.load_pem_public_key(material)
             except (ValueError, TypeError) as exc:
@@ -1115,65 +1105,87 @@ class BundlePackageService:
             keys.append(key)
         return tuple(keys)
 
-    def _read_key_material(
-        self,
-        path: Path,
-        *,
-        error_code: str,
-        error_message: str,
-    ) -> bytes:
+    def _read_key_material(self, path: Path, *, private_key: bool) -> bytes:
         limit = self.settings.bundle_key_material_max_bytes
-        try:
-            with path.open("rb") as stream:
-                material = stream.read(limit + 1)
-        except OSError as exc:
-            raise BundlePackageError(error_code, error_message) from exc
-        if len(material) > limit:
-            raise BundlePackageError(error_code, error_message)
-        return material
-
-    def _validate_private_key_file(self, path: Path) -> None:
-        try:
-            info = path.lstat()
-        except OSError as exc:
-            raise BundlePackageError(
-                "bundle_signing_key_not_configured",
-                "SOURCE signing private key не настроен",
-            ) from exc
-        if not stat.S_ISREG(info.st_mode) or path.is_symlink():
-            raise BundlePackageError(
-                "bundle_signing_key_invalid",
-                "Signing key должен быть обычным файлом",
+        if private_key:
+            error_code = "bundle_signing_key_invalid"
+            invalid_message = "Signing key должен быть обычным файлом"
+            oversized_message = "SOURCE signing private key превышает допустимый размер"
+            read_message = "SOURCE signing private key не читается как PEM Ed25519 key"
+            missing_code = "bundle_signing_key_not_configured"
+            missing_message = "SOURCE signing private key не настроен"
+            permission_message = "Signing private key должен быть недоступен group/other"
+        else:
+            error_code = "bundle_trusted_key_invalid"
+            invalid_message = f"Trusted key должен быть обычным файлом: {path.name}"
+            oversized_message = (
+                f"Trusted public key превышает допустимый размер: {path.name}"
             )
-        if stat.S_IMODE(info.st_mode) & 0o077:
+            read_message = f"Trusted public key некорректен: {path.name}"
+            missing_code = error_code
+            missing_message = f"Trusted public key недоступен: {path.name}"
+            permission_message = ""
+
+        try:
+            before = path.lstat()
+        except OSError as exc:
+            raise BundlePackageError(missing_code, missing_message) from exc
+
+        if not stat.S_ISREG(before.st_mode):
+            raise BundlePackageError(error_code, invalid_message)
+        if private_key and stat.S_IMODE(before.st_mode) & 0o077:
             raise BundlePackageError(
                 "bundle_signing_key_permissions",
-                "Signing private key должен быть недоступен group/other",
+                permission_message,
             )
-        if info.st_size > self.settings.bundle_key_material_max_bytes:
-            raise BundlePackageError(
-                "bundle_signing_key_invalid",
-                "SOURCE signing private key превышает допустимый размер",
-            )
+        if before.st_size > limit:
+            raise BundlePackageError(error_code, oversized_message)
 
-    def _validate_trusted_key_file(self, path: Path) -> None:
+        flags = os.O_RDONLY
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        # Avoid blocking if a path is swapped for a FIFO between lstat/open.
+        flags |= getattr(os, "O_NONBLOCK", 0)
         try:
-            info = path.lstat()
+            descriptor = os.open(path, flags)
         except OSError as exc:
-            raise BundlePackageError(
-                "bundle_trusted_key_invalid",
-                f"Trusted public key недоступен: {path.name}",
-            ) from exc
-        if not stat.S_ISREG(info.st_mode) or path.is_symlink():
-            raise BundlePackageError(
-                "bundle_trusted_key_invalid",
-                f"Trusted key должен быть обычным файлом: {path.name}",
-            )
-        if info.st_size > self.settings.bundle_key_material_max_bytes:
-            raise BundlePackageError(
-                "bundle_trusted_key_invalid",
-                f"Trusted public key превышает допустимый размер: {path.name}",
-            )
+            raise BundlePackageError(error_code, read_message) from exc
+
+        material = b""
+        try:
+            opened = os.fstat(descriptor)
+            after = path.lstat()
+            same_file = (before.st_dev, before.st_ino) == (opened.st_dev, opened.st_ino)
+            same_path = (opened.st_dev, opened.st_ino) == (after.st_dev, after.st_ino)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or not stat.S_ISREG(after.st_mode)
+                or not same_file
+                or not same_path
+            ):
+                raise BundlePackageError(error_code, invalid_message)
+            if private_key and stat.S_IMODE(opened.st_mode) & 0o077:
+                raise BundlePackageError(
+                    "bundle_signing_key_permissions",
+                    permission_message,
+                )
+            if opened.st_size > limit:
+                raise BundlePackageError(error_code, oversized_message)
+
+            with os.fdopen(descriptor, "rb") as stream:
+                descriptor = -1
+                material = stream.read(limit + 1)
+        except BundlePackageError:
+            raise
+        except OSError as exc:
+            raise BundlePackageError(error_code, read_message) from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+        if len(material) > limit:
+            raise BundlePackageError(error_code, oversized_message)
+        return material
 
     def _validate_payload_destination(
         self,

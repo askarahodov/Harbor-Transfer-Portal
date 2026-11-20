@@ -4,7 +4,9 @@
 
 ## Цель и границы
 
-Harbor Transfer Portal обеспечивает **офлайн** перенос container images / Helm charts через физически изолированные SOURCE и TARGET. Нельзя добавлять прямой SOURCE↔TARGET network flow, переносить private signing keys / противоположные credentials, обходить TLS/ACL или незаметно перезаписывать конфликтующие артефакты. Release-qualified Harbor v1.0.0 в `main` — baseline; Nexus расширение на момент ввода этого файла изолировано в draft PR #451, **NO-GO** для регионального production.
+Harbor Transfer Portal обеспечивает **офлайн** перенос container images / Helm charts через физически изолированные SOURCE и TARGET. Нельзя добавлять прямой SOURCE↔TARGET network flow, переносить private signing keys / противоположные credentials, обходить TLS/ACL или незаметно перезаписывать конфликтующие артефакты. Release-qualified Harbor v1.0.0 в `main` — baseline; Nexus расширение изолировано в едином [Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503), **NO-GO** для регионального production.
+
+Для текущих изменений Nexus canonical branch — `fix/nexus-direct-image-lookup-20261117` (PR #503, base `main`). PR #451 и #501 заменены #503, их история сохранена; #495 — альтернативная историческая реализация профилей. Не развивайте эти ветки параллельно, не меняйте публичный контракт профилей ради cherry-pick и не сливайте Nexus в `main` до region GO. Новые ветки допустимы только для самостоятельной задачи с явным owner/base; результат возвращается в canonical RC после проверок.
 
 ## Перед началом задачи (обязательно)
 

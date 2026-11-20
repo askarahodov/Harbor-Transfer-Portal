@@ -72,8 +72,8 @@ async function signOut(): Promise<void> {
 .eyebrow { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--color-action); }
 .change-form { display: grid; gap: var(--space-3); margin-top: var(--space-6); }
 .change-form label { font-weight: 600; }
-.change-form input { min-height: 44px; box-sizing: border-box; width: 100%; padding: 0 var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
-.change-form button { min-height: 44px; border: 0; border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); font-weight: 700; cursor: pointer; }
+.change-form input { min-height: var(--control-height-large); box-sizing: border-box; width: 100%; padding: 0 var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
+.change-form button { min-height: var(--control-height-large); border: 0; border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); font-weight: 700; cursor: pointer; }
 .change-form button:disabled { opacity: .55; cursor: not-allowed; }
 .form-error { color: var(--color-danger-text) !important; }
 .signout { border: none; margin-top: var(--space-5); background: transparent; color: var(--color-action); cursor: pointer; text-decoration: underline; }

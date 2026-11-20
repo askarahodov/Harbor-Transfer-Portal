@@ -59,7 +59,7 @@ onBeforeUnmount(() => window.removeEventListener('htp-theme-change', sync))
   background: var(--color-surface-subtle);
 }
 .theme-switcher__button {
-  min-height: 36px;
+  min-height: var(--control-height-compact);
   display: inline-flex;
   align-items: center;
   justify-content: center;

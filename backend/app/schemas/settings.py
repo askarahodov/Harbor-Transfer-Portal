@@ -77,6 +77,13 @@ class HarborProfileResponse(BaseModel):
     is_default: bool = False
     is_active: bool = False
     registry_type: Literal["harbor", "nexus"] = "harbor"
+    nexus_format: Literal["docker", "helm"] = "docker"
+    nexus_search_url: AnyHttpUrl | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    nexus_search_repository: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class HarborProfilesResponse(BaseModel):
@@ -90,6 +97,9 @@ class HarborProfileCreate(BaseModel):
     verify_tls: bool = True
     enabled: bool = True
     registry_type: Literal["harbor", "nexus"] = "harbor"
+    nexus_format: Literal["docker", "helm"] = "docker"
+    nexus_search_url: AnyHttpUrl | None = None
+    nexus_search_repository: str | None = Field(default=None, max_length=128)
 
     @field_validator("url")
     @classmethod
@@ -105,6 +115,16 @@ class HarborProfileCreate(BaseModel):
         if not normalized:
             raise ValueError("name must not be empty")
         return normalized
+
+    @field_validator("nexus_search_url")
+    @classmethod
+    def validate_nexus_search_url(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:
+        if value is None:
+            return None
+        validated = validate_harbor_base_url(value)
+        if validated is None or validated.scheme != "https":
+            raise ValueError("Nexus Search API URL must use HTTPS")
+        return validated
 
     @field_validator("registry_type")
     @classmethod
@@ -129,6 +149,9 @@ class HarborProfilePatch(BaseModel):
     verify_tls: bool | None = None
     enabled: bool | None = None
     registry_type: Literal["harbor", "nexus"] | None = None
+    nexus_format: Literal["docker", "helm"] | None = None
+    nexus_search_url: AnyHttpUrl | None = None
+    nexus_search_repository: str | None = Field(default=None, max_length=128)
 
     @field_validator("url")
     @classmethod
@@ -152,6 +175,16 @@ class HarborProfilePatch(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+    @field_validator("nexus_search_url")
+    @classmethod
+    def validate_nexus_search_url(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:
+        if value is None:
+            return None
+        validated = validate_harbor_base_url(value)
+        if validated is None or validated.scheme != "https":
+            raise ValueError("Nexus Search API URL must use HTTPS")
+        return validated
 
     @field_validator("registry_type")
     @classmethod

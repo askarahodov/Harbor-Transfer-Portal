@@ -30,6 +30,10 @@ def _operation(
             bundle_filename=f"{delivery_id}.htp.tar.gz",
             bundle_sha256="a" * 64,
             bundle_size_bytes=7,
+            handoff_filename=f"{delivery_id}.htp-handoff.json",
+            handoff_sha256="b" * 64,
+            handoff_size_bytes=12,
+            bundle_signing_key_fingerprint="sha256:" + "c" * 64,
         )
         session.add(operation)
         session.commit()
@@ -69,13 +73,16 @@ def test_startup_cleanup_removes_only_non_completed_export_publications(tmp_path
             f"{'a' * 64}  {archive.name}\n",
             encoding="utf-8",
         )
+        (outgoing / f"{delivery}.htp-handoff.json").write_bytes(b"signed-record")
 
     cleaned = reconcile_incomplete_export_publications(session_factory, settings)
     assert cleaned == 1
     assert not (outgoing / f"{failed_delivery}.htp.tar.gz").exists()
     assert not (outgoing / f"{failed_delivery}.htp.tar.gz.sha256").exists()
+    assert not (outgoing / f"{failed_delivery}.htp-handoff.json").exists()
     assert (outgoing / f"{completed_delivery}.htp.tar.gz").exists()
     assert (outgoing / f"{completed_delivery}.htp.tar.gz.sha256").exists()
+    assert (outgoing / f"{completed_delivery}.htp-handoff.json").exists()
 
     with session_factory() as session:
         failed = session.get(Operation, failed_id)
@@ -84,4 +91,9 @@ def test_startup_cleanup_removes_only_non_completed_export_publications(tmp_path
         assert failed.bundle_filename is None
         assert failed.bundle_sha256 is None
         assert failed.bundle_size_bytes is None
+        assert failed.handoff_filename is None
+        assert failed.handoff_sha256 is None
+        assert failed.handoff_size_bytes is None
+        assert failed.bundle_signing_key_fingerprint is None
         assert completed.bundle_filename == f"{completed_delivery}.htp.tar.gz"
+        assert completed.handoff_filename == f"{completed_delivery}.htp-handoff.json"

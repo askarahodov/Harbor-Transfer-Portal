@@ -127,6 +127,7 @@ function plan(): ImportDestinationPlan {
         final_reference: 'harbor.target.local/mapped-app/service:1.0.0',
         project_exists: true,
         write_allowed: true,
+        write_permission_verified: true,
         target_digest: null,
         classification: 'NEW',
         error_code: null,
@@ -147,6 +148,7 @@ function plan(): ImportDestinationPlan {
         final_reference: 'oci://harbor.target.local/override-charts/platform/portal:2.3.4',
         project_exists: true,
         write_allowed: true,
+        write_permission_verified: true,
         target_digest: null,
         classification: 'NEW',
         error_code: null,
@@ -242,6 +244,47 @@ describe('ImportDestinationMapping', () => {
     expect(wrapper.text()).toContain('harbor.target.local/mapped-app/service:1.0.0')
     expect(wrapper.text()).toContain('oci://harbor.target.local/override-charts/platform/portal:2.3.4')
     expect(wrapper.text()).not.toContain('mapping policy rev')
+  })
+
+  it('warns that Nexus read-only preflight does not verify push rights', async () => {
+    mockProjects()
+    const auth = useAuthStore()
+    auth.user = { id: 1, username: 'operator', role: 'operator', is_active: true }
+    auth.initialized = true
+    const wizard = useImportWizardStore()
+    wizard.operation = operation()
+    wizard.preview = preview()
+    const nexusPlan = plan()
+    nexusPlan.artifacts[0]!.write_permission_verified = false
+    wizard.destinationPlan = nexusPlan
+    wizard.mappingDirty = false
+
+    const wrapper = mount(ImportDestinationMapping)
+    await flushPromises()
+
+    expect(wizard.confirmedPlanReady).toBe(true)
+    expect(wrapper.text()).toContain('TARGET доступен, право записи не подтверждено')
+    expect(wrapper.text()).toContain('read-only preflight')
+    expect(wrapper.text()).not.toContain('Проекты и права записи подтверждены')
+  })
+
+  it('warns on legacy destination plans without write verification metadata', async () => {
+    mockProjects()
+    const auth = useAuthStore()
+    auth.user = { id: 1, username: 'operator', role: 'operator', is_active: true }
+    auth.initialized = true
+    const wizard = useImportWizardStore()
+    wizard.operation = operation()
+    wizard.preview = preview()
+    const legacyPlan = plan()
+    delete legacyPlan.artifacts[0]!.write_permission_verified
+    wizard.destinationPlan = legacyPlan
+    wizard.mappingDirty = false
+
+    const wrapper = mount(ImportDestinationMapping)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('TARGET доступен, право записи не подтверждено')
   })
 
   it('explains why changed destinations require revalidation', async () => {

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import os
 from pathlib import Path
 
@@ -51,31 +50,32 @@ def _forbid_key_read(monkeypatch: pytest.MonkeyPatch, blocked: Path) -> None:
     monkeypatch.setattr(Path, "open", guarded_open)
 
 
-class _BoundedReadProbe(io.BytesIO):
-    def __init__(self, contents: bytes, expected_read_size: int) -> None:
-        super().__init__(contents)
-        self.expected_read_size = expected_read_size
-
-    def read(self, size: int = -1) -> bytes:
-        assert size == self.expected_read_size
-        return super().read(size)
-
-
-def _replace_key_open_contents(
+def _grow_key_after_metadata_check(
     monkeypatch: pytest.MonkeyPatch,
     target: Path,
-    contents: bytes,
-    *,
-    expected_read_size: int,
+    extra: bytes,
 ) -> None:
-    original = Path.open
+    """Grow the same inode after the hardened reader validates fstat/lstat.
 
-    def guarded_open(path: Path, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
-        if path == target:
-            return _BoundedReadProbe(contents, expected_read_size)
-        return original(path, *args, **kwargs)
+    This tests the descriptor-based reader, not the old Path.open implementation.
+    """
+    original_fdopen = os.fdopen
+    grown = False
 
-    monkeypatch.setattr(Path, "open", guarded_open)
+    def growing_fdopen(fd: int, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        nonlocal grown
+        info = os.fstat(fd)
+        target_info = target.stat()
+        if not grown and (info.st_dev, info.st_ino) == (
+            target_info.st_dev,
+            target_info.st_ino,
+        ):
+            with target.open("ab") as stream:
+                stream.write(extra)
+            grown = True
+        return original_fdopen(fd, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "fdopen", growing_fdopen)
 
 
 def test_oversized_signing_key_is_rejected_before_read_bytes(
@@ -123,11 +123,10 @@ def test_signing_key_growth_after_stat_is_rejected_by_bounded_read(
     )
     path = settings.bundle_signing_private_key_file.absolute()
     assert path.stat().st_size <= limit
-    _replace_key_open_contents(
+    _grow_key_after_metadata_check(
         monkeypatch,
         path,
         b"x" * (limit + 1),
-        expected_read_size=limit + 1,
     )
 
     with pytest.raises(BundlePackageError) as exc_info:
@@ -146,11 +145,10 @@ def test_trusted_key_growth_after_stat_is_rejected_by_bounded_read(
     )
     path = next(settings.bundle_trusted_public_keys_dir.glob("*.pem")).absolute()
     assert path.stat().st_size <= limit
-    _replace_key_open_contents(
+    _grow_key_after_metadata_check(
         monkeypatch,
         path,
         b"x" * (limit + 1),
-        expected_read_size=limit + 1,
     )
 
     with pytest.raises(BundlePackageError) as exc_info:
