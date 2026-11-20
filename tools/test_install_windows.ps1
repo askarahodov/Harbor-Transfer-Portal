@@ -119,6 +119,13 @@ exit /b 0
     }
     [IO.File]::WriteAllText($envPath, $initial)
 
+    [IO.File]::WriteAllText($envPath, $initial.Replace('PORTAL_CONTOUR=TARGET', 'PORTAL_CONTOUR=target'))
+    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
+    $failureCode = Expect-InstallerFailure (Join-Path $kit 'install.ps1')
+    Check ($failureCode -ne 0) 'Lowercase PORTAL_CONTOUR was accepted'
+    Check (-not ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -match 'load -i|compose .*up')) 'Invalid contour reached image load or startup'
+    [IO.File]::WriteAllText($envPath, $initial)
+
     $env:FAKE_DOCKER_OS = 'windows'
     [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG, '')
     $failureCode = Expect-InstallerFailure (Join-Path $kit 'install.ps1')
