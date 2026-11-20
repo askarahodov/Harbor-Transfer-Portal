@@ -70,7 +70,6 @@ try {
     [IO.File]::WriteAllText("$archive.sha256","$outerHash  $([IO.Path]::GetFileName($archive))",[Text.UTF8Encoding]::new($false))
     Set-PortalPrivateFileAcl "$archive.sha256"
     Write-Host "Backup created; it contains secrets and must be protected: $archive"
-    Write-Host "Backup created; it contains secrets and must be protected: $archive"
     $backupCompleted = $true
     Write-Output $archive
 } catch {
