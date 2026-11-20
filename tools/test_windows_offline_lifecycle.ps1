@@ -44,7 +44,7 @@ $kit2 = Join-Path $tmp 'kit-1.0.1'
 $kit3 = Join-Path $tmp 'kit-1.0.2'
 New-Item -ItemType Directory -Path $bin -Force | Out-Null
 $oldPath = $env:PATH
-$envNames = @('FAKE_DOCKER_LOG','FAKE_DOCKER_STATE','FAKE_DOCKER_DATA_ARCHIVE','FAKE_DOCKER_RESTORED_DATA','FAKE_DOCKER_PAUSE_FAIL','FAKE_DOCKER_PAUSE_PARTIAL','FAKE_DOCKER_UP_FAIL_ONCE','FAKE_DOCKER_OS')
+$envNames = @('FAKE_DOCKER_LOG','FAKE_DOCKER_STATE','FAKE_DOCKER_DATA_ARCHIVE','FAKE_DOCKER_RESTORED_DATA','FAKE_DOCKER_PAUSE_FAIL','FAKE_DOCKER_PAUSE_PARTIAL','FAKE_DOCKER_UP_FAIL_ONCE','FAKE_DOCKER_OS','FAKE_DOCKER_TAR_MEMBER','FAKE_DOCKER_TAR_TYPE')
 $oldEnv = @{}
 foreach ($name in $envNames) { $oldEnv[$name] = [Environment]::GetEnvironmentVariable($name) }
 
@@ -134,8 +134,8 @@ public class DockerStub {
                 if (String.IsNullOrEmpty(source) || String.IsNullOrEmpty(data) || !File.Exists(data)) return 51;
                 Directory.CreateDirectory(source); File.Copy(data, Path.Combine(source, "portal-data.tar.gz"), true); return 0;
             }
-            if (Has(args, "-tzf")) { Console.WriteLine("./marker.txt"); return 0; }
-            if (Has(args, "-tvzf")) { Console.WriteLine("-rw-r--r-- 1 0 0 24 Jan 01 00:00 marker.txt"); return 0; }
+            if (Has(args, "-tzf")) { Console.WriteLine(Env("FAKE_DOCKER_TAR_MEMBER", "./marker.txt")); return 0; }
+            if (Has(args, "-tvzf")) { Console.WriteLine(Env("FAKE_DOCKER_TAR_TYPE", "-rw-r--r-- 1 0 0 24 Jan 01 00:00 marker.txt")); return 0; }
             if (Has(args, "-xzf")) {
                 string source = MountSource(args), archive = Path.Combine(source, "portal-data.tar.gz"), restored = Env("FAKE_DOCKER_RESTORED_DATA");
                 if (String.IsNullOrEmpty(source) || !File.Exists(archive) || String.IsNullOrEmpty(restored)) return 52;
@@ -278,6 +278,24 @@ public class DockerStub {
     $unconfirmedRestore = Run-PortalScript $kit1 'restore.ps1' @('-InstallDir',$kit1,'-BackupArchive',$backupArchive.FullName)
     Check ($unconfirmedRestore -ne 0) 'Restore without confirmation unexpectedly succeeded'
     Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_LOG) -eq $logBeforeRestore) 'Unconfirmed restore reached Docker'
+    $env:FAKE_DOCKER_TAR_MEMBER = '../outside.txt'
+    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG,'')
+    $unsafePathRestore = Run-PortalScript $kit1 'restore.ps1' @('-InstallDir',$kit1,'-BackupArchive',$backupArchive.FullName,'-ConfirmRestore')
+    Check ($unsafePathRestore -ne 0) 'Restore accepted a parent-traversal tar member'
+    $unsafePathLog = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
+    Check (-not ($unsafePathLog -match 'compose .*down| -xzf ')) 'Unsafe tar path reached destructive restore operations'
+    Remove-Item Env:FAKE_DOCKER_TAR_MEMBER -ErrorAction SilentlyContinue
+
+    $env:FAKE_DOCKER_TAR_MEMBER = './link'
+    $env:FAKE_DOCKER_TAR_TYPE = 'lrwxrwxrwx 1 0 0 10 Jan 01 00:00 link -> /etc/passwd'
+    [IO.File]::WriteAllText($env:FAKE_DOCKER_LOG,'')
+    $linkRestore = Run-PortalScript $kit1 'restore.ps1' @('-InstallDir',$kit1,'-BackupArchive',$backupArchive.FullName,'-ConfirmRestore')
+    Check ($linkRestore -ne 0) 'Restore accepted a symbolic-link tar member'
+    $linkRestoreLog = [IO.File]::ReadAllText($env:FAKE_DOCKER_LOG)
+    Check (-not ($linkRestoreLog -match 'compose .*down| -xzf ')) 'Tar link reached destructive restore operations'
+    Remove-Item Env:FAKE_DOCKER_TAR_MEMBER -ErrorAction SilentlyContinue
+    Remove-Item Env:FAKE_DOCKER_TAR_TYPE -ErrorAction SilentlyContinue
+
     $restoreCode = Run-PortalScript $kit1 'restore.ps1' @('-InstallDir',$kit1,'-BackupArchive',$backupArchive.FullName,'-ConfirmRestore')
     Check ($restoreCode -eq 0) 'Confirmed matching-version restore failed'
     Check (Test-Path -LiteralPath $env:FAKE_DOCKER_RESTORED_DATA) 'Restore did not extract persistent data'
