@@ -242,14 +242,16 @@ public class DockerStub {
     $oldEnvBeforeUpgrade = [IO.File]::ReadAllText((Join-Path $kit1 '.env'))
     $upgradeCode = Run-PortalScript $kit2 'upgrade.ps1' @('-NewKitDir',$kit2,'-InstallDir',$kit1)
     Check ($upgradeCode -eq 0) 'Healthy upgrade failed'
-    Check ([IO.File]::ReadAllText((Join-Path $kit2 '.env')) -match '(?m)^PORTAL_VERSION=1\.0\.1$') 'Successful upgrade did not write the new version .env'
+    $newEnvText = Read-PortalEnv (Join-Path $kit2 '.env')
+    Check ((Read-PortalSetting $newEnvText 'PORTAL_VERSION') -eq '1.0.1') 'Successful upgrade did not write the new version .env'
     Check ([IO.File]::ReadAllText((Join-Path $kit1 '.env')) -eq $oldEnvBeforeUpgrade) 'Successful upgrade modified the previous kit .env'
 
     $env:FAKE_DOCKER_UP_FAIL_ONCE = Join-Path $tmp 'fail-next-compose-up'
     $failedUpgradeCode = Run-PortalScript $kit3 'upgrade.ps1' @('-NewKitDir',$kit3,'-InstallDir',$kit2)
     Check ($failedUpgradeCode -ne 0) 'Injected unhealthy candidate unexpectedly upgraded'
     Check (-not (Test-Path -LiteralPath (Join-Path $kit3 '.env'))) 'Failed upgrade left an inactive new-kit .env behind'
-    Check ([IO.File]::ReadAllText((Join-Path $kit2 '.env')) -match '(?m)^PORTAL_VERSION=1\.0\.1$') 'Rollback did not preserve the active old version'
+    $rollbackEnvText = Read-PortalEnv (Join-Path $kit2 '.env')
+    Check ((Read-PortalSetting $rollbackEnvText 'PORTAL_VERSION') -eq '1.0.1') 'Rollback did not preserve the active old version'
     Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_STATE).Trim() -eq 'running') 'Rollback did not return the previous Portal to running state'
     Check ([IO.File]::ReadAllText($env:FAKE_DOCKER_RESTORED_DATA) -eq 'persistent-data-marker') 'Rollback did not restore persistent data'
     Remove-Item Env:FAKE_DOCKER_UP_FAIL_ONCE -ErrorAction SilentlyContinue
