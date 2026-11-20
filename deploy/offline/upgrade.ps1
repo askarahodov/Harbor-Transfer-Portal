@@ -4,6 +4,8 @@ param([Parameter(Mandatory=$true)][string]$NewKitDir,[string]$InstallDir=$PSScri
 $oldWasRunning = $false
 $activationStarted = $false
 $oldCompose = $null
+$newEnvPath = $null
+$newEnvCreated = $false
 try {
     $oldDir = [IO.Path]::GetFullPath($InstallDir)
     $newDir = [IO.Path]::GetFullPath($NewKitDir)
@@ -24,7 +26,8 @@ try {
     Assert-Portal ([version]::TryParse($oldVersion,[ref]$oldParsed) -and [version]::TryParse($newKit.Version,[ref]$newParsed)) 'Invalid stable version'
     Assert-Portal ($newParsed -gt $oldParsed) 'Downgrade or non-increasing version change is not supported'
     Assert-Portal ($oldKit.Architecture -eq $newKit.Architecture) 'Cross-architecture upgrade unsupported'
-    Assert-Portal (-not (Test-Path (Join-Path $newDir '.env'))) 'New kit already contains .env'
+    $newEnvPath = Join-Path $newDir '.env'
+    Assert-Portal (-not (Test-Path -LiteralPath $newEnvPath)) 'New kit already contains .env'
     Assert-Portal ((Read-PortalSetting $oldEnv 'PORTAL_CONTOUR') -in @('SOURCE','TARGET')) 'Invalid contour'
 
     $timeout = 180
@@ -57,7 +60,8 @@ try {
         Assert-Portal ($imageArch -eq $newKit.Architecture) "Image architecture mismatch: $image"
     }
 
-    Write-PortalAtomic (Join-Path $newDir '.env') (Set-PortalEnvVersion $oldEnv $newKit.Version)
+    $newEnvCreated = $true
+    Write-PortalAtomic $newEnvPath (Set-PortalEnvVersion $oldEnv $newKit.Version)
     try {
         $activationStarted = $true
         Invoke-PortalDocker ((Get-PortalComposeArgs $newDir (Join-Path $newDir '.env')) + @('up','-d','--no-build','--pull','never','--wait','--wait-timeout',[string]$timeout)) | Out-Null
@@ -69,8 +73,19 @@ try {
         [Console]::Error.WriteLine("Upgrade failed; restoring $oldVersion")
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $oldDir 'restore.ps1') -BackupArchive $backup -ConfirmRestore -InstallDir $oldDir
         if ($LASTEXITCODE -ne 0) {
+            if ($newEnvCreated -and (Test-Path -LiteralPath $newEnvPath)) {
+                try { Remove-Item -LiteralPath $newEnvPath -Force; $newEnvCreated = $false }
+                catch { [Console]::Error.WriteLine('CRITICAL: failed to remove inactive new-kit .env after rollback failure') }
+            }
             [Console]::Error.WriteLine("ROLLBACK_FAILED; preserve both kits and $backup")
             exit 3
+        }
+        if ($newEnvCreated -and (Test-Path -LiteralPath $newEnvPath)) {
+            try { Remove-Item -LiteralPath $newEnvPath -Force; $newEnvCreated = $false }
+            catch {
+                [Console]::Error.WriteLine('CRITICAL: old Portal was restored but inactive new-kit .env could not be removed')
+                exit 3
+            }
         }
         $oldWasRunning = $false
         [Console]::Error.WriteLine("ROLLBACK_OK from $backup")
@@ -78,6 +93,10 @@ try {
     }
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)
+    if ($newEnvCreated -and $newEnvPath -and (Test-Path -LiteralPath $newEnvPath)) {
+        try { Remove-Item -LiteralPath $newEnvPath -Force; $newEnvCreated = $false }
+        catch { [Console]::Error.WriteLine('CRITICAL: failed to remove inactive new-kit .env after upgrade failure'); exit 3 }
+    }
     if ($oldWasRunning -and -not $activationStarted -and $oldCompose) {
         try {
             $pausedNow = Invoke-PortalDocker ($oldCompose + @('ps','--status','paused','-q')) -Capture

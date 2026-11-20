@@ -38,7 +38,7 @@ try {
     foreach ($existingBackup in @(Get-ChildItem -LiteralPath $BackupDir -Filter 'harbor-transfer-portal-backup-*' -File -Force)) {
         Set-PortalPrivateFileAcl $existingBackup.FullName
     }
-    $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
+    $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')
     $archive = Join-Path $BackupDir "harbor-transfer-portal-backup-v$version-$stamp.zip"
     Assert-Portal (-not (Test-Path -LiteralPath $archive)) 'Backup archive already exists'
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ('htp-backup-' + [guid]::NewGuid().ToString('N'))
