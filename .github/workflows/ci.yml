@@ -216,8 +216,8 @@ jobs:
 
   integration:
     name: Integration — интеграционные тесты
-    needs: [scope, backend, frontend]
-    if: ${{ always() && needs.scope.outputs.integration == 'true' && (needs.backend.result == 'success' || needs.backend.result == 'skipped') && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') }}
+    needs: [scope, backend, frontend, protocol, security, compose, windows-launcher, windows-offline-lifecycle, docs]
+    if: ${{ always() && needs.scope.outputs.integration == 'true' && (needs.backend.result == 'success' || needs.backend.result == 'skipped') && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') && (needs.protocol.result == 'success' || needs.protocol.result == 'skipped') && (needs.security.result == 'success' || needs.security.result == 'skipped') && (needs.compose.result == 'success' || needs.compose.result == 'skipped') && (needs.windows-launcher.result == 'success' || needs.windows-launcher.result == 'skipped') && (needs.windows-offline-lifecycle.result == 'success' || needs.windows-offline-lifecycle.result == 'skipped') && (needs.docs.result == 'success' || needs.docs.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
