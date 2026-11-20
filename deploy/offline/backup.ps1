@@ -60,8 +60,10 @@ try {
     $mount = 'type=bind,source=' + $tmp + ',target=/backup'
     # The restricted NTFS bind mount is accessed by a one-off root helper; the data volume remains read-only.
     Invoke-PortalDocker @('run','--rm','--pull','never','--network','none','--user','0:0','--entrypoint','tar','-v',($volume + ':/app/data:ro'),'--mount',$mount,$image,'-czf','/backup/portal-data.tar.gz','-C','/app/data','.') | Out-Null
-    [IO.File]::Copy($envPath, (Join-Path $tmp '.env'))
-    Set-PortalPrivateFileAcl (Join-Path $tmp '.env')
+    $stagedEnvPath = Join-Path $tmp '.env'
+    [IO.File]::Copy($envPath, $stagedEnvPath)
+    [IO.File]::SetAttributes($stagedEnvPath, [IO.FileAttributes]::Normal)
+    Set-PortalPrivateFileAcl $stagedEnvPath
     $metadata = @("product=harbor-transfer-portal","version=$version","contour=$contour","created_at_utc=$stamp","volume=$volume") -join [Environment]::NewLine
     [IO.File]::WriteAllText((Join-Path $tmp 'backup-metadata.txt'),$metadata,([Text.UTF8Encoding]::new($false)))
     $hashes = foreach ($name in @('.env','backup-metadata.txt','portal-data.tar.gz')) {
