@@ -252,6 +252,9 @@ jobs:
           fetch-depth: 0
           clean: true
 
+      - name: Offline release-kit packaging smoke (mock Docker)
+        run: sh deploy/smoke-offline-kit.sh
+
       - name: Docker Compose
         run: |
           set -euo pipefail
