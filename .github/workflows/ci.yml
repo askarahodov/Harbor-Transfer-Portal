@@ -241,10 +241,21 @@ jobs:
         run: make test-registry-integration
 
       - name: Clean-host offline kit qualification (SOURCE and TARGET)
+        env:
+          PORTAL_RELEASE_OUTPUT_DIR: ${{ runner.temp }}/qualified-offline-release
         run: sh deploy/qualify-clean-offline-install.sh
 
       - name: Isolated SOURCE to physical bundle to TARGET acceptance
         run: sh deploy/qualify-isolated-transfer.sh
+
+      - name: Publish qualified offline release artifact
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: harbor-transfer-portal-offline-install-${{ github.sha }}
+          path: ${{ runner.temp }}/qualified-offline-release/*
+          if-no-files-found: error
+          retention-days: 90
 
   compose:
     name: Compose — проверка docker-compose
