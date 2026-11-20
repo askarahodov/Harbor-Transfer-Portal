@@ -115,13 +115,6 @@ function Docker-ToFile([string[]]$DockerArguments,[string]$Path){
  catch{if(-not $p.HasExited){$p.Kill();$p.WaitForExit()};if(Test-Path $Path){Remove-Item $Path -Force};throw}
  finally{$p.Dispose()}
 }
-function Docker-FromFile([string[]]$DockerArguments,[string]$Path){
- $p=New-Object System.Diagnostics.Process;$p.StartInfo=Docker-Process $DockerArguments $true $false;Assert $p.Start() 'Could not start Docker restore process'
- $err=$p.StandardError.ReadToEndAsync()
- try{$f=[IO.File]::OpenRead($Path);try{$f.CopyTo($p.StandardInput.BaseStream)}finally{$f.Dispose();$p.StandardInput.Close()};$p.WaitForExit();$e=$err.Result;Assert ($p.ExitCode -eq 0) "Docker restore failed ($($p.ExitCode)): $e"}
- catch{if(-not $p.HasExited){$p.Kill();$p.WaitForExit()};throw}
- finally{$p.Dispose()}
-}
 function Tool-Output([string]$Name,[string[]]$ToolArguments){
  $tool=Get-Command $Name -ErrorAction SilentlyContinue;Assert ($null -ne $tool) "$Name is required"
  $old=$ErrorActionPreference;$ErrorActionPreference='Continue'
@@ -264,7 +257,7 @@ function Restore-Data([string]$Dir,[string]$Archive,[switch]$WindowsKit){
  Assert ($normalized.Count -eq 5) 'Backup archive layout is not the strict allowlist'
  foreach($f in $expected){Assert ($normalized -ccontains $f) "Unexpected or missing archive member: $f"}
  foreach($line in (Archive-Lines $Archive -VerboseListing)){Assert ($line.Substring(0,1) -in @('-','d')) 'Backup archive contains unsupported member type'}
- $tmp=Join-Path ([IO.Path]::GetTempPath()) ('htp-restore-'+[Guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $tmp|Out-Null
+ $tmp=Join-Path ([IO.Path]::GetTempPath()) ('htp-restore-'+[Guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $tmp|Out-Null;Protect-Directory $tmp
  try{
   Tool-Output 'tar.exe' @('-xzf',$Archive,'-C',$tmp)|Out-Null
   foreach($f in @('.env','CHECKSUMS.sha256','backup-metadata.txt','portal-data.tar.gz')){Assert-File (Join-Path $tmp $f) $f}
@@ -280,7 +273,8 @@ function Restore-Data([string]$Dir,[string]$Archive,[switch]$WindowsKit){
   if($null -eq (Docker-Output @('volume','inspect',$script:Volume) -AllowFailure)){Docker-Output @('volume','create',$script:Volume)|Out-Null}
   $image="harbor-transfer-portal-backend:$v"
   Invoke-DockerCommand @('run','--rm','--pull','never','--network','none','-v',"$($script:Volume):/app/data",'--entrypoint','sh',$image,'-c','find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +')
-  Docker-FromFile @('run','--rm','-i','--pull','never','--network','none','-v',"$($script:Volume):/app/data",'--entrypoint','tar',$image,'-C','/app/data','-xzf','-') $data
+  $mount='type=bind,source='+$data+',target=/backup/portal-data.tar.gz,readonly'
+  Invoke-DockerCommand @('run','--rm','--pull','never','--network','none','--mount',$mount,'-v',"$($script:Volume):/app/data",'--entrypoint','tar',$image,'-C','/app/data','-xzf','/backup/portal-data.tar.gz')
   Invoke-DockerCommand @('run','--rm','--pull','never','--network','none','-v',"$($script:Volume):/app/data",'--entrypoint','chown',$image,'-R','10001:10001','/app/data')
   Start-Portal $Dir $v;Write-Host "RESTORE_OK: version $v, contour $c."
  }finally{Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue}

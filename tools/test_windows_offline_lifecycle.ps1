@@ -101,10 +101,16 @@ public class DockerStub
                 using (FileStream input = File.OpenRead(source)) input.CopyTo(Console.OpenStandardOutput());
                 return 0;
             }
-            if (Has(args, "-xzf") && Has(args, "-"))
+            if (Has(args, "-xzf") && Has(args, "--mount"))
             {
+                int mountIndex = Array.IndexOf(args, "--mount");
+                string mount = args[mountIndex + 1];
+                string source = null;
+                foreach (string part in mount.Split(',')) if (part.StartsWith("source=")) source = part.Substring("source=".Length);
+                if (String.IsNullOrEmpty(source)) return 24;
                 string destination = Environment.GetEnvironmentVariable("FAKE_DOCKER_RESTORED_DATA");
-                using (FileStream output = File.Create(destination)) Console.OpenStandardInput().CopyTo(output);
+                using (FileStream input = File.OpenRead(source))
+                using (FileStream output = File.Create(destination)) input.CopyTo(output);
                 return 0;
             }
             return 0;
