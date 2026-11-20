@@ -18,9 +18,10 @@ function Assert-Directory([string]$Path,[string]$Label){
  Assert (([IO.File]::GetAttributes($Path) -band [IO.FileAttributes]::ReparsePoint) -eq 0) "$Label must not be a symlink: $Path"
 }
 function Setting([string]$Text,[string]$Name,[string]$Default=''){
- $m=[regex]::Matches($Text,"(?m)^$([regex]::Escape($Name))=([^\r\n]*)$")
- Assert ($m.Count -le 1) "Duplicate $Name setting"
- if($m.Count -eq 1){return $m[0].Groups[1].Value.Trim()}
+ $prefix=$Name+'='
+ $found=@($Text -split '\r?\n'|Where-Object{$_.StartsWith($prefix,[StringComparison]::Ordinal)})
+ Assert ($found.Count -le 1) "Duplicate $Name setting"
+ if($found.Count -eq 1){return $found[0].Substring($prefix.Length).Trim()}
  return $Default
 }
 function EnvText([string]$Path){Assert-File $Path '.env';return [IO.File]::ReadAllText($Path)}
@@ -181,7 +182,8 @@ function New-Environment([string]$Dir,[string]$Version){
  Assert ($template.Contains('# JWT_SECRET=')) 'Template missing JWT_SECRET placeholder'
  $rng=[Security.Cryptography.RandomNumberGenerator]::Create()
  try{$bytes=New-Object byte[] 32;$rng.GetBytes($bytes);$secret=([BitConverter]::ToString($bytes)).Replace('-','').ToLowerInvariant()}finally{$rng.Dispose()}
- $template=$template.Replace('# JWT_SECRET=',"JWT_SECRET=$secret");Write-Private $path $template;return $template
+ $template=$template.Replace('# JWT_SECRET=',"JWT_SECRET=$secret");Write-Private $path $template
+ $written=EnvText $path;Assert ((Setting $written 'PORTAL_VERSION') -ceq $Version) 'Installer failed to persist PORTAL_VERSION';return $written
 }
 function Start-Portal([string]$Dir,[string]$Version){
  $text=EnvText (Join-Path $Dir '.env');Check-Transport $text;Compose-Check $Dir
