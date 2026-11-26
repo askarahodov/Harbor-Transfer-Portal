@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import errno
 import json
+import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -253,3 +255,75 @@ def test_receipt_hardlink_failure_without_collision_is_typed(
     operation = manager.get_operation(operation_id)
     assert operation is not None
     assert operation.import_receipt_json is None
+
+
+def _publish_receipt(persistence: ImportOperationPersistence, operation_id: int) -> None:
+    persistence.write_receipt(
+        operation_id,
+        preview(operation_id),
+        overwrite=False,
+        requested_at=datetime(2026, 9, 22, 8, 5, tzinfo=UTC),
+        failures=0,
+    )
+
+
+def test_publish_receipt_removes_stale_matching_temp_files(tmp_path: Path) -> None:
+    persistence, manager = environment(tmp_path)
+    operation_id = create_import(manager)
+    root = persistence.receipt_root
+    root.mkdir(parents=True, exist_ok=True)
+    stale = root / f".import-{operation_id}.json.abandoned.tmp"
+    stale.write_text("partial", encoding="utf-8")
+    old = time.time() - 7200
+    os.utime(stale, (old, old))
+
+    _publish_receipt(persistence, operation_id)
+
+    assert not stale.exists()
+    assert (root / f"import-{operation_id}.json").is_file()
+    assert [path.name for path in root.iterdir() if path.name.endswith(".tmp")] == []
+
+
+def test_publish_receipt_preserves_fresh_or_foreign_temp_files(tmp_path: Path) -> None:
+    persistence, manager = environment(tmp_path)
+    operation_id = create_import(manager)
+    root = persistence.receipt_root
+    root.mkdir(parents=True, exist_ok=True)
+    fresh = root / f".import-{operation_id}.json.inflight.tmp"
+    fresh.write_text("live", encoding="utf-8")
+    other_destination = root / f".import-{operation_id + 1}.json.abandoned.tmp"
+    other_destination.write_text("other", encoding="utf-8")
+    other_suffix = root / ".import-misc-temp.tmp"
+    other_suffix.write_text("suffix", encoding="utf-8")
+    old = time.time() - 7200
+    os.utime(other_destination, (old, old))
+    os.utime(other_suffix, (old, old))
+    target = root / "symlink-target"
+    target.write_text("target", encoding="utf-8")
+    symlink = root / f".import-{operation_id}.json.link.tmp"
+    symlink.symlink_to(target)
+    os.utime(symlink, (old, old), follow_symlinks=False)
+
+    _publish_receipt(persistence, operation_id)
+
+    assert fresh.exists()
+    assert other_destination.exists()
+    assert other_suffix.exists()
+    assert symlink.is_symlink()
+    assert target.exists()
+
+
+def test_publish_receipt_survives_stale_temp_cleanup_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    persistence, manager = environment(tmp_path)
+    operation_id = create_import(manager)
+
+    def denied_scan(_path: object) -> object:
+        raise PermissionError(errno.EACCES, "permission denied")
+
+    monkeypatch.setattr("app.services.import_persistence.os.scandir", denied_scan)
+
+    _publish_receipt(persistence, operation_id)
+
+    assert (persistence.receipt_root / f"import-{operation_id}.json").is_file()
