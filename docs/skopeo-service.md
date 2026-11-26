@@ -112,4 +112,4 @@ Unit tests используют injectable command runner и проверяют:
 - target absent/same/conflict states;
 - payload path confinement.
 
-Scoped CI также содержит `Integration — Skopeo/Helm local registry`, где Skopeo и Helm проверяются на disposable OCI registry, и isolated SOURCE → TARGET acceptance для сквозного lifecycle. Эти тяжёлые проверки запускаются только для затрагивающих соответствующую boundary изменений согласно `tools/ci_scope.py`.
+Scoped CI содержит `Integration — интеграционные тесты`, который через `make test-registry-integration` проверяет Skopeo и Helm на disposable OCI registry. Полный isolated SOURCE → TARGET acceptance в CI ветки `main` не входит и остаётся внешним release gate (см. [testing.md](testing.md)). Эти тяжёлые проверки запускаются только для затрагивающих соответствующую boundary изменений согласно `tools/ci_scope.py`.

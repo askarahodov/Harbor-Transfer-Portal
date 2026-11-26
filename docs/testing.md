@@ -148,7 +148,7 @@ make smoke-compose
 
 ### Backend
 
-Включается для `backend/*` и `Makefile`. Кроме того, deployment-файлы, которые напрямую проверяются backend cross-boundary regressions (`.env.example`, `compose.yaml`, `deploy/offline/compose.yaml`, `frontend/nginx.conf`), также включают backend gate. Это не позволяет runtime topology измениться при зелёном Compose smoke, оставив stale backend assertions незапущенными.
+Включается для `backend/*` и `Makefile`. Кроме того, deployment-файлы, которые напрямую проверяются backend cross-boundary regressions (`.env.example`, `compose.yaml`, `deploy/offline/compose.yaml`, `frontend/nginx.conf`), также включают backend gate. Это не позволяет runtime topology измениться при зелёном `Compose — проверка docker-compose`, оставив stale backend assertions незапущенными.
 
 ### Frontend
 

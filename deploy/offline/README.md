@@ -16,7 +16,7 @@ dist/harbor-transfer-portal-v1.0.0-offline-install.tar.gz
 dist/harbor-transfer-portal-v1.0.0-offline-install.tar.gz.sha256
 ```
 
-Для успешного CI `push` в `main` тот же архив, который прошёл clean-host qualification для SOURCE и TARGET, сохраняется как GitHub Actions artifact `harbor-transfer-portal-offline-install-<commit-sha>`. Artifact содержит только versioned release archive и его внешний `.sha256`; перед переносом используйте оба файла из одного artifact.
+Для успешного CI `push` в `main` workflow `.github/workflows/publish-images.yml` публикует backend/frontend образы в GHCR с тегом `sha-<git-sha>`. Сам offline archive не является CI artifact: он собирается в контролируемой build/release среде и переносится в закрытый контур обоими файлами (archive и его `.sha256`) из одного выпуска.
 
 Packaging fail-closed проверяет canonical product version и OCI `org.opencontainers.image.version`/`revision` labels, поэтому stale или несовместимые images нельзя молча включить в текущий release archive.
 
@@ -161,11 +161,14 @@ Release payload включает version metadata, checksums, changelog/release 
 
 ## Автоматическая release qualification
 
-Offline release contract не основан только на документации. CI содержит отдельные fail-able gates:
+Offline release contract не основан только на документации. CI ветки `main` и внешние release gates покрывают разные его части.
 
-- deterministic offline-kit/lifecycle smoke проверяет checksums, no-pull/no-build semantics, idempotent install, backup/restore/upgrade/uninstall и fail-closed version identity;
-- **Offline release — clean-host install qualification** собирает immutable kit, удаляет release images из runner и устанавливает один и тот же archive с predictable bootstrap role; проверяет health, Alembic, Skopeo/Helm, version identity и сохранение persistent state после rerun/restart;
-- runtime lifecycle tests отдельно проверяют migration/backfill, authoritative persisted mode после restart, SQLite backup/restore mode+revision, concurrent switch serialization и SOURCE → TARGET → SOURCE без process restart;
-- **Acceptance — isolated SOURCE → TARGET transfer** проверяет реальный image + Helm chart через SOURCE export, signed physical bundle boundary и отдельный TARGET registry, включая receipt/history/report, replay `SKIPPED`, conflict default-deny и tamper rejection до mutation.
+CI ветки `main` (в backend job) выполняет runtime lifecycle tests, которые проверяют migration/backfill, authoritative persisted mode после restart, SQLite backup/restore mode+revision, concurrent switch serialization и SOURCE → TARGET → SOURCE без process restart.
 
-Эти gates входят в общий CI `quality-gate` для соответствующего release/transfer scope. Они уже реализованы и являются частью v1 release qualification, а не будущей работой.
+Следующие проверки **не входят в CI ветки `main`**: они запускаются локально/вручную либо на отдельном стенде, а соответствующие CI jobs существуют только в неслитом draft PR #548 (issue #507).
+
+- deterministic offline-kit/lifecycle smoke (`make test-offline-kit` / `make smoke-compose`) проверяет checksums, no-pull/no-build semantics, idempotent install, backup/restore/upgrade/uninstall и fail-closed version identity;
+- **Offline release — clean-host install qualification** (`deploy/qualify-clean-offline-install.sh`) собирает immutable kit, удаляет release images из runner и устанавливает один и тот же archive с predictable bootstrap role; проверяет health, Alembic, Skopeo/Helm, version identity и сохранение persistent state после rerun/restart;
+- **Acceptance — isolated SOURCE → TARGET transfer** (`deploy/qualify-isolated-transfer.sh`) проверяет реальный image + Helm chart через SOURCE export, signed physical bundle boundary и отдельный TARGET registry, включая receipt/history/report, replay `SKIPPED`, conflict default-deny и tamper rejection до mutation.
+
+Эти внешние gates уже реализованы как исполняемые скрипты и являются частью v1 release qualification, но не частью `main` CI `quality-gate`.

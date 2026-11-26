@@ -55,7 +55,7 @@ Harbor Transfer Portal предназначен для офлайн-переда
 └───────────────────────────────────────────────────────────┘
 ```
 
-Baseline v1 включает оба browser transfer wizard, history/audit/reports, signed Bundle v1, persistent runtime SOURCE/TARGET mode, offline installation lifecycle, clean-host qualification и isolated SOURCE → physical bundle → TARGET acceptance.
+Baseline v1 включает оба browser transfer wizard, history/audit/reports, signed Bundle v1, persistent runtime SOURCE/TARGET mode и offline installation lifecycle. Скрипты clean-host qualification и isolated SOURCE → physical bundle → TARGET acceptance реализованы, но остаются внешними release gates и не входят в CI ветки `main` (см. раздел 12).
 
 ## 3. Runtime deployment
 
@@ -295,19 +295,19 @@ offline archive
 
 ## 12. Release qualification gates
 
-CI использует path-aware scope и агрегирующий `quality-gate`. В зависимости от blast radius доступны:
+CI использует path-aware scope и агрегирующий `quality-gate`. В зависимости от blast radius `.github/workflows/ci.yml` выполняет:
 
 - backend Ruff → Mypy → Pytest + coverage floor;
 - frontend lint/type/unit/build;
 - Bundle Protocol regression;
 - targeted security regression;
 - real Skopeo/Helm integration через disposable local registry;
-- Compose smoke;
-- clean-host offline install qualification;
-- isolated SOURCE → physical bundle → TARGET acceptance;
+- Compose job (`docker compose config/build/up` + `/api/health`), а не `make smoke-compose`;
 - documentation local-link gate.
 
-Clean-host gate удаляет release images перед installation phase и доказывает, что один immutable archive устанавливается как SOURCE и TARGET без pull/build, сохраняет state после rerun/restart и сообщает правильную release version.
+Clean-host offline install qualification и isolated SOURCE → physical bundle → TARGET acceptance — **внешние release gates**, они не входят в CI ветки `main` (jobs находятся в неслитом draft PR #548; issue #507). Локальный `make smoke-compose` также не запускается `main` CI.
+
+Clean-host qualification удаляет release images перед installation phase и доказывает, что один immutable archive устанавливается как SOURCE и TARGET без pull/build, сохраняет state после rerun/restart и сообщает правильную release version.
 
 Isolated acceptance поднимает отдельные SOURCE/TARGET registries, переносит только bundle/sidecar/public trust material, удаляет SOURCE dependency до TARGET phase и автоматически доказывает image digest, Helm semantics, receipt/history/report, replay skip, conflict default-deny и tamper rejection до mutation.
 

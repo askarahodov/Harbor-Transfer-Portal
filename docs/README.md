@@ -67,6 +67,6 @@
 make docs-check
 ```
 
-Gate содержит два независимых слоя: **Markdown link checker** проверяет локальные ссылки и разрешённые Docsify **site-root Markdown targets**; **documentation contract tests** фиксируют runtime/UX/security и запрещают возврат устаревших описаний. Markdown links не должны выходить за пределы репозитория, code fences имеют явный language tag. Дополнительно **Compose smoke** проверяет реальную раздачу Markdown/assets через `/docs/` и отсутствие Vue SPA fallback для несуществующих путей. CI запускает documentation gate по `tools/ci_scope.py`.
+Gate содержит два независимых слоя: **Markdown link checker** проверяет локальные ссылки и разрешённые Docsify **site-root Markdown targets**; **documentation contract tests** фиксируют runtime/UX/security и запрещают возврат устаревших описаний. Markdown links не должны выходить за пределы репозитория, code fences имеют явный language tag. Дополнительно **Compose smoke** (`make smoke-compose`) проверяет реальную раздачу Markdown/assets через `/docs/` и отсутствие Vue SPA fallback для несуществующих путей; это отдельная локальная проверка, `make docs-check` и CI docs job её не запускают. CI запускает documentation gate по `tools/ci_scope.py`.
 
 При каждом изменении code/API/config обновите соответствующий guide в том же PR. Проверяйте отличия SOURCE/TARGET, значения `main`/Draft, безопасные error codes, существование команд и отсутствие secret/internal DNS. Результат независимого code review и зелёного CI не подменяет реальную региональную приёмку.
