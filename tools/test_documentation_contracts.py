@@ -7,6 +7,84 @@ from pathlib import Path
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
+_CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
+_IMPLEMENTED_JOBS_HEADING_RE = re.compile(
+    r"^##\s+\d+\.\s+Реализованные CI jobs\s*$"
+)
+_JOB_KEY_RE = re.compile(r"^(?P<indent> +)(?P<key>[A-Za-z0-9_.-]+):\s*$")
+_JOB_NAME_RE = re.compile(r"^(?P<indent> +)name:\s*(?P<name>.+?)\s*$")
+
+
+def _ci_job_names(text: str) -> dict[str, str]:
+    """Извлекает `jobs:`-ключи workflow и их display-имена без YAML-зависимости."""
+    lines = text.splitlines()
+    try:
+        start = next(
+            index for index, line in enumerate(lines) if line.rstrip() == "jobs:"
+        )
+    except StopIteration:  # pragma: no cover - защита от нерелевантного файла
+        raise AssertionError("workflow has no top-level `jobs:` block") from None
+
+    block: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.strip() and not line.startswith(" "):
+            break
+        block.append(line)
+
+    job_indent: int | None = None
+    jobs: dict[str, str] = {}
+    current_job: str | None = None
+    for line in block:
+        key_match = _JOB_KEY_RE.match(line)
+        if key_match:
+            indent = len(key_match.group("indent"))
+            if job_indent is None:
+                job_indent = indent
+            if indent == job_indent:
+                current_job = key_match.group("key")
+                jobs[current_job] = current_job
+                continue
+        name_match = _JOB_NAME_RE.match(line)
+        if (
+            name_match
+            and current_job is not None
+            and len(name_match.group("indent")) == job_indent + 2
+        ):
+            jobs[current_job] = name_match.group("name").strip().strip("'\"")
+    return jobs
+
+
+def _implemented_job_names(document: str) -> list[str]:
+    """Возвращает имена jobs из первого столбца таблицы «Реализованные CI jobs»."""
+    lines = document.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if _IMPLEMENTED_JOBS_HEADING_RE.match(line):
+            start = index
+            break
+    if start is None:  # pragma: no cover - заголовок не должен исчезать
+        raise AssertionError(
+            "docs/testing.md has no `## N. Реализованные CI jobs` heading"
+        )
+
+    names: list[str] = []
+    in_table = False
+    for line in lines[start + 1 :]:
+        if line.startswith("## "):
+            break
+        if not line.lstrip().startswith("|"):
+            if in_table:
+                break
+            continue
+        in_table = True
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if not cells or set(cells[0]) <= {"-", ":"}:
+            continue
+        match = re.fullmatch(r"(`+)(.+?)\1", cells[0])
+        if match:
+            names.append(match.group(2).strip())
+    return names
+
 
 class DocumentationContractTests(unittest.TestCase):
     def read(self, relative: str) -> str:
@@ -332,6 +410,47 @@ class DocumentationContractTests(unittest.TestCase):
         self.assertIn("**documentation contract tests**", docs_map)
         self.assertIn("site-root Markdown targets", docs_map)
         self.assertIn("Compose smoke", docs_map)
+
+    def test_testing_doc_ci_jobs_exist_in_workflow(self) -> None:
+        workflow_names = set(_ci_job_names(self.read(_CI_WORKFLOW_PATH)).values())
+        documented_jobs = _implemented_job_names(self.read("docs/testing.md"))
+
+        self.assertTrue(workflow_names, f"{_CI_WORKFLOW_PATH} declares no jobs")
+        self.assertTrue(
+            documented_jobs,
+            "docs/testing.md section «Реализованные CI jobs» lists no jobs",
+        )
+
+        phantom_jobs = sorted(set(documented_jobs) - workflow_names)
+        self.assertEqual(
+            phantom_jobs,
+            [],
+            "docs/testing.md в таблице «Реализованные CI jobs» перечисляет jobs, "
+            f"которых нет в {_CI_WORKFLOW_PATH}: {phantom_jobs}",
+        )
+
+    def test_ci_job_parsers_detect_phantom_job(self) -> None:
+        workflow = (
+            "jobs:\n"
+            "  real-job:\n"
+            "    name: Real — job\n"
+            "    runs-on: ubuntu-24.04\n"
+        )
+        document = (
+            "## 4. Реализованные CI jobs\n"
+            "\n"
+            "| Job | Назначение |\n"
+            "|---|---|\n"
+            "| `Real — job` | ok |\n"
+            "| `Phantom — job` | missing |\n"
+        )
+
+        self.assertEqual(_ci_job_names(workflow), {"real-job": "Real — job"})
+        self.assertEqual(
+            _implemented_job_names(document),
+            ["Real — job", "Phantom — job"],
+        )
+        self.assertNotIn("Phantom — job", set(_ci_job_names(workflow).values()))
 
 
     def test_first_run_documentation_matches_supported_launchers(self) -> None:
