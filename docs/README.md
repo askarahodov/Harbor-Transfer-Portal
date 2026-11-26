@@ -20,7 +20,7 @@
 ## Статус возможностей — не путать ветки
 
 - **Поддерживается в `main`:** Harbor SOURCE/TARGET, signed Offline Bundle v1, browser/physical handoff, verify-before-import, роли, сессия по **действиям** пользователя, история и аудит.
-- **Реализовано в отдельной тестовой ветке, но не выпущено:** Nexus Docker v2 + classic Helm HTTP ([Draft #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451)); CI/disposable E2E успешны, **региональный NO-GO** до [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
+- **Реализовано в отдельной тестовой ветке, но не выпущено:** Nexus Docker v2 + classic Helm HTTP ([Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)); доступные в `main` Nexus-профили поддерживают Docker v2 probe. **Региональный NO-GO** действует до [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
 - **В `main`:** безопасный первый запуск исходного checkout ([#481](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/481), [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482)): Linux `./run.sh`, Windows CMD `run.cmd`, автоматическая подготовка `.env` и сохранение `JWT_SECRET`; на пустой базе временный `admin/admin` с обязательной сменой пароля от 12 символов. Это не замена offline release kit, а для переноса нужен реальный Harbor profile.
 - **Историческая неопределённость:** исправление ошибки экспорта внедрено, но первопричина инцидента 03.11.2026 не доказана ([#422](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422)).
 
@@ -54,7 +54,7 @@
 
 - [Сравнение с Harbor](registry-comparison.md) — матрица с честным разделением `main`/Draft.
 - [Nexus setup](nexus-setup.md) — подготовка **тестового кандидата**, не production-инструкция.
-- [Региональная приёмка](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/integration/nexus-oss-release-candidate-451/docs/nexus-regional-acceptance-runbook.md) — runbook из Draft #451.
+- [Региональная приёмка](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/fix/nexus-direct-image-lookup-20261117/docs/nexus-regional-acceptance-runbook.md) — runbook из Draft #503.
 
 ## Исторический материал (не source of truth)
 

@@ -285,7 +285,7 @@ class DocumentationContractTests(unittest.TestCase):
 
         for document in (compare, nexus_setup, docs_index):
             self.assertIn("Draft", document)
-            self.assertIn("#451", document)
+            self.assertIn("https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503", document)
             self.assertIn("NO-GO", document)
         self.assertNotIn("добавлен в v1.0.0 как альтернатива", compare)
         self.assertNotIn("Helm Charts (OCI)** | ✅", compare)

@@ -347,7 +347,13 @@ class ImportOrchestrator:
                 "import_receipt_not_ready",
                 "Receipt ещё не сформирован",
             )
-        return ImportReceiptResponse.model_validate_json(operation.import_receipt_json)
+        receipt = ImportReceiptResponse.model_validate_json(operation.import_receipt_json)
+        if receipt.result == "COMPLETED" and operation.status is not OperationStatus.COMPLETED:
+            raise ImportOrchestrationError(
+                "import_receipt_not_ready",
+                "Успешный receipt доступен после завершения import operation",
+            )
+        return receipt
 
     async def start_import(
         self,

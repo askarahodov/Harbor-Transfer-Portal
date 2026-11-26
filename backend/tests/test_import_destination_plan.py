@@ -347,6 +347,11 @@ def test_receipt_persists_actual_destination_references(tmp_path: Path) -> None:
         0,
     )
 
+    with session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        operation.status = OperationStatus.COMPLETED
+        session.commit()
     receipt = orchestrator.receipt(operation_id)
     assert receipt.destination_plan_id == plan.plan_id
     assert receipt.artifacts[0].repository == "source-team/app/api"

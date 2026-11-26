@@ -1,8 +1,11 @@
+import asyncio
 import json
 import stat
 from pathlib import Path
+from types import SimpleNamespace
 
 import certifi
+import pytest
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -524,6 +527,38 @@ def test_profile_create_edit_disable_enable_and_delete_persist_registry_type(
     listed_after = client.get("/api/settings/harbor/profiles", headers=headers)
     assert listed_after.status_code == 200
     assert [item["id"] for item in listed_after.json()["items"]] == ["default"]
+
+
+def test_harbor_registry_probe_runs_sync_client_off_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _, tokens = _app_client(tmp_path)
+
+    class HarborProbe:
+        def system_info(self) -> SimpleNamespace:
+            with pytest.raises(RuntimeError, match="no running event loop"):
+                asyncio.get_running_loop()
+            return SimpleNamespace(harbor_version="2.14.6")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(HarborProfileService, "build_client", lambda *_: HarborProbe())
+    response = client.post(
+        f"/api/settings/harbor/profiles/{DEFAULT_PROFILE_ID}/test-registry",
+        headers=_auth(tokens["admin"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["code"] == "registry_connection_ok"
+    assert response.json()["version"] == "2.14.6"
+
+    missing = client.post(
+        "/api/settings/harbor/profiles/missing/test-registry",
+        headers=_auth(tokens["admin"]),
+    )
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "harbor_profile_not_found"
 
 
 def test_nexus_profile_uses_docker_v2_probe_with_existing_tls_setting(
