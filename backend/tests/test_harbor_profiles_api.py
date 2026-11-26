@@ -534,6 +534,8 @@ def test_harbor_registry_probe_runs_sync_client_off_event_loop(
 ) -> None:
     client, _, tokens = _app_client(tmp_path)
 
+    closed: list[bool] = []
+
     class HarborProbe:
         def system_info(self) -> SimpleNamespace:
             with pytest.raises(RuntimeError, match="no running event loop"):
@@ -541,7 +543,7 @@ def test_harbor_registry_probe_runs_sync_client_off_event_loop(
             return SimpleNamespace(harbor_version="2.14.6")
 
         def close(self) -> None:
-            pass
+            closed.append(True)
 
     monkeypatch.setattr(HarborProfileService, "build_client", lambda *_: HarborProbe())
     response = client.post(
@@ -552,6 +554,7 @@ def test_harbor_registry_probe_runs_sync_client_off_event_loop(
     assert response.status_code == 200
     assert response.json()["code"] == "registry_connection_ok"
     assert response.json()["version"] == "2.14.6"
+    assert closed == [True]
 
     missing = client.post(
         "/api/settings/harbor/profiles/missing/test-registry",
@@ -559,6 +562,33 @@ def test_harbor_registry_probe_runs_sync_client_off_event_loop(
     )
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "harbor_profile_not_found"
+
+
+def test_harbor_registry_probe_closes_client_on_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.harbor_client import HarborClientError
+
+    client, _, tokens = _app_client(tmp_path)
+    closed: list[bool] = []
+
+    class HarborProbe:
+        def system_info(self) -> SimpleNamespace:
+            raise HarborClientError("timeout", "timed out")
+
+        def close(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr(HarborProfileService, "build_client", lambda *_: HarborProbe())
+    response = client.post(
+        f"/api/settings/harbor/profiles/{DEFAULT_PROFILE_ID}/test-registry",
+        headers=_auth(tokens["admin"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert response.json()["code"] == "harbor_unavailable"
+    assert closed == [True]
 
 
 def test_nexus_profile_uses_docker_v2_probe_with_existing_tls_setting(

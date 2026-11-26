@@ -906,6 +906,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     "import_destination_plan_tampered",
                     "Destination plan не совпадает с persisted artifact rows",
                 )
+            policy = self._policy_object(operation)
             receipt = ImportReceiptResponse(
                 operation_id=operation.id,
                 source_delivery_id=preview.source_delivery_id,
@@ -914,6 +915,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 started_at=requested_at,
                 finished_at=now,
                 overwrite_conflicts=overwrite,
+                skip_conflicts=bool(policy.get("skip_conflicts", False)),
                 destination_plan_id=plan.plan_id,
                 destination_plan_hash=plan.plan_hash,
                 result="FAILED" if failures else "COMPLETED",

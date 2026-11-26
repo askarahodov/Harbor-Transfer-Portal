@@ -445,7 +445,7 @@ export const useExportWizardStore = defineStore('export-wizard', () => {
     if (isNexusSelected.value) {
       error.value = {
         code: 'nexus_requires_registry_workflow',
-        message: 'Nexus export требует отдельного Nexus workflow (Draft PR #451). Текущий Harbor wizard не поддерживает Nexus.',
+        message: 'Nexus export требует отдельного Nexus workflow (Draft PR #503). Текущий Harbor wizard не поддерживает Nexus.',
       }
       return false
     }

@@ -164,29 +164,35 @@ class ImportOperationPersistence:
             session.commit()
 
     def publish_receipt_file(self, receipt: ImportReceiptResponse) -> None:
-        self.receipt_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        destination = self.receipt_root / f"import-{receipt.operation_id}.json"
-        temporary = NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=self.receipt_root,
-            prefix=f".{destination.name}.", suffix=".tmp", delete=False,
-        )
-        path = Path(temporary.name)
         try:
-            with temporary as handle:
-                handle.write(receipt.model_dump_json(indent=2) + "\n")
-                handle.flush()
-                os.fchmod(handle.fileno(), 0o440)
-                os.fsync(handle.fileno())
+            self.receipt_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+            destination = self.receipt_root / f"import-{receipt.operation_id}.json"
+            temporary = NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self.receipt_root,
+                prefix=f".{destination.name}.", suffix=".tmp", delete=False,
+            )
+            path = Path(temporary.name)
             try:
-                os.link(path, destination)
-            except FileExistsError as exc:
-                raise OperationTaskFailure(
-                    "import_receipt_exists",
-                    "Immutable import receipt уже существует",
-                ) from exc
-        finally:
-            path.unlink(missing_ok=True)
-        self._fsync_directory(self.receipt_root)
+                with temporary as handle:
+                    handle.write(receipt.model_dump_json(indent=2) + "\n")
+                    handle.flush()
+                    os.fchmod(handle.fileno(), 0o440)
+                    os.fsync(handle.fileno())
+                try:
+                    os.link(path, destination)
+                except FileExistsError as exc:
+                    raise OperationTaskFailure(
+                        "import_receipt_exists",
+                        "Immutable import receipt уже существует",
+                    ) from exc
+            finally:
+                path.unlink(missing_ok=True)
+            self._fsync_directory(self.receipt_root)
+        except OSError as exc:
+            raise OperationTaskFailure(
+                "import_receipt_publish_failed",
+                "Не удалось атомарно опубликовать immutable import receipt",
+            ) from exc
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:

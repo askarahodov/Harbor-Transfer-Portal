@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -183,7 +184,7 @@ def test_receipt_write_failure_leaves_no_file_or_database_snapshot(
         raise OSError("receipt fsync failed")
 
     monkeypatch.setattr("app.services.import_persistence.os.fsync", fail_sync)
-    with pytest.raises(OSError, match="receipt fsync failed"):
+    with pytest.raises(OperationTaskFailure) as captured:
         persistence.write_receipt(
             operation_id,
             expected_preview,
@@ -192,6 +193,62 @@ def test_receipt_write_failure_leaves_no_file_or_database_snapshot(
             failures=0,
         )
 
+    assert captured.value.code == "import_receipt_publish_failed"
+    assert list(persistence.receipt_root.iterdir()) == []
+    operation = manager.get_operation(operation_id)
+    assert operation is not None
+    assert operation.import_receipt_json is None
+
+
+def test_receipt_directory_fsync_failure_is_typed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    persistence, manager = environment(tmp_path)
+    operation_id = create_import(manager)
+    expected_preview = preview(operation_id)
+
+    def fail_directory_sync(_path: Path) -> None:
+        raise OSError("receipt directory fsync failed")
+
+    monkeypatch.setattr(
+        ImportOperationPersistence, "_fsync_directory", staticmethod(fail_directory_sync)
+    )
+    with pytest.raises(OperationTaskFailure) as captured:
+        persistence.write_receipt(
+            operation_id,
+            expected_preview,
+            overwrite=False,
+            requested_at=datetime(2026, 9, 22, 8, 5, tzinfo=UTC),
+            failures=0,
+        )
+
+    assert captured.value.code == "import_receipt_publish_failed"
+    operation = manager.get_operation(operation_id)
+    assert operation is not None
+    assert operation.import_receipt_json is None
+
+
+def test_receipt_hardlink_failure_without_collision_is_typed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    persistence, manager = environment(tmp_path)
+    operation_id = create_import(manager)
+    expected_preview = preview(operation_id)
+
+    def unsupported_link(_source: object, _destination: object) -> None:
+        raise OSError(errno.EOPNOTSUPP, "hardlink not supported")
+
+    monkeypatch.setattr("app.services.import_persistence.os.link", unsupported_link)
+    with pytest.raises(OperationTaskFailure) as captured:
+        persistence.write_receipt(
+            operation_id,
+            expected_preview,
+            overwrite=False,
+            requested_at=datetime(2026, 9, 22, 8, 5, tzinfo=UTC),
+            failures=0,
+        )
+
+    assert captured.value.code == "import_receipt_publish_failed"
     assert list(persistence.receipt_root.iterdir()) == []
     operation = manager.get_operation(operation_id)
     assert operation is not None
