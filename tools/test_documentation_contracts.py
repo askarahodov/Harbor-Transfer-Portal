@@ -14,6 +14,108 @@ _IMPLEMENTED_JOBS_HEADING_RE = re.compile(
 _JOB_KEY_RE = re.compile(r"^(?P<indent> +)(?P<key>[A-Za-z0-9_.-]+):\s*$")
 _JOB_NAME_RE = re.compile(r"^(?P<indent> +)name:\s*(?P<name>.+?)\s*$")
 
+#
+# Drift guard for "main CI runs acceptance / clean-host / offline qualification".
+#
+# The workflow currently has no such jobs: isolated SOURCE -> TARGET acceptance
+# and clean-host offline-install qualification exist only as release scripts plus
+# jobs in unmerged draft PR #548 (issue #507). Documents that describe CI scope
+# or qualification status must therefore not imply those checks run in `main` CI
+# without an explicit draft/external-gate marker nearby.
+#
+# Selection of audited documents: every Markdown file that makes a CI-scope or
+# release-qualification statement (testing/security/architecture/ops guides,
+# deploy and offline-install guides, admin/troubleshooting/passport/decisions,
+# the documentation map, changelog) plus the root status entry points
+# (README/ROADMAP/CONTRIBUTING). Files that only mention `make` targets locally
+# are intentionally not listed, because naming a local target is not a CI claim.
+_PHANTOM_CI_CLAIM_DOCUMENTS = (
+    "docs/testing.md",
+    "docs/security.md",
+    "docs/architecture.md",
+    "docs/offline-lifecycle.md",
+    "docs/frontend.md",
+    "docs/skopeo-service.md",
+    "docs/admin-guide.md",
+    "docs/troubleshooting.md",
+    "docs/project-passport.md",
+    "docs/history-ui.md",
+    "docs/decisions.md",
+    "docs/README.md",
+    "deploy/README.md",
+    "deploy/offline/README.md",
+    "CHANGELOG.md",
+    "README.md",
+    "ROADMAP.md",
+    "CONTRIBUTING.md",
+)
+
+_CI_MENTION_RE = re.compile(
+    r"\bCI\b|GitHub Actions|\.github/workflows/ci\.yml",
+    re.IGNORECASE,
+)
+_PHANTOM_SUBJECT_RE = re.compile(
+    r"acceptance|clean[- ]host|offline[- ]install|offline[- ]qualif|"
+    r"isolated SOURCE|qualify-",
+    re.IGNORECASE,
+)
+_EXTERNAL_GATE_MARKER_RE = re.compile(
+    r"\bdraft\b|#548|#507|внешн|не вход|не част|не запуска|не выполня|"
+    r"не содерж|не явля|не основан|не означает|не CI|вне CI|"
+    r"вручную|стенд|отсутств",
+    re.IGNORECASE,
+)
+_HEADING_LINE_RE = re.compile(r"^#{1,6}\s")
+_LIST_ITEM_LINE_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)]|\|)\s*")
+_FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+
+
+def _strip_code(text: str) -> str:
+    """Убирает code fences и inline code, чтобы пути/links не считались CI-утверждением."""
+    return _INLINE_CODE_RE.sub("", _FENCED_CODE_RE.sub("", text))
+
+
+def _claim_blocks(document: str) -> list[tuple[int, str]]:
+    """Группирует абзац с последующим списком/таблицей в один смысловой блок."""
+    lines = document.splitlines()
+    raw: list[tuple[int, list[str]]] = []
+    index = 0
+    while index < len(lines):
+        if not lines[index].strip():
+            index += 1
+            continue
+        start = index
+        while index < len(lines) and lines[index].strip():
+            index += 1
+        raw.append((start + 1, lines[start:index]))
+
+    merged: list[tuple[int, list[str]]] = []
+    for start, block in raw:
+        if (
+            merged
+            and _LIST_ITEM_LINE_RE.match(block[0])
+            and not _HEADING_LINE_RE.match(merged[-1][1][0])
+        ):
+            merged[-1] = (merged[-1][0], merged[-1][1] + block)
+        else:
+            merged.append((start, block))
+    return [(start, "\n".join(block)) for start, block in merged]
+
+
+def _phantom_ci_claims(document: str) -> list[tuple[int, str]]:
+    """Возвращает блоки, где acceptance/offline-qualification приписаны `main` CI без оговорки."""
+    findings: list[tuple[int, str]] = []
+    for start, block in _claim_blocks(document):
+        text = _strip_code(block)
+        if (
+            _CI_MENTION_RE.search(text)
+            and _PHANTOM_SUBJECT_RE.search(text)
+            and not _EXTERNAL_GATE_MARKER_RE.search(text)
+        ):
+            findings.append((start, block))
+    return findings
+
 
 def _ci_job_names(text: str) -> dict[str, str]:
     """Извлекает `jobs:`-ключи workflow и их display-имена без YAML-зависимости."""
@@ -451,6 +553,93 @@ class DocumentationContractTests(unittest.TestCase):
             ["Real — job", "Phantom — job"],
         )
         self.assertNotIn("Phantom — job", set(_ci_job_names(workflow).values()))
+
+    def _acceptance_jobs_in_workflow(self) -> list[str]:
+        jobs = _ci_job_names(self.read(_CI_WORKFLOW_PATH))
+        return sorted(
+            name
+            for key, name in jobs.items()
+            if _PHANTOM_SUBJECT_RE.search(f"{key} {name}")
+        )
+
+    def test_main_ci_has_no_acceptance_or_clean_host_jobs(self) -> None:
+        """Условие, на котором держится весь drift guard ниже.
+
+        Если acceptance/clean-host/offline-install появятся в `main` CI, этот
+        тест упадёт первым и заставит пересмотреть документы осознанно, а не
+        молча оставить неверные заявления.
+        """
+        self.assertEqual(
+            self._acceptance_jobs_in_workflow(),
+            [],
+            f"{_CI_WORKFLOW_PATH} содержит job'ы acceptance/clean-host/offline-install; "
+            "обновите docs/testing.md и проверьте остальные документы",
+        )
+
+    def test_documents_do_not_claim_main_ci_runs_acceptance_or_clean_host(self) -> None:
+        """Fail-able doc-contract: не приписывать `main` CI acceptance/offline gates."""
+        if self._acceptance_jobs_in_workflow():
+            self.skipTest(
+                "acceptance/clean-host jobs присутствуют в workflow; drift guard неприменим"
+            )
+
+        findings: list[str] = []
+        for relative in _PHANTOM_CI_CLAIM_DOCUMENTS:
+            for line_number, block in _phantom_ci_claims(self.read(relative)):
+                findings.append(
+                    f"{relative}:{line_number}: {block.splitlines()[0][:160]}"
+                )
+
+        self.assertEqual(
+            findings,
+            [],
+            "Документы приписывают `main` CI acceptance/clean-host/offline-install, "
+            f"которых нет в {_CI_WORKFLOW_PATH}. Добавьте явную оговорку "
+            "(draft PR #548 / issue #507 / внешний gate) или исправьте утверждение:\n"
+            + "\n".join(findings),
+        )
+
+    def test_phantom_ci_claim_detector_is_fail_able(self) -> None:
+        """Мутационная проверка: образец регрессии должен детектироваться."""
+        regression = (
+            "## Release qualification\n"
+            "\n"
+            "CI содержит fail-able gates:\n"
+            "\n"
+            "- clean-host offline install qualification;\n"
+            "- isolated SOURCE → TARGET acceptance.\n"
+        )
+        self.assertTrue(_phantom_ci_claims(regression))
+
+        ambiguous = (
+            "Release-critical behavior автоматически проверяется CI: "
+            "clean-host offline install и isolated SOURCE → TARGET acceptance.\n"
+        )
+        self.assertTrue(_phantom_ci_claims(ambiguous))
+
+        corrected = (
+            "CI ветки `main` не выполняет clean-host offline install и "
+            "isolated SOURCE → TARGET acceptance.\n"
+            "\n"
+            "Внешние release gates (не входят в CI `main`) покрывают:\n"
+            "\n"
+            "- clean-host offline install;\n"
+            "- isolated SOURCE → TARGET acceptance.\n"
+        )
+        self.assertEqual(_phantom_ci_claims(corrected), [])
+
+        unrelated = (
+            "CI выполняет backend и frontend jobs; Compose job проверяет "
+            "`docker compose config/build/up`.\n"
+        )
+        self.assertEqual(_phantom_ci_claims(unrelated), [])
+
+    def test_phantom_ci_claim_detector_scans_real_documents_cleanly(self) -> None:
+        """Проверяет, что аудируемый набор реально читается и парсится."""
+        for relative in _PHANTOM_CI_CLAIM_DOCUMENTS:
+            document = self.read(relative)
+            self.assertTrue(document.strip(), f"{relative} пуст")
+            self.assertEqual(_phantom_ci_claims(document), [], relative)
 
 
     def test_first_run_documentation_matches_supported_launchers(self) -> None:

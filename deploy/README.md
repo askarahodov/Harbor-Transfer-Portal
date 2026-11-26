@@ -277,18 +277,18 @@ Packaging stale image от другого source revision должен fail clos
 
 ## 14. CI / qualification
 
-Development/runtime smoke:
+Development/runtime smoke (локально, не в CI):
 
 ```bash
 make smoke-compose
 ```
 
-Release-sensitive paths дополнительно включают:
+Release-sensitive paths в CI дополнительно включают:
 
-- Skopeo/Helm disposable-registry integration;
-- clean-host offline installation qualification;
-- isolated SOURCE → physical bundle → TARGET acceptance;
+- Skopeo/Helm disposable-registry integration (`Integration — интеграционные тесты`);
 - final `quality-gate`.
+
+Clean-host offline installation qualification и isolated SOURCE → physical bundle → TARGET acceptance — **внешние release gates**, а не часть CI ветки `main`: соответствующие jobs находятся в неслитом draft PR #548 (issue #507). Их скрипты выполняются вручную/на отдельном стенде.
 
 Clean-host qualification реально удаляет release-tagged images до install phase и проверяет один и тот же archive в SOURCE/TARGET. Isolated acceptance использует независимые local registries и не оставляет TARGET прямой зависимости от SOURCE fixture.
 

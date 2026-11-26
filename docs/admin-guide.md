@@ -441,18 +441,21 @@ Release notes: [release-notes-v1.0.0.md](release-notes-v1.0.0.md). Changelog: [C
 
 ## 20. Release qualification
 
-Release-critical behavior автоматически проверяется CI:
+Release-critical behavior покрывается двумя слоями. CI ветки `main` автоматически проверяет:
 
 - backend/frontend checks;
 - protocol/security gates по scope;
-- real Skopeo/Helm local-registry integration;
-- Compose smoke;
+- real Skopeo/Helm local-registry integration (`Integration — интеграционные тесты`);
+- Compose job (`docker compose config/build/up` + `/api/health`), а не `make smoke-compose`;
+- runtime migration/restart/backup-restore SOURCE↔TARGET lifecycle (backend pytest);
+- documentation links и общий `quality-gate`.
+
+Внешние release gates (не входят в CI `main`) дополнительно покрывают:
+
 - clean-host offline install одного archive с predictable bootstrap role;
-- runtime migration/restart/backup-restore SOURCE↔TARGET lifecycle;
 - isolated SOURCE → physical bundle → TARGET flow с separate registries;
 - digest/Helm verification, receipt/history/report;
-- replay skip, conflict default-deny, tamper rejection;
-- documentation links и общий `quality-gate`.
+- replay skip, conflict default-deny, tamper rejection.
 
 Эти проверки являются частью текущего v1 release process, а не будущей работой.
 
