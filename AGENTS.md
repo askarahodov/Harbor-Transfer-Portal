@@ -14,6 +14,10 @@ Harbor Transfer Portal обеспечивает **офлайн** перенос 
 4. Используйте ветку от нужной **актуальной base**. `main` и ветка draft Nexus интеграции имеют разные release boundaries: не переносите неподтверждённые Nexus изменения в `main` ради удобства.
 5. При существующей реализации сначала расширяйте её; не добавляйте фреймворк, сервис, abstraction или dependency без необходимости.
 
+## Секреты локального tooling
+
+Токены и credentials для локальных агентских инструментов (GitHub MCP PAT, registry/API ключи) **не хранятся в отслеживаемых файлах и не попадают в проектные конфиги в открытом виде**. Для GitHub MCP используется 0600 env-file вне репозитория (`~/.config/kilo/secrets/github-mcp.env`), на который `.kilo/kilo.jsonc` ссылается только путём; за provisioning отвечает `tools/setup-github-mcp-secret.sh`. PAT должен быть read-only (`GITHUB_READ_ONLY=1`). Если токен всё же оказался в файле — отзовите его в GitHub, не полагайтесь только на удаление файла.
+
 ## Итерация реализации до полной готовности
 
 **Understand → root cause → design → implement → scoped tests → fix → independent diff review → docs → final verification → PR/checkpoint.**
