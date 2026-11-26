@@ -591,6 +591,99 @@ def test_harbor_registry_probe_closes_client_on_error(
     assert closed == [True]
 
 
+def _assert_no_running_event_loop() -> None:
+    with pytest.raises(RuntimeError, match="no running event loop"):
+        asyncio.get_running_loop()
+
+
+def test_harbor_build_client_runs_off_event_loop_and_closes_on_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.harbor_client import HarborClientError
+
+    client, _, tokens = _app_client(tmp_path)
+    closed: list[bool] = []
+    built: list[bool] = []
+
+    class HarborProbe:
+        def system_info(self) -> SimpleNamespace:
+            _assert_no_running_event_loop()
+            raise HarborClientError("timeout", "timed out")
+
+        def close(self) -> None:
+            closed.append(True)
+
+    def build_client(*_: object) -> HarborProbe:
+        _assert_no_running_event_loop()
+        built.append(True)
+        return HarborProbe()
+
+    monkeypatch.setattr(HarborProfileService, "build_client", build_client)
+    response = client.post(
+        f"/api/settings/harbor/profiles/{DEFAULT_PROFILE_ID}/test-registry",
+        headers=_auth(tokens["admin"]),
+    )
+
+    assert built == [True]
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert response.json()["code"] == "harbor_unavailable"
+    assert closed == [True]
+
+
+def test_nexus_resolve_profile_runs_off_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.registry_probe import ProbeResult
+
+    client, _, tokens = _app_client(tmp_path)
+    headers = _auth(tokens["admin"])
+    created = client.post(
+        "/api/settings/harbor/profiles",
+        json={
+            "name": "Nexus Docker",
+            "url": "https://docker.nexus.example.test",
+            "username": "operator",
+            "verify_tls": True,
+            "enabled": True,
+            "registry_type": "nexus",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+    resolved_ids: list[str] = []
+
+    def resolve_profile(self: object, target_id: str) -> SimpleNamespace:
+        _assert_no_running_event_loop()
+        resolved_ids.append(target_id)
+        return SimpleNamespace(
+            url="https://docker.nexus.example.test",
+            username="operator",
+            password=None,
+            verify_tls=True,
+            ca_file=None,
+        )
+
+    async def fake_probe(*_: object, **__: object) -> ProbeResult:
+        return ProbeResult(
+            ok=True, code="registry_connection_ok", message="Docker Registry v2 доступен"
+        )
+
+    monkeypatch.setattr(
+        "app.api.settings.HarborSettingsService.resolve_profile", resolve_profile
+    )
+    monkeypatch.setattr("app.api.settings.probe_docker_v2", fake_probe)
+    response = client.post(
+        f"/api/settings/harbor/profiles/{profile_id}/test-registry",
+        headers=headers,
+    )
+
+    assert resolved_ids == [profile_id]
+    assert response.status_code == 200
+    assert response.json()["code"] == "registry_connection_ok"
+
+
 def test_nexus_profile_uses_docker_v2_probe_with_existing_tls_setting(
     tmp_path: Path, monkeypatch,
 ) -> None:

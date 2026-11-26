@@ -542,8 +542,9 @@ async def test_registry_profile_connection(
 
     if profile.registry_type == "nexus":
         try:
-            resolved = HarborSettingsService(session, request.app.state.settings).resolve_profile(
-                profile.id
+            resolved = await run_in_threadpool(
+                HarborSettingsService(session, request.app.state.settings).resolve_profile,
+                profile.id,
             )
         except HarborSettingsError as exc:
             raise _profile_error(exc) from exc
@@ -557,7 +558,7 @@ async def test_registry_profile_connection(
         )
 
     try:
-        harbor_client = service.build_client(profile.id)
+        harbor_client = await run_in_threadpool(service.build_client, profile.id)
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
     return await run_in_threadpool(_test_harbor_registry_profile, harbor_client)
