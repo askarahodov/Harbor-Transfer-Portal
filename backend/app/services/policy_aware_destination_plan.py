@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -185,21 +184,6 @@ class PolicyAwareImportDestinationPlanOrchestrator(ImportDestinationPlanOrchestr
                     )
                 ],
             )
-            payload = receipt.model_dump_json(indent=2) + "\n"
+            self.persistence.publish_receipt_file(receipt)
             operation.import_receipt_json = receipt.model_dump_json()
             session.commit()
-
-        self.receipt_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        path = self.receipt_root / f"import-{operation_id}.json"
-        try:
-            with path.open("x", encoding="utf-8") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.chmod(path, 0o440)
-            self._fsync_directory(self.receipt_root)
-        except FileExistsError as exc:
-            raise OperationTaskFailure(
-                "import_receipt_exists",
-                "Immutable import receipt уже существует",
-            ) from exc

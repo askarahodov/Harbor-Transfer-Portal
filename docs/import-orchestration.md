@@ -171,11 +171,11 @@ TARGET wizard показывает persisted phase/counters и per-artifact resu
 После execution формируется receipt в двух местах:
 
 - JSON snapshot в operation record;
-- immutable file `IMPORT_RECEIPT_ROOT/import-<operation_id>.json`, создаваемый exclusive-write (`x`) и переводимый в read-only mode.
+- immutable file `IMPORT_RECEIPT_ROOT/import-<operation_id>.json`. Полностью записанный read-only файл публикуется атомарно с запретом перезаписи, затем сохраняется JSON snapshot в SQLite.
 
 Receipt содержит source delivery id, exact bundle SHA256, actor username, execution timestamps, выбранные `skip_conflicts` / overwrite policy и per-artifact outcomes/digests/errors. Для Helm `expected_digest` остаётся SOURCE OCI provenance, а `target_digest` содержит фактически наблюдаемый TARGET OCI digest. Credentials, Harbor password, auth files и secret material туда не записываются.
 
-Receipt формируется и для partial failure. Если execution не начался из-за invalid bundle/conflict/unknown policy, receipt отсутствует, а причина остаётся в operation error semantics.
+Успешный receipt доступен через API после перехода операции в `COMPLETED`. При сбое публикации файла операция завершается типизированной ошибкой `import_receipt_publish_failed` (включая невозможность hardlink или fsync каталога), а API не выдаёт успешный receipt. Если файл уже был опубликован ранее, он остаётся неизменным и последующий вызов возвращает `import_receipt_exists`. Уже выполненные записи в TARGET сохраняются. Если процесс прерван после публикации файла и до завершения операции, файл может остаться на диске для диагностики. Receipt формируется и для partial failure. Если execution не начался из-за invalid bundle/conflict/unknown policy, receipt отсутствует, а причина остаётся в operation error semantics.
 
 Frontend может получить небольшой receipt через `GET /api/imports/{id}/receipt` и сохранить JSON для оператора. Это представление не заменяет immutable backend receipt file.
 
