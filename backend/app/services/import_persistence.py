@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -16,6 +18,11 @@ from app.schemas.imports import (
     ImportReceiptResponse,
 )
 from app.services.operation_manager import OperationTaskFailure
+
+logger = logging.getLogger(__name__)
+
+_STALE_RECEIPT_TEMP_SECONDS = 3600.0
+_RECEIPT_TEMP_SUFFIX = ".tmp"
 
 
 class ImportOperationPersistence:
@@ -167,9 +174,10 @@ class ImportOperationPersistence:
         try:
             self.receipt_root.mkdir(parents=True, exist_ok=True, mode=0o700)
             destination = self.receipt_root / f"import-{receipt.operation_id}.json"
+            self._sweep_stale_receipt_temps(destination)
             temporary = NamedTemporaryFile(
                 mode="w", encoding="utf-8", dir=self.receipt_root,
-                prefix=f".{destination.name}.", suffix=".tmp", delete=False,
+                prefix=f".{destination.name}.", suffix=_RECEIPT_TEMP_SUFFIX, delete=False,
             )
             path = Path(temporary.name)
             try:
@@ -186,13 +194,53 @@ class ImportOperationPersistence:
                         "Immutable import receipt уже существует",
                     ) from exc
             finally:
-                path.unlink(missing_ok=True)
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as exc:
+                    logger.warning("receipt temp cleanup skipped: %s", exc)
             self._fsync_directory(self.receipt_root)
         except OSError as exc:
             raise OperationTaskFailure(
                 "import_receipt_publish_failed",
                 "Не удалось атомарно опубликовать immutable import receipt",
             ) from exc
+
+    def _sweep_stale_receipt_temps(self, destination: Path) -> None:
+        """Best-effort removal of this destination's abandoned temp receipts.
+
+        Temp files are published as ``.{destination.name}.<random>.tmp`` in
+        ``receipt_root`` and normally removed in ``finally``. A hard kill between
+        ``fchmod(0o440)`` and ``os.link`` can leave one behind permanently, so each
+        publication opportunistically sweeps leftovers for the *same* destination.
+
+        Safety without cross-process locks relies on the age threshold: a live
+        publisher creates its temp immediately before linking, so a matching file
+        older than ``_STALE_RECEIPT_TEMP_SECONDS`` cannot belong to an in-flight
+        publish. Only direct entries of ``receipt_root`` are inspected with
+        ``follow_symlinks=False``; the scan never recurses, never follows a symlink,
+        and tolerates a file disappearing concurrently. Every error is swallowed
+        and logged: cleanup must not fail an otherwise successful publication.
+        """
+        prefix = f".{destination.name}."
+        cutoff = time.time() - _STALE_RECEIPT_TEMP_SECONDS
+        try:
+            with os.scandir(self.receipt_root) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if not name.startswith(prefix) or not name.endswith(_RECEIPT_TEMP_SUFFIX):
+                        continue
+                    try:
+                        if not entry.is_file(follow_symlinks=False):
+                            continue
+                        if entry.stat(follow_symlinks=False).st_mtime > cutoff:
+                            continue
+                        Path(entry.path).unlink(missing_ok=True)
+                    except FileNotFoundError:
+                        continue
+                    except OSError as exc:
+                        logger.warning("stale receipt temp cleanup skipped: %s", exc)
+        except OSError as exc:
+            logger.warning("stale receipt temp scan skipped: %s", exc)
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
