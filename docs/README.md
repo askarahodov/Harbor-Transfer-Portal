@@ -13,6 +13,7 @@
 | Диагностика ошибок | [Troubleshooting](troubleshooting.md) |
 | Оценка безопасности | [Security](security.md) |
 | Архитектура и сопровождение | [Architecture](architecture.md), [Testing](testing.md) |
+| Внешняя приёмка: evidence и подписи | [Шаблоны evidence](acceptance-evidence-templates.md) |
 | Текущий backlog и release decision | [ROADMAP](../ROADMAP.md), [GitHub Issues](https://github.com/askarahodov/Harbor-Transfer-Portal/issues) |
 
 Быстрый обзор продукта — [паспорт](project-passport.md). Главная страница репозитория — [README](../README.md). Правила участия — [CONTRIBUTING](../CONTRIBUTING.md).
@@ -48,7 +49,7 @@
 - [Key management](key-management.md), [Transfer policies](transfer-policies.md), [Storage retention](storage-retention.md)
 - [Offline lifecycle](offline-lifecycle.md), [Structured logging](structured-logging.md), [Troubleshooting](troubleshooting.md)
 - [Deployment](../deploy/README.md), [Offline install kit](../deploy/offline/README.md)
-- [Testing/CI](testing.md), [Docsify shell](docsify.md), [Release notes 1.0.0](release-notes-v1.0.0.md), [CHANGELOG](../CHANGELOG.md)
+- [Testing/CI](testing.md), [Шаблоны evidence внешней приёмки](acceptance-evidence-templates.md), [Docsify shell](docsify.md), [Release notes 1.0.0](release-notes-v1.0.0.md), [CHANGELOG](../CHANGELOG.md)
 
 ## Nexus — отдельно от baseline
 
