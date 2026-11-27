@@ -180,6 +180,8 @@ Harbor profile domain/API также security-sensitive, потому что у�
 
 Включается для путей, от которых зависит реальный Nexus legacy Docker v2 transport: `tools/nexus_e2e_setup.py`, `backend/tests/test_nexus_legacy_e2e.py`, `backend/app/services/nexus_service.py`, `backend/app/services/registry_client.py`, `backend/requirements-dev.lock`, `docs/nexus-setup.md`. Когда `nexus_e2e=true`, `Integration — интеграционные тесты` дополнительно выполняет gated-шаги Nexus Docker v2 E2E. При `workflow_dispatch` они выполняются всегда (с `nexus_version`, по умолчанию `3.69.0`). Изменение `.github/workflows/ci.yml` или `tools/ci_scope.py` также включает `nexus_e2e`, когда marker-файлы E2E присутствуют.
 
+Отдельного job для Nexus нет: E2E-шаги живут внутри `Integration — интеграционные тесты`, который запускается при `integration=true` **или** `nexus_e2e=true`. Поэтому `quality-gate` считает этот job обязательным, если включена любая из этих областей (`INTEGRATION_REQUIRED = integration == 'true' || nexus_e2e == 'true'`); `skipped` для него допустим только когда обе области false. Иначе `nexus_e2e`-only прогон (integration=false) с падением E2E давал бы «unexpected result», а смешанный прогон мог бы скрыть сбой. Это правило закреплено regression test в `tools/test_ci_scope.py`.
+
 ### Compose
 
 Включается для runtime/container/deployment paths, включая:
@@ -346,7 +348,7 @@ Product release version задаётся backend `app.__version__` и испол
 
 ## 10. `quality-gate`
 
-`quality-gate` выполняется всегда и зависит от scope и всех потенциальных jobs.
+`quality-gate` выполняется всегда и зависит от scope и всех потенциальных jobs. Области проверяются через scope outputs: backend, frontend, protocol, security, compose, windows-launcher, windows-offline-lifecycle, docs, а также `integration` и `nexus_e2e` (оба относятся к общему job `Integration — интеграционные тесты`, поэтому он обязателен, если включена любая из этих двух областей).
 
 Допустимые результаты для каждой области:
 

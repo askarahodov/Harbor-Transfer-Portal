@@ -629,6 +629,37 @@ class CiWorkflowGatingTest(TestCase):
                 step = self._step_block(block, step_name)
                 self.assertIn("needs.scope.outputs.integration == 'true'", step)
 
+    def test_quality_gate_requires_integration_for_nexus_e2e_scope(self) -> None:
+        """Regression: the gate must know about the nexus_e2e scope.
+
+        The Nexus E2E steps live inside the `integration` job, so a PR with
+        `integration=true, nexus_e2e=true` must not be able to bypass the E2E
+        failure, and a `nexus_e2e`-only run (integration=false) must not be
+        reported as an unexpected result. Both require the gate to treat
+        `integration` as mandatory whenever either scope is armed.
+        """
+        block = self._job_block("quality-gate")
+        step = self._step_block(block, "Проверить результаты обязательных jobs")
+
+        self.assertIn("needs.scope.outputs.nexus_e2e", step)
+        required_line = next(
+            line
+            for line in step.splitlines()
+            if "INTEGRATION_REQUIRED:" in line
+        )
+        self.assertIn("needs.scope.outputs.integration == 'true'", required_line)
+        self.assertIn("needs.scope.outputs.nexus_e2e == 'true'", required_line)
+        self.assertIn("||", required_line)
+        # The integration job's own gate must stay in sync with the gate rule.
+        integration_if = next(
+            line
+            for line in self._job_block("integration").splitlines()
+            if line.lstrip().startswith("if:")
+        )
+        self.assertIn("needs.scope.outputs.integration == 'true'", integration_if)
+        self.assertIn("needs.scope.outputs.nexus_e2e == 'true'", integration_if)
+        self.assertIn("||", integration_if)
+
     def test_nexus_only_change_arms_nexus_e2e_without_integration(self) -> None:
         scope_factory = CiScopeTest()
         root = scope_factory._root()

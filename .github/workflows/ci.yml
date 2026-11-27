@@ -505,7 +505,13 @@ jobs:
           FRONTEND_REQUIRED: ${{ needs.scope.outputs.frontend }}
           PROTOCOL_REQUIRED: ${{ needs.scope.outputs.protocol }}
           SECURITY_REQUIRED: ${{ needs.scope.outputs.security }}
-          INTEGRATION_REQUIRED: ${{ needs.scope.outputs.integration }}
+          # The `integration` job carries both the offline/isolated acceptance
+          # steps (gated on `integration`) and the Nexus legacy Docker v2 E2E
+          # steps (gated on `nexus_e2e`). Its job-level `if` runs when either
+          # scope is true, so the gate must require it in both cases; otherwise
+          # a `nexus_e2e`-only run (integration=false) that fails E2E is
+          # reported as "unexpected result" and a mixed run can be misjudged.
+          INTEGRATION_REQUIRED: ${{ needs.scope.outputs.integration == 'true' || needs.scope.outputs.nexus_e2e == 'true' }}
           COMPOSE_REQUIRED: ${{ needs.scope.outputs.compose }}
           WINDOWS_REQUIRED: ${{ needs.scope.outputs.compose }}
           WINDOWS_OFFLINE_REQUIRED: ${{ needs.scope.outputs.compose }}
