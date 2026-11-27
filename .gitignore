@@ -69,3 +69,4 @@ node_modules/
 .kilo/
 .retry-extract/
 backend/.retry-extract/
+.kilocodeignore
