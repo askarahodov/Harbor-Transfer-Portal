@@ -81,6 +81,7 @@ def test_cancel_during_packaging_waits_and_removes_ready_files(tmp_path: Path) -
         bundle_payload_root=data,
         bundle_outgoing_root=data / "outgoing",
         bundle_signing_private_key_file=data / "keys" / "signing.pem",
+        bundle_trusted_public_keys_dir=data / "keys" / "trusted",
     )
     KeyManagementService(settings).generate_signing_private_key()
 

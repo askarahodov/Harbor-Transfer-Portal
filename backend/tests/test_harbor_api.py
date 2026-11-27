@@ -158,12 +158,11 @@ def _client(
     alembic_config.set_main_option("sqlalchemy.url", database_url)
     command.upgrade(alembic_config, "head")
 
-    settings_kwargs: dict[str, str] = {
+    settings_kwargs: dict[str, str | None] = {
         "database_url": database_url,
         "jwt_secret": JWT_SECRET,
     }
-    if configured:
-        settings_kwargs["harbor_url"] = "https://harbor.local"
+    settings_kwargs["harbor_url"] = "https://harbor.local" if configured else None
 
     app = create_app(Settings(_env_file=None, **settings_kwargs))
     with app.state.session_factory() as session:
