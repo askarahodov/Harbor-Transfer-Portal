@@ -2,7 +2,7 @@
 
 **Статус:** актуальная test-selection и CI policy release-qualified baseline **v1.0.0**.
 
-Этот документ определяет минимально достаточные проверки для разных типов изменений Harbor Transfer Portal. Источники истины для фактического CI selection — `.github/workflows/ci.yml`, `tools/ci_scope.py` и regression tests `tools/test_ci_scope.py`; этот документ объясняет их назначение и правила применения.
+Этот документ определяет минимально достаточные проверки для разных типов изменений Harbor Transfer Portal. Источники истины для фактического CI selection — `.github/workflows/ci.yml`, `tools/ci_scope.py` и regression tests `tools/test_ci_scope.py` и `tools/test_ci_workflow_contract.py`; этот документ объясняет их назначение и правила применения.
 
 Общие статусы документации и приоритет источников истины описаны в [карте документации](README.md).
 
@@ -216,7 +216,7 @@ Harbor profile domain/API также security-sensitive, потому что у�
 
 ### CI policy self-test
 
-Изменение `.github/workflows/ci.yml` или самого `tools/ci_scope.py` включает все существующие applicable areas. Scope job всегда сначала запускает regression `tools.test_ci_scope` и dependency-lock invariant, поэтому изменение механизма selection не может молча обойти policy.
+Изменение `.github/workflows/ci.yml` или самого `tools/ci_scope.py` включает все существующие applicable areas. Scope job всегда сначала запускает regression `tools.test_ci_scope`, `tools.test_ci_workflow_contract` и dependency-lock invariant, поэтому изменение механизма selection не может молча обойти policy. `tools/test_ci_workflow_contract.py` — общий контрактный тест: он парсит реальный `ci.yml` и проверяет, что каждый scope-gated job отражён в `*_REQUIRED`/`for area in ...`/`needs` `quality-gate` (с явным allowlist для особых случаев вроде `windows-*`→`compose` и `integration`→`integration || nexus_e2e`), и что каждая область `ci_scope._AREA_NAMES` либо управляет job'ом, либо явно помечена как информационная.
 
 ## 6. Матрица «изменение → минимальные проверки»
 
@@ -406,6 +406,7 @@ Product release version задаётся backend `app.__version__` и испол
 - `.github/workflows/ci.yml`;
 - `tools/ci_scope.py`;
 - `tools/test_ci_scope.py`;
+- `tools/test_ci_workflow_contract.py`;
 - `tools/check_dependency_locks.py`;
 - `tools/check_doc_links.py`;
 - `deploy/qualify-clean-offline-install.sh`;
