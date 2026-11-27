@@ -15,6 +15,18 @@
 | First-run bootstrap | [#481](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/481) | Только после безопасной обязательной смены bootstrap-пароля |
 | Упрощение Windows/Linux установки | [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482) | Зависит от #481; не считать one-command install уже работающим |
 
+## Снятые с эксплуатации one-shot workflows (Issue #513)
+
+25 файлов `.github/workflows/prune-*-once.yml` и `.github/workflows/branch-cleanup-once.yml` удалены из репозитория: они были одноразовыми (срабатывали на `pull_request`/`push` по путям **своего же файла**), уже выполнили удаление refs в [#513](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/513), но каждый последующий PR/push, затрагивающий их файлы, перезапускал dry-run и засорял Actions UI и диск runs. Вместе с ними удалены их one-shot скрипты `tools/prune_*_once.py`/`tools/prune_import_wizard_alias.py`, `tools/prune_final_refs.py`, `tools/prune_superseded_refs.py` и два манифеста (`tools/final-ref-prune.tsv`, `tools/superseded-branch-prune.tsv`).
+
+Живая инфраструктура **сохранена** и является единственным поддерживаемым способом аудита и очистки refs:
+
+- `tools/branch_inventory_audit.py` — неразрушающий dry-run аудит (workflow `branch-inventory-audit-tests.yml` + `tools/test_branch_inventory_audit.py`);
+- `tools/prune_branch_refs.py` — reusable очистка с manifest `tools/branch-prune-candidates.tsv` (сейчас без собственного workflow: запускается вручную при необходимости);
+- `tools/atomic_ref_cleanup.py` — server-enforced lease для безопасного удаления (workflow `atomic-ref-cleanup-tests.yml` + `tools/test_atomic_ref_cleanup.py`).
+
+Регрессионный guard `tools/test_documentation_contracts.py::test_workflows_do_not_self_trigger_on_their_own_file` запрещает повторное появление self-triggering one-shot workflow; единственный allowlist-элемент — `nexus-legacy-e2e.yml` (scoped E2E-набор, не удаляет refs).
+
 ## Что НЕ является открытым планом
 
 - «Обновление last_activity на каждом API-запросе»: фоновые запросы **не должны** продлевать сессию. Текущий механизм привязан к действиям пользователя, см. [ADR-004](adr/ADR-004-auth-session.md).
