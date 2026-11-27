@@ -370,6 +370,19 @@ jobs:
               proxy_set_header X-Forwarded-Host $http_host;
             }
           }
+          server {
+            listen 8444 ssl;
+            server_name localhost;
+            ssl_certificate /certs/server.crt;
+            ssl_certificate_key /certs/server.key;
+            location / {
+              proxy_pass http://127.0.0.1:8081;
+              proxy_http_version 1.1;
+              proxy_set_header Host $http_host;
+              proxy_set_header X-Forwarded-Proto https;
+              proxy_set_header X-Forwarded-Host $http_host;
+            }
+          }
           NGINX
           docker run --detach --name htp-nexus-tls-proxy --network host \
             -v "${tls_dir}/default.conf:/etc/nginx/conf.d/default.conf:ro" \
@@ -397,6 +410,7 @@ jobs:
           HTP_NEXUS_LEGACY_E2E: '1'
           HTP_NEXUS_E2E_PASSWORD_FILE: /tmp/htp-nexus-admin-password
           HTP_NEXUS_TLS_CA_FILE: /tmp/htp-nexus-e2e-tls/server.crt
+          HTP_NEXUS_HELM_HTTPS_URL: https://127.0.0.1:8444
           HTP_NEXUS_VERSION: ${{ github.event.inputs.nexus_version || '3.69.0' }}
         run: |
           set -euo pipefail
