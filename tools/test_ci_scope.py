@@ -546,6 +546,12 @@ class CiScopeTest(TestCase):
             with self.subTest(path=path):
                 self.assertFalse(classify_paths([path], root=root).nexus_e2e)
 
+    def test_release_image_builder_runs_integration_qualification(self):
+        root = self._root()
+        scope = classify_paths(["deploy/build-release-images.sh"], root=root)
+        self.assertTrue(scope.integration)
+        self.assertTrue(scope.compose)
+
     def test_nexus_e2e_scope_does_not_exist_without_markers(self):
         root = self._root(nexus_e2e=False)
         self.assertFalse(

@@ -107,7 +107,7 @@ _OFFLINE_LIFECYCLE_FILES = {
     # The Linux clean-host qualification in the Integration job executes these
     # files, so any offline-kit contract change must run it in addition to the
     # Windows mock-Docker contracts from the Compose scope.
-    "deploy/build-offline-kit.sh",
+    "deploy/build-release-images.sh",
 }
 
 
