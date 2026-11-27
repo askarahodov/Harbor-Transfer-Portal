@@ -1,48 +1,85 @@
 # Changelog
 
-All notable user-facing changes to Harbor Transfer Portal are documented here.
-The project follows Semantic Versioning for product releases.
+Все заметные пользователю изменения Harbor Transfer Portal документируются здесь.
+Проект следует Semantic Versioning для продуктовых релизов.
 
 ## 1.1.0 - 2026-11-27
 
-### Added
-- Nexus Docker Registry v2 SOURCE/TARGET (profile-based browse, inspect, export, TARGET import).
-- Classic Nexus Helm HTTP (non-OCI) hosted repositories with exact-repository fail-closed writes.
-- Type-aware registry profiles and UI labels for Harbor / Nexus Docker / Nexus Helm.
-- Bundle v1.1 registry origin metadata with backward compatibility to Harbor v1.0 bundles.
+### Добавлено
 
-### Fixed
-- Helm OCI transport flags for Nexus: `--plain-http`, conditional `--insecure-skip-tls-verify`, `--ca-file`.
-- Compact `skopeo inspect` survives very large RepoTags; truncated output raises `skopeo_output_truncated`.
-- Immutable import receipt publication is atomic; success receipt only after `COMPLETED`; `skip_conflicts` recorded on all receipt paths.
-- Harbor connection probe runs off the event loop.
+- Работа с **Nexus Docker Registry v2** как SOURCE/TARGET: просмотр, инспекция и
+  экспорт по точному repository+tag, импорт на TARGET через Docker v2 connector.
+- **Classic Helm HTTP** (не OCI) для Nexus: hosted-репозитории `index.yaml`/`.tgz`,
+  запись только в точный hosted repository с fail-closed проверкой.
+- Type-aware профили реестров и подписи в интерфейсе: Harbor / Nexus Docker / Nexus Helm.
+- Bundle v1.1 хранит registry origin с обратной совместимостью с Harbor-бандлами v1.0.
 
-### Changed
-- pytest 9.2 / pytest-asyncio 1.5 and minimatch 11 close the open Dependabot alerts.
-- Nexus legacy Docker v2 E2E runs as scoped `Integration` steps; CI scope contract test guards job/gate wiring.
+### Исправлено
 
-### Acceptance
-- Regional acceptance owner-attested on Windows; independent artifacts and sign-offs tracked in #434/#436.
+- Транспортные флаги Helm OCI для Nexus: `--plain-http` для `http://`,
+  `--insecure-skip-tls-verify` только при отключённой проверке TLS, `--ca-file`
+  для корпоративного CA.
+- Компактный `skopeo inspect` устойчив к репозиториям с тысячами RepoTags;
+  усечённый вывод возвращает типизированную ошибку `skopeo_output_truncated`.
+- Публикация immutable import receipt атомарна; успешный receipt доступен только
+  после перехода операции в `COMPLETED`; `skip_conflicts` фиксируется во всех
+  путях формирования receipt.
+- Проверка подключения Harbor выполняется вне event loop и не блокирует сервер.
+
+### Изменено
+
+- pytest 9.2 / pytest-asyncio 1.5 и minimatch 11 закрывают открытые
+  Dependabot-алерты.
+- Nexus legacy Docker v2 E2E выполняется scoped-шагами в job `Integration`;
+  контрактный тест CI не даёт scope-областям разойтись с `quality-gate`.
+- Offline kit smoke и тест `/api/health` берут версию из единственного источника
+  истины (`backend/app/__init__.py`), поэтому bump версии не рассинхронизирует
+  релизную идентичность.
+
+### Приёмка
+
+- Региональная приёмка подтверждена владельцем на Windows (owner-attested,
+  Gate A/B/C). Независимые артефакты и подписи operator/security/owner
+  отслеживаются в [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/
+  [#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436) и
+  [#575](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/575).
 
 ## 1.0.0 - 2026-09-14
 
-### Added
-- SOURCE and TARGET portal modes for physically isolated Harbor contours.
-- Signed Offline Bundle Protocol v1 with Ed25519 signatures and payload checksums.
-- Container image export/import through Skopeo with digest verification.
-- Helm OCI chart export/import with signed package integrity, safe cross-registry replay semantics and default-deny conflict handling.
-- Role-based access for admin, operator and viewer roles.
-- Persistent operation history, immutable import receipts and CSV/PDF reporting.
-- Offline installation kit with prebuilt images, checksums and one-command install for SOURCE or TARGET.
-- Backup, restore, upgrade and uninstall lifecycle helpers.
-- Scoped CI gates covering backend, frontend, protocol/security, Compose and OCI integration, plus clean-host offline installation and isolated SOURCE-to-TARGET acceptance in the `Integration` job and Windows offline lifecycle contracts on `windows-2022`; real Windows Docker Desktop and regional acceptance remain external gates (issue #507).
+### Добавлено
 
-### Security
-- Archive extraction, signing-key handling, registry credentials and transfer paths are validated fail-closed.
-- Harbor credentials, JWT secrets and SOURCE private signing keys are excluded from transfer and release archives.
-- Conflicting TARGET tags or chart versions are not overwritten without an explicit authorized policy.
+- Режимы портала SOURCE и TARGET для физически изолированных контуров Harbor.
+- Signed Offline Bundle Protocol v1 с подписями Ed25519 и контрольными суммами payload.
+- Экспорт и импорт container images через Skopeo с проверкой digest.
+- Экспорт и импорт Helm OCI charts с подписанной целостностью пакета, безопасной
+  семантикой повторной передачи между разными реестрами и default-deny обработкой
+  конфликтов.
+- Ролевой доступ для ролей admin, operator и viewer.
+- Постоянная история операций, immutable import receipts и отчёты CSV/PDF.
+- Offline installation kit с заранее собранными образами, контрольными суммами и
+  установкой одной командой для SOURCE или TARGET.
+- Хелперы жизненного цикла: backup, restore, upgrade и uninstall.
+- Scoped CI-гейты для backend, frontend, protocol/security, Compose и OCI
+  интеграции; clean-host offline install и изолированный SOURCE→TARGET acceptance
+  в job `Integration`, а также контракты Windows offline lifecycle на
+  `windows-2022`. Реальный Windows Docker Desktop и региональная приёмка
+  оставались внешними гейтами (issue #507).
 
-### Known limitations
-- SOURCE and TARGET remain intentionally disconnected; physical media handling is an operator responsibility.
-- Rollback across incompatible database migrations may require restoring a pre-upgrade backup.
-- Helm OCI manifest digests may differ after a cross-registry push; signed chart package integrity and verified SOURCE-to-TARGET provenance are used for replay semantics.
+### Безопасность
+
+- Распаковка архивов, работа с signing keys, credentials реестров и пути передачи
+  проверяются fail-closed.
+- Harbor credentials, JWT secrets и приватные signing keys SOURCE не попадают в
+  transfer и release архивы.
+- Конфликтующие TARGET-теги или версии чартов не перезаписываются без явной
+  авторизованной политики.
+
+### Известные ограничения
+
+- SOURCE и TARGET намеренно не связаны сетью; обращение с физическим носителем —
+  ответственность оператора.
+- Откат через несовместимые миграции базы данных может потребовать восстановления
+  backup, сделанного до обновления.
+- Digest Helm OCI manifest может измениться после push в другой реестр; для
+  семантики повторной передачи используются подписанная целостность пакета чарта и
+  проверенная SOURCE→TARGET provenance.
