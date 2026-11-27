@@ -25,7 +25,7 @@
 - `tools/prune_branch_refs.py` — reusable очистка с manifest `tools/branch-prune-candidates.tsv` (сейчас без собственного workflow: запускается вручную при необходимости);
 - `tools/atomic_ref_cleanup.py` — server-enforced lease для безопасного удаления (workflow `atomic-ref-cleanup-tests.yml` + `tools/test_atomic_ref_cleanup.py`).
 
-Регрессионный guard `tools/test_documentation_contracts.py::test_workflows_do_not_self_trigger_on_their_own_file` запрещает повторное появление self-triggering one-shot workflow; единственный allowlist-элемент — `nexus-legacy-e2e.yml` (scoped E2E-набор, не удаляет refs).
+Регрессионный guard `tools/test_documentation_contracts.py::test_workflows_do_not_self_trigger_on_their_own_file` запрещает повторное появление self-triggering one-shot workflow; allowlist пуст. Последний его элемент — workflow `nexus-legacy-e2e.yml` — удалён: реальный Nexus legacy Docker v2 E2E теперь выполняется scoped-шагами внутри `Integration` job в `.github/workflows/ci.yml` под area `nexus_e2e`.
 
 ## Что НЕ является открытым планом
 

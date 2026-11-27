@@ -124,14 +124,14 @@ make smoke-compose
 | `Frontend — lint, types, unit, build` | ESLint, TypeScript, unit/component, build |
 | `Protocol — проверка совместимости` | Bundle v1/schema/package pytest |
 | `Security — проверка уязвимостей` | Bandit (high/medium) и Trivy filesystem scan (CRITICAL/HIGH) |
-| `Integration — интеграционные тесты` | real Skopeo/Helm boundary (`make test-registry-integration`), clean-host offline qualification и isolated SOURCE → TARGET acceptance |
+| `Integration — интеграционные тесты` | real Skopeo/Helm boundary (`make test-registry-integration`), clean-host offline qualification, isolated SOURCE → TARGET acceptance и gated-шаги `Nexus … — Docker v2 transport` |
 | `Compose — проверка docker-compose` | `make test-offline-kit`, config, build, запуск стека и `/api/health` |
 | `Windows CMD — launcher regression (mock Docker)` | CMD launcher regression с mock Docker (Windows runner) |
 | `Windows Offline — install and lifecycle contracts` | PowerShell prebuilt-installer и lifecycle safety contracts с mock Docker (Windows runner) |
 | `Docs — проверка документации` | `make docs-check`: local Markdown links и documentation contracts |
 | `Quality Gate` | агрегирует результаты всех требуемых jobs |
 
-`Integration — интеграционные тесты` выполняет `deploy/qualify-clean-offline-install.sh` (clean-host SOURCE/TARGET install qualification) и `deploy/qualify-isolated-transfer.sh` (isolated SOURCE → physical bundle → TARGET acceptance) и публикует прошедший проверку offline kit как GitHub Actions artifact. `Windows Offline — install and lifecycle contracts` проверяет Windows PowerShell wrappers с mock Docker; реальная Windows 10/11 Docker Desktop приёмка остаётся внешним gate (см. раздел 7 и issue [#507](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/507)).
+`Integration — интеграционные тесты` выполняет `deploy/qualify-clean-offline-install.sh` (clean-host SOURCE/TARGET install qualification) и `deploy/qualify-isolated-transfer.sh` (isolated SOURCE → physical bundle → TARGET acceptance) и публикует прошедший проверку offline kit как GitHub Actions artifact. В том же job отдельным набором шагов выполняется реальный Nexus legacy Docker v2 transport (`Nexus … — Docker v2 transport`: pre-OCI `sonatype/nexus3` <3.94, self-signed TLS proxy, `pytest backend/tests/test_nexus_legacy_e2e.py`); эти шаги включаются только при `nexus_e2e=true` (см. раздел 5) или явном `workflow_dispatch` с input `nexus_version`, отдельного workflow больше нет. `Windows Offline — install and lifecycle contracts` проверяет Windows PowerShell wrappers с mock Docker; реальная Windows 10/11 Docker Desktop приёмка остаётся внешним gate (см. раздел 7 и issue [#507](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/507)).
 
 ## 5. Как выбирается CI scope
 
@@ -145,7 +145,8 @@ make smoke-compose
 - `security`;
 - `integration`;
 - `compose`;
-- `docs`.
+- `docs`;
+- `nexus_e2e`.
 
 ### Backend
 
@@ -172,6 +173,10 @@ Harbor profile domain/API также security-sensitive, потому что у�
 Включается для реальных Skopeo/Helm/transfer runtime boundaries, включая relevant backend services/API, integration harness и release/acceptance scripts. Backend runtime dependency graph также включает integration scope, потому что смена resolved runtime packages может повлиять на полный transfer path без изменения его Python-файлов.
 
 Когда `integration=true`, workflow запускает `Integration — интеграционные тесты`, который выполняет `make test-registry-integration` (disposable local OCI registry + реальные Skopeo/Helm), затем `deploy/qualify-clean-offline-install.sh` (clean-host offline qualification) и `deploy/qualify-isolated-transfer.sh` (isolated SOURCE → TARGET acceptance), после чего публикует прошедший qualification offline kit как artifact.
+
+### Nexus E2E
+
+Включается для путей, от которых зависит реальный Nexus legacy Docker v2 transport: `tools/nexus_e2e_setup.py`, `backend/tests/test_nexus_legacy_e2e.py`, `backend/app/services/nexus_service.py`, `backend/app/services/registry_client.py`, `backend/requirements-dev.lock`, `docs/nexus-setup.md`. Когда `nexus_e2e=true`, `Integration — интеграционные тесты` дополнительно выполняет gated-шаги Nexus Docker v2 E2E. При `workflow_dispatch` они выполняются всегда (с `nexus_version`, по умолчанию `3.69.0`). Изменение `.github/workflows/ci.yml` или `tools/ci_scope.py` также включает `nexus_e2e`, когда marker-файлы E2E присутствуют.
 
 ### Compose
 

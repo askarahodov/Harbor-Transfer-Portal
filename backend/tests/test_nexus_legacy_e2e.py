@@ -1,6 +1,6 @@
 """Live integration against an older Nexus 3 Docker Registry v2 (not an OCI repository).
 
-Starts only in the dedicated opt-in GitHub Actions workflow.
+Runs only when the scoped CI arms the Nexus E2E steps inside the Integration job.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from integration.registry_smoke import _write_oci_image_fixture
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("HTP_NEXUS_LEGACY_E2E") != "1",
-    reason="Requires disposable Nexus 3 Docker v2 registry in dedicated GitHub Actions workflow",
+    reason="Requires disposable Nexus 3 Docker v2 registry armed by the scoped CI Nexus E2E steps",
 )
 
 REGISTRY_URL = "http://127.0.0.1:8082"

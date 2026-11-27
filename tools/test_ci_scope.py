@@ -16,6 +16,7 @@ class CiScopeTest(TestCase):
         integration=True,
         compose=True,
         docs=True,
+        nexus_e2e=True,
     ):
         temporary = TemporaryDirectory()
         root = Path(temporary.name)
@@ -47,6 +48,11 @@ class CiScopeTest(TestCase):
         if docs:
             (root / "tools").mkdir(parents=True, exist_ok=True)
             (root / "tools/check_doc_links.py").touch()
+        if nexus_e2e:
+            (root / "tools").mkdir(parents=True, exist_ok=True)
+            (root / "tools/nexus_e2e_setup.py").touch()
+            (root / "backend/tests").mkdir(parents=True, exist_ok=True)
+            (root / "backend/tests/test_nexus_legacy_e2e.py").touch()
         self.addCleanup(temporary.cleanup)
         return root
 
@@ -270,7 +276,7 @@ class CiScopeTest(TestCase):
             classify_paths([".github/workflows/publish-images.yml"], root=root),
             Scope(
                 backend=True, frontend=True, protocol=True, security=True,
-                integration=True, compose=True, docs=True,
+                integration=True, compose=True, docs=True, nexus_e2e=True,
             ),
         )
 
@@ -422,6 +428,7 @@ class CiScopeTest(TestCase):
                 integration=True,
                 compose=True,
                 docs=True,
+                nexus_e2e=True,
             ),
         )
 
@@ -437,6 +444,7 @@ class CiScopeTest(TestCase):
                 integration=True,
                 compose=True,
                 docs=True,
+                nexus_e2e=True,
             ),
         )
 
@@ -449,6 +457,7 @@ class CiScopeTest(TestCase):
             integration=False,
             compose=False,
             docs=False,
+            nexus_e2e=False,
         )
         self.assertEqual(classify_paths([".github/workflows/ci.yml"], root=root), Scope())
 
@@ -478,4 +487,45 @@ class CiScopeTest(TestCase):
                 root=root,
             ),
             Scope(backend=True, frontend=True, security=True, docs=True),
+        )
+
+    def test_nexus_e2e_paths_arm_dedicated_e2e_scope(self):
+        root = self._root()
+        cases = {
+            "tools/nexus_e2e_setup.py": Scope(nexus_e2e=True),
+            "backend/tests/test_nexus_legacy_e2e.py": Scope(backend=True, nexus_e2e=True),
+            "backend/app/services/nexus_service.py": Scope(backend=True, nexus_e2e=True),
+            "backend/app/services/registry_client.py": Scope(backend=True, nexus_e2e=True),
+            "backend/requirements-dev.lock": Scope(backend=True, nexus_e2e=True),
+            "docs/nexus-setup.md": Scope(docs=True, nexus_e2e=True),
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(classify_paths([path], root=root), expected)
+
+    def test_unrelated_changes_do_not_arm_nexus_e2e_scope(self):
+        root = self._root()
+        for path in (
+            "backend/app/services/import_orchestrator.py",
+            "backend/app/services/skopeo_service.py",
+            "frontend/src/views/DashboardView.vue",
+            "docs/testing.md",
+            "compose.yaml",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(classify_paths([path], root=root).nexus_e2e)
+
+    def test_nexus_e2e_scope_does_not_exist_without_markers(self):
+        root = self._root(nexus_e2e=False)
+        self.assertFalse(
+            classify_paths(["backend/tests/test_nexus_legacy_e2e.py"], root=root).nexus_e2e
+        )
+        self.assertFalse(
+            classify_paths([".github/workflows/ci.yml"], root=root).nexus_e2e
+        )
+
+    def test_workflow_change_runs_nexus_e2e_when_markers_exist(self):
+        root = self._root()
+        self.assertTrue(
+            classify_paths([".github/workflows/ci.yml"], root=root).nexus_e2e
         )
