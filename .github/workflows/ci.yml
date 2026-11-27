@@ -39,6 +39,14 @@ jobs:
           fetch-depth: 0
           clean: true
 
+      - name: Установить PyYAML для контрактного теста workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `tools.test_ci_workflow_contract` parses ci.yml via PyYAML; install the
+          # pinned version only if the runner image does not already provide it.
+          python3 -c 'import yaml' 2>/dev/null || python3 -m pip install --quiet --break-system-packages 'pyyaml==6.0.3'
+
       - name: Проверить regression scoped CI и dev launcher
         run: python3 -m unittest tools.test_ci_scope tools.test_dev tools.test_ci_workflow_contract
 
