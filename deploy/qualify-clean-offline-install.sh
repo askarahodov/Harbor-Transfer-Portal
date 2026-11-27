@@ -202,6 +202,27 @@ qualify_contour() {
   docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
     exec -T backend test -f /app/data/.clean-install-qualification
 
+  # Exercise the real backup/restore path on the clean host, including the
+  # restricted temporary archive mount used by the restore helper container.
+  backup_archive=$(cd "$kit" && sh ./backup.sh)
+  [ -f "$backup_archive" ] && [ -f "$backup_archive.sha256" ] \
+    || fail 'clean-host backup did not produce archive and checksum sidecar'
+  (
+    cd "$(dirname "$backup_archive")"
+    sha256sum -c "$(basename "$backup_archive").sha256" >/dev/null
+  )
+  docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
+    exec -T backend sh -c "printf 'mutated-after-backup\\n' > /app/data/.clean-install-qualification"
+  (
+    cd "$kit"
+    sh ./restore.sh "$backup_archive" --confirm-restore "$kit"
+  )
+  wait_runtime "$kit"
+  restored_marker=$(docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \
+    exec -T backend cat /app/data/.clean-install-qualification | tr -d '\r\n')
+  [ "$restored_marker" = clean-install-persistent ] \
+    || fail 'clean-host restore did not recover persistent data from backup'
+
   # CI qualification intentionally tears down this isolated test installation completely
   # before exercising the same immutable archive in the opposite contour.
   docker compose --env-file "$kit/.env" -f "$kit/compose.yaml" \

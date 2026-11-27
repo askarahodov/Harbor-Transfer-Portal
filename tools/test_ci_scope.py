@@ -84,6 +84,13 @@ class CiScopeTest(TestCase):
             Scope(frontend=True),
         )
 
+    def test_canonical_product_version_change_runs_release_qualification(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["backend/app/__init__.py"], root=root),
+            Scope(backend=True, integration=True),
+        )
+
     def test_runtime_dependency_graph_runs_security_and_transfer_integration(self):
         root = self._root()
         for path in (
@@ -238,6 +245,15 @@ class CiScopeTest(TestCase):
             with self.subTest(path=path):
                 self.assertEqual(classify_paths([path], root=root), Scope(compose=True))
 
+    def test_windows_offline_lifecycle_tests_run_compose(self):
+        root = self._root()
+        for path in (
+            "tools/test_install_windows.ps1",
+            "tools/test_windows_offline_lifecycle.ps1",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(classify_paths([path], root=root), Scope(compose=True))
+
     def test_online_image_launchers_run_compose_gate(self):
         root = self._root()
         for path in ("run-online.sh", "run-online.cmd"):
@@ -285,6 +301,10 @@ class CiScopeTest(TestCase):
         )
         self.assertEqual(
             classify_paths(["deploy/qualify-isolated-transfer.sh"], root=root),
+            Scope(integration=True, compose=True),
+        )
+        self.assertEqual(
+            classify_paths(["deploy/qualify-clean-offline-install.sh"], root=root),
             Scope(integration=True, compose=True),
         )
 

@@ -76,4 +76,4 @@ Frontend/backend regressions покрывают:
 - legacy artifact row без mapping snapshot;
 - empty/error states.
 
-Обязательный merge gate: backend lint/type/unit/API tests для persistence/API изменений, frontend lint/TypeScript/Vitest/build для UI projection, documentation links и общий `quality-gate`. Внешние integration/acceptance gates не входят в merge gate `main` CI и подтверждаются отдельно.
+Обязательный merge gate: backend lint/type/unit/API tests для persistence/API изменений, frontend lint/TypeScript/Vitest/build для UI projection, documentation links и общий `quality-gate`. Integration/acceptance gates входят в `quality-gate` через `Integration — интеграционные тесты`; внешняя региональная приёмка подтверждается отдельно.

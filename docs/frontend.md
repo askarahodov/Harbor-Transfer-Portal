@@ -253,7 +253,7 @@ frontend/src/
 - admin user-management browser flow `/users` — реализован поверх admin-only `/api/users`;
 - обе стороны восстанавливают persistent operation после reload;
 - history/audit/report UX реализован и покрывает current persisted operations/reports;
-- isolated SOURCE → physical transfer → TARGET acceptance и clean-host offline qualification реализованы как внешние release gates и **не входят в CI ветки `main`** (см. [testing.md](testing.md)).
+- isolated SOURCE → physical transfer → TARGET acceptance и clean-host offline qualification выполняются в CI `Integration — интеграционные тесты`; реальная Windows/региональная приёмка остаётся внешней (см. [testing.md](testing.md)).
 
 ## Локальная разработка и проверки
 

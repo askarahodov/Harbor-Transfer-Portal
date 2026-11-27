@@ -277,20 +277,16 @@ Packaging stale image от другого source revision должен fail clos
 
 ## 14. CI / qualification
 
-Development/runtime smoke (локально, не в CI):
-
-```bash
-make smoke-compose
-```
+Development/runtime smoke (локально): `make smoke-compose`; CI выполняет его компоненты напрямую.
 
 Release-sensitive paths в CI дополнительно включают:
 
 - Skopeo/Helm disposable-registry integration (`Integration — интеграционные тесты`);
+- clean-host offline installation qualification и isolated SOURCE → physical bundle → TARGET acceptance (`Integration — интеграционные тесты`);
+- Windows offline install/lifecycle contracts (`Windows Offline — install and lifecycle contracts` в scoped compose CI);
 - final `quality-gate`.
 
-Clean-host offline installation qualification и isolated SOURCE → physical bundle → TARGET acceptance — **внешние release gates**, а не часть CI ветки `main`: соответствующие jobs находятся в неслитом draft PR #548 (issue #507). Их скрипты выполняются вручную/на отдельном стенде.
-
-Clean-host qualification реально удаляет release-tagged images до install phase и проверяет один и тот же archive в SOURCE/TARGET. Isolated acceptance использует независимые local registries и не оставляет TARGET прямой зависимости от SOURCE fixture.
+Clean-host qualification реально удаляет release-tagged images до install phase и проверяет один и тот же archive в SOURCE/TARGET. Isolated acceptance использует независимые local registries и не оставляет TARGET прямой зависимости от SOURCE fixture. Реальная Windows Docker Desktop и региональная приёмка (issue #507) остаются внешними gates.
 
 Test-selection policy: [testing.md](../docs/testing.md).
 

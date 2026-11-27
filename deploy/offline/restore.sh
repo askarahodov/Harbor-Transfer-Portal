@@ -195,20 +195,20 @@ if ! docker volume inspect "$volume_name" >/dev/null 2>&1; then
 fi
 
 printf 'Replacing persistent data from verified backup...\n'
-docker run --rm --pull never --network none \
+docker run --rm --pull never --network none --user 0:0 \
   -v "$volume_name:/app/data" \
   --entrypoint sh \
   "$backend_image" \
   -c 'find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +'
 
-docker run --rm --pull never --network none \
+docker run --rm --pull never --network none --user 0:0 \
   -v "$volume_name:/app/data" \
   -v "$tmp/portal-data.tar.gz:/backup/portal-data.tar.gz:ro" \
   --entrypoint tar \
   "$backend_image" \
   -C /app/data -xzf /backup/portal-data.tar.gz
 
-docker run --rm --pull never --network none \
+docker run --rm --pull never --network none --user 0:0 \
   -v "$volume_name:/app/data" \
   --entrypoint chown \
   "$backend_image" \

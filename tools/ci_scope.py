@@ -157,6 +157,9 @@ def _is_local_registry_integration_path(path: PurePosixPath, path_text: str) -> 
     if path_text in {
         "backend/Dockerfile",
         "backend/app/domain/bundle.py",
+        # The canonical application version drives release image tags and the
+        # offline-kit manifest; a version bump must run release qualification.
+        "backend/app/__init__.py",
     }:
         return True
     if (
@@ -246,6 +249,8 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
             "run.cmd",
             "run.sh",
             "tools/test_windows_launcher.ps1",
+            "tools/test_install_windows.ps1",
+            "tools/test_windows_offline_lifecycle.ps1",
             "Makefile",
             "backend/Dockerfile",
             "frontend/Dockerfile",

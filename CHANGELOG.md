@@ -14,7 +14,7 @@ The project follows Semantic Versioning for product releases.
 - Persistent operation history, immutable import receipts and CSV/PDF reporting.
 - Offline installation kit with prebuilt images, checksums and one-command install for SOURCE or TARGET.
 - Backup, restore, upgrade and uninstall lifecycle helpers.
-- Scoped CI gates covering backend, frontend, protocol/security, Compose and OCI integration; clean-host installation and isolated SOURCE-to-TARGET acceptance are executable release-gate scripts run outside `main` CI (draft PR #548, issue #507).
+- Scoped CI gates covering backend, frontend, protocol/security, Compose and OCI integration, plus clean-host offline installation and isolated SOURCE-to-TARGET acceptance in the `Integration` job and Windows offline lifecycle contracts on `windows-2022`; real Windows Docker Desktop and regional acceptance remain external gates (issue #507).
 
 ### Security
 - Archive extraction, signing-key handling, registry credentials and transfer paths are validated fail-closed.

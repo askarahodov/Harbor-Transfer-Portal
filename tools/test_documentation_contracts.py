@@ -17,11 +17,18 @@ _JOB_NAME_RE = re.compile(r"^(?P<indent> +)name:\s*(?P<name>.+?)\s*$")
 #
 # Drift guard for "main CI runs acceptance / clean-host / offline qualification".
 #
-# The workflow currently has no such jobs: isolated SOURCE -> TARGET acceptance
-# and clean-host offline-install qualification exist only as release scripts plus
-# jobs in unmerged draft PR #548 (issue #507). Documents that describe CI scope
-# or qualification status must therefore not imply those checks run in `main` CI
-# without an explicit draft/external-gate marker nearby.
+# The guard is conditional on the workflow's actual contents:
+#
+#   * if the acceptance/clean-host/offline gates below are present in
+#     `.github/workflows/ci.yml`, documents may describe them as part of CI (the
+#     guard does not flag those statements), and a precondition test asserts that
+#     the documented job/step names really exist;
+#   * if the gates are absent, the previous behaviour applies: documents must not
+#     imply those checks run in `main` CI without an explicit draft/external-gate
+#     marker nearby.
+#
+# This keeps both directions fail-able without drifting: adding a gate forces the
+# documentation to be reviewed, and removing one re-enables the prohibition.
 #
 # Selection of audited documents: every Markdown file that makes a CI-scope or
 # release-qualification statement (testing/security/architecture/ops guides,
@@ -48,6 +55,15 @@ _PHANTOM_CI_CLAIM_DOCUMENTS = (
     "README.md",
     "ROADMAP.md",
     "CONTRIBUTING.md",
+)
+
+# Gates that implement acceptance / clean-host / offline qualification in CI.
+# Their presence in `.github/workflows/ci.yml` enables the "allowed" branch of
+# the drift guard, and the precondition test asserts the documented names exist.
+_EXPECTED_ACCEPTANCE_JOB_KEYS = ("windows-offline-lifecycle",)
+_EXPECTED_ACCEPTANCE_STEP_MARKERS = (
+    "deploy/qualify-clean-offline-install.sh",
+    "deploy/qualify-isolated-transfer.sh",
 )
 
 _CI_MENTION_RE = re.compile(
@@ -103,8 +119,16 @@ def _claim_blocks(document: str) -> list[tuple[int, str]]:
     return [(start, "\n".join(block)) for start, block in merged]
 
 
-def _phantom_ci_claims(document: str) -> list[tuple[int, str]]:
-    """Возвращает блоки, где acceptance/offline-qualification приписаны `main` CI без оговорки."""
+def _phantom_ci_claims(
+    document: str, *, acceptance_gates_present: bool = False
+) -> list[tuple[int, str]]:
+    """Возвращает блоки, где acceptance/offline-qualification приписаны `main` CI без оговорки.
+
+    Когда ``acceptance_gates_present`` истинно, соответствующие CI-утверждения
+    описывают фактическую реализацию и не считаются drift'ом.
+    """
+    if acceptance_gates_present:
+        return []
     findings: list[tuple[int, str]] = []
     for start, block in _claim_blocks(document):
         text = _strip_code(block)
@@ -186,6 +210,24 @@ def _implemented_job_names(document: str) -> list[str]:
         if match:
             names.append(match.group(2).strip())
     return names
+
+
+def _acceptance_gates_in_workflow(workflow: str) -> list[str]:
+    """Возвращает реализованные в workflow acceptance/clean-host/offline gates.
+
+    Ищутся и job-ключи, и invocation-маркеры шагов, потому что часть проверок
+    выполняется как step внутри общего `integration` job, а не как отдельный job.
+    Результат используется как переключатель условного drift guard.
+    """
+    jobs = _ci_job_names(workflow)
+    gates: list[str] = []
+    for key in _EXPECTED_ACCEPTANCE_JOB_KEYS:
+        if key in jobs:
+            gates.append(f"job:{key}")
+    for marker in _EXPECTED_ACCEPTANCE_STEP_MARKERS:
+        if marker in workflow:
+            gates.append(f"step:{marker}")
+    return gates
 
 
 class DocumentationContractTests(unittest.TestCase):
@@ -554,38 +596,77 @@ class DocumentationContractTests(unittest.TestCase):
         )
         self.assertNotIn("Phantom — job", set(_ci_job_names(workflow).values()))
 
-    def _acceptance_jobs_in_workflow(self) -> list[str]:
-        jobs = _ci_job_names(self.read(_CI_WORKFLOW_PATH))
-        return sorted(
-            name
-            for key, name in jobs.items()
-            if _PHANTOM_SUBJECT_RE.search(f"{key} {name}")
-        )
+    def _acceptance_gates_in_workflow(self) -> list[str]:
+        return _acceptance_gates_in_workflow(self.read(_CI_WORKFLOW_PATH))
 
-    def test_main_ci_has_no_acceptance_or_clean_host_jobs(self) -> None:
-        """Условие, на котором держится весь drift guard ниже.
+    def test_acceptance_gate_names_are_present_when_documented_as_ci(self) -> None:
+        """Precondition для ветки guard'а «gates присутствуют».
 
-        Если acceptance/clean-host/offline-install появятся в `main` CI, этот
-        тест упадёт первым и заставит пересмотреть документы осознанно, а не
-        молча оставить неверные заявления.
+        Репозиторий документирует clean-host и isolated acceptance как часть CI,
+        поэтому названные job/step должны реально существовать в workflow. При
+        удалении gate этот тест падает первым и заставляет вернуть документы и
+        guard в ветку «gates отсутствуют».
         """
-        self.assertEqual(
-            self._acceptance_jobs_in_workflow(),
-            [],
-            f"{_CI_WORKFLOW_PATH} содержит job'ы acceptance/clean-host/offline-install; "
-            "обновите docs/testing.md и проверьте остальные документы",
+        gates = self._acceptance_gates_in_workflow()
+        self.assertIn("job:windows-offline-lifecycle", gates)
+        self.assertIn("step:deploy/qualify-clean-offline-install.sh", gates)
+        self.assertIn("step:deploy/qualify-isolated-transfer.sh", gates)
+
+    def test_acceptance_gate_detector_keeps_both_guard_branches(self) -> None:
+        """Unit-level: детектор переключает guard по факту наличия gates."""
+        without_gates = (
+            "jobs:\n"
+            "  backend:\n"
+            "    name: Backend — lint and tests\n"
+            "    runs-on: ubuntu-24.04\n"
+        )
+        with_gates = (
+            "jobs:\n"
+            "  integration:\n"
+            "    name: Integration — интеграционные тесты\n"
+            "    runs-on: ubuntu-24.04\n"
+            "    steps:\n"
+            "      - run: sh deploy/qualify-clean-offline-install.sh\n"
+            "      - run: sh deploy/qualify-isolated-transfer.sh\n"
+            "  windows-offline-lifecycle:\n"
+            "    name: Windows Offline — install and lifecycle contracts\n"
+            "    runs-on: windows-2022\n"
+        )
+        claim = (
+            "CI выполняет clean-host offline install и "
+            "isolated SOURCE → TARGET acceptance.\n"
         )
 
-    def test_documents_do_not_claim_main_ci_runs_acceptance_or_clean_host(self) -> None:
-        """Fail-able doc-contract: не приписывать `main` CI acceptance/offline gates."""
-        if self._acceptance_jobs_in_workflow():
-            self.skipTest(
-                "acceptance/clean-host jobs присутствуют в workflow; drift guard неприменим"
-            )
+        self.assertEqual(_acceptance_gates_in_workflow(without_gates), [])
+        self.assertTrue(
+            _phantom_ci_claims(claim, acceptance_gates_present=False),
+            "без gates утверждение должно детектироваться",
+        )
+
+        self.assertEqual(
+            _acceptance_gates_in_workflow(with_gates),
+            [
+                "job:windows-offline-lifecycle",
+                "step:deploy/qualify-clean-offline-install.sh",
+                "step:deploy/qualify-isolated-transfer.sh",
+            ],
+        )
+        self.assertEqual(
+            _phantom_ci_claims(claim, acceptance_gates_present=True),
+            [],
+            "при наличии gates утверждение разрешено",
+        )
+
+    def test_documents_match_ci_acceptance_gate_state(self) -> None:
+        """Fail-able doc-contract, условный по фактическому состоянию workflow."""
+        acceptance_gates_present = bool(self._acceptance_gates_in_workflow())
 
         findings: list[str] = []
         for relative in _PHANTOM_CI_CLAIM_DOCUMENTS:
-            for line_number, block in _phantom_ci_claims(self.read(relative)):
+            for line_number, block in _phantom_ci_claims(
+                self.read(relative),
+                acceptance_gates_present=acceptance_gates_present,
+            ):
                 findings.append(
                     f"{relative}:{line_number}: {block.splitlines()[0][:160]}"
                 )
@@ -634,12 +715,25 @@ class DocumentationContractTests(unittest.TestCase):
         )
         self.assertEqual(_phantom_ci_claims(unrelated), [])
 
+        self.assertEqual(
+            _phantom_ci_claims(regression, acceptance_gates_present=True),
+            [],
+            "при наличии gates тот же текст считается корректным",
+        )
+
     def test_phantom_ci_claim_detector_scans_real_documents_cleanly(self) -> None:
         """Проверяет, что аудируемый набор реально читается и парсится."""
+        acceptance_gates_present = bool(self._acceptance_gates_in_workflow())
         for relative in _PHANTOM_CI_CLAIM_DOCUMENTS:
             document = self.read(relative)
             self.assertTrue(document.strip(), f"{relative} пуст")
-            self.assertEqual(_phantom_ci_claims(document), [], relative)
+            self.assertEqual(
+                _phantom_ci_claims(
+                    document, acceptance_gates_present=acceptance_gates_present
+                ),
+                [],
+                relative,
+            )
 
 
     def test_first_run_documentation_matches_supported_launchers(self) -> None:

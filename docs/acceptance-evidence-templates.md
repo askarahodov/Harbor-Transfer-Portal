@@ -47,7 +47,7 @@ Evidence хранится в защищённом месте с ограниче
 
 ## 1. Gate A — #507: Windows 10/11 clean-host offline lifecycle
 
-Исполняемая процедура прогона — `docs/windows-offline-acceptance.md` из [Draft PR #548](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/feat/507-windows-offline-lifecycle/docs/windows-offline-acceptance.md) (не в `main`). Ниже — форма фиксации результатов этой процедуры.
+Исполняемая процедура прогона — [windows-offline-acceptance.md](windows-offline-acceptance.md). Ниже — форма фиксации результатов этой процедуры.
 
 ### 1.1. Статус gate
 
@@ -403,4 +403,4 @@ Gate проверяет корпоративный Nexus разных верси
 - [Security](security.md) — trust boundaries и граница гарантии no-overwrite.
 - [Offline lifecycle](offline-lifecycle.md) — backup/restore/upgrade контракт.
 - [Deferred tasks](deferred-tasks.md) и [ROADMAP](../ROADMAP.md) — границы релиза и внешние blockers.
-- [Draft #503 runbook](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/fix/nexus-direct-image-lookup-20261117/docs/nexus-regional-acceptance-runbook.md) и [Draft #548 procedure](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/feat/507-windows-offline-lifecycle/docs/windows-offline-acceptance.md) — процедуры прогона из draft-веток, не из `main`.
+- [Draft #503 runbook](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/fix/nexus-direct-image-lookup-20261117/docs/nexus-regional-acceptance-runbook.md) — runbook из draft-ветки; [#507 procedure](windows-offline-acceptance.md) — процедура из текущего репозитория.
