@@ -164,7 +164,12 @@ export FAKE_DOCKER_VOLUME_DIR="$FAKE_VOLUME"
 SOURCE_REVISION=$(git -C "$ROOT" rev-parse --verify HEAD 2>/dev/null || printf 'unknown')
 export FAKE_DOCKER_LABEL_REVISION="$SOURCE_REVISION"
 
-NEW_VERSION=1.0.0
+# New kit must be the canonical product version (single source of truth:
+# backend/app/__init__.py), exactly as the release build requires. The
+# synthetic previous install keeps a distinct older version so upgrade and
+# rollback remain meaningful.
+NEW_VERSION=$(sed -n 's/^__version__ = "\([A-Za-z0-9._-][A-Za-z0-9._-]*\)"$/\1/p' "$ROOT/backend/app/__init__.py")
+[ -n "$NEW_VERSION" ] || fail 'cannot determine canonical version from backend/app/__init__.py'
 OLD_VERSION=0.9.0-old
 DIST="$TMP/dist"
 sh "$ROOT/deploy/build-offline-kit.sh" "$NEW_VERSION" "$DIST"
