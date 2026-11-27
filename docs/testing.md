@@ -174,6 +174,8 @@ Harbor profile domain/API также security-sensitive, потому что у�
 
 Когда `integration=true`, workflow запускает `Integration — интеграционные тесты`, который выполняет `make test-registry-integration` (disposable local OCI registry + реальные Skopeo/Helm), затем `deploy/qualify-clean-offline-install.sh` (clean-host offline qualification) и `deploy/qualify-isolated-transfer.sh` (isolated SOURCE → TARGET acceptance), после чего публикует прошедший qualification offline kit как artifact.
 
+Изменение любого non-Markdown файла под `deploy/offline/` (Linux lifecycle `*.sh`, Windows PowerShell/CMD wrappers, `compose.yaml`, `.env.example`) и `deploy/build-offline-kit.sh` включает **и** `integration`, **и** `compose`: Linux clean-host qualification исполняет реальный offline lifecycle, поэтому контракт нельзя проверять только Windows mock-Docker contracts. Markdown под `deploy/offline/` остаётся только `docs`.
+
 ### Nexus E2E
 
 Включается для путей, от которых зависит реальный Nexus legacy Docker v2 transport: `tools/nexus_e2e_setup.py`, `backend/tests/test_nexus_legacy_e2e.py`, `backend/app/services/nexus_service.py`, `backend/app/services/registry_client.py`, `backend/requirements-dev.lock`, `docs/nexus-setup.md`. Когда `nexus_e2e=true`, `Integration — интеграционные тесты` дополнительно выполняет gated-шаги Nexus Docker v2 E2E. При `workflow_dispatch` они выполняются всегда (с `nexus_version`, по умолчанию `3.69.0`). Изменение `.github/workflows/ci.yml` или `tools/ci_scope.py` также включает `nexus_e2e`, когда marker-файлы E2E присутствуют.
@@ -227,6 +229,8 @@ Harbor profile domain/API также security-sensitive, потому что у�
 | Bundle protocol/schema/package | backend + protocol + security по affected paths + quality-gate |
 | Skopeo/Helm/transfer runtime boundary | backend/security по affected path + integration + quality-gate |
 | Dockerfile/runtime deployment/non-Markdown `deploy/*` | affected code gates + compose + windows-launcher + windows-offline-lifecycle + quality-gate |
+| non-Markdown `deploy/offline/*` / `deploy/build-offline-kit.sh` | integration + compose + windows-launcher + windows-offline-lifecycle + quality-gate |
+| `deploy/**/*.md` | docs + quality-gate |
 | Browser/runtime trust boundary (`.env.example`, Compose, Nginx) | backend regression + affected frontend/compose gates + quality-gate |
 | Workflow / CI scope policy | все существующие applicable areas + quality-gate |
 | Release-sensitive mixed change | объединение всех affected areas; release gates не пропускаются |
