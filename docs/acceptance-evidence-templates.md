@@ -8,7 +8,7 @@
 - **Gate B — [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)**: физически изолированный Harbor Core ↔ Nexus SOURCE→TARGET handoff.
 - **Gate C — [#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436)**: региональная приёмка Nexus (TLS/CA, ACL, версии/редакции, внешний writer).
 
-Это шаблоны для операторов и security. Они **не** заменяют [Testing/CI](testing.md), [Signed physical handoff](physical-handoff.md), [Security](security.md) и не отменяют региональный **NO-GO** из [Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503).
+Это шаблоны для операторов и security. Они **не** заменяют [Testing/CI](testing.md), [Signed physical handoff](physical-handoff.md), [Security](security.md) и не подменяют независимую региональную приёмку [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
 
 ## 0. Общие правила
 
@@ -252,7 +252,7 @@ Gate проверяет **физическую** передачу signed deliver
 
 ## 3. Gate C — #436: региональная приёмка Nexus
 
-Gate проверяет корпоративный Nexus разных версий/редакций: TLS/CA/SAN/chain, proxy/realm/redirect без bypass, per-repository ACL, multi-repo read/write, отсутствие утечки скрытых имён и гарантию no-overwrite при внешнем writer. Детальный runbook и read-only preflight — в [Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/fix/nexus-direct-image-lookup-20261117/docs/nexus-regional-acceptance-runbook.md).
+Gate проверяет корпоративный Nexus разных версий/редакций: TLS/CA/SAN/chain, proxy/realm/redirect без bypass, per-repository ACL, multi-repo read/write, отсутствие утечки скрытых имён и гарантию no-overwrite при внешнем writer. Детальный [runbook](nexus-regional-acceptance-runbook.md) и read-only preflight.
 
 ### 3.1. Статус gate
 
@@ -403,4 +403,4 @@ Gate проверяет корпоративный Nexus разных верси
 - [Security](security.md) — trust boundaries и граница гарантии no-overwrite.
 - [Offline lifecycle](offline-lifecycle.md) — backup/restore/upgrade контракт.
 - [Deferred tasks](deferred-tasks.md) и [ROADMAP](../ROADMAP.md) — границы релиза и внешние blockers.
-- [Draft #503 runbook](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/fix/nexus-direct-image-lookup-20261117/docs/nexus-regional-acceptance-runbook.md) — runbook из draft-ветки; [#507 procedure](windows-offline-acceptance.md) — процедура из текущего репозитория.
+- [Региональный runbook](nexus-regional-acceptance-runbook.md) — v1.1.0; [#507 procedure](windows-offline-acceptance.md) — процедура из текущего репозитория.

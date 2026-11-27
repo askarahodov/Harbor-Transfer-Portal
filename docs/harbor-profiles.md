@@ -15,8 +15,9 @@ Registry profile содержит явный `registry_type=harbor|nexus`. На�
 Он теперь показывает явное сообщение о невозможности такого экспорта вместо запросов к
 `/api/v2.0/systeminfo` и `/api/v2.0/projects` Nexus-сервера. Harbor-only API и preview
 отклоняют Nexus профиль с типизированным `nexus_requires_registry_workflow`. Полный Nexus
-SOURCE/TARGET workflow остаётся в [Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)
-под региональными release gates: **NO-GO** для рабочего развёртывания.
+SOURCE/TARGET workflow выпущен в v1.1.0 ([PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)).
+Региональная приёмка подтверждена владельцем (owner-attested, Windows); независимые
+evidence и подписи собираются по [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
 
 Для сохранённого Nexus профиля в Настройках используется только кнопка
 **«Проверить Docker Registry v2»**. Она выполняет read-only `GET /v2/` с обработкой

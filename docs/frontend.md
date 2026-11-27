@@ -10,7 +10,23 @@
 - Axios для JSON/API requests и streaming browser upload;
 - Element Plus как UI dependency;
 - Lucide для иконок;
-- CSS design tokens из `frontend/src/styles/tokens.css`.
+- CSS design tokens из `frontend/src/styles/tokens.css` и [UI/UX contract](ui-design-system.md).
+
+## Согласованность UI/UX
+
+Формы авторизации, настроек, профилей, поиска, выбора образов, импорта,
+истории и пользователей должны использовать семантические
+`--color-*`, `--space-*` и размеры `--control-height`,
+`--control-height-compact`, `--control-height-large`.
+Различия размеров допустимы **по назначению** (например, компактная
+пагинация и крупное главное действие), а не по случайному выбору страницы.
+Для соседних полей применяется выравнивание по верхней границе:
+дополнительное пояснение не должно опускать соседний select.
+Многоколоночные формы при узком viewport переходят в одну колонку.
+
+Подробности и ручной checklist — [UI/UX contract](ui-design-system.md).
+CI подтверждает сборку и тесты, но не заменяет визуальную проверку
+light/dark, клавиатуры и разных размеров экранов.
 
 ## Маршруты и доступ
 

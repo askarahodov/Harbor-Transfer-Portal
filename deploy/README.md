@@ -54,7 +54,7 @@ Windows CMD:
 run.cmd
 ```
 
-Оба launcher создают `.env` только при его отсутствии и запускают `docker compose up -d --build --force-recreate` без host Python. Дополнительный developer CLI (`python3 tools/dev.py setup`, `doctor`, `up`; Windows: `py -3`) и PowerShell wrapper `dev.ps1` необязательны.
+Оба launcher создают `.env` только при его отсутствии, выполняют `docker compose build` с текущим Git SHA, затем `up -d --no-build --pull never --wait --wait-timeout 180`. Команда `start` повторно запускает готовые images без сборки, `doctor` проверяет prerequisites, `status`/`logs` показывают здоровье. Это работает без host Python. [Краткий Windows/Linux runbook](../docs/install-windows-linux.md). Дополнительный developer CLI (`python3 tools/dev.py setup`, `doctor`, `up`, `start`, `status`; Windows: `py -3`) и PowerShell wrapper `dev.ps1` необязательны.
 
 Корневой `compose.yaml` содержит `build:` sections. Backend image build может получать pinned Helm archive и OS/Python dependencies, frontend build — npm dependencies. Поэтому `docker compose up -d --build` допустим только там, где build environment имеет необходимые разрешённые источники.
 
@@ -181,7 +181,9 @@ Private signing key запрещено включать в delivery bundle ил�
 
 ```bash
 docker compose config
-docker compose up -d --build --force-recreate
+PORTAL_VCS_REF="$(git rev-parse HEAD)" docker compose build
+# Затем запуск без повторной сборки и без pull
+PORTAL_VCS_REF="$(git rev-parse HEAD)" docker compose up -d --no-build --pull never --wait --wait-timeout 180
 ```
 
 Make/host Python не требуются для source quick start; расширенные developer-команды см. в [docs/development.md](../docs/development.md).

@@ -1,10 +1,10 @@
 # Harbor и Nexus: возможности и границы поддержки
 
-> **Статус:** Harbor SOURCE/TARGET — поддерживаемый baseline ветки `main`. Полный workflow Nexus Docker Registry v2 и classic Helm HTTP находится в [Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503). Региональная приёмка [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436) не завершена (**NO-GO**). Наличие функционала в тестовой ветке не означает готовность к установке или выпуску.
+> **Статус:** v1.1.0 включает Harbor SOURCE/TARGET и Nexus Docker Registry v2 + classic Helm HTTP ([PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)). Региональная приёмка подтверждена владельцем (owner-attested, Windows); независимые evidence и sign-offs фиксируются в [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436) по [шаблонам](acceptance-evidence-templates.md).
 
 ## Фактическая матрица
 
-| Функция | Harbor (`main`) | Nexus (полный workflow в Draft #503) |
+| Функция | Harbor (v1.1.0) | Nexus (v1.1.0) |
 | --- | --- | --- |
 | Docker/OCI container images | Skopeo, Harbor API и Registry v2 | Skopeo + Docker hosted Registry v2 |
 | Helm charts | Harbor OCI через Helm | **Classic Helm hosted HTTP**: index.yaml / tarball / Components API, отдельный адаптер |
@@ -26,11 +26,11 @@ Portal переносит образы и Helm charts; он **не перено�
 
 На предыдущей интеграционной сборке (`7b32643bb04226b986d98c6ae015311528df01b6`) выполнены [CI / Quality Gate](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42806604173) и [disposable Nexus 3.69/3.70 + Harbor 2.14.6 E2E](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42806604136). Оба — **SUCCESS**; проверки выполнялись на одноразовых CI-сервисах, не в корпоративных изолированных SOURCE/TARGET.
 
-Фактическая региональная проверка включает версии/редакции, ACL, TLS/CA/proxy, физический перенос, подпись/digest, receipt, отказные сценарии и sign-off операторов/безопасности/владельца. До её прохождения #503 остаётся Draft / NO-GO.
+Фактическая региональная проверка включает версии/редакции, ACL, TLS/CA/proxy, физический перенос, подпись/digest, receipt, отказные сценарии и sign-off операторов/безопасности/владельца. Владелец подтвердил прогон на Windows; артефакты и подписи прикладываются по шаблонам приёмки.
 
 ## Правильные источники
 
 - [Настройка тестового Nexus-кандидата](nexus-setup.md)
 - [Архитектура текущей версии](architecture.md) и [протокол Offline Bundle v1](offline-bundle-v1.md)
-- [Runbook региональной приёмки (ветка Draft #503)](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/fix/nexus-direct-image-lookup-20261117/docs/nexus-regional-acceptance-runbook.md)
+- [Runbook региональной приёмки](nexus-regional-acceptance-runbook.md)
 - [Issue #414](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/414) — инженерный статус

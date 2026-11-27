@@ -4,7 +4,7 @@
 
 ## Цель и границы
 
-Harbor Transfer Portal обеспечивает **офлайн** перенос container images / Helm charts через физически изолированные SOURCE и TARGET. Нельзя добавлять прямой SOURCE↔TARGET network flow, переносить private signing keys / противоположные credentials, обходить TLS/ACL или незаметно перезаписывать конфликтующие артефакты. Release-qualified Harbor v1.0.0 в `main` — baseline; полный Nexus workflow находится в draft PR #503, **NO-GO** для регионального production.
+Harbor Transfer Portal обеспечивает **офлайн** перенос container images / Helm charts через физически изолированные SOURCE и TARGET. Нельзя добавлять прямой SOURCE↔TARGET network flow, переносить private signing keys / противоположные credentials, обходить TLS/ACL или незаметно перезаписывать конфликтующие артефакты. Harbor v1.0.0 и Nexus Docker v2 + classic Helm HTTP в v1.1.0 — текущий baseline (`main`). Региональная приёмка подтверждена владельцем (owner-attested, Windows); независимые evidence/sign-offs фиксируются по `docs/acceptance-evidence-templates.md`.
 
 ## Перед началом задачи (обязательно)
 

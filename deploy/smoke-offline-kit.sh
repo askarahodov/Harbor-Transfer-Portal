@@ -83,7 +83,11 @@ export FAKE_DOCKER_LOG="$FAKE_LOG"
 SOURCE_REVISION=$(git -C "$ROOT" rev-parse --verify HEAD 2>/dev/null || printf 'unknown')
 export FAKE_DOCKER_LABEL_REVISION="$SOURCE_REVISION"
 
-VERSION=1.0.0
+# Never duplicate the product version: read the canonical one exactly like
+# deploy/build-offline-kit.sh and CI publish-images do, so this smoke cannot
+# drift from backend/app/__init__.py after a release bump.
+VERSION=$(sed -n 's/^__version__ = "\([A-Za-z0-9._-][A-Za-z0-9._-]*\)"$/\1/p' "$ROOT/backend/app/__init__.py")
+[ -n "$VERSION" ] || fail 'cannot determine canonical version from backend/app/__init__.py'
 DIST="$TMP/dist"
 
 # A release archive must never be built for a version that differs from the
@@ -163,7 +167,7 @@ for required in \
   release-version.txt \
   release-arch.txt \
   release-manifest.json \
-  docs/release-notes-v1.0.0.md \
+  "docs/release-notes-v${VERSION}.md" \
   docs/user-guide.md \
   docs/browser-transport.md \
   docs/windows-offline-acceptance.md \
@@ -197,9 +201,9 @@ grep -Eq '^[0-9a-f]{64}  docs/browser-transport\.md$' "$KIT/CHECKSUMS.sha256" ||
 )
 
 [ "$(cat "$KIT/release-version.txt")" = "$VERSION" ] || fail 'release-version.txt mismatch'
-grep -F '"version": "1.0.0"' "$KIT/release-manifest.json" >/dev/null
+grep -F "\"version\": \"$VERSION\"" "$KIT/release-manifest.json" >/dev/null
 grep -F '"architecture": "amd64"' "$KIT/release-manifest.json" >/dev/null
-grep -F '"release_notes": "docs/release-notes-v1.0.0.md"' "$KIT/release-manifest.json" >/dev/null
+grep -F "\"release_notes\": \"docs/release-notes-v${VERSION}.md\"" "$KIT/release-manifest.json" >/dev/null
 if [ "$SOURCE_REVISION" != unknown ]; then
   grep -F "\"source_revision\": \"$SOURCE_REVISION\"" "$KIT/release-manifest.json" >/dev/null \
     || fail 'release manifest revision mismatch'
@@ -211,7 +215,7 @@ fi
   PORTAL_CONTOUR=TARGET sh ./install.sh
 )
 [ -f "$KIT/.env" ] || fail 'installer did not create .env'
-grep -Fx 'PORTAL_VERSION=1.0.0' "$KIT/.env" >/dev/null
+grep -Fx "PORTAL_VERSION=$VERSION" "$KIT/.env" >/dev/null
 grep -Fx 'PORTAL_CONTOUR=TARGET' "$KIT/.env" >/dev/null
 grep -Fx 'PORTAL_HTTP_BIND=127.0.0.1' "$KIT/.env" >/dev/null \
   || fail 'installer did not preserve loopback browser listener default'

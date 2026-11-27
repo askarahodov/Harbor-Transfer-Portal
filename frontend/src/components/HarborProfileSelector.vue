@@ -28,6 +28,11 @@ const selectedProfile = computed(
   () => props.profiles.find((profile) => profile.id === props.modelValue) ?? null,
 )
 
+function registryLabel(profile: HarborProfileOption): string {
+  if (profile.registry_type !== 'nexus') return 'Harbor'
+  return profile.nexus_format === 'helm' ? 'Nexus · Helm HTTP' : 'Nexus · Docker v2'
+}
+
 function host(value: string): string {
   try {
     return new URL(value).host
@@ -56,7 +61,7 @@ function change(event: Event): void {
       </option>
       <option v-else-if="profiles.length === 0" value="" disabled>Нет доступных profiles</option>
       <option v-for="profile in profiles" :key="profile.id" :value="profile.id">
-        {{ profile.name }} · {{ host(profile.url) }}
+        {{ registryLabel(profile) }} · {{ profile.name }} · {{ host(profile.url) }}{{ profile.nexus_search_repository && profile.registry_type === 'nexus' ? ' · ' + profile.nexus_search_repository : '' }}
       </option>
     </select>
     <small v-if="locked && !modelValue">
@@ -64,13 +69,16 @@ function change(event: Event): void {
     </small>
     <small v-else-if="selectedProfile">
       <template v-if="locked">
-        Закреплён за operation: <strong>{{ selectedProfile.name }}</strong> · {{ host(selectedProfile.url) }}
+        Закреплён за operation: <strong>{{ registryLabel(selectedProfile) }} · {{ selectedProfile.name }}</strong> · {{ host(selectedProfile.url) }}
       </template>
       <template v-else-if="hint">
-        {{ hint }}
+        {{ registryLabel(selectedProfile) }} · {{ hint }}
       </template>
       <template v-else>
-        {{ selectedProfile.name }} · {{ selectedProfile.url }}
+        {{ registryLabel(selectedProfile) }} · {{ selectedProfile.name }} · {{ selectedProfile.url }}
+      </template>
+      <template v-if="selectedProfile.registry_type === 'nexus' && selectedProfile.nexus_search_repository">
+        · repository: <strong>{{ selectedProfile.nexus_search_repository }}</strong>
       </template>
     </small>
   </div>
@@ -80,7 +88,7 @@ function change(event: Event): void {
 .profile-selector { display: grid; gap: var(--space-2); max-width: 760px; }
 .profile-selector label { color: var(--color-text); font-weight: 700; }
 .profile-selector select {
-  min-height: 42px;
+  min-height: var(--control-height);
   width: 100%;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-md);

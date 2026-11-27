@@ -2,7 +2,7 @@
 
 **Статус:** актуальное архитектурное описание release-qualified baseline **v1.0.0**.
 
-Этот документ относится **только к Harbor baseline в `main`**. В `main` доступны Nexus-профили и проверка подключения через Docker Registry v2. Полный workflow Nexus Docker v2 и classic Helm HTTP находится в [Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503) и требуют региональной приёмки #434/#436; не переносите схемы Nexus на production-архитектуру без approved change.
+Документ описывает общую архитектуру; с v1.1.0 в поставку входят Harbor baseline и Nexus Docker v2 + classic Helm HTTP ([PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)). Региональная приёмка подтверждена владельцем (owner-attested, Windows); независимые evidence и подписи собираются по #434/#436. Не переносите схемы Nexus на production-архитектуру без approved change.
 
 Этот документ описывает действующие boundaries и реализованный end-to-end flow Harbor Transfer Portal. Нормативные контракты здесь не переопределяются: формат переносимого пакета задаёт [Offline Bundle Protocol v1](offline-bundle-v1.md), принятые решения — [ADR](decisions.md), background lifecycle — [OperationManager](operation-manager.md), runtime role contract — [Runtime SOURCE/TARGET mode](runtime-mode.md), а feature-specific детали — [SOURCE export orchestration](export-orchestration.md), [TARGET import orchestration](import-orchestration.md) и [frontend](frontend.md).
 

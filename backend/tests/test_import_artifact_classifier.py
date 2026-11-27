@@ -165,3 +165,54 @@ def test_inspection_errors_are_fail_closed_per_artifact_and_do_not_abort_manifes
         "image inspection failed",
         "chart inspection failed",
     ]
+
+
+def test_root_nexus_source_image_requires_harbor_project_before_target_inspection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Do not request invalid docker://harbor/node or claim an unwritten NEW."""
+    service = classifier(
+        SkopeoServiceError("skopeo_inspect_failed", "network must not be called"),
+        HelmTargetInspection(HelmTargetState.ABSENT, None),
+    )
+    def forbidden_client(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Unmapped Harbor root image must not use a registry client")
+
+    monkeypatch.setattr(service, "_create_registry_client", forbidden_client)
+    root = image().model_copy(update={"repository": "node", "reference": "18-alpine"})
+    [result] = asyncio.run(
+        service.classify([root], target_registry_type="harbor")
+    )
+    assert result.repository == "node"
+    assert result.reference == "18-alpine"
+    assert result.expected_digest == DIGEST
+    assert result.classification is ImportPreviewState.UNKNOWN
+    assert result.error_code is None
+    assert result.target_digest is None
+    assert "TARGET project" in (result.message or "")
+
+
+def test_nexus_target_root_image_still_inspects_true_docker_v2_name() -> None:
+    """Nexus Docker v2 accepts 'node'; only Harbor requires project/image."""
+    service = classifier(
+        TargetInspection(TargetState.ABSENT, None),
+        HelmTargetInspection(HelmTargetState.ABSENT, None),
+    )
+    root = image().model_copy(update={"repository": "node"})
+    [result] = asyncio.run(
+        service.classify([root], target_registry_type="nexus")
+    )
+    assert result.repository == "node"
+    assert result.classification is ImportPreviewState.NEW
+
+
+def test_harbor_nested_image_still_performs_initial_inspection() -> None:
+    service = classifier(
+        SkopeoServiceError("skopeo_inspect_failed", "target unreachable"),
+        HelmTargetInspection(HelmTargetState.ABSENT, None),
+    )
+    [result] = asyncio.run(
+        service.classify([image()], target_registry_type="harbor")
+    )
+    assert result.classification is ImportPreviewState.ERROR
+    assert result.error_code == "skopeo_inspect_failed"

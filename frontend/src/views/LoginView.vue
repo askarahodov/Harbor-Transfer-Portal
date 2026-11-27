@@ -142,12 +142,12 @@ async function submit(): Promise<void> {
 .login-card__hint { margin: var(--space-4) 0 var(--space-6); color: var(--color-text-muted); }
 .login-form { display: grid; gap: var(--space-3); }
 .login-form label { font-weight: 600; color: var(--color-text); }
-.login-form input { width: 100%; min-height: 44px; box-sizing: border-box; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--color-surface); color: var(--color-text); }
+.login-form input { width: 100%; min-height: var(--control-height-large); box-sizing: border-box; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--color-surface); color: var(--color-text); }
 .password-field { position: relative; }
 .password-field input { padding-right: 48px; }
 .password-toggle { position: absolute; top: 2px; right: 2px; width: 40px; height: 40px; display: grid; place-items: center; border: 0; background: transparent; color: var(--color-text-muted); cursor: pointer; }
 .form-error { margin: 0; color: var(--color-danger-text); }
-.submit-button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); margin-top: var(--space-2); border: 0; border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); font-weight: 700; cursor: pointer; }
+.submit-button { min-height: var(--control-height-large); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); margin-top: var(--space-2); border: 0; border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); font-weight: 700; cursor: pointer; }
 .submit-button:disabled, .password-toggle:disabled { cursor: not-allowed; opacity: .55; }
 .login-docs { display: inline-flex; margin-top: var(--space-5); color: var(--color-action); font-weight: 600; text-decoration: none; }
 .login-docs:hover, .login-docs:focus-visible { text-decoration: underline; }

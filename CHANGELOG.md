@@ -3,6 +3,27 @@
 All notable user-facing changes to Harbor Transfer Portal are documented here.
 The project follows Semantic Versioning for product releases.
 
+## 1.1.0 - 2026-11-27
+
+### Added
+- Nexus Docker Registry v2 SOURCE/TARGET (profile-based browse, inspect, export, TARGET import).
+- Classic Nexus Helm HTTP (non-OCI) hosted repositories with exact-repository fail-closed writes.
+- Type-aware registry profiles and UI labels for Harbor / Nexus Docker / Nexus Helm.
+- Bundle v1.1 registry origin metadata with backward compatibility to Harbor v1.0 bundles.
+
+### Fixed
+- Helm OCI transport flags for Nexus: `--plain-http`, conditional `--insecure-skip-tls-verify`, `--ca-file`.
+- Compact `skopeo inspect` survives very large RepoTags; truncated output raises `skopeo_output_truncated`.
+- Immutable import receipt publication is atomic; success receipt only after `COMPLETED`; `skip_conflicts` recorded on all receipt paths.
+- Harbor connection probe runs off the event loop.
+
+### Changed
+- pytest 9.2 / pytest-asyncio 1.5 and minimatch 11 close the open Dependabot alerts.
+- Nexus legacy Docker v2 E2E runs as scoped `Integration` steps; CI scope contract test guards job/gate wiring.
+
+### Acceptance
+- Regional acceptance owner-attested on Windows; independent artifacts and sign-offs tracked in #434/#436.
+
 ## 1.0.0 - 2026-09-14
 
 ### Added

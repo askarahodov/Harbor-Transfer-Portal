@@ -95,8 +95,8 @@ dt { color: var(--color-text-muted); font-size: 12px; }
 dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; font-weight: 600; }
 .verification-list { display: grid; gap: var(--space-2); margin: var(--space-4) 0; }
 .verification-row { display: grid; grid-template-columns: auto 1fr auto; gap: var(--space-3); align-items: center; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
-.icon-button { min-width: 40px; min-height: 40px; display: grid; place-items: center; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
-.button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); padding: 0 var(--space-4); border: 1px solid transparent; border-radius: var(--radius-md); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
+.icon-button { min-width: var(--control-height); min-height: var(--control-height); display: grid; place-items: center; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
+.button { min-height: var(--control-height); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); padding: 0 var(--space-4); border: 1px solid transparent; border-radius: var(--radius-md); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
 .button:disabled { cursor: not-allowed; opacity: .55; }
 .button--danger { background: var(--color-danger-text); color: var(--color-on-accent); }
 @media (max-width: 900px) {

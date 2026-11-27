@@ -442,7 +442,12 @@ class DocumentationContractTests(unittest.TestCase):
 
         self.assertNotIn("Windows 10/11 (с WSL 2)", readme)
         self.assertIn("### Windows 10/11 — CMD", readme)
-        self.assertIn("docker compose up -d --build --force-recreate", readme)
+        # The launcher contract is the two-phase build-then-up flow with an
+        # exact Git SHA; the README must describe it, not a single build+up.
+        self.assertIn(
+            "docker compose up -d --no-build --pull never --wait", readme
+        )
+        self.assertIn("docker compose build", readme)
         self.assertIn("### Windows CMD — canonical path", development)
         self.assertIn("py -3 tools/dev.py up", development)
         self.assertIn("PowerShell scripts разрешены", development)
@@ -655,16 +660,22 @@ class DocumentationContractTests(unittest.TestCase):
                 f"{path.relative_to(_REPOSITORY_ROOT)}:{open_line} has an unclosed code fence",
             )
 
-    def test_nexus_is_not_documented_as_released_in_main(self) -> None:
+    def test_nexus_is_documented_as_released_in_v1_1_0(self) -> None:
         compare = self.read("docs/registry-comparison.md")
         nexus_setup = self.read("docs/nexus-setup.md")
         task = self.read("docs/nexus-integration-task.md")
         docs_index = self.read("docs/README.md")
+        pull_request_url = "https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503"
 
         for document in (compare, nexus_setup, docs_index):
-            self.assertIn("Draft", document)
-            self.assertIn("https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503", document)
-            self.assertIn("NO-GO", document)
+            self.assertIn(pull_request_url, document)
+            self.assertIn("v1.1.0", document)
+            # The release must not be described through draft/NO-GO wording, and
+            # the regional acceptance must be stated as owner-attested rather than
+            # silently upgraded to an independent sign-off.
+            self.assertNotIn("Draft #503", document)
+            self.assertNotIn("Draft PR #503", document)
+            self.assertIn("owner-attested", document)
         self.assertNotIn("добавлен в v1.0.0 как альтернатива", compare)
         self.assertNotIn("Helm Charts (OCI)** | ✅", compare)
         self.assertNotIn("с 3.40+", compare + nexus_setup)
@@ -672,6 +683,19 @@ class DocumentationContractTests(unittest.TestCase):
         self.assertIn("classic Helm HTTP", nexus_setup)
         self.assertNotIn("softrust.ru", nexus_setup)
         self.assertIn("исторический", task.lower())
+        self.assertIn(pull_request_url, task)
+        self.assertIn("Исторический", self.read("docs/nexus-release-readiness-2026-11-03.md"))
+
+    def test_release_identity_is_v1_1_0(self) -> None:
+        version_file = (_REPOSITORY_ROOT / "backend" / "app" / "__init__.py").read_text(encoding="utf-8")
+        self.assertIn('__version__ = "1.1.0"', version_file)
+        package = self.read("frontend/package.json")
+        self.assertIn('"version": "1.1.0"', package)
+        release_notes = self.read("docs/release-notes-v1.1.0.md")
+        self.assertIn("v1.1.0", release_notes)
+        self.assertIn("Nexus", release_notes)
+        changelog = self.read("CHANGELOG.md")
+        self.assertIn("## 1.1.0", changelog)
 
     def test_historical_docs_are_navigation_pointers_not_runtime_instructions(self) -> None:
         original = self.read("docs/harbor-transfer-portal.md")

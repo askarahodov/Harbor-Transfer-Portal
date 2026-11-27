@@ -1,12 +1,14 @@
 SHELL := /bin/sh
 
-.PHONY: help doctor images up down logs fmt lint lint-backend typecheck-backend test test-backend test-frontend test-ci-scope dependency-locks-check test-registry-integration test-offline-kit docs-check migrate build compose-config smoke-compose check-foundation
+.PHONY: help doctor images up start status down logs fmt lint lint-backend typecheck-backend test test-backend test-frontend test-ci-scope dependency-locks-check test-registry-integration test-offline-kit docs-check migrate build compose-config smoke-compose check-foundation
 
 help:
 	@printf '%s\n' \
 	  'make doctor         Проверить cross-platform dev prerequisites' \
 	  'make images         Собрать Docker images из текущего Git revision' \
-	  'make up             Пересобрать и recreate локальный стек из текущего Git revision' \
+	  'make up             Собрать images и запустить стек, дождаться health' \
+	  'make start          Запустить существующие images без пересборки' \
+	  'make status         Показать статус сервисов и health' \
 	  'make down           Остановить стек, сохранив persistent volume' \
 	  'make logs           Показывать логи локального стека' \
 	  'make fmt            Форматировать backend и frontend' \
@@ -35,6 +37,12 @@ images:
 
 up:
 	python3 tools/dev.py up
+
+start:
+	python3 tools/dev.py start
+
+status:
+	python3 tools/dev.py status
 
 down:
 	python3 tools/dev.py down

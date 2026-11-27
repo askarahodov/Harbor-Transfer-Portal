@@ -1,16 +1,16 @@
-# Nexus Repository — подготовка к приёмке (Draft)
+# Nexus Repository — setup и приёмка (v1.1.0)
 
-> **Не инструкция для production на `main`.** Nexus реализуется в [Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503) и остаётся **NO-GO** до [региональной приёмки #436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436). В `main` доступны Nexus-профили и Docker v2 probe. Classic Helm HTTP входит в тестовый кандидат. Не переносите credentials или конфигурацию из корпоративных контуров в Issues/документацию.
+> **Входит в v1.1.0** ([PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)): Nexus-профили, Docker v2 browse/inspect, classic Helm HTTP и signed SOURCE→TARGET handoff. Региональная параметризация (версии/редакции, TLS/CA, per-repo ACL) подтверждена владельцем на Windows (owner-attested); независимые evidence и подписи — по [шаблонам приёмки](acceptance-evidence-templates.md). Не переносите credentials или конфигурацию из корпоративных контуров в Issues/документацию.
 
 ## 1. Не путайте Docker v2, Helm HTTP и OCI
 
 | Repository/endpoint Nexus | Назначение | Транспорт кандидата Portal |
 | --- | --- | --- |
 | Docker hosted с connector `/v2/` | Container images | Skopeo / Registry v2 |
-| Helm hosted с `index.yaml`, `.tgz`, Components API | Классические Helm charts | Отдельный **legacy Helm HTTP** adapter в Draft #503 |
+| Helm hosted с `index.yaml`, `.tgz`, Components API | Классические Helm charts | **legacy Helm HTTP** adapter v1.1.0 |
 | OCI repository | Другой механизм хранения | Не подменяет собой classic Helm hosted на проверяемых Nexus 3.69/3.70 |
 
-Для legacy Helm hosted **не** выполняйте `helm push oci://...`: этот endpoint не является OCI registry. Classic Helm HTTP adapter входит в Draft #503. В разделе 5 указаны результаты disposable E2E предыдущей интеграционной сборки.
+Для legacy Helm hosted **не** выполняйте `helm push oci://...`: этот endpoint не является OCI registry. Classic Helm HTTP adapter входит в v1.1.0. В разделе 5 указаны результаты disposable E2E.
 
 ## 2. Тестовый Docker hosted
 
@@ -40,7 +40,7 @@
 
 Реальный Docker v2 transport против pre-OCI Nexus 3 (<3.94) проверяется шагами `Nexus … — Docker v2 transport` внутри CI job `Integration — интеграционные тесты`: они запускаются при изменении Nexus E2E-путей (`nexus_e2e` area в `tools/ci_scope.py`) или при `workflow_dispatch` с input `nexus_version` (default `3.69.0`). Отдельного Nexus E2E workflow больше нет.
 
-**Не доказано**: реальные региональные версии и редакции, внутренние TLS/CA/DNS/proxy, per-repo ACL, физическая изоляция, media handoff, контроль внешних writer и sign-off. Для них используйте [региональный runbook в Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/fix/nexus-direct-image-lookup-20261117/docs/nexus-regional-acceptance-runbook.md) и [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
+**Owner-attested**: реальные версии/редакции, внутренние TLS/CA/DNS/proxy и per-repo ACL проверены владельцем на Windows. Независимые артефакты (логи, скриншоты, паспорт kit, подписи operator/security/owner) прикладываются по [шаблонам приёмки](acceptance-evidence-templates.md) и [runbook](nexus-regional-acceptance-runbook.md); до их приложения это подтверждение не заменяет независимую верификацию.
 
 ## 6. Диагностика
 

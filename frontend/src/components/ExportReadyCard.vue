@@ -111,7 +111,7 @@ h3 { margin-bottom: var(--space-2); font-size: 16px; }
 .notice--warning { background: var(--color-warning-surface); color: var(--color-warning-text); }
 .download-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-3); }
 .download-error { color: var(--color-danger-text); }
-.primary-button, .secondary-button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); border-radius: var(--radius-md); padding: 0 var(--space-4); font: inherit; font-weight: 700; cursor: pointer; }
+.primary-button, .secondary-button { min-height: var(--control-height-large); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); border-radius: var(--radius-md); padding: 0 var(--space-4); font: inherit; font-weight: 700; cursor: pointer; }
 .primary-button { border: 1px solid var(--color-action); background: var(--color-action-surface); color: var(--color-on-accent); }
 .secondary-button { border: 1px solid var(--color-border-control); background: var(--color-surface); color: var(--color-text); }
 button:disabled { cursor: not-allowed; opacity: .55; }

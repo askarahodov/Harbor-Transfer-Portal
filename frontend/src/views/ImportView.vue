@@ -249,12 +249,12 @@ onBeforeUnmount(() => {
 
       <HarborProfileSelector
         id="import-harbor-profile"
-        label="TARGET Harbor profile"
+        label="TARGET registry profile"
         :profiles="wizard.harborProfiles"
         :model-value="wizard.operation && !wizard.operation.harbor_profile_id ? null : wizard.selectedHarborProfileId"
         :disabled="wizard.harborProfilesLoading || wizard.busy !== null"
         :locked="wizard.harborProfileLocked"
-        hint="Intake, TARGET preview и import будут закреплены за выбранным Harbor."
+        hint="Intake, TARGET preview и import закрепляются за выбранным реестром."
         @update:model-value="wizard.selectHarborProfile"
       />
 
@@ -426,7 +426,14 @@ onBeforeUnmount(() => {
 
         <dl class="metadata-grid metadata-grid--wide">
           <div><dt>Delivery ID</dt><dd>{{ wizard.preview.source_delivery_id }}</dd></div>
-          <div><dt>SOURCE Harbor</dt><dd>{{ wizard.preview.source_harbor ?? 'нет данных в legacy preview' }}</dd></div>
+          <div>
+            <dt>{{ wizard.preview.source_registry_type === 'nexus' ? 'SOURCE Nexus' : 'SOURCE Harbor' }}</dt>
+            <dd>
+              {{ wizard.preview.source_registry_type === 'nexus'
+                ? (wizard.preview.source_registry ?? '—')
+                : (wizard.preview.source_harbor ?? '—') }}
+            </dd>
+          </div>
           <div><dt>Создан</dt><dd>{{ formatDate(wizard.preview.source_created_at) }}</dd></div>
           <div><dt>Автор</dt><dd>{{ wizard.preview.source_created_by ?? '—' }}</dd></div>
           <div><dt>Portal SOURCE</dt><dd>{{ wizard.preview.source_portal_version ?? '—' }}</dd></div>
@@ -638,12 +645,12 @@ th { color: var(--color-text-muted); font-size: 12px; }
 .overwrite-confirmation { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-danger-text); border-radius: var(--radius-md); }
 .comment-box { padding: var(--space-4); border-left: 4px solid var(--color-action); background: var(--color-surface-subtle); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
-.button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); padding: 0 var(--space-4); border: 1px solid transparent; border-radius: var(--radius-md); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
+.button { min-height: var(--control-height); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); padding: 0 var(--space-4); border: 1px solid transparent; border-radius: var(--radius-md); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
 .button:disabled { cursor: not-allowed; opacity: .55; }
 .button--primary { background: var(--color-action-surface); color: var(--color-on-accent); }
 .button--secondary { border-color: var(--color-border-control); background: var(--color-surface); color: var(--color-text); }
 .button--danger { background: var(--color-danger-text); color: var(--color-on-accent); }
-.icon-button { min-width: 40px; min-height: 40px; display: grid; place-items: center; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
+.icon-button { min-width: var(--control-height); min-height: var(--control-height); display: grid; place-items: center; border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
 .handoff-box { display: grid; gap: var(--space-3); margin-bottom: var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .handoff-box__heading { display: flex; justify-content: space-between; gap: var(--space-3); align-items: flex-start; }
 .handoff-box__heading small { display: block; margin-top: var(--space-1); color: var(--color-text-muted); }

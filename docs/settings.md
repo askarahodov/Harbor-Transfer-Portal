@@ -23,6 +23,29 @@ Route `/settings` доступен только роли `admin`. Огранич
 всего на readiness и key-management controls, но не превращает Settings в отдельную
 конфигурацию другого физического Harbor.
 
+## Профили реестров Nexus :id=rc-registry-profiles
+
+В v1.1.0 карточка настроек управляет именованными Harbor и Nexus profiles.
+При редактировании форма содержит три секции:
+«Подключение», «Параметры Nexus» (только Nexus) и «Доступ и TLS».
+Поля одинаковой высоты, длинные пояснения не сдвигают соседние контролы;
+на узких экранах поля переходят в одну колонку.
+
+Для Nexus Docker v2 `url` — **корень HTTPS Docker connector**, а
+`nexus_search_url` — **HTTPS-адрес Nexus UI** для REST Search.
+`nexus_search_repository` — точное имя repository, например `docker-proxy`,
+только когда оно действительно обслуживается выбранным connector.
+Эти значения не включаются в Docker image path. Прямой
+`image:tag` inspect не зависит от доступа к `/_catalog`.
+Для Helm HTTP используется отдельный профиль с точным HTTP repository,
+а не Helm OCI. Секреты/CA не показываются при редактировании и не изменяются
+при пустом поле. Подробнее: [Nexus setup](nexus-setup.md).
+
+Это Nexus workflow, выпущенный в v1.1.0. Региональная приёмка подтверждена
+владельцем (owner-attested, Windows); независимые evidence и подписи по
+[#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436)
+собираются по [шаблонам приёмки](acceptance-evidence-templates.md).
+
 ## Harbor profiles :id=harbor-profiles
 
 Верхняя широкая карточка **Harbor profiles** показывает именованные Harbor profiles,

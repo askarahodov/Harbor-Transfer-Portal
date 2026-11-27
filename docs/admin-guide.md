@@ -6,7 +6,29 @@
 
 Фактическая структура экрана **Настройки** — Harbor profiles, readiness, default Harbor, credential/CA, keys, transfer policies, retention и TARGET mapping defaults — описана отдельно в [settings.md](settings.md).
 
-![Settings](img/screenshots/settings.png)
+![Settings baseline v1.0.0](img/screenshots/settings.png)
+
+*Скриншот относится к baseline v1.0.0. Интерфейс Nexus RC может отличаться;
+описание редактора RC приведено ниже и в [Settings](settings.md).*
+
+## Администрирование Nexus (v1.1.0)
+
+В выпуске v1.1.0 ([PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)) администратор создаёт
+`registry_type=nexus` профили на экране Settings. Форма редактора
+организована в секции «Подключение», «Параметры Nexus», «Доступ и TLS».
+Для Docker Registry v2 необходимо различать URL Docker connector и
+необязательный HTTPS URL веб-интерфейса Nexus для REST Search; имя Docker
+repository задаётся отдельно и не включается в Docker image name.
+Helm HTTP требует отдельного профиля с точным repository и не использует OCI.
+
+У каждого профиля собственные credential, TLS verification и custom CA;
+пустое поле при редактировании не перезаписывает сохранённый секрет.
+Не отключайте TLS validation для исправления ошибок поиска.
+Доступные образы ограничены индексом/ACL Nexus. Инструкция:
+[Nexus setup](nexus-setup.md). Региональная приёмка подтверждена владельцем
+(owner-attested, Windows); независимые evidence и подписи фиксируются по
+[#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436) и
+[шаблонам приёмки](acceptance-evidence-templates.md).
 
 ## 1. Один deployment, runtime role SOURCE/TARGET
 

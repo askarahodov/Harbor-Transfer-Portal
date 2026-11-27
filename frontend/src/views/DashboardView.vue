@@ -239,7 +239,7 @@ onMounted(loadDashboard)
 .panel p { margin: var(--space-2) 0 0; }
 .primary-panel { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: var(--space-4); }
 .panel-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: var(--radius-md); background: var(--color-info-surface); color: var(--color-action); }
-.primary-action { grid-column: 1 / -1; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-4); border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); font-weight: 700; text-decoration: none; }
+.primary-action { grid-column: 1 / -1; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: var(--control-height-large); padding: 0 var(--space-4); border-radius: var(--radius-md); background: var(--color-action-surface); color: var(--color-on-accent); font-weight: 700; text-decoration: none; }
 .read-only-note { grid-column: 1 / -1; display: grid; gap: var(--space-1); padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
 .read-only-note span { color: var(--color-text-muted); }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
@@ -250,7 +250,7 @@ onMounted(loadDashboard)
 .is-disconnected { background: var(--color-negative-accent); }
 .compact-error { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-md); background: var(--color-danger-surface); }
 .compact-error span { color: var(--color-text-muted); }
-.secondary-button { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-2); min-height: 38px; padding: 0 var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.secondary-button { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-height-compact); padding: 0 var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
 .operations-heading { margin-bottom: var(--space-4); }
 .history-link { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--color-action); font-weight: 700; text-decoration: none; }
 .operation-list { display: grid; gap: var(--space-2); }

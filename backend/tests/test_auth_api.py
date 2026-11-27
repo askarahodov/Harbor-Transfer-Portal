@@ -9,8 +9,9 @@ from sqlalchemy import select
 from alembic import command
 from app.auth.security import hash_password
 from app.config import Settings
-from app.db.models import LoginThrottle, UserRole
+from app.db.models import AuditEvent, LoginThrottle, Operation, UserRole
 from app.db.repositories import UserRepository
+from app.domain.bundle import OperationStatus, OperationType
 from app.main import create_app
 
 JWT_SECRET = "test-jwt-secret-not-for-production-123456"
@@ -50,6 +51,54 @@ def _login(client: TestClient, username: str, password: str) -> str:
     response = client.post("/api/auth/login", json={"username": username, "password": password})
     assert response.status_code == 200
     return response.json()["access_token"]
+
+
+def test_export_cancel_audit_records_requester_and_system_completion(
+    tmp_path: Path,
+) -> None:
+    client = _client_with_users(tmp_path)
+    with client.app.state.session_factory() as session:
+        actor = UserRepository(session).get_by_username("admin")
+        assert actor is not None
+        operation = Operation(
+            delivery_id="DELIVERY-20261119-CANCEL01",
+            type=OperationType.EXPORT,
+            status=OperationStatus.CREATED,
+            actor_user_id=actor.id,
+            actor_username=actor.username,
+        )
+        session.add(operation)
+        session.commit()
+        operation_id = operation.id
+
+    token = _login(client, "admin", "admin-password-123")
+    response = client.post(
+        f"/api/operations/{operation_id}/cancel",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "CANCELLED"
+
+    with client.app.state.session_factory() as session:
+        events = list(
+            session.scalars(
+                select(AuditEvent)
+                .where(
+                    AuditEvent.event_type.in_(
+                        ["export.cancel.requested", "export.cancelled"]
+                    )
+                )
+                .order_by(AuditEvent.id)
+            )
+        )
+
+    assert {
+        (event.event_type, event.actor_username) for event in events
+    } == {
+        ("export.cancel.requested", "admin"),
+        ("export.cancelled", "system"),
+    }
+    client.close()
 
 
 def test_invalid_login_is_generic(tmp_path: Path) -> None:
