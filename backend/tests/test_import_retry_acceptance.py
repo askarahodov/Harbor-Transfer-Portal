@@ -594,3 +594,37 @@ def test_failed_artifact_that_appeared_with_same_content_is_safely_skipped(tmp_p
         assert all(row.status is ArtifactStatus.SKIPPED for row in retry.artifacts)
     assert skopeo.mutations == 0
     assert helm.mutations == 0
+
+
+def test_receipt_collision_does_not_publish_success_after_registry_write(tmp_path: Path) -> None:
+    settings, sessions, _skopeo, helm, _package, orchestrator, _, _, prepared = _prepare_retry(
+        tmp_path, helm_state=HelmTargetState.ABSENT
+    )
+    operation_id = prepared.operation_id
+    receipt_path = settings.import_receipt_root / f"import-{operation_id}.json"
+    receipt_path.parent.mkdir(parents=True)
+    receipt_path.write_text("existing receipt", encoding="utf-8")
+
+    async def execute() -> None:
+        await orchestrator.start_import(
+            operation_id,
+            actor_username="operator",
+            overwrite_conflicts=False,
+            destination_plan_id=prepared.destination_plan.plan_id,
+        )
+        await orchestrator.operation_manager.wait(operation_id)
+
+    asyncio.run(execute())
+
+    assert helm.mutations == 1
+    assert receipt_path.read_text(encoding="utf-8") == "existing receipt"
+    with sessions() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        assert operation.status is OperationStatus.FAILED
+        assert operation.error_code == "import_receipt_exists"
+        assert operation.import_receipt_json is None
+
+    with pytest.raises(ImportOrchestrationError) as captured:
+        orchestrator.receipt(operation_id)
+    assert captured.value.code == "import_receipt_not_ready"

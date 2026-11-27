@@ -16,7 +16,7 @@ dist/harbor-transfer-portal-v1.0.0-offline-install.tar.gz
 dist/harbor-transfer-portal-v1.0.0-offline-install.tar.gz.sha256
 ```
 
-Для успешного CI `push` в `main`, на котором запускается integration/clean-host qualification, тот же архив, который прошёл SOURCE и TARGET install plus backup/restore checks, сохраняется как GitHub Actions artifact `harbor-transfer-portal-offline-install-<commit-sha>`. Artifact содержит только versioned release archive и его внешний `.sha256`; перед переносом используйте оба файла из одного artifact.
+Для CI (`pull_request` и `push` в `main`) job `Integration — интеграционные тесты` выполняет clean-host qualification в SOURCE и TARGET и сохраняет прошедший проверку archive вместе с его внешним `.sha256` как GitHub Actions artifact `harbor-transfer-portal-offline-install-<commit-sha>`; при переносе используйте оба файла из одного artifact. Отдельно workflow `.github/workflows/publish-images.yml` публикует backend/frontend образы в GHCR с тегом `sha-<git-sha>`. Для production release archive может быть собран и в контролируемой build/release среде; в закрытый контур его переносят archive и `.sha256` из одного выпуска.
 
 Packaging fail-closed проверяет canonical product version и OCI `org.opencontainers.image.version`/`revision` labels, поэтому stale или несовместимые images нельзя молча включить в текущий release archive. Внешний tar.gz собирается детерминированно: фиксируются порядок файлов, owner/group, timestamps и gzip header; `make test-offline-kit` проверяет побайтовую повторяемость для одинакового staged payload.
 
@@ -167,14 +167,18 @@ Release payload включает version metadata, checksums, changelog/release 
 
 ## Автоматическая release qualification
 
-Offline release contract не основан только на документации. CI содержит отдельные fail-able gates:
+Offline release contract не основан только на документации. CI ветки `main` и внешние release gates покрывают разные его части.
 
-- deterministic offline-kit/lifecycle smoke проверяет checksums, no-pull/no-build semantics, idempotent install, backup/restore/upgrade/uninstall и fail-closed version identity;
-- **Offline release — clean-host install qualification** собирает immutable kit, удаляет release images из runner и устанавливает один и тот же archive с predictable bootstrap role; проверяет health, Alembic, Skopeo/Helm, version identity и сохранение persistent state после rerun/restart;
-- runtime lifecycle tests отдельно проверяют migration/backfill, authoritative persisted mode после restart, SQLite backup/restore mode+revision, concurrent switch serialization и SOURCE → TARGET → SOURCE без process restart;
-- **Acceptance — isolated SOURCE → TARGET transfer** проверяет реальный image + Helm chart через SOURCE export, signed physical bundle boundary и отдельный TARGET registry, включая receipt/history/report, replay `SKIPPED`, conflict default-deny и tamper rejection до mutation.
+CI ветки `main` (в backend job) выполняет runtime lifecycle tests, которые проверяют migration/backfill, authoritative persisted mode после restart, SQLite backup/restore mode+revision, concurrent switch serialization и SOURCE → TARGET → SOURCE без process restart.
 
-Эти gates входят в общий CI `quality-gate` для соответствующего release/transfer scope. Они уже реализованы и являются частью v1 release qualification, а не будущей работой.
+CI также выполняет следующие fail-able проверки:
+
+- `Compose — проверка docker-compose` запускает `make test-offline-kit` (checksums, no-pull/no-build semantics, idempotent install, backup/restore/upgrade/uninstall и fail-closed version identity);
+- **Offline release — clean-host install qualification** (`deploy/qualify-clean-offline-install.sh`) в job `Integration — интеграционные тесты` собирает immutable kit, удаляет release images из runner и устанавливает один и тот же archive с predictable bootstrap role; проверяет health, Alembic, Skopeo/Helm, version identity и сохранение persistent state после rerun/restart;
+- **Acceptance — isolated SOURCE → TARGET transfer** (`deploy/qualify-isolated-transfer.sh`) в том же job проверяет реальный image + Helm chart через SOURCE export, signed physical bundle boundary и отдельный TARGET registry, включая receipt/history/report, replay `SKIPPED`, conflict default-deny и tamper rejection до mutation;
+- `Windows Offline — install and lifecycle contracts` на `windows-2022` проверяет PowerShell install и lifecycle contracts.
+
+Эти проверки входят в общий CI `quality-gate` для соответствующего release/transfer scope. Те же clean-host и isolated acceptance-скрипты доступны standalone для внешнего release-прогона; зелёный `quality-gate` остаётся merge gate, а финальная региональная приёмка требует отдельного стенда.
 
 
 ## Windows 10/11 offline lifecycle

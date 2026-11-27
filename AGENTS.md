@@ -4,7 +4,7 @@
 
 ## Цель и границы
 
-Harbor Transfer Portal обеспечивает **офлайн** перенос container images / Helm charts через физически изолированные SOURCE и TARGET. Нельзя добавлять прямой SOURCE↔TARGET network flow, переносить private signing keys / противоположные credentials, обходить TLS/ACL или незаметно перезаписывать конфликтующие артефакты. Release-qualified Harbor v1.0.0 в `main` — baseline; Nexus расширение на момент ввода этого файла изолировано в draft PR #451, **NO-GO** для регионального production.
+Harbor Transfer Portal обеспечивает **офлайн** перенос container images / Helm charts через физически изолированные SOURCE и TARGET. Нельзя добавлять прямой SOURCE↔TARGET network flow, переносить private signing keys / противоположные credentials, обходить TLS/ACL или незаметно перезаписывать конфликтующие артефакты. Release-qualified Harbor v1.0.0 в `main` — baseline; полный Nexus workflow находится в draft PR #503, **NO-GO** для регионального production.
 
 ## Перед началом задачи (обязательно)
 
@@ -13,6 +13,10 @@ Harbor Transfer Portal обеспечивает **офлайн** перенос 
 3. Назначьте единственный owner изменения, определите affected files, dependencies, blast radius, acceptance criteria, необходимые проверки и documentation impact. Работайте над **законченной вертикальной задачей**, не создавая искусственных промежуточных PR на каждую строку.
 4. Используйте ветку от нужной **актуальной base**. `main` и ветка draft Nexus интеграции имеют разные release boundaries: не переносите неподтверждённые Nexus изменения в `main` ради удобства.
 5. При существующей реализации сначала расширяйте её; не добавляйте фреймворк, сервис, abstraction или dependency без необходимости.
+
+## Секреты локального tooling
+
+Токены и credentials для локальных агентских инструментов (GitHub MCP PAT, registry/API ключи) **не хранятся в отслеживаемых файлах и не попадают в проектные конфиги в открытом виде**. Для GitHub MCP используется 0600 env-file вне репозитория (`~/.config/kilo/secrets/github-mcp.env`), на который `.kilo/kilo.jsonc` ссылается только путём; за provisioning отвечает `tools/setup-github-mcp-secret.sh`. PAT должен быть read-only (`GITHUB_READ_ONLY=1`). Если токен всё же оказался в файле — отзовите его в GitHub, не полагайтесь только на удаление файла.
 
 ## Итерация реализации до полной готовности
 

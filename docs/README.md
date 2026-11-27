@@ -13,6 +13,7 @@
 | Диагностика ошибок | [Troubleshooting](troubleshooting.md) |
 | Оценка безопасности | [Security](security.md) |
 | Архитектура и сопровождение | [Architecture](architecture.md), [Testing](testing.md) |
+| Внешняя приёмка: evidence и подписи | [Шаблоны evidence](acceptance-evidence-templates.md) |
 | Текущий backlog и release decision | [ROADMAP](../ROADMAP.md), [GitHub Issues](https://github.com/askarahodov/Harbor-Transfer-Portal/issues) |
 
 Быстрый обзор продукта — [паспорт](project-passport.md). Главная страница репозитория — [README](../README.md). Правила участия — [CONTRIBUTING](../CONTRIBUTING.md).
@@ -20,7 +21,7 @@
 ## Статус возможностей — не путать ветки
 
 - **Поддерживается в `main`:** Harbor SOURCE/TARGET, signed Offline Bundle v1, browser/physical handoff, verify-before-import, роли, сессия по **действиям** пользователя, история и аудит.
-- **Реализовано в отдельной тестовой ветке, но не выпущено:** Nexus Docker v2 + classic Helm HTTP ([Draft #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451)); CI/disposable E2E успешны, **региональный NO-GO** до [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
+- **Реализовано в отдельной тестовой ветке, но не выпущено:** Nexus Docker v2 + classic Helm HTTP ([Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)); доступные в `main` Nexus-профили поддерживают Docker v2 probe. **Региональный NO-GO** действует до [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
 - **В `main`:** безопасный первый запуск исходного checkout ([#481](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/481), [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482)): Linux `./run.sh`, Windows CMD `run.cmd`, автоматическая подготовка `.env` и сохранение `JWT_SECRET`; на пустой базе временный `admin/admin` с обязательной сменой пароля от 12 символов. Это не замена offline release kit, а для переноса нужен реальный Harbor profile.
 - **Историческая неопределённость:** исправление ошибки экспорта внедрено, но первопричина инцидента 03.11.2026 не доказана ([#422](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422)).
 
@@ -48,13 +49,13 @@
 - [Key management](key-management.md), [Transfer policies](transfer-policies.md), [Storage retention](storage-retention.md)
 - [Offline lifecycle](offline-lifecycle.md), [Structured logging](structured-logging.md), [Troubleshooting](troubleshooting.md)
 - [Deployment](../deploy/README.md), [Offline install kit](../deploy/offline/README.md)
-- [Testing/CI](testing.md), [Docsify shell](docsify.md), [Release notes 1.0.0](release-notes-v1.0.0.md), [CHANGELOG](../CHANGELOG.md)
+- [Testing/CI](testing.md), [Шаблоны evidence внешней приёмки](acceptance-evidence-templates.md), [Docsify shell](docsify.md), [Release notes 1.0.0](release-notes-v1.0.0.md), [CHANGELOG](../CHANGELOG.md)
 
 ## Nexus — отдельно от baseline
 
 - [Сравнение с Harbor](registry-comparison.md) — матрица с честным разделением `main`/Draft.
 - [Nexus setup](nexus-setup.md) — подготовка **тестового кандидата**, не production-инструкция.
-- [Региональная приёмка](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/integration/nexus-oss-release-candidate-451/docs/nexus-regional-acceptance-runbook.md) — runbook из Draft #451.
+- [Региональная приёмка](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/fix/nexus-direct-image-lookup-20261117/docs/nexus-regional-acceptance-runbook.md) — runbook из Draft #503.
 
 ## Исторический материал (не source of truth)
 
@@ -66,6 +67,6 @@
 make docs-check
 ```
 
-Gate содержит два независимых слоя: **Markdown link checker** проверяет локальные ссылки и разрешённые Docsify **site-root Markdown targets**; **documentation contract tests** фиксируют runtime/UX/security и запрещают возврат устаревших описаний. Markdown links не должны выходить за пределы репозитория, code fences имеют явный language tag. Дополнительно **Compose smoke** проверяет реальную раздачу Markdown/assets через `/docs/` и отсутствие Vue SPA fallback для несуществующих путей. CI запускает documentation gate по `tools/ci_scope.py`.
+Gate содержит два независимых слоя: **Markdown link checker** проверяет локальные ссылки и разрешённые Docsify **site-root Markdown targets**; **documentation contract tests** фиксируют runtime/UX/security и запрещают возврат устаревших описаний. Markdown links не должны выходить за пределы репозитория, code fences имеют явный language tag. Дополнительно **Compose smoke** (`make smoke-compose`) проверяет реальную раздачу Markdown/assets через `/docs/` и отсутствие Vue SPA fallback для несуществующих путей; это отдельная локальная проверка, `make docs-check` и CI docs job её не запускают. CI запускает documentation gate по `tools/ci_scope.py`.
 
 При каждом изменении code/API/config обновите соответствующий guide в том же PR. Проверяйте отличия SOURCE/TARGET, значения `main`/Draft, безопасные error codes, существование команд и отсутствие secret/internal DNS. Результат независимого code review и зелёного CI не подменяет реальную региональную приёмку.

@@ -1,16 +1,16 @@
 # Nexus Repository — подготовка к приёмке (Draft)
 
-> **Не инструкция для production на `main`.** Nexus реализуется в [Draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451) и остаётся **NO-GO** до [региональной приёмки #436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436). В `main` Nexus profiles и classic Helm HTTP не являются выпускаемой функцией. Не переносите credentials или конфигурацию из корпоративных контуров в Issues/документацию.
+> **Не инструкция для production на `main`.** Nexus реализуется в [Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503) и остаётся **NO-GO** до [региональной приёмки #436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436). В `main` доступны Nexus-профили и Docker v2 probe. Classic Helm HTTP входит в тестовый кандидат. Не переносите credentials или конфигурацию из корпоративных контуров в Issues/документацию.
 
 ## 1. Не путайте Docker v2, Helm HTTP и OCI
 
 | Repository/endpoint Nexus | Назначение | Транспорт кандидата Portal |
 | --- | --- | --- |
 | Docker hosted с connector `/v2/` | Container images | Skopeo / Registry v2 |
-| Helm hosted с `index.yaml`, `.tgz`, Components API | Классические Helm charts | Отдельный **legacy Helm HTTP** adapter в Draft #451 |
+| Helm hosted с `index.yaml`, `.tgz`, Components API | Классические Helm charts | Отдельный **legacy Helm HTTP** adapter в Draft #503 |
 | OCI repository | Другой механизм хранения | Не подменяет собой classic Helm hosted на проверяемых Nexus 3.69/3.70 |
 
-Для legacy Helm hosted **не** выполняйте `helm push oci://...`: этот endpoint не является OCI registry. В отличие от старого описания, classic Helm HTTP adapter уже включён в Draft #451 и прошёл disposable E2E. Это всё ещё **не** производственная приёмка.
+Для legacy Helm hosted **не** выполняйте `helm push oci://...`: этот endpoint не является OCI registry. Classic Helm HTTP adapter входит в Draft #503. В разделе 5 указаны результаты disposable E2E предыдущей интеграционной сборки.
 
 ## 2. Тестовый Docker hosted
 
@@ -36,9 +36,9 @@
 
 - [Combined CI/Quality Gate #42806604173](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42806604173) — SUCCESS.
 - [Nexus legacy Docker v2 + classic Helm HTTP 3.69/3.70 и disposable Harbor Core E2E #42806604136](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42806604136) — SUCCESS.
-- Обе проверки относятся к интегрированному SHA `7b32643bb04226b986d98c6ae015311528df01b6`.
+- Обе проверки относятся к предыдущей интеграционной сборке, SHA `7b32643bb04226b986d98c6ae015311528df01b6`.
 
-**Не доказано**: реальные региональные версии и редакции, внутренние TLS/CA/DNS/proxy, per-repo ACL, физическая изоляция, media handoff, контроль внешних writer и sign-off. Для них используйте [региональный runbook в Draft #451](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/integration/nexus-oss-release-candidate-451/docs/nexus-regional-acceptance-runbook.md) и [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
+**Не доказано**: реальные региональные версии и редакции, внутренние TLS/CA/DNS/proxy, per-repo ACL, физическая изоляция, media handoff, контроль внешних writer и sign-off. Для них используйте [региональный runbook в Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/fix/nexus-direct-image-lookup-20261117/docs/nexus-regional-acceptance-runbook.md) и [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
 
 ## 6. Диагностика
 

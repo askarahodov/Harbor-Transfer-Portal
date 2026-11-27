@@ -164,7 +164,7 @@ PORTAL_CONFIRM_PURGE=DELETE_PORTAL_DATA ./uninstall.sh --purge-data
 
 Lifecycle scripts не скачивают helper images, packages или binaries. Backup и restore используют current/matching local backend image с отключённой сетью, upgrade использует только bundled images, а Compose startup выполняется с `--no-build --pull never`.
 
-Clean-host installation qualification и полный isolated SOURCE → physical bundle → TARGET acceptance **реализованы** как fail-able CI gates baseline v1.0.0. Они проверяют offline install/restart persistence и end-to-end transfer соответственно; актуальная test-selection policy описана в [testing.md](testing.md).
+Clean-host installation qualification (`deploy/qualify-clean-offline-install.sh`) и полный isolated SOURCE → physical bundle → TARGET acceptance (`deploy/qualify-isolated-transfer.sh`) выполняются в CI job `Integration — интеграционные тесты` и остаются доступными как standalone release-скрипты для внешнего прогона. Они проверяют offline install/restart persistence и end-to-end transfer соответственно; актуальная test-selection policy описана в [testing.md](testing.md).
 
 
 ## Windows offline lifecycle
