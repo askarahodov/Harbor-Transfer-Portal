@@ -42,6 +42,14 @@ TLS-политика берётся из effective Harbor settings (#12):
 - `false` передаётся только если admin явно отключил verification;
 - автоматического fallback на `--tls-verify=false` нет.
 
+## Компактный inspect
+
+Все три места вызова `skopeo inspect` (`inspect_target`, SOURCE inspect перед export, inspect локального OCI payload) используют `--no-tags` и фиксированный `--format`-шаблон, который возвращает только `Digest`, `Architecture` и `Os`. Полный JSON inspect по умолчанию включает `RepoTags`, поэтому на репозиториях с тысячами тегов вывод превышал `SKOPEO_OUTPUT_LIMIT_BYTES` и обрезался до невалидного JSON.
+
+Шаблон использует Go template built-in `printf "%q"` для безопасного квотирования/экранирования полей и совместим со Skopeo 1.9.3 (более новый `json()` недоступен в этой версии). Шаблон является константой: registry/user data в CLI-аргументы Python не интерполирует.
+
+Если вывод всё же обрезан, runner добавляет синтетический маркер `[output truncated]`. `_parse_inspection` распознаёт его **до** `json.loads` и возвращает типизированную ошибку `skopeo_output_truncated` вместо общего `skopeo_invalid_output`; частичный JSON никогда не принимается, а содержимое тегов в сообщение не попадает.
+
 ## Export
 
 `export_image()` выполняет последовательность:
