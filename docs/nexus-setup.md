@@ -38,6 +38,8 @@
 - [Nexus legacy Docker v2 + classic Helm HTTP 3.69/3.70 и disposable Harbor Core E2E #42806604136](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/42806604136) — SUCCESS.
 - Обе проверки относятся к предыдущей интеграционной сборке, SHA `7b32643bb04226b986d98c6ae015311528df01b6`.
 
+Реальный Docker v2 transport против pre-OCI Nexus 3 (<3.94) проверяется шагами `Nexus … — Docker v2 transport` внутри CI job `Integration — интеграционные тесты`: они запускаются при изменении Nexus E2E-путей (`nexus_e2e` area в `tools/ci_scope.py`) или при `workflow_dispatch` с input `nexus_version` (default `3.69.0`). Отдельного Nexus E2E workflow больше нет.
+
 **Не доказано**: реальные региональные версии и редакции, внутренние TLS/CA/DNS/proxy, per-repo ACL, физическая изоляция, media handoff, контроль внешних writer и sign-off. Для них используйте [региональный runbook в Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/fix/nexus-direct-image-lookup-20261117/docs/nexus-regional-acceptance-runbook.md) и [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
 
 ## 6. Диагностика

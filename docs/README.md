@@ -54,7 +54,7 @@
 ## Nexus — отдельно от baseline
 
 - [Сравнение с Harbor](registry-comparison.md) — матрица с честным разделением `main`/Draft.
-- [Nexus setup](nexus-setup.md) — подготовка **тестового кандидата**, не production-инструкция.
+- [Nexus setup](nexus-setup.md) — подготовка **тестового кандидата**, не production-инструкция; Docker v2 E2E против pre-OCI Nexus 3 выполняется scoped-шагами в CI job `Integration — интеграционные тесты` (см. [testing](testing.md)).
 - [Региональная приёмка](https://github.com/askarahodov/Harbor-Transfer-Portal/blob/fix/nexus-direct-image-lookup-20261117/docs/nexus-regional-acceptance-runbook.md) — runbook из Draft #503.
 
 ## Исторический материал (не source of truth)

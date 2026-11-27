@@ -242,11 +242,9 @@ def _acceptance_gates_in_workflow(workflow: str) -> list[str]:
 #
 # Reusable, reviewed workflows that legitimately re-run only when their own
 # definition changes may be listed here with the reason.
-_SELF_TRIGGER_ALLOWLIST: dict[str, str] = {
-    # Long-running Nexus E2E suite: only its own file (or its dependencies)
-    # arms it; it never deletes refs and is re-reviewed, not one-shot.
-    "nexus-legacy-e2e.yml": "scoped E2E suite, re-reviewed on each change",
-}
+# Empty on purpose: no workflow may trigger on its own file. The Nexus legacy
+# Docker v2 E2E runs as a gated step inside the scoped `Integration` job.
+_SELF_TRIGGER_ALLOWLIST: dict[str, str] = {}
 _WORKFLOWS_DIR = ".github/workflows"
 
 

@@ -20,6 +20,7 @@ _AREA_NAMES = (
     "integration",
     "compose",
     "docs",
+    "nexus_e2e",
 )
 
 _BACKEND_RUNTIME_DEPENDENCY_FILES = {
@@ -82,6 +83,17 @@ _INTEGRATION_API_FILES = {
     "exports.py",
     "imports.py",
 }
+_NEXUS_E2E_PATHS = {
+    # Docker v2 transport against a real pre-OCI Nexus 3 is only armed for the
+    # paths that can change that behavior; everything else stays on the regular
+    # scoped jobs.
+    "tools/nexus_e2e_setup.py",
+    "backend/tests/test_nexus_legacy_e2e.py",
+    "backend/app/services/nexus_service.py",
+    "backend/app/services/registry_client.py",
+    "backend/requirements-dev.lock",
+    "docs/nexus-setup.md",
+}
 _INTEGRATION_DEPLOY_FILES = {
     "compose.yaml",
     "deploy/build-offline-kit.sh",
@@ -102,6 +114,7 @@ class Scope:
     integration: bool = False
     compose: bool = False
     docs: bool = False
+    nexus_e2e: bool = False
 
     def as_dict(self) -> dict[str, bool]:
         return {
@@ -112,6 +125,7 @@ class Scope:
             "integration": self.integration,
             "compose": self.compose,
             "docs": self.docs,
+            "nexus_e2e": self.nexus_e2e,
         }
 
 
@@ -237,6 +251,9 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
     if _is_local_registry_integration_path(path, path_text):
         areas.add("integration")
 
+    if path_text in _NEXUS_E2E_PATHS:
+        areas.add("nexus_e2e")
+
     if (
         path_text
         in {
@@ -295,6 +312,16 @@ def _integration_markers_exist(root: Path) -> bool:
     )
 
 
+def _nexus_e2e_markers_exist(root: Path) -> bool:
+    return all(
+        path.is_file()
+        for path in (
+            root / "tools/nexus_e2e_setup.py",
+            root / "backend/tests/test_nexus_legacy_e2e.py",
+        )
+    )
+
+
 def classify_paths(paths: Iterable[str], *, root: Path = Path(".")) -> Scope:
     areas: set[str] = set()
     workflow_changed = False
@@ -315,6 +342,8 @@ def classify_paths(paths: Iterable[str], *, root: Path = Path(".")) -> Scope:
             areas.add("integration")
         if (root / "compose.yaml").is_file():
             areas.add("compose")
+        if _nexus_e2e_markers_exist(root):
+            areas.add("nexus_e2e")
 
     # Do not create a green/skipped fiction for components absent in the checked revision.
     if not (root / "backend/pyproject.toml").is_file():
@@ -334,6 +363,8 @@ def classify_paths(paths: Iterable[str], *, root: Path = Path(".")) -> Scope:
         areas.discard("compose")
     if not (root / "tools/check_doc_links.py").is_file():
         areas.discard("docs")
+    if not _nexus_e2e_markers_exist(root):
+        areas.discard("nexus_e2e")
 
     return Scope(**{name: name in areas for name in _AREA_NAMES})
 
@@ -357,6 +388,7 @@ def write_summary(scope: Scope, summary_path: Path) -> None:
         "integration": "Skopeo/Helm + isolated transfer integration",
         "compose": "Compose",
         "docs": "Documentation",
+        "nexus_e2e": "Nexus legacy Docker v2 E2E (step in Integration job)",
     }
     with summary_path.open("a", encoding="utf-8") as handle:
         handle.write("### Область CI\n\n")
