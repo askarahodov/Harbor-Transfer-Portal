@@ -224,7 +224,7 @@ jobs:
   integration:
     name: Integration — интеграционные тесты
     needs: [scope, backend, frontend, protocol, security, compose, windows-launcher, windows-offline-lifecycle, docs]
-    if: ${{ always() && needs.scope.outputs.integration == 'true' && (needs.backend.result == 'success' || needs.backend.result == 'skipped') && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') && (needs.protocol.result == 'success' || needs.protocol.result == 'skipped') && (needs.security.result == 'success' || needs.security.result == 'skipped') && (needs.compose.result == 'success' || needs.compose.result == 'skipped') && (needs.windows-launcher.result == 'success' || needs.windows-launcher.result == 'skipped') && (needs.windows-offline-lifecycle.result == 'success' || needs.windows-offline-lifecycle.result == 'skipped') && (needs.docs.result == 'success' || needs.docs.result == 'skipped') }}
+    if: ${{ always() && (needs.scope.outputs.integration == 'true' || needs.scope.outputs.nexus_e2e == 'true') && (needs.backend.result == 'success' || needs.backend.result == 'skipped') && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') && (needs.protocol.result == 'success' || needs.protocol.result == 'skipped') && (needs.security.result == 'success' || needs.security.result == 'skipped') && (needs.compose.result == 'success' || needs.compose.result == 'skipped') && (needs.windows-launcher.result == 'success' || needs.windows-launcher.result == 'skipped') && (needs.windows-offline-lifecycle.result == 'success' || needs.windows-offline-lifecycle.result == 'skipped') && (needs.docs.result == 'success' || needs.docs.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -245,14 +245,17 @@ jobs:
           python -m pip install -r backend/requirements-dev.lock
 
       - name: Интеграционные тесты
+        if: ${{ needs.scope.outputs.integration == 'true' }}
         run: make test-registry-integration
 
       - name: Clean-host offline kit qualification (SOURCE and TARGET)
+        if: ${{ needs.scope.outputs.integration == 'true' }}
         env:
           PORTAL_RELEASE_OUTPUT_DIR: ${{ runner.temp }}/qualified-offline-release
         run: sh deploy/qualify-clean-offline-install.sh
 
       - name: Isolated SOURCE to physical bundle to TARGET acceptance
+        if: ${{ needs.scope.outputs.integration == 'true' }}
         run: sh deploy/qualify-isolated-transfer.sh
 
       # Nexus legacy Docker v2 E2E is a gated step set inside this job (see
@@ -404,7 +407,7 @@ jobs:
           rm -rf /tmp/htp-nexus-e2e-tls
 
       - name: Publish qualified offline release artifact
-        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+        if: ${{ needs.scope.outputs.integration == 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: harbor-transfer-portal-offline-install-${{ github.sha }}
