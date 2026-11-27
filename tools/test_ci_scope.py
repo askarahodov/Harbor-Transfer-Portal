@@ -63,6 +63,12 @@ class CiScopeTest(TestCase):
             Scope(docs=True),
         )
 
+    def test_changelog_runs_documentation_gate(self):
+        # The changelog is user-facing release documentation and must go through
+        # the docs gate, like README/ROADMAP.
+        root = self._root()
+        self.assertEqual(classify_paths(["CHANGELOG.md"], root=root), Scope(docs=True))
+
     def test_ai_agent_root_docs_run_documentation_gate(self):
         root = self._root()
         for path in ("AGENTS.md", "ROADMAP.md"):

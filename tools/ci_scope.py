@@ -306,6 +306,7 @@ def _classify_path(path_text: str) -> tuple[set[str], bool]:
             "CONTRIBUTING.md",
             "AGENTS.md",
             "ROADMAP.md",
+            "CHANGELOG.md",
             "tools/check_doc_links.py",
             "tools/test_check_doc_links.py",
             "tools/test_documentation_contracts.py",
