@@ -529,3 +529,73 @@ class CiScopeTest(TestCase):
         self.assertTrue(
             classify_paths([".github/workflows/ci.yml"], root=root).nexus_e2e
         )
+
+
+class CiWorkflowGatingTest(TestCase):
+    """The scope outputs must actually arm the jobs that consume them.
+
+    `nexus_e2e` is a distinct area from `integration`: a Nexus-only change sets
+    `nexus_e2e=true, integration=false`. The Nexus E2E steps live inside the
+    `integration` job, so the job condition must accept either area, while the
+    heavy offline/isolated acceptance steps must stay bound to `integration`.
+    """
+
+    def setUp(self) -> None:
+        repository_root = Path(__file__).resolve().parent.parent
+        self.workflow = (repository_root / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+
+    def _job_block(self, job: str) -> str:
+        lines = self.workflow.splitlines()
+        start = None
+        for index, line in enumerate(lines):
+            if line.startswith(f"  {job}:"):
+                start = index
+                break
+        self.assertIsNotNone(start, f"job {job} not found")
+        block = []
+        for line in lines[start:]:
+            if block and len(line) - len(line.lstrip()) == 2 and line.strip().endswith(":"):
+                break
+            block.append(line)
+        return "\n".join(block)
+
+    def _step_block(self, job_block: str, step_name: str) -> str:
+        marker = f"      - name: {step_name}\n"
+        self.assertIn(marker, job_block)
+        head = job_block.split(marker, 1)[1]
+        step_lines = []
+        for line in head.splitlines():
+            if line.startswith("      - name: "):
+                break
+            step_lines.append(line)
+        return "\n".join(step_lines)
+
+    def test_integration_job_accepts_nexus_e2e_scope(self) -> None:
+        block = self._job_block("integration")
+        job_if = next(
+            line for line in block.splitlines() if line.lstrip().startswith("if:")
+        )
+        self.assertIn("needs.scope.outputs.integration", job_if)
+        self.assertIn("needs.scope.outputs.nexus_e2e", job_if)
+
+    def test_heavy_acceptance_steps_stay_bound_to_integration_scope(self) -> None:
+        block = self._job_block("integration")
+        for step_name in (
+            "Интеграционные тесты",
+            "Clean-host offline kit qualification (SOURCE and TARGET)",
+            "Isolated SOURCE to physical bundle to TARGET acceptance",
+            "Publish qualified offline release artifact",
+        ):
+            with self.subTest(step=step_name):
+                step = self._step_block(block, step_name)
+                self.assertIn("needs.scope.outputs.integration == 'true'", step)
+
+    def test_nexus_only_change_arms_nexus_e2e_without_integration(self) -> None:
+        scope_factory = CiScopeTest()
+        root = scope_factory._root()
+        self.assertTrue(root.is_dir())
+        scope = classify_paths(["backend/app/services/nexus_service.py"], root=root)
+        self.assertTrue(scope.nexus_e2e)
+        self.assertFalse(scope.integration)
