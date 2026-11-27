@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app import __version__
@@ -27,7 +29,10 @@ def test_health_response_is_stable_and_contains_no_secrets() -> None:
         "version": __version__,
         "contour": "SOURCE",
     }
-    assert __version__ == "1.0.0"
+    # The health payload must expose the packaged release identity; a version
+    # bump therefore updates this expectation through __init__.py.
+    packaged_version = (Path(__file__).resolve().parents[1] / "app" / "__init__.py")
+    assert f'__version__ = "{__version__}"' in packaged_version.read_text(encoding="utf-8")
     assert secret not in response.text
     assert "robot$portal" not in response.text
     assert "harbor.local" not in response.text
