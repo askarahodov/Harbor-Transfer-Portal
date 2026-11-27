@@ -167,7 +167,7 @@ Release payload включает version metadata, checksums, changelog/release 
 
 ## Автоматическая release qualification
 
-Offline release contract не основан только на документации. CI ветки `main` и внешние release gates покрывают разные его части.
+Offline release contract не основан только на документации. CI и внешняя приёмка покрывают разные его части.
 
 CI ветки `main` (в backend job) выполняет runtime lifecycle tests, которые проверяют migration/backfill, authoritative persisted mode после restart, SQLite backup/restore mode+revision, concurrent switch serialization и SOURCE → TARGET → SOURCE без process restart.
 

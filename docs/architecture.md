@@ -55,7 +55,7 @@ Harbor Transfer Portal предназначен для офлайн-переда
 └───────────────────────────────────────────────────────────┘
 ```
 
-Baseline v1 включает оба browser transfer wizard, history/audit/reports, signed Bundle v1, persistent runtime SOURCE/TARGET mode и offline installation lifecycle. Скрипты clean-host qualification и isolated SOURCE → physical bundle → TARGET acceptance реализованы, но остаются внешними release gates и не входят в CI ветки `main` (см. раздел 12).
+Baseline v1 включает оба browser transfer wizard, history/audit/reports, signed Bundle v1, persistent runtime SOURCE/TARGET mode и offline installation lifecycle. Скрипты clean-host qualification и isolated SOURCE → physical bundle → TARGET acceptance выполняются в CI (`Integration — интеграционные тесты`); реальная Windows/региональная приёмка остаётся внешним gate (см. раздел 12).
 
 ## 3. Runtime deployment
 
@@ -302,10 +302,12 @@ CI использует path-aware scope и агрегирующий `quality-ga
 - Bundle Protocol regression;
 - targeted security regression;
 - real Skopeo/Helm integration через disposable local registry;
-- Compose job (`docker compose config/build/up` + `/api/health`), а не `make smoke-compose`;
+- clean-host offline qualification и isolated SOURCE → TARGET acceptance в `Integration — интеграционные тесты`;
+- Windows offline install/lifecycle contracts на `windows-2022` (`Windows Offline — install and lifecycle contracts`);
+- Compose job (`make test-offline-kit`, `docker compose config/build/up` + `/api/health`), а не `make smoke-compose`;
 - documentation local-link gate.
 
-Clean-host offline install qualification и isolated SOURCE → physical bundle → TARGET acceptance — **внешние release gates**, они не входят в CI ветки `main` (jobs находятся в неслитом draft PR #548; issue #507). Локальный `make smoke-compose` также не запускается `main` CI.
+Clean-host offline install qualification и isolated SOURCE → physical bundle → TARGET acceptance выполняются в job `Integration — интеграционные тесты`; реальная Windows Docker Desktop и региональная приёмка остаются внешними gates (issue #507). `make smoke-compose` остаётся локальной проверкой — CI выполняет его компоненты напрямую.
 
 Clean-host qualification удаляет release images перед installation phase и доказывает, что один immutable archive устанавливается как SOURCE и TARGET без pull/build, сохраняет state после rerun/restart и сообщает правильную release version.
 

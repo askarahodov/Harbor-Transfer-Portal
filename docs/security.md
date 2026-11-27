@@ -459,7 +459,7 @@ Security properties:
 - CSV защищается от formula injection для опасных leading values;
 - PDF runtime не должен обращаться к internet/CDN за fonts/assets.
 
-Offline/release qualification этих возможностей реализована как внешние release gates: clean-host SOURCE/TARGET install (`deploy/qualify-clean-offline-install.sh`) и isolated SOURCE → TARGET acceptance (`deploy/qualify-isolated-transfer.sh`). В CI ветки `main` эти проверки не входят — соответствующие jobs существуют только в неслитом draft PR #548; см. [testing.md](testing.md).
+Offline/release qualification этих возможностей выполняется в CI: clean-host SOURCE/TARGET install (`deploy/qualify-clean-offline-install.sh`) и isolated SOURCE → TARGET acceptance (`deploy/qualify-isolated-transfer.sh`) запускаются в job `Integration — интеграционные тесты`; реальная Windows Docker Desktop и региональная приёмка остаются внешними gates. См. [testing.md](testing.md).
 
 ## 21. Реализовано и ещё требуется
 
@@ -480,7 +480,7 @@ Offline/release qualification этих возможностей реализов
 | CSV/PDF reports + TARGET receipt UX | реализовано |
 | Admin user/policy/key management | реализовано |
 | Automatic product retention/cleanup | не реализовано; требуется отдельный tested lifecycle при необходимости |
-| Offline install/release qualification | реализовано как внешние release gates: clean-host SOURCE/TARGET install + isolated transfer acceptance (скрипты, не CI `main`) |
+| Offline install/release qualification | реализовано: clean-host SOURCE/TARGET install + isolated transfer acceptance в CI `Integration — интеграционные тесты`; внешняя приёмка — отдельно |
 
 ## 22. Known v1 limitations / non-goals
 

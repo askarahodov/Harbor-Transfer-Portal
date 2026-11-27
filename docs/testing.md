@@ -108,8 +108,8 @@ make smoke-compose
 - **Protocol regression** — normative Bundle v1/schema/package behavior;
 - **Security regression** — auth/RBAC, archive/key/subprocess/import-export security boundaries;
 - **Compose smoke** — container/runtime topology;
-- **Acceptance E2E** — полный SOURCE → physical bundle → TARGET flow (внешний release gate, см. раздел 7);
-- **Release qualification** — clean-host offline installation и release identity (внешний release gate, см. раздел 7).
+- **Acceptance E2E** — полный SOURCE → physical bundle → TARGET flow: автоматизированный isolated acceptance в `Integration — интеграционные тесты` плюс внешняя региональная приёмка (см. раздел 7);
+- **Release qualification** — clean-host offline installation и release identity: clean-host qualification в `Integration — интеграционные тесты`, Windows mock-Docker contracts в `Windows Offline — install and lifecycle contracts` и внешняя Windows Docker Desktop приёмка (см. раздел 7).
 
 Не дублируйте один и тот же behavior на всех уровнях без причины.
 
@@ -124,13 +124,14 @@ make smoke-compose
 | `Frontend — lint, types, unit, build` | ESLint, TypeScript, unit/component, build |
 | `Protocol — проверка совместимости` | Bundle v1/schema/package pytest |
 | `Security — проверка уязвимостей` | Bandit (high/medium) и Trivy filesystem scan (CRITICAL/HIGH) |
-| `Integration — интеграционные тесты` | реальный Skopeo/Helm boundary через `make test-registry-integration` |
-| `Compose — проверка docker-compose` | config, build, запуск стека и `/api/health` |
+| `Integration — интеграционные тесты` | real Skopeo/Helm boundary (`make test-registry-integration`), clean-host offline qualification и isolated SOURCE → TARGET acceptance |
+| `Compose — проверка docker-compose` | `make test-offline-kit`, config, build, запуск стека и `/api/health` |
 | `Windows CMD — launcher regression (mock Docker)` | CMD launcher regression с mock Docker (Windows runner) |
+| `Windows Offline — install and lifecycle contracts` | PowerShell prebuilt-installer и lifecycle safety contracts с mock Docker (Windows runner) |
 | `Docs — проверка документации` | `make docs-check`: local Markdown links и documentation contracts |
 | `Quality Gate` | агрегирует результаты всех требуемых jobs |
 
-**Isolated SOURCE → TARGET acceptance и clean-host offline-install qualification не входят в CI ветки `main`.** Jobs с такими названиями существуют только в неслитом draft PR #548 (Windows offline lifecycle). Эти проверки остаются внешними release gates (см. раздел 7 и issue [#507](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/507)) и станут обязательными в CI только после merge соответствующего reviewed change.
+`Integration — интеграционные тесты` выполняет `deploy/qualify-clean-offline-install.sh` (clean-host SOURCE/TARGET install qualification) и `deploy/qualify-isolated-transfer.sh` (isolated SOURCE → physical bundle → TARGET acceptance) и публикует прошедший проверку offline kit как GitHub Actions artifact. `Windows Offline — install and lifecycle contracts` проверяет Windows PowerShell wrappers с mock Docker; реальная Windows 10/11 Docker Desktop приёмка остаётся внешним gate (см. раздел 7 и issue [#507](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/507)).
 
 ## 5. Как выбирается CI scope
 
@@ -170,7 +171,7 @@ Harbor profile domain/API также security-sensitive, потому что у�
 
 Включается для реальных Skopeo/Helm/transfer runtime boundaries, включая relevant backend services/API, integration harness и release/acceptance scripts. Backend runtime dependency graph также включает integration scope, потому что смена resolved runtime packages может повлиять на полный transfer path без изменения его Python-файлов.
 
-Когда `integration=true`, workflow запускает `Integration — интеграционные тесты`, который выполняет только `make test-registry-integration` (disposable local OCI registry + реальные Skopeo/Helm). Полный isolated SOURCE → TARGET acceptance этим job'ом не запускается; он остаётся внешним release gate.
+Когда `integration=true`, workflow запускает `Integration — интеграционные тесты`, который выполняет `make test-registry-integration` (disposable local OCI registry + реальные Skopeo/Helm), затем `deploy/qualify-clean-offline-install.sh` (clean-host offline qualification) и `deploy/qualify-isolated-transfer.sh` (isolated SOURCE → TARGET acceptance), после чего публикует прошедший qualification offline kit как artifact.
 
 ### Compose
 
@@ -180,15 +181,17 @@ Harbor profile domain/API также security-sensitive, потому что у�
 - `.dockerignore`, `.gitattributes`;
 - backend/frontend Dockerfiles и `frontend/docker-entrypoint.d`;
 - launchers `run.sh`, `run.cmd`, `run-online.sh`, `run-online.cmd`, `tools/test_windows_launcher.ps1`;
+- Windows offline contracts `tools/test_install_windows.ps1`, `tools/test_windows_offline_lifecycle.ps1`;
 - `frontend/nginx.conf`;
 - non-Markdown files под `deploy/`.
 
-Когда `compose=true`, workflow запускает оба job'а с этим condition:
+Когда `compose=true`, workflow запускает job'ы с этим condition:
 
-- `Compose — проверка docker-compose` — `docker compose config`, `build`, `up --wait` и проверка `/api/health`;
-- `Windows CMD — launcher regression (mock Docker)` на `windows-2022`.
+- `Compose — проверка docker-compose` — `make test-offline-kit`, затем `docker compose config`, `build`, `up --wait` и проверка `/api/health`;
+- `Windows CMD — launcher regression (mock Docker)` на `windows-2022`;
+- `Windows Offline — install and lifecycle contracts` на `windows-2022`.
 
-Ни один из этих job'ов не запускает `make smoke-compose`: `Compose — проверка docker-compose` вызывает `docker compose` напрямую, а `Windows CMD — launcher regression (mock Docker)` использует mock Docker без реального runtime. Поэтому offline kit contract (`make test-offline-kit`, входящий в `make smoke-compose`) и offline release qualification в CI этого scope не выполняются.
+`Compose — проверка docker-compose` запускает `make test-offline-kit`, но не `make smoke-compose`, потому что вызывает `docker compose` напрямую. Оба Windows jobs используют mock Docker без реального runtime, поэтому реальная Windows Docker Desktop clean-host приёмка остаётся внешним gate.
 
 **Markdown под `deploy/` специально исключён из Compose scope.** Например, изменение только `deploy/README.md` запускает documentation gate, но не Compose.
 
@@ -218,24 +221,25 @@ Harbor profile domain/API также security-sensitive, потому что у�
 | Auth/RBAC/security-sensitive backend | backend + security + quality-gate |
 | Bundle protocol/schema/package | backend + protocol + security по affected paths + quality-gate |
 | Skopeo/Helm/transfer runtime boundary | backend/security по affected path + integration + quality-gate |
-| Dockerfile/runtime deployment/non-Markdown `deploy/*` | affected code gates + compose + windows-launcher + quality-gate |
+| Dockerfile/runtime deployment/non-Markdown `deploy/*` | affected code gates + compose + windows-launcher + windows-offline-lifecycle + quality-gate |
 | Browser/runtime trust boundary (`.env.example`, Compose, Nginx) | backend regression + affected frontend/compose gates + quality-gate |
 | Workflow / CI scope policy | все существующие applicable areas + quality-gate |
 | Release-sensitive mixed change | объединение всех affected areas; release gates не пропускаются |
 
 ## 7. Release qualification v1.0.0
 
-На `main` **CI выполняет только** jobs из раздела 4: scoped backend/frontend/protocol/security/integration/compose/windows-launcher/docs и агрегирующий `Quality Gate`. Isolated SOURCE → TARGET acceptance и clean-host offline-install qualification в `main` CI отсутствуют.
+CI выполняет jobs из раздела 4: scoped backend/frontend/protocol/security/integration/compose/windows-launcher/windows-offline-lifecycle/docs и агрегирующий `Quality Gate`. `Integration — интеграционные тесты` (при `integration=true`) выполняет clean-host offline qualification и isolated SOURCE → TARGET acceptance; `Windows Offline — install and lifecycle contracts` (при `compose=true`) проверяет Windows PowerShell contracts с mock Docker.
 
 ### Что проверяется сейчас
 
-- `Compose — проверка docker-compose`: config, build, запуск development/runtime стека и `/api/health`.
-- `Integration — интеграционные тесты`: disposable local OCI registry + реальные Skopeo/Helm binaries (`make test-registry-integration`).
-- Локально доступны (но не запускаются `main` CI) `make test-offline-kit` и `make smoke-compose`; `smoke-compose` включает offline kit contract и Compose smoke.
+- `Compose — проверка docker-compose`: `make test-offline-kit`, config, build, запуск development/runtime стека и `/api/health`.
+- `Integration — интеграционные тесты`: disposable local OCI registry + реальные Skopeo/Helm binaries (`make test-registry-integration`), затем clean-host offline qualification и isolated SOURCE → TARGET acceptance; прошедший kit публикуется как artifact.
+- `Windows Offline — install and lifecycle contracts`: prebuilt installer и lifecycle safety contracts с mock Docker на `windows-2022`.
+- `make smoke-compose` остаётся локальной проверкой; CI запускает его компоненты напрямую (`make test-offline-kit` и `docker compose`).
 
 ### Внешние release gates
 
-Следующие проверки реализованы как скрипты и выполняются вручную/на отдельном стенде; их CI jobs находятся в неслитом draft PR #548 (Windows offline lifecycle):
+Следующие скрипты выполняются в CI (`Integration — интеграционные тесты`) и остаются доступными standalone для внешнего release-прогона:
 
 - **Isolated SOURCE → TARGET acceptance** — `deploy/qualify-isolated-transfer.sh`. Scenario покрывает как минимум:
   1. отдельный SOURCE registry fixture;
@@ -253,7 +257,7 @@ Harbor profile domain/API также security-sensitive, потому что у�
   13. tampered bundle → rejection до registry mutation.
 - **Clean-host offline installation** — `deploy/qualify-clean-offline-install.sh`. Собирает immutable kit, требует отсутствия release-tagged images перед install phase, устанавливает один и тот же archive в SOURCE/TARGET bootstrap roles, проверяет exact local image identity/architecture, health/readiness, migrations, runtime tools, persistent state после rerun/restart и release version identity.
 
-Эти проверки являются **внешними release gates** ([#507](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/507); для Nexus — [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436)). Они станут обязательными CI jobs только после merge соответствующего reviewed change (draft PR #548). До этого зелёный `Quality Gate` **не означает**, что acceptance или clean-host qualification выполнены.
+Эти скрипты являются обязательными автоматизированными CI gates ([#507](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/507); для Nexus — [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436)). Зелёный `Quality Gate` **не заменяет** внешнюю приёмку: реальная Windows 10/11 Docker Desktop clean-host проверка и региональная Nexus приёмка требуют отдельного стенда и evidence.
 
 ## 8. Protocol и security regression
 
@@ -350,15 +354,15 @@ Product release version задаётся backend `app.__version__` и испол
 
 ### Только `deploy/README.md`
 
-Это documentation-only deployment guide change: `Docs — проверка документации` запускается, Compose и Windows CMD jobs **не** запускаются.
+Это documentation-only deployment guide change: `Docs — проверка документации` запускается, Compose, Windows CMD и Windows Offline jobs **не** запускаются.
 
 ### `backend/app/services/skopeo_service.py`
 
-Включаются affected backend/security/integration areas; `Integration — интеграционные тесты` выполняет real registry integration. Isolated acceptance в `main` CI при этом не запускается.
+Включаются affected backend/security/integration areas; `Integration — интеграционные тесты` выполняет real registry integration, clean-host offline qualification и isolated acceptance.
 
 ### `backend/Dockerfile`
 
-Включаются backend + integration + compose; следовательно выполняются `Integration — интеграционные тесты`, `Compose — проверка docker-compose` и `Windows CMD — launcher regression (mock Docker)`. Clean-host offline-install qualification в `main` CI не запускается.
+Включаются backend + integration + compose; следовательно выполняются `Integration — интеграционные тесты` (включая clean-host qualification и isolated acceptance), `Compose — проверка docker-compose`, `Windows CMD — launcher regression (mock Docker)` и `Windows Offline — install and lifecycle contracts`.
 
 ### `.github/workflows/ci.yml` или `tools/ci_scope.py`
 
@@ -403,4 +407,4 @@ Product release version задаётся backend `app.__version__` и испол
 - optional Markdown anchor validation, если она будет оправдана без flaky external crawling;
 - дополнительные targeted integration cases там, где существующих fixtures недостаточно.
 
-Full SOURCE→TARGET acceptance и clean-host offline qualification **являются внешними release gates, а не частью `main` CI**: соответствующие jobs находятся в draft PR #548 и отсутствуют в `.github/workflows/ci.yml` на `main` (issue [#507](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/507)).
+Full SOURCE→TARGET acceptance и clean-host offline qualification **являются частью CI**: `Integration — интеграционные тесты` запускает `deploy/qualify-clean-offline-install.sh` и `deploy/qualify-isolated-transfer.sh`, а `Windows Offline — install and lifecycle contracts` покрывает Windows mock-Docker contracts (issue [#507](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/507)). Реальная Windows Docker Desktop и региональная Nexus приёмка остаются внешними gates.

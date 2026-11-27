@@ -441,21 +441,23 @@ Release notes: [release-notes-v1.0.0.md](release-notes-v1.0.0.md). Changelog: [C
 
 ## 20. Release qualification
 
-Release-critical behavior покрывается двумя слоями. CI ветки `main` автоматически проверяет:
+Release-critical behavior покрывается двумя слоями. CI автоматически проверяет:
 
 - backend/frontend checks;
 - protocol/security gates по scope;
 - real Skopeo/Helm local-registry integration (`Integration — интеграционные тесты`);
-- Compose job (`docker compose config/build/up` + `/api/health`), а не `make smoke-compose`;
+- clean-host offline install qualification и isolated SOURCE → TARGET acceptance (`Integration — интеграционные тесты`);
+- Windows offline install/lifecycle contracts (`Windows Offline — install and lifecycle contracts`, mock Docker);
+- Compose job (`make test-offline-kit`, `docker compose config/build/up` + `/api/health`), а не `make smoke-compose`;
 - runtime migration/restart/backup-restore SOURCE↔TARGET lifecycle (backend pytest);
 - documentation links и общий `quality-gate`.
 
-Внешние release gates (не входят в CI `main`) дополнительно покрывают:
+Внешняя приёмка (не заменяется зелёным CI) дополнительно требует:
 
-- clean-host offline install одного archive с predictable bootstrap role;
-- isolated SOURCE → physical bundle → TARGET flow с separate registries;
-- digest/Helm verification, receipt/history/report;
-- replay skip, conflict default-deny, tamper rejection.
+- реального Windows 10/11 clean-host прогона с Docker Desktop;
+- регионального isolated SOURCE → physical bundle → TARGET flow с отдельными registries;
+- подписанного evidence для digest/Helm verification, receipt/history/report;
+- подтверждения replay skip, conflict default-deny и tamper rejection.
 
 Эти проверки являются частью текущего v1 release process, а не будущей работой.
 
