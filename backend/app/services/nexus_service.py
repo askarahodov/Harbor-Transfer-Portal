@@ -846,3 +846,5 @@ class NexusService:
     def _emit(self, phase: NexusPhase, image: ImageReference) -> None:
         if self.progress is not None:
             self.progress(NexusProgressEvent(phase, image.repository, image.reference))
+
+# gating verification touch (no behaviour change)
