@@ -650,7 +650,13 @@ class NexusService:
         flags: list[str] = []
         if security.auth_file is not None:
             flags.extend(("--registry-config", str(security.auth_file)))
-        flags.append(f"--insecure-skip-tls-verify={'false' if nexus.verify_tls else 'true'}")
+        if urlsplit(nexus.url or "").scheme == "http":
+            # Plain HTTP is distinct from HTTPS with disabled certificate verification.
+            flags.append("--plain-http")
+        elif not nexus.verify_tls:
+            flags.append("--insecure-skip-tls-verify")
+        elif security.cert_dir is not None:
+            flags.extend(("--ca-file", str(security.cert_dir / "ca.crt")))
         return tuple(flags)
 
     @staticmethod
