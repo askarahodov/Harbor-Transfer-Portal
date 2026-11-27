@@ -232,6 +232,7 @@ async def test_nexus_import_denied_push_never_claims_verified_target(
     service._inspect_registry.assert_not_awaited()
 
 
+@pytest.mark.parametrize(
     ("url", "verify_tls", "expected"),
     [
         ("http://nexus.test:5000", False, ("--plain-http",)),
