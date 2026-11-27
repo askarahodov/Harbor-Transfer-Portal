@@ -22,6 +22,7 @@ esac
 command -v docker >/dev/null 2>&1 || fail 'docker is required'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is required'
 command -v tar >/dev/null 2>&1 || fail 'tar is required'
+command -v gzip >/dev/null 2>&1 || fail 'gzip is required'
 
 BACKEND_IMAGE="harbor-transfer-portal-backend:$VERSION"
 FRONTEND_IMAGE="harbor-transfer-portal-frontend:$VERSION"
@@ -80,12 +81,17 @@ for script in install.sh backup.sh restore.sh upgrade.sh uninstall.sh; do
   cp "$ROOT/deploy/offline/$script" "$STAGE/$script"
   chmod 0755 "$STAGE/$script"
 done
+
+# Windows lifecycle scripts are part of the same checksummed, versioned kit.
+for script in install.ps1 install.cmd start.ps1 stop.ps1 windows-lifecycle-common.ps1 backup.ps1 restore.ps1 upgrade.ps1 uninstall.ps1; do
+  cp "$ROOT/deploy/offline/$script" "$STAGE/$script"
+done
 cp "$ROOT/deploy/offline/README.md" "$STAGE/README.md"
 cp "$ROOT/.env.example" "$STAGE/.env.example"
 cp "$ROOT/CHANGELOG.md" "$STAGE/CHANGELOG.md"
 cp "$ROOT/$RELEASE_NOTES_REL" "$STAGE/$RELEASE_NOTES_REL"
 
-for doc in admin-guide.md user-guide.md troubleshooting.md key-management.md offline-lifecycle.md browser-transport.md; do
+for doc in admin-guide.md user-guide.md troubleshooting.md key-management.md offline-lifecycle.md browser-transport.md windows-offline-acceptance.md; do
   if [ -f "$ROOT/docs/$doc" ]; then
     cp "$ROOT/docs/$doc" "$STAGE/docs/$doc"
   fi
@@ -123,7 +129,16 @@ EOF
 )
 
 ARCHIVE="$OUT_DIR/$PACKAGE_NAME.tar.gz"
-tar -C "$TMP" -czf "$ARCHIVE" "$PACKAGE_NAME"
+SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-0}
+case "$SOURCE_DATE_EPOCH" in
+  ''|*[!0-9]*) fail 'SOURCE_DATE_EPOCH must be a non-negative integer' ;;
+esac
+# Normalize ordering, ownership, timestamps and gzip headers so packaging is
+# deterministic for identical staged payload bytes and release metadata.
+tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+  --format=posix --pax-option=delete=atime,delete=ctime \
+  -C "$TMP" -cf "$TMP/$PACKAGE_NAME.tar" "$PACKAGE_NAME"
+gzip -n -c "$TMP/$PACKAGE_NAME.tar" > "$ARCHIVE"
 (
   cd "$OUT_DIR"
   sha256sum "$(basename "$ARCHIVE")" > "$(basename "$ARCHIVE").sha256"

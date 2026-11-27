@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import AnyHttpUrl
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.dependencies import SessionDep, require_roles
 from app.db.models import User, UserRole
@@ -558,9 +559,10 @@ async def test_registry_profile_connection(
 ) -> HarborConnectionTestResponse:
     """Test connection for both Harbor and Nexus profiles using RegistryClient."""
     service = HarborProfileService(session, request.app.state.settings)
-    profile = service.get(profile_id)
-    if profile is None:
-        raise HTTPException(status_code=404, detail="Profile not found")
+    try:
+        profile = service.get(profile_id)
+    except HarborSettingsError as exc:
+        raise _profile_error(exc) from exc
 
     if profile.registry_type == "nexus":
         if profile.nexus_format == "helm":
@@ -588,8 +590,9 @@ async def test_registry_profile_connection(
                 version=None,
             )
         try:
-            resolved = HarborSettingsService(session, request.app.state.settings).resolve_profile(
-                profile.id
+            resolved = await run_in_threadpool(
+                HarborSettingsService(session, request.app.state.settings).resolve_profile,
+                profile.id,
             )
         except HarborSettingsError as exc:
             raise _profile_error(exc) from exc
@@ -602,11 +605,15 @@ async def test_registry_profile_connection(
             ok=result.ok, code=result.code, message=result.message, version=None
         )
 
-    # Harbor API is the authority for Harbor profiles; no Docker/OCI fallback.
     try:
-        harbor_client = service.build_client(profile.id)
+        harbor_client = await run_in_threadpool(service.build_client, profile.id)
     except HarborSettingsError as exc:
         raise _profile_error(exc) from exc
+    return await run_in_threadpool(_test_harbor_registry_profile, harbor_client)
+
+
+def _test_harbor_registry_profile(harbor_client: HarborClient) -> HarborConnectionTestResponse:
+    # Harbor API is the authority for Harbor profiles; no Docker/OCI fallback.
     try:
         info = harbor_client.system_info()
     except HarborClientError as exc:

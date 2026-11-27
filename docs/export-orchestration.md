@@ -297,6 +297,7 @@ Components upload; **Nexus Helm OCI не поддерживается**. Нес�
 
 Тесты disposable Nexus 3.69/3.70 + Harbor Core не означают завершение
 региональной приёмки. Реальные корпоративные TLS/CA/proxy, per-repo ACL,
-физический подписанный SOURCE→TARGET handoff и approvals остаются
-открытыми по #434/#436. **Release DRAFT / NO-GO**, без merge в
-`main` и без production deployment.
+физический подписанный SOURCE→TARGET handoff и approvals отслеживаются
+по #434/#436. Nexus workflow выпущен в v1.1.0; региональная приёмка
+подтверждена владельцем (owner-attested, Windows). Production deployment
+выполняется только по отдельному approved change.

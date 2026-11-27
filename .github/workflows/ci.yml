@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      nexus_version:
+        description: 'Versioned pre-OCI Nexus 3 image for the Docker v2 E2E step (e.g. 3.69.0)'
+        type: string
+        required: false
+        default: '3.69.0'
 
 permissions:
   contents: read
@@ -25,6 +31,7 @@ jobs:
       integration: ${{ steps.scope.outputs.integration }}
       compose: ${{ steps.scope.outputs.compose }}
       docs: ${{ steps.scope.outputs.docs }}
+      nexus_e2e: ${{ steps.scope.outputs.nexus_e2e }}
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -32,8 +39,16 @@ jobs:
           fetch-depth: 0
           clean: true
 
+      - name: Установить PyYAML для контрактного теста workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `tools.test_ci_workflow_contract` parses ci.yml via PyYAML; install the
+          # pinned version only if the runner image does not already provide it.
+          python3 -c 'import yaml' 2>/dev/null || python3 -m pip install --quiet --break-system-packages 'pyyaml==6.0.3'
+
       - name: Проверить regression scoped CI и dev launcher
-        run: python3 -m unittest tools.test_ci_scope tools.test_dev
+        run: python3 -m unittest tools.test_ci_scope tools.test_dev tools.test_ci_workflow_contract
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -216,8 +231,8 @@ jobs:
 
   integration:
     name: Integration — интеграционные тесты
-    needs: [scope, backend, frontend]
-    if: ${{ always() && needs.scope.outputs.integration == 'true' && needs.backend.result == 'success' && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') }}
+    needs: [scope, backend, frontend, protocol, security, compose, windows-launcher, windows-offline-lifecycle, docs]
+    if: ${{ always() && (needs.scope.outputs.integration == 'true' || needs.scope.outputs.nexus_e2e == 'true') && (needs.backend.result == 'success' || needs.backend.result == 'skipped') && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') && (needs.protocol.result == 'success' || needs.protocol.result == 'skipped') && (needs.security.result == 'success' || needs.security.result == 'skipped') && (needs.compose.result == 'success' || needs.compose.result == 'skipped') && (needs.windows-launcher.result == 'success' || needs.windows-launcher.result == 'skipped') && (needs.windows-offline-lifecycle.result == 'success' || needs.windows-offline-lifecycle.result == 'skipped') && (needs.docs.result == 'success' || needs.docs.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -238,7 +253,175 @@ jobs:
           python -m pip install -r backend/requirements-dev.lock
 
       - name: Интеграционные тесты
+        if: ${{ needs.scope.outputs.integration == 'true' }}
         run: make test-registry-integration
+
+      - name: Clean-host offline kit qualification (SOURCE and TARGET)
+        if: ${{ needs.scope.outputs.integration == 'true' }}
+        env:
+          PORTAL_RELEASE_OUTPUT_DIR: ${{ runner.temp }}/qualified-offline-release
+        run: sh deploy/qualify-clean-offline-install.sh
+
+      - name: Isolated SOURCE to physical bundle to TARGET acceptance
+        if: ${{ needs.scope.outputs.integration == 'true' }}
+        run: sh deploy/qualify-isolated-transfer.sh
+
+      # Nexus legacy Docker v2 E2E is a gated step set inside this job (see
+      # tools/ci_scope.py area `nexus_e2e`), not a separate self-triggering
+      # workflow. It runs only for its own paths or an explicit dispatch.
+      - name: Install Skopeo for Nexus Docker v2 E2E
+        if: ${{ github.event_name == 'workflow_dispatch' || needs.scope.outputs.nexus_e2e == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y skopeo
+
+      - name: Validate selected pre-OCI Nexus version
+        if: ${{ github.event_name == 'workflow_dispatch' || needs.scope.outputs.nexus_e2e == 'true' }}
+        shell: bash
+        env:
+          HTP_NEXUS_VERSION: ${{ github.event.inputs.nexus_version || '3.69.0' }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${HTP_NEXUS_VERSION}" =~ ^3\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "Only versioned Nexus 3 tags are accepted" >&2
+            exit 1
+          fi
+          minor="${HTP_NEXUS_VERSION#3.}"
+          minor="${minor%%.*}"
+          if (( minor >= 94 )); then
+            echo "This gate tests pre-OCI Nexus 3 only (<3.94)" >&2
+            exit 1
+          fi
+
+      - name: Start isolated pre-OCI Nexus 3
+        if: ${{ github.event_name == 'workflow_dispatch' || needs.scope.outputs.nexus_e2e == 'true' }}
+        shell: bash
+        env:
+          HTP_NEXUS_VERSION: ${{ github.event.inputs.nexus_version || '3.69.0' }}
+        run: |
+          set -euo pipefail
+          docker pull "sonatype/nexus3:${HTP_NEXUS_VERSION}"
+          docker run --detach \
+            --name htp-nexus-e2e \
+            --memory 4g \
+            -p 127.0.0.1:8081:8081 \
+            -p 127.0.0.1:8082:8082 \
+            -e INSTALL4J_ADD_VM_PARAMS="-Xms512m -Xmx2g -XX:MaxDirectMemorySize=1g" \
+            "sonatype/nexus3:${HTP_NEXUS_VERSION}"
+
+      - name: Configure legacy Docker hosted repository
+        if: ${{ github.event_name == 'workflow_dispatch' || needs.scope.outputs.nexus_e2e == 'true' }}
+        shell: bash
+        env:
+          HTP_NEXUS_E2E_PASSWORD_FILE: /tmp/htp-nexus-admin-password
+        run: |
+          set -euo pipefail
+          python tools/nexus_e2e_setup.py --password-file "${HTP_NEXUS_E2E_PASSWORD_FILE}"
+
+      - name: Verify Nexus product build and OSS edition
+        if: ${{ github.event_name == 'workflow_dispatch' || needs.scope.outputs.nexus_e2e == 'true' }}
+        shell: bash
+        env:
+          HTP_NEXUS_VERSION: ${{ github.event.inputs.nexus_version || '3.69.0' }}
+        run: |
+          set -euo pipefail
+          # Sonatype documents the Server header as the authoritative
+          # "{version}-{build} ({edition})" identity for Nexus Repository.
+          headers="$(curl --fail --silent --show-error --head http://127.0.0.1:8081/)"
+          product="$(printf '%s\n' "${headers}" | tr -d '\r' | sed -n -E 's/^[Ss]erver:[[:space:]]*//p' | head -n 1)"
+          echo "Nexus product identity: ${product}"
+          if [[ "${HTP_NEXUS_VERSION}" == "3.69.0" ]]; then
+            if [[ "${product}" != "Nexus/3.69.0-02 (OSS)" ]]; then
+              echo "Expected exact regional baseline Nexus/3.69.0-02 (OSS)" >&2
+              exit 1
+            fi
+          elif [[ "${product}" != "Nexus/${HTP_NEXUS_VERSION}-"* ]]; then
+            echo "Pulled Nexus image does not match selected version" >&2
+            exit 1
+          fi
+
+      - name: Start HTTPS reverse proxy with test-only self-signed CA
+        if: ${{ github.event_name == 'workflow_dispatch' || needs.scope.outputs.nexus_e2e == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tls_dir=/tmp/htp-nexus-e2e-tls
+          mkdir -p "${tls_dir}"
+          chmod 700 "${tls_dir}"
+          openssl req -x509 -newkey rsa:2048 -sha256 -days 1 -nodes \
+            -keyout "${tls_dir}/server.key" -out "${tls_dir}/server.crt" \
+            -subj "/CN=localhost" \
+            -addext "subjectAltName=IP:127.0.0.1,DNS:localhost"
+          chmod 600 "${tls_dir}/server.key"
+          cat > "${tls_dir}/default.conf" <<'NGINX'
+          server {
+            listen 8443 ssl;
+            server_name localhost;
+            ssl_certificate /certs/server.crt;
+            ssl_certificate_key /certs/server.key;
+            location / {
+              proxy_pass http://127.0.0.1:8082;
+              proxy_http_version 1.1;
+              proxy_set_header Host $http_host;
+              proxy_set_header X-Forwarded-Proto https;
+              proxy_set_header X-Forwarded-Host $http_host;
+            }
+          }
+          NGINX
+          docker run --detach --name htp-nexus-tls-proxy --network host \
+            -v "${tls_dir}/default.conf:/etc/nginx/conf.d/default.conf:ro" \
+            -v "${tls_dir}/server.crt:/certs/server.crt:ro" \
+            -v "${tls_dir}/server.key:/certs/server.key:ro" \
+            nginx:1.27.5-alpine
+          for i in $(seq 1 20); do
+            status=$(curl -sS --cacert "${tls_dir}/server.crt" \
+              -o /dev/null -w '%{http_code}' https://127.0.0.1:8443/v2/ || true)
+            if [[ "${status}" == "401" || "${status}" == "200" ]]; then
+              echo "HTTPS proxy to Docker Registry v2 is ready (HTTP ${status})"
+              break
+            fi
+            if (( i == 20 )); then
+              echo "HTTPS proxy did not become ready" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Real Nexus Docker v2 E2E tests (never OCI/Helm)
+        if: ${{ github.event_name == 'workflow_dispatch' || needs.scope.outputs.nexus_e2e == 'true' }}
+        shell: bash
+        env:
+          HTP_NEXUS_LEGACY_E2E: '1'
+          HTP_NEXUS_E2E_PASSWORD_FILE: /tmp/htp-nexus-admin-password
+          HTP_NEXUS_TLS_CA_FILE: /tmp/htp-nexus-e2e-tls/server.crt
+          HTP_NEXUS_VERSION: ${{ github.event.inputs.nexus_version || '3.69.0' }}
+        run: |
+          set -euo pipefail
+          cd backend
+          python -m pytest -v -x tests/test_nexus_legacy_e2e.py
+
+      - name: Stop and delete disposable Nexus
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || needs.scope.outputs.nexus_e2e == 'true') }}
+        shell: bash
+        env:
+          HTP_NEXUS_E2E_PASSWORD_FILE: /tmp/htp-nexus-admin-password
+        run: |
+          docker rm -f htp-nexus-tls-proxy 2>/dev/null || true
+          docker stop --time=120 htp-nexus-e2e 2>/dev/null || true
+          docker rm -f htp-nexus-e2e 2>/dev/null || true
+          rm -f "${HTP_NEXUS_E2E_PASSWORD_FILE}"
+          rm -rf /tmp/htp-nexus-e2e-tls
+
+      - name: Publish qualified offline release artifact
+        if: ${{ needs.scope.outputs.integration == 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: harbor-transfer-portal-offline-install-${{ github.sha }}
+          path: ${{ runner.temp }}/qualified-offline-release/*
+          if-no-files-found: error
+          retention-days: 90
 
   compose:
     name: Compose — проверка docker-compose
@@ -251,6 +434,9 @@ jobs:
         with:
           fetch-depth: 0
           clean: true
+
+      - name: Offline release kit packaging smoke
+        run: make test-offline-kit
 
       - name: Docker Compose
         run: |
@@ -274,6 +460,21 @@ jobs:
         shell: powershell
         run: .\tools\test_windows_launcher.ps1
 
+  windows-offline-lifecycle:
+    name: Windows Offline — install and lifecycle contracts
+    needs: scope
+    if: needs.scope.outputs.compose == 'true'
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Test Windows prebuilt offline installer
+        shell: powershell
+        run: .\tools\test_install_windows.ps1
+      - name: Test Windows lifecycle safety contracts
+        shell: powershell
+        run: .\tools\test_windows_offline_lifecycle.ps1
+
   docs:
     name: Docs — проверка документации
     needs: scope
@@ -291,7 +492,7 @@ jobs:
 
   quality-gate:
     name: Quality Gate
-    needs: [scope, backend, frontend, protocol, security, integration, compose, windows-launcher, docs]
+    needs: [scope, backend, frontend, protocol, security, integration, compose, windows-launcher, windows-offline-lifecycle, docs]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -306,19 +507,27 @@ jobs:
           INTEGRATION_RESULT: ${{ needs.integration.result }}
           COMPOSE_RESULT: ${{ needs.compose.result }}
           WINDOWS_RESULT: ${{ needs['windows-launcher'].result }}
+          WINDOWS_OFFLINE_RESULT: ${{ needs['windows-offline-lifecycle'].result }}
           DOCS_RESULT: ${{ needs.docs.result }}
           BACKEND_REQUIRED: ${{ needs.scope.outputs.backend }}
           FRONTEND_REQUIRED: ${{ needs.scope.outputs.frontend }}
           PROTOCOL_REQUIRED: ${{ needs.scope.outputs.protocol }}
           SECURITY_REQUIRED: ${{ needs.scope.outputs.security }}
-          INTEGRATION_REQUIRED: ${{ needs.scope.outputs.integration }}
+          # The `integration` job carries both the offline/isolated acceptance
+          # steps (gated on `integration`) and the Nexus legacy Docker v2 E2E
+          # steps (gated on `nexus_e2e`). Its job-level `if` runs when either
+          # scope is true, so the gate must require it in both cases; otherwise
+          # a `nexus_e2e`-only run (integration=false) that fails E2E is
+          # reported as "unexpected result" and a mixed run can be misjudged.
+          INTEGRATION_REQUIRED: ${{ needs.scope.outputs.integration == 'true' || needs.scope.outputs.nexus_e2e == 'true' }}
           COMPOSE_REQUIRED: ${{ needs.scope.outputs.compose }}
           WINDOWS_REQUIRED: ${{ needs.scope.outputs.compose }}
+          WINDOWS_OFFLINE_REQUIRED: ${{ needs.scope.outputs.compose }}
           DOCS_REQUIRED: ${{ needs.scope.outputs.docs }}
         run: |
           set -euo pipefail
           [[ "$SCOPE_RESULT" == "success" ]] || { echo "Scope failed: $SCOPE_RESULT"; exit 1; }
-          for area in BACKEND FRONTEND PROTOCOL SECURITY INTEGRATION COMPOSE WINDOWS DOCS; do
+          for area in BACKEND FRONTEND PROTOCOL SECURITY INTEGRATION COMPOSE WINDOWS WINDOWS_OFFLINE DOCS; do
             result_key="${area}_RESULT"
             required_key="${area}_REQUIRED"
             result="${!result_key}"

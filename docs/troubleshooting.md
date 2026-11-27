@@ -4,7 +4,7 @@
 
 Формат каждого раздела: **симптом → вероятная причина → диагностика → безопасное решение → эскалация**.
 
-Этот документ не заменяет [security.md](security.md) и [admin-guide.md](admin-guide.md). SOURCE export, TARGET import orchestration/UI, clean-host offline install qualification и isolated SOURCE → TARGET release acceptance реализованы в текущем v1 release boundary.
+Этот документ не заменяет [security.md](security.md) и [admin-guide.md](admin-guide.md). SOURCE export, TARGET import orchestration/UI реализованы в текущем v1; clean-host offline install qualification и isolated SOURCE → TARGET acceptance выполняются в `Integration — интеграционные тесты` CI, а реальная Windows/региональная приёмка остаётся внешним gate (см. [testing.md](testing.md)).
 
 ## 1. Базовый диагностический порядок
 

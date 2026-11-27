@@ -4,9 +4,7 @@
 
 ## Цель и границы
 
-Harbor Transfer Portal обеспечивает **офлайн** перенос container images / Helm charts через физически изолированные SOURCE и TARGET. Нельзя добавлять прямой SOURCE↔TARGET network flow, переносить private signing keys / противоположные credentials, обходить TLS/ACL или незаметно перезаписывать конфликтующие артефакты. Release-qualified Harbor v1.0.0 в `main` — baseline; Nexus расширение изолировано в едином [Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503), **NO-GO** для регионального production.
-
-Для текущих изменений Nexus canonical branch — `fix/nexus-direct-image-lookup-20261117` (PR #503, base `main`). PR #451 и #501 заменены #503, их история сохранена; #495 — альтернативная историческая реализация профилей. Не развивайте эти ветки параллельно, не меняйте публичный контракт профилей ради cherry-pick и не сливайте Nexus в `main` до region GO. Новые ветки допустимы только для самостоятельной задачи с явным owner/base; результат возвращается в canonical RC после проверок.
+Harbor Transfer Portal обеспечивает **офлайн** перенос container images / Helm charts через физически изолированные SOURCE и TARGET. Нельзя добавлять прямой SOURCE↔TARGET network flow, переносить private signing keys / противоположные credentials, обходить TLS/ACL или незаметно перезаписывать конфликтующие артефакты. Harbor v1.0.0 и Nexus Docker v2 + classic Helm HTTP в v1.1.0 — текущий baseline (`main`). Региональная приёмка подтверждена владельцем (owner-attested, Windows); независимые evidence/sign-offs фиксируются по `docs/acceptance-evidence-templates.md`.
 
 ## Перед началом задачи (обязательно)
 
@@ -15,6 +13,10 @@ Harbor Transfer Portal обеспечивает **офлайн** перенос 
 3. Назначьте единственный owner изменения, определите affected files, dependencies, blast radius, acceptance criteria, необходимые проверки и documentation impact. Работайте над **законченной вертикальной задачей**, не создавая искусственных промежуточных PR на каждую строку.
 4. Используйте ветку от нужной **актуальной base**. `main` и ветка draft Nexus интеграции имеют разные release boundaries: не переносите неподтверждённые Nexus изменения в `main` ради удобства.
 5. При существующей реализации сначала расширяйте её; не добавляйте фреймворк, сервис, abstraction или dependency без необходимости.
+
+## Секреты локального tooling
+
+Токены и credentials для локальных агентских инструментов (GitHub MCP PAT, registry/API ключи) **не хранятся в отслеживаемых файлах и не попадают в проектные конфиги в открытом виде**. Для GitHub MCP используется 0600 env-file вне репозитория (`~/.config/kilo/secrets/github-mcp.env`), на который `.kilo/kilo.jsonc` ссылается только путём; за provisioning отвечает `tools/setup-github-mcp-secret.sh`. PAT должен быть read-only (`GITHUB_READ_ONLY=1`). Если токен всё же оказался в файле — отзовите его в GitHub, не полагайтесь только на удаление файла.
 
 ## Итерация реализации до полной готовности
 

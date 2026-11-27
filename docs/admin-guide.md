@@ -11,9 +11,9 @@
 *Скриншот относится к baseline v1.0.0. Интерфейс Nexus RC может отличаться;
 описание редактора RC приведено ниже и в [Settings](settings.md).*
 
-## Администрирование Nexus на тестовом RC
+## Администрирование Nexus (v1.1.0)
 
-В едином Nexus Draft #503 администратор создаёт
+В выпуске v1.1.0 ([PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)) администратор создаёт
 `registry_type=nexus` профили на экране Settings. Форма редактора
 организована в секции «Подключение», «Параметры Nexus», «Доступ и TLS».
 Для Docker Registry v2 необходимо различать URL Docker connector и
@@ -25,8 +25,10 @@ Helm HTTP требует отдельного профиля с точным rep
 пустое поле при редактировании не перезаписывает сохранённый секрет.
 Не отключайте TLS validation для исправления ошибок поиска.
 Доступные образы ограничены индексом/ACL Nexus. Инструкция:
-[Nexus setup](nexus-setup.md). Production-обязательства и региональная
-приёмка по #434/#436 остаются **NO-GO**, независимо от локального E2E.
+[Nexus setup](nexus-setup.md). Региональная приёмка подтверждена владельцем
+(owner-attested, Windows); независимые evidence и подписи фиксируются по
+[#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436) и
+[шаблонам приёмки](acceptance-evidence-templates.md).
 
 ## 1. Один deployment, runtime role SOURCE/TARGET
 
@@ -461,18 +463,23 @@ Release notes: [release-notes-v1.0.0.md](release-notes-v1.0.0.md). Changelog: [C
 
 ## 20. Release qualification
 
-Release-critical behavior автоматически проверяется CI:
+Release-critical behavior покрывается двумя слоями. CI автоматически проверяет:
 
 - backend/frontend checks;
 - protocol/security gates по scope;
-- real Skopeo/Helm local-registry integration;
-- Compose smoke;
-- clean-host offline install одного archive с predictable bootstrap role;
-- runtime migration/restart/backup-restore SOURCE↔TARGET lifecycle;
-- isolated SOURCE → physical bundle → TARGET flow с separate registries;
-- digest/Helm verification, receipt/history/report;
-- replay skip, conflict default-deny, tamper rejection;
+- real Skopeo/Helm local-registry integration (`Integration — интеграционные тесты`);
+- clean-host offline install qualification и isolated SOURCE → TARGET acceptance (`Integration — интеграционные тесты`);
+- Windows offline install/lifecycle contracts (`Windows Offline — install and lifecycle contracts`, mock Docker);
+- Compose job (`make test-offline-kit`, `docker compose config/build/up` + `/api/health`), а не `make smoke-compose`;
+- runtime migration/restart/backup-restore SOURCE↔TARGET lifecycle (backend pytest);
 - documentation links и общий `quality-gate`.
+
+Внешняя приёмка (не заменяется зелёным CI) дополнительно требует:
+
+- реального Windows 10/11 clean-host прогона с Docker Desktop;
+- регионального isolated SOURCE → physical bundle → TARGET flow с отдельными registries;
+- подписанного evidence для digest/Helm verification, receipt/history/report;
+- подтверждения replay skip, conflict default-deny и tamper rejection.
 
 Эти проверки являются частью текущего v1 release process, а не будущей работой.
 

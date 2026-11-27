@@ -16,6 +16,7 @@ class CiScopeTest(TestCase):
         integration=True,
         compose=True,
         docs=True,
+        nexus_e2e=True,
     ):
         temporary = TemporaryDirectory()
         root = Path(temporary.name)
@@ -47,6 +48,11 @@ class CiScopeTest(TestCase):
         if docs:
             (root / "tools").mkdir(parents=True, exist_ok=True)
             (root / "tools/check_doc_links.py").touch()
+        if nexus_e2e:
+            (root / "tools").mkdir(parents=True, exist_ok=True)
+            (root / "tools/nexus_e2e_setup.py").touch()
+            (root / "backend/tests").mkdir(parents=True, exist_ok=True)
+            (root / "backend/tests/test_nexus_legacy_e2e.py").touch()
         self.addCleanup(temporary.cleanup)
         return root
 
@@ -82,6 +88,13 @@ class CiScopeTest(TestCase):
         self.assertEqual(
             classify_paths(["frontend/src/views/DashboardView.vue"], root=root),
             Scope(frontend=True),
+        )
+
+    def test_canonical_product_version_change_runs_release_qualification(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["backend/app/__init__.py"], root=root),
+            Scope(backend=True, integration=True),
         )
 
     def test_runtime_dependency_graph_runs_security_and_transfer_integration(self):
@@ -238,6 +251,15 @@ class CiScopeTest(TestCase):
             with self.subTest(path=path):
                 self.assertEqual(classify_paths([path], root=root), Scope(compose=True))
 
+    def test_windows_offline_lifecycle_tests_run_compose(self):
+        root = self._root()
+        for path in (
+            "tools/test_install_windows.ps1",
+            "tools/test_windows_offline_lifecycle.ps1",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(classify_paths([path], root=root), Scope(compose=True))
+
     def test_online_image_launchers_run_compose_gate(self):
         root = self._root()
         for path in ("run-online.sh", "run-online.cmd"):
@@ -254,7 +276,7 @@ class CiScopeTest(TestCase):
             classify_paths([".github/workflows/publish-images.yml"], root=root),
             Scope(
                 backend=True, frontend=True, protocol=True, security=True,
-                integration=True, compose=True, docs=True,
+                integration=True, compose=True, docs=True, nexus_e2e=True,
             ),
         )
 
@@ -287,6 +309,10 @@ class CiScopeTest(TestCase):
             classify_paths(["deploy/qualify-isolated-transfer.sh"], root=root),
             Scope(integration=True, compose=True),
         )
+        self.assertEqual(
+            classify_paths(["deploy/qualify-clean-offline-install.sh"], root=root),
+            Scope(integration=True, compose=True),
+        )
 
     def test_release_runtime_scripts_keep_transfer_integration_scope(self):
         root = self._root()
@@ -303,12 +329,43 @@ class CiScopeTest(TestCase):
             Scope(backend=True, integration=True, compose=True),
         )
 
+    def test_offline_lifecycle_scripts_run_integration_and_compose(self):
+        root = self._root()
+        for path in (
+            "deploy/offline/install.ps1",
+            "deploy/offline/upgrade.ps1",
+            "deploy/offline/windows-lifecycle-common.ps1",
+            "deploy/offline/install.cmd",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    classify_paths([path], root=root),
+                    Scope(integration=True, compose=True),
+                )
+
+    def test_offline_compose_yaml_runs_integration_and_compose(self):
+        # deploy/offline/compose.yaml keeps the backend regression from
+        # _classify_path, and now also arms the Linux clean-host qualification
+        # because it defines the lifecycle the integration job installs.
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["deploy/offline/compose.yaml"], root=root),
+            Scope(backend=True, integration=True, compose=True),
+        )
+
+    def test_offline_markdown_stays_docs_only(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["deploy/offline/README.md"], root=root),
+            Scope(docs=True),
+        )
+
     def test_browser_runtime_boundary_files_run_backend_regression(self):
         root = self._root()
         cases = {
             ".env.example": Scope(backend=True),
             "frontend/nginx.conf": Scope(backend=True, frontend=True, compose=True),
-            "deploy/offline/compose.yaml": Scope(backend=True, compose=True),
+            "deploy/offline/compose.yaml": Scope(backend=True, integration=True, compose=True),
         }
         for path, expected in cases.items():
             with self.subTest(path=path):
@@ -402,6 +459,7 @@ class CiScopeTest(TestCase):
                 integration=True,
                 compose=True,
                 docs=True,
+                nexus_e2e=True,
             ),
         )
 
@@ -417,6 +475,7 @@ class CiScopeTest(TestCase):
                 integration=True,
                 compose=True,
                 docs=True,
+                nexus_e2e=True,
             ),
         )
 
@@ -429,6 +488,7 @@ class CiScopeTest(TestCase):
             integration=False,
             compose=False,
             docs=False,
+            nexus_e2e=False,
         )
         self.assertEqual(classify_paths([".github/workflows/ci.yml"], root=root), Scope())
 
@@ -459,3 +519,151 @@ class CiScopeTest(TestCase):
             ),
             Scope(backend=True, frontend=True, security=True, docs=True),
         )
+
+    def test_nexus_e2e_paths_arm_dedicated_e2e_scope(self):
+        root = self._root()
+        cases = {
+            "tools/nexus_e2e_setup.py": Scope(nexus_e2e=True),
+            "backend/tests/test_nexus_legacy_e2e.py": Scope(backend=True, nexus_e2e=True),
+            "backend/app/services/nexus_service.py": Scope(backend=True, nexus_e2e=True),
+            "backend/app/services/registry_client.py": Scope(backend=True, nexus_e2e=True),
+            "backend/requirements-dev.lock": Scope(backend=True, nexus_e2e=True),
+            "docs/nexus-setup.md": Scope(docs=True, nexus_e2e=True),
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(classify_paths([path], root=root), expected)
+
+    def test_unrelated_changes_do_not_arm_nexus_e2e_scope(self):
+        root = self._root()
+        for path in (
+            "backend/app/services/import_orchestrator.py",
+            "backend/app/services/skopeo_service.py",
+            "frontend/src/views/DashboardView.vue",
+            "docs/testing.md",
+            "compose.yaml",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(classify_paths([path], root=root).nexus_e2e)
+
+    def test_release_image_builder_runs_integration_qualification(self):
+        root = self._root()
+        scope = classify_paths(["deploy/build-release-images.sh"], root=root)
+        self.assertTrue(scope.integration)
+        self.assertTrue(scope.compose)
+
+    def test_nexus_e2e_scope_does_not_exist_without_markers(self):
+        root = self._root(nexus_e2e=False)
+        self.assertFalse(
+            classify_paths(["backend/tests/test_nexus_legacy_e2e.py"], root=root).nexus_e2e
+        )
+        self.assertFalse(
+            classify_paths([".github/workflows/ci.yml"], root=root).nexus_e2e
+        )
+
+    def test_workflow_change_runs_nexus_e2e_when_markers_exist(self):
+        root = self._root()
+        self.assertTrue(
+            classify_paths([".github/workflows/ci.yml"], root=root).nexus_e2e
+        )
+
+
+class CiWorkflowGatingTest(TestCase):
+    """The scope outputs must actually arm the jobs that consume them.
+
+    `nexus_e2e` is a distinct area from `integration`: a Nexus-only change sets
+    `nexus_e2e=true, integration=false`. The Nexus E2E steps live inside the
+    `integration` job, so the job condition must accept either area, while the
+    heavy offline/isolated acceptance steps must stay bound to `integration`.
+    """
+
+    def setUp(self) -> None:
+        repository_root = Path(__file__).resolve().parent.parent
+        self.workflow = (repository_root / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+
+    def _job_block(self, job: str) -> str:
+        lines = self.workflow.splitlines()
+        start = None
+        for index, line in enumerate(lines):
+            if line.startswith(f"  {job}:"):
+                start = index
+                break
+        self.assertIsNotNone(start, f"job {job} not found")
+        block = []
+        for line in lines[start:]:
+            if block and len(line) - len(line.lstrip()) == 2 and line.strip().endswith(":"):
+                break
+            block.append(line)
+        return "\n".join(block)
+
+    def _step_block(self, job_block: str, step_name: str) -> str:
+        marker = f"      - name: {step_name}\n"
+        self.assertIn(marker, job_block)
+        head = job_block.split(marker, 1)[1]
+        step_lines = []
+        for line in head.splitlines():
+            if line.startswith("      - name: "):
+                break
+            step_lines.append(line)
+        return "\n".join(step_lines)
+
+    def test_integration_job_accepts_nexus_e2e_scope(self) -> None:
+        block = self._job_block("integration")
+        job_if = next(
+            line for line in block.splitlines() if line.lstrip().startswith("if:")
+        )
+        self.assertIn("needs.scope.outputs.integration", job_if)
+        self.assertIn("needs.scope.outputs.nexus_e2e", job_if)
+
+    def test_heavy_acceptance_steps_stay_bound_to_integration_scope(self) -> None:
+        block = self._job_block("integration")
+        for step_name in (
+            "Интеграционные тесты",
+            "Clean-host offline kit qualification (SOURCE and TARGET)",
+            "Isolated SOURCE to physical bundle to TARGET acceptance",
+            "Publish qualified offline release artifact",
+        ):
+            with self.subTest(step=step_name):
+                step = self._step_block(block, step_name)
+                self.assertIn("needs.scope.outputs.integration == 'true'", step)
+
+    def test_quality_gate_requires_integration_for_nexus_e2e_scope(self) -> None:
+        """Regression: the gate must know about the nexus_e2e scope.
+
+        The Nexus E2E steps live inside the `integration` job, so a PR with
+        `integration=true, nexus_e2e=true` must not be able to bypass the E2E
+        failure, and a `nexus_e2e`-only run (integration=false) must not be
+        reported as an unexpected result. Both require the gate to treat
+        `integration` as mandatory whenever either scope is armed.
+        """
+        block = self._job_block("quality-gate")
+        step = self._step_block(block, "Проверить результаты обязательных jobs")
+
+        self.assertIn("needs.scope.outputs.nexus_e2e", step)
+        required_line = next(
+            line
+            for line in step.splitlines()
+            if "INTEGRATION_REQUIRED:" in line
+        )
+        self.assertIn("needs.scope.outputs.integration == 'true'", required_line)
+        self.assertIn("needs.scope.outputs.nexus_e2e == 'true'", required_line)
+        self.assertIn("||", required_line)
+        # The integration job's own gate must stay in sync with the gate rule.
+        integration_if = next(
+            line
+            for line in self._job_block("integration").splitlines()
+            if line.lstrip().startswith("if:")
+        )
+        self.assertIn("needs.scope.outputs.integration == 'true'", integration_if)
+        self.assertIn("needs.scope.outputs.nexus_e2e == 'true'", integration_if)
+        self.assertIn("||", integration_if)
+
+    def test_nexus_only_change_arms_nexus_e2e_without_integration(self) -> None:
+        scope_factory = CiScopeTest()
+        root = scope_factory._root()
+        self.assertTrue(root.is_dir())
+        scope = classify_paths(["backend/app/services/nexus_service.py"], root=root)
+        self.assertTrue(scope.nexus_e2e)
+        self.assertFalse(scope.integration)

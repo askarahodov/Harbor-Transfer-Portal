@@ -149,7 +149,7 @@ SHA-256 используется для обнаружения поврежде�
 
 ## Текущее состояние v1.0.0
 
-Функциональный объём **v1.0.0 реализован и прошёл release qualification**. Завершены пользовательский/административный комплект документации, offline installation kit, clean-host qualification и isolated SOURCE → physical bundle → TARGET acceptance.
+Функциональный объём **v1.0.0 реализован**; release qualification включает как автоматические проверки CI, так и внешние release gates. Завершены пользовательский/административный комплект документации, offline installation kit и скрипты clean-host qualification и isolated SOURCE → physical bundle → TARGET acceptance. Сами clean-host qualification и isolated acceptance выполняются в CI `Integration — интеграционные тесты`; реальная Windows Docker Desktop и региональная приёмка требуют отдельного прогона на стенде (issue #507).
 
 Это означает, что репозиторий содержит проверяемый release workflow, но не отменяет локальные эксплуатационные процедуры. Production rollout конкретной организации всё равно требует:
 

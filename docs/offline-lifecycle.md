@@ -164,4 +164,13 @@ PORTAL_CONFIRM_PURGE=DELETE_PORTAL_DATA ./uninstall.sh --purge-data
 
 Lifecycle scripts не скачивают helper images, packages или binaries. Backup и restore используют current/matching local backend image с отключённой сетью, upgrade использует только bundled images, а Compose startup выполняется с `--no-build --pull never`.
 
-Clean-host installation qualification и полный isolated SOURCE → physical bundle → TARGET acceptance **реализованы** как fail-able CI gates baseline v1.0.0. Они проверяют offline install/restart persistence и end-to-end transfer соответственно; актуальная test-selection policy описана в [testing.md](testing.md).
+Clean-host installation qualification (`deploy/qualify-clean-offline-install.sh`) и полный isolated SOURCE → physical bundle → TARGET acceptance (`deploy/qualify-isolated-transfer.sh`) выполняются в CI job `Integration — интеграционные тесты` и остаются доступными как standalone release-скрипты для внешнего прогона. Они проверяют offline install/restart persistence и end-to-end transfer соответственно; актуальная test-selection policy описана в [testing.md](testing.md).
+
+
+## Windows offline lifecycle
+
+Windows 10/11 uses the PowerShell wrappers included in the release kit. The supported operations are install and same-version rerun, start with health wait, stop without data removal, backup, matching-version restore, upgrade with a mandatory pre-upgrade backup and attempted rollback, and uninstall with data preservation by default. Destructive volume removal requires the explicit `DELETE_PORTAL_DATA` confirmation token. Automatic Windows upgrades accept only stable numeric versions that compare strictly higher; prerelease and non-increasing version changes are refused.
+
+The release archive packaging normalizes file order, owner/group, timestamps and gzip headers; the packaging smoke checks byte-for-byte reproducibility for identical staged payloads.
+
+Windows backup archives contain secrets. The Windows lifecycle enforces NTFS ACLs on .env, temporary snapshots, backup directories, ZIP archives and sidecars, granting access only to the current user, SYSTEM and local Administrators. Existing Harbor Transfer Portal backup files in a selected backup directory are re-protected; use a dedicated NTFS directory. ACL enforcement failure is fail-closed. Restore requires the matching version kit and contour. Upgrade must use a new, separate kit directory; do not overwrite the active installation. Keep the previous kit and backup until the upgraded Portal has passed health and operator checks. Real Docker Desktop clean-host qualification remains a release acceptance requirement; mock-Docker CI is not a substitute. Follow docs/windows-offline-acceptance.md for the controlled install, rerun, stop/start, backup/restore, uninstall and future-version upgrade acceptance sequence.

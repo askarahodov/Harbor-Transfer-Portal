@@ -2,7 +2,7 @@
 
 **Статус:** актуальное архитектурное описание release-qualified baseline **v1.0.0**.
 
-Этот документ относится **только к Harbor baseline в `main`**. Nexus Docker v2 и classic Helm HTTP находятся в [Draft PR #451](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/451) и требуют региональной приёмки #434/#436; не переносите схемы Nexus на production-архитектуру без approved change.
+Документ описывает общую архитектуру; с v1.1.0 в поставку входят Harbor baseline и Nexus Docker v2 + classic Helm HTTP ([PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)). Региональная приёмка подтверждена владельцем (owner-attested, Windows); независимые evidence и подписи собираются по #434/#436. Не переносите схемы Nexus на production-архитектуру без approved change.
 
 Этот документ описывает действующие boundaries и реализованный end-to-end flow Harbor Transfer Portal. Нормативные контракты здесь не переопределяются: формат переносимого пакета задаёт [Offline Bundle Protocol v1](offline-bundle-v1.md), принятые решения — [ADR](decisions.md), background lifecycle — [OperationManager](operation-manager.md), runtime role contract — [Runtime SOURCE/TARGET mode](runtime-mode.md), а feature-specific детали — [SOURCE export orchestration](export-orchestration.md), [TARGET import orchestration](import-orchestration.md) и [frontend](frontend.md).
 
@@ -55,7 +55,7 @@ Harbor Transfer Portal предназначен для офлайн-переда
 └───────────────────────────────────────────────────────────┘
 ```
 
-Baseline v1 включает оба browser transfer wizard, history/audit/reports, signed Bundle v1, persistent runtime SOURCE/TARGET mode, offline installation lifecycle, clean-host qualification и isolated SOURCE → physical bundle → TARGET acceptance.
+Baseline v1 включает оба browser transfer wizard, history/audit/reports, signed Bundle v1, persistent runtime SOURCE/TARGET mode и offline installation lifecycle. Скрипты clean-host qualification и isolated SOURCE → physical bundle → TARGET acceptance выполняются в CI (`Integration — интеграционные тесты`); реальная Windows/региональная приёмка остаётся внешним gate (см. раздел 12).
 
 ## 3. Runtime deployment
 
@@ -295,19 +295,21 @@ offline archive
 
 ## 12. Release qualification gates
 
-CI использует path-aware scope и агрегирующий `quality-gate`. В зависимости от blast radius доступны:
+CI использует path-aware scope и агрегирующий `quality-gate`. В зависимости от blast radius `.github/workflows/ci.yml` выполняет:
 
 - backend Ruff → Mypy → Pytest + coverage floor;
 - frontend lint/type/unit/build;
 - Bundle Protocol regression;
 - targeted security regression;
 - real Skopeo/Helm integration через disposable local registry;
-- Compose smoke;
-- clean-host offline install qualification;
-- isolated SOURCE → physical bundle → TARGET acceptance;
+- clean-host offline qualification и isolated SOURCE → TARGET acceptance в `Integration — интеграционные тесты`;
+- Windows offline install/lifecycle contracts на `windows-2022` (`Windows Offline — install and lifecycle contracts`);
+- Compose job (`make test-offline-kit`, `docker compose config/build/up` + `/api/health`), а не `make smoke-compose`;
 - documentation local-link gate.
 
-Clean-host gate удаляет release images перед installation phase и доказывает, что один immutable archive устанавливается как SOURCE и TARGET без pull/build, сохраняет state после rerun/restart и сообщает правильную release version.
+Clean-host offline install qualification и isolated SOURCE → physical bundle → TARGET acceptance выполняются в job `Integration — интеграционные тесты`; реальная Windows Docker Desktop и региональная приёмка остаются внешними gates (issue #507). `make smoke-compose` остаётся локальной проверкой — CI выполняет его компоненты напрямую.
+
+Clean-host qualification удаляет release images перед installation phase и доказывает, что один immutable archive устанавливается как SOURCE и TARGET без pull/build, сохраняет state после rerun/restart и сообщает правильную release version.
 
 Isolated acceptance поднимает отдельные SOURCE/TARGET registries, переносит только bundle/sidecar/public trust material, удаляет SOURCE dependency до TARGET phase и автоматически доказывает image digest, Helm semantics, receipt/history/report, replay skip, conflict default-deny и tamper rejection до mutation.
 

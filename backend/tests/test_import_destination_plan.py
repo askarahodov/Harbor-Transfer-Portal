@@ -147,6 +147,36 @@ def _preview(operation_id: int) -> ImportPreviewResponse:
     )
 
 
+def _persist_artifact_rows(session_factory, operation_id: int) -> None:
+    with session_factory() as session:
+        session.add_all(
+            [
+                ArtifactResult(
+                    operation_id=operation_id,
+                    artifact_type="container-image",
+                    repository="source-team/app/api",
+                    reference="1.4.2",
+                    source_digest=IMAGE_DIGEST,
+                    target_digest=IMAGE_DIGEST,
+                    status=ArtifactStatus.VERIFIED,
+                    size_bytes=1024,
+                ),
+                ArtifactResult(
+                    operation_id=operation_id,
+                    artifact_type="helm-chart",
+                    repository="source-charts/platform",
+                    name="mis",
+                    version="4.88.6",
+                    source_digest=CHART_DIGEST,
+                    target_digest=CHART_DIGEST,
+                    status=ArtifactStatus.VERIFIED,
+                    size_bytes=2048,
+                ),
+            ]
+        )
+        session.commit()
+
+
 def _environment(
     tmp_path: Path,
     *,
@@ -448,6 +478,11 @@ def test_receipt_persists_actual_destination_references(tmp_path: Path) -> None:
         0,
     )
 
+    with session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        operation.status = OperationStatus.COMPLETED
+        session.commit()
     receipt = orchestrator.receipt(operation_id)
     assert receipt.destination_plan_id == plan.plan_id
     assert receipt.artifacts[0].repository == "source-team/app/api"
@@ -466,6 +501,71 @@ def test_receipt_persists_actual_destination_references(tmp_path: Path) -> None:
     assert plan.plan_id in persisted
     assert "docker-prod/app/api" in persisted
     assert "helm-prod/platform" in persisted
+
+
+def test_receipt_captures_skip_conflicts_from_persisted_policy(tmp_path: Path) -> None:
+    settings, session_factory, *_rest, orchestrator, operation_id = _environment(tmp_path)
+    plan = asyncio.run(
+        orchestrator.build_destination_plan(
+            operation_id,
+            ImportDestinationPlanRequest(
+                container_image_project="docker-prod",
+                helm_chart_project="helm-prod",
+            ),
+        )
+    )
+    _persist_artifact_rows(session_factory, operation_id)
+    with session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None
+        policy = json.loads(operation.import_policy_json or "{}")
+        policy["skip_conflicts"] = True
+        operation.import_policy_json = json.dumps(policy)
+        session.commit()
+
+    requested_at = datetime(2026, 9, 15, 7, 5, tzinfo=UTC)
+    orchestrator._write_receipt(
+        operation_id,
+        _preview(operation_id),
+        False,
+        requested_at,
+        0,
+    )
+
+    with session_factory() as session:
+        operation = session.get(Operation, operation_id)
+        assert operation is not None and operation.import_receipt_json is not None
+        receipt = json.loads(operation.import_receipt_json)
+        operation.status = OperationStatus.COMPLETED
+        session.commit()
+
+    assert receipt["skip_conflicts"] is True
+    assert receipt["destination_plan_id"] == plan.plan_id
+
+
+def test_receipt_endpoint_does_not_publish_success_before_completion(tmp_path: Path) -> None:
+    _, session_factory, *_rest, orchestrator, operation_id = _environment(tmp_path)
+    asyncio.run(
+        orchestrator.build_destination_plan(
+            operation_id,
+            ImportDestinationPlanRequest(
+                container_image_project="docker-prod",
+                helm_chart_project="helm-prod",
+            ),
+        )
+    )
+    _persist_artifact_rows(session_factory, operation_id)
+    orchestrator._write_receipt(
+        operation_id,
+        _preview(operation_id),
+        False,
+        datetime(2026, 9, 15, 7, 5, tzinfo=UTC),
+        0,
+    )
+
+    with pytest.raises(ImportOrchestrationError) as captured:
+        orchestrator.receipt(operation_id)
+    assert captured.value.code == "import_receipt_not_ready"
 
 
 def test_mapping_precedence_is_override_then_source_mapping_then_kind_default(

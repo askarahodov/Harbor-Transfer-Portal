@@ -2,7 +2,7 @@
 
 **Назначение:** запуск из **Git checkout** на рабочей/тестовой машине, с Docker Compose и доступом к источникам Docker images. На обеих ОС приложение работает **в Linux-контейнерах**. **Python, Node.js, GNU Make и Git Bash на host не требуются.** Docker Desktop может использовать WSL2 как внутренний backend, но пользователю не нужен WSL terminal. В этом режиме данные сохраняются в Docker named volume, а настройки в локальном `.env`.
 
-> **Для закрытого production-контура** используйте предварительно проверенный [offline release kit](../deploy/offline/README.md). Его `install.sh` / backup / restore / upgrade / uninstall — **Linux lifecycle**; Windows-native offline kit пока не квалифицирован. Не выдавайте source checkout за готовый релиз. Nexus из [Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503) ещё не имеет регионального production GO.
+> **Для закрытого production-контура** используйте предварительно проверенный [offline release kit](../deploy/offline/README.md). Его `install.sh` / backup / restore / upgrade / uninstall — **Linux lifecycle**; Windows-native lifecycle (PowerShell 5.1+) подтверждён владельцем на Windows (owner-attested), независимые evidence по [#507](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/507) собираются по [шаблонам приёмки](acceptance-evidence-templates.md). Не выдавайте source checkout за готовый релиз. Nexus Docker v2 + classic Helm HTTP входит в v1.1.0.
 
 ## 1. Проверьте необходимое
 
@@ -109,7 +109,7 @@ run.cmd status
 
 Если BuildKit не может использовать повреждённый layer/cache — **вместо** `build-plain` один раз используйте `build-clean`. При отказе сети сначала восстановите DNS/proxy/Docker; пересборка без кеша сетевые ошибки не исправляет. Сценарии не удаляют images других установок, базы, credentials, тома или исходники. Сборка без кеша расходует больше времени, трафика и диска, поэтому не является штатным режимом.
 
-**Развёртывание проверенного Nexus RC:** `git clone` по умолчанию получает `main` (Harbor baseline), **не** Nexus Draft. Для изолированного тестового checkout возьмите точный одобренный SHA PR #503, прежде чем запускать Compose; задайте в его `.env` уникальные `COMPOSE_PROJECT_NAME`, `PORTAL_VERSION` и `PORTAL_HTTP_PORT`. Например `htp-nexus-rc`, `nexus-rc`, `8081`. Не используйте `run.cmd` / `run.sh` из рабочего каталога 8080 для развёртывания RC. Прежде чем менять релиз-кандидат, убедитесь в наличии резервной копии соответствующего тома.
+**Развёртывание Nexus:** с v1.1.0 Nexus workflow входит в `main`. Для изолированного тестового стенда можно взять точный SHA PR #503 и запустить Compose; задайте в его `.env` уникальные `COMPOSE_PROJECT_NAME`, `PORTAL_VERSION` и `PORTAL_HTTP_PORT`. Например `htp-nexus-rc`, `nexus-rc`, `8081`. Не используйте `run.cmd` / `run.sh` из рабочего каталога 8080 для развёртывания RC. Прежде чем менять релиз-кандидат, убедитесь в наличии резервной копии соответствующего тома.
 
 ## 7. Offline release на Linux
 

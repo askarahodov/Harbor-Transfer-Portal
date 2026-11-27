@@ -5,8 +5,6 @@ on:
     paths:
       - tools/atomic_ref_cleanup.py
       - tools/test_atomic_ref_cleanup.py
-      - tools/prune_harbor_profile_aliases_once.py
-      - tools/prune_key_management_review_alias_once.py
 
 permissions:
   contents: read

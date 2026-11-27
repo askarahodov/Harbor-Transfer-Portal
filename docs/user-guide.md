@@ -6,10 +6,9 @@
 
 Административная настройка Harbor, пользователей, TLS/CA и ключей описана отдельно в [admin-guide.md](admin-guide.md). Переключение универсального runtime SOURCE/TARGET — в [runtime-mode.md](runtime-mode.md). Технический формат переносимого пакета определяет [Offline Bundle Protocol v1](offline-bundle-v1.md).
 
-## Nexus SOURCE на тестовом RC (не входит в baseline `main`)
+## Nexus SOURCE (v1.1.0)
 
-Этот раздел относится к [Nexus Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503),
-а не к production-релизу. В SOURCE мастер позволяет выбрать профиль
+Этот раздел относится к Nexus workflow, выпущенному в v1.1.0 ([PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)). В SOURCE мастер позволяет выбрать профиль
 `registry_type=nexus` с Docker Registry v2 и доступом только к
 разрешённому connector.
 
@@ -31,7 +30,7 @@
 Подробности: [Nexus setup](nexus-setup.md),
 [сравнение возможностей](registry-comparison.md),
 [региональный runbook](nexus-regional-acceptance-runbook.md).
-До завершения #434/#436 сохраняется **NO-GO** для Nexus production.
+Региональная приёмка Nexus подтверждена владельцем (owner-attested, Windows); независимые evidence и подписи по [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436) собираются по [шаблонам](acceptance-evidence-templates.md).
 
 ## 1. Что важно понимать до начала
 

@@ -162,11 +162,8 @@ def _client(
         "database_url": database_url,
         "jwt_secret": JWT_SECRET,
     }
-    if configured:
-        settings_kwargs["harbor_url"] = "https://harbor.local"
+    settings_kwargs["harbor_url"] = "https://harbor.local" if configured else None
 
-    if not configured:
-        settings_kwargs["harbor_url"] = None
     app = create_app(Settings(_env_file=None, **settings_kwargs))
     with app.state.session_factory() as session:
         UserRepository(session).create(

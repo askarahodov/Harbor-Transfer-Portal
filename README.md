@@ -8,7 +8,7 @@
 
 Портал используется, когда SOURCE и TARGET не имеют прямого сетевого соединения: пакет формируется на SOURCE, переносится разрешённым физическим способом и проверяется перед импортом на TARGET.
 
-> **Статус:** функциональный объём **v1.0.0** реализован и прошёл release qualification. Production rollout требует локального change/release approval и проверки инфраструктуры конкретного контура.
+> **Статус:** **v1.1.0** включает Harbor и Nexus (Docker v2 + classic Helm HTTP) SOURCE/TARGET. Региональная приёмка подтверждена владельцем (owner-attested, Windows); независимые evidence и подписи собираются по [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436). Production rollout требует локального change/release approval и проверки инфраструктуры конкретного контура.
 
 ## Интерфейс
 
@@ -101,7 +101,7 @@ cd Harbor-Transfer-Portal
 | Статус / логи | `run.cmd status` / `run.cmd logs` | `./run.sh status` / `./run.sh logs` |
 | Остановить, сохранив данные | `run.cmd stop` | `./run.sh stop` |
 
-Обычный `git clone` устанавливает стабильный Harbor `main`, **не** Nexus Draft #503. Для Nexus RC используйте отдельный checkout с проверенным SHA и отдельной Compose-конфигурацией; см. [инструкцию](docs/install-windows-linux.md).
+С v1.1.0 Nexus входит в `main` вместе с Harbor. Для отдельного тестового Nexus-стенда можно взять конкретный SHA и отдельную Compose-конфигурацию; см. [инструкцию](docs/install-windows-linux.md).
 
 Скрипты **не вызывают** `docker compose down -v`: эта команда удаляет persistent volume и **не применяется** в штатной эксплуатации. Для двух отдельных установок нужны разные `.env`, `COMPOSE_PROJECT_NAME`, `PORTAL_VERSION` и `PORTAL_HTTP_PORT`.
 
@@ -172,7 +172,7 @@ Harbor TARGET
 | Runtime SOURCE/TARGET и ключи | [Runtime mode](docs/runtime-mode.md), [Key management](docs/key-management.md) |
 | Архитектура и разработка | [Windows/Linux development](docs/development.md), [карта документации](docs/README.md), [Architecture](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Тестирование и CI | [Testing](docs/testing.md) |
-| Релиз | [Release notes v1.0.0](docs/release-notes-v1.0.0.md), [Nexus release candidate: статус и приёмка](docs/nexus-release-readiness-2026-11-03.md), [CHANGELOG.md](CHANGELOG.md) |
+| Релиз | [Release notes v1.1.0](docs/release-notes-v1.1.0.md), [Release notes v1.0.0](docs/release-notes-v1.0.0.md), [шаблоны приёмки](docs/acceptance-evidence-templates.md), [CHANGELOG.md](CHANGELOG.md) |
 
 Исторический `docs/harbor-transfer-portal.md` не определяет текущее runtime, protocol или security behavior.
 

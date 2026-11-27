@@ -7,19 +7,6 @@ Harbor Transfer Portal может хранить несколько именов
 управляет profile metadata/secrets в **Настройки**, а operator/admin выбирает конкретный
 Harbor непосредственно в SOURCE Export или TARGET Import.
 
-## Различие поведения в актуальном Nexus RC
-
-В едином Nexus-кандидате ([Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503), наследующем историческую основу #501)
-реализован отдельный SOURCE Nexus Docker v2 workflow. Это **не меняет**
-описанный ниже контракт `main`, где полный Nexus workflow ещё не выпущен.
-Проверка сохранённого профиля по `GET /v2/` подтверждает только доступность
-connector, а не каталог и не право pull/push конкретного образа.
-Поле `nexus_search_url` задаёт HTTPS Nexus UI origin для индексного
-поиска; `nexus_search_repository` — точное имя Docker repository.
-Для Helm HTTP используется отдельный профиль.
-Сохранение credential/CA и выбор Harbor profile остаются неизменными.
-Операторские шаги: [Nexus setup](nexus-setup.md).
-
 ## Различие Harbor и Nexus в текущем `main`
 
 Registry profile содержит явный `registry_type=harbor|nexus`. Название профиля или адрес
@@ -28,8 +15,9 @@ Registry profile содержит явный `registry_type=harbor|nexus`. На�
 Он теперь показывает явное сообщение о невозможности такого экспорта вместо запросов к
 `/api/v2.0/systeminfo` и `/api/v2.0/projects` Nexus-сервера. Harbor-only API и preview
 отклоняют Nexus профиль с типизированным `nexus_requires_registry_workflow`. Полный Nexus
-SOURCE/TARGET workflow остаётся в [едином Draft PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)
-под региональными release gates: **NO-GO** для рабочего развёртывания.
+SOURCE/TARGET workflow выпущен в v1.1.0 ([PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)).
+Региональная приёмка подтверждена владельцем (owner-attested, Windows); независимые
+evidence и подписи собираются по [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
 
 Для сохранённого Nexus профиля в Настройках используется только кнопка
 **«Проверить Docker Registry v2»**. Она выполняет read-only `GET /v2/` с обработкой

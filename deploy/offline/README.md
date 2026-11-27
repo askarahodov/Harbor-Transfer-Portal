@@ -1,6 +1,6 @@
 # Harbor Transfer Portal — offline install kit
 
-**Граница установки:** корневые `run.sh` и `run.cmd` предназначены только для запуска из исходного checkout с Docker build. Они **не заменяют** подписанный offline release kit в закрытом контуре. Offline installer выполняет `docker load` и Compose `--no-build --pull never`; на Linux используйте штатный `install.sh`, не source launcher. Windows-native offline lifecycle не заявлен: для Windows Docker Desktop поддерживается [source checkout launcher](../../docs/install-windows-linux.md) с доступом к Docker build sources, но не работа `install.sh` через CMD/PowerShell. Для полностью закрытого production-контура требуется квалифицированный Linux host/VM и этот offline kit.
+**Граница установки:** корневые `run.sh` и `run.cmd` предназначены только для запуска из исходного checkout с Docker build. Они **не заменяют** versioned offline release kit в закрытом контуре. Offline installer выполняет `docker load` и Compose `--no-build --pull never`; на Linux используйте штатный `install.sh`, не source launcher. Linux clean-host qualification now exercises SOURCE/TARGET install, idempotent rerun, restart and backup/restore in CI. Windows 10/11 PowerShell 5.1+ lifecycle wrappers are included; real Docker Desktop clean-host acceptance remains a controlled operator qualification and is not replaced by mock-Docker CI.
 
 Этот каталог является шаблоном release payload для закрытого контура. Финальный kit создаётся из **уже собранных release images** в контролируемой build/release среде:
 
@@ -16,9 +16,9 @@ dist/harbor-transfer-portal-v1.0.0-offline-install.tar.gz
 dist/harbor-transfer-portal-v1.0.0-offline-install.tar.gz.sha256
 ```
 
-Для успешного CI `push` в `main` тот же архив, который прошёл clean-host qualification для SOURCE и TARGET, сохраняется как GitHub Actions artifact `harbor-transfer-portal-offline-install-<commit-sha>`. Artifact содержит только versioned release archive и его внешний `.sha256`; перед переносом используйте оба файла из одного artifact.
+Для CI (`pull_request` и `push` в `main`) job `Integration — интеграционные тесты` выполняет clean-host qualification в SOURCE и TARGET и сохраняет прошедший проверку archive вместе с его внешним `.sha256` как GitHub Actions artifact `harbor-transfer-portal-offline-install-<commit-sha>`; при переносе используйте оба файла из одного artifact. Отдельно workflow `.github/workflows/publish-images.yml` публикует backend/frontend образы в GHCR с тегом `sha-<git-sha>`. Для production release archive может быть собран и в контролируемой build/release среде; в закрытый контур его переносят archive и `.sha256` из одного выпуска.
 
-Packaging fail-closed проверяет canonical product version и OCI `org.opencontainers.image.version`/`revision` labels, поэтому stale или несовместимые images нельзя молча включить в текущий release archive.
+Packaging fail-closed проверяет canonical product version и OCI `org.opencontainers.image.version`/`revision` labels, поэтому stale или несовместимые images нельзя молча включить в текущий release archive. Внешний tar.gz собирается детерминированно: фиксируются порядок файлов, owner/group, timestamps и gzip header; `make test-offline-kit` проверяет побайтовую повторяемость для одинакового staged payload.
 
 ## Установка в закрытом контуре
 
@@ -83,6 +83,12 @@ PORTAL_BROWSER_SCHEME=https
 После первого запуска настройте через admin UI **только Harbor profiles локального security-контура этой installation**, их CA/credentials и требуемое key material. В одной installation может быть несколько именованных profiles, но SOURCE credentials не должны ссылаться на TARGET-контур и наоборот. В universal installation SOURCE private signing key и TARGET trusted public keys могут сосуществовать в persistent storage, но active semantics жёстко разделяются текущим runtime mode.
 
 Полный штатный пользовательский перенос выполняется через browser: в SOURCE role выбирается SOURCE Harbor profile и артефакты, затем скачиваются **три файла одной delivery** — bundle, `.sha256` и signed `.htp-handoff.json`. В TARGET role выбирается TARGET Harbor profile, переносится полный triplet, signed handoff проверяется до Bundle v1 preview, после чего Portal выполняет verify/preview/import через UI. Пошаговая процедура находится прямо в release kit: `docs/user-guide.md`.
+
+## Windows 10/11 — offline lifecycle
+
+Windows 10/11 supports install, same-version rerun, start/stop, backup, matching-version restore, upgrade with automatic matching-version rollback, and safe uninstall. Use the PowerShell 5.1+ wrappers shipped in the release kit; Docker Desktop must use Linux containers and Compose v2. The kit must be extracted on NTFS.
+
+The installer, lifecycle scripts and backup operation protect .env, temporary snapshots, backup directories, ZIP archives and SHA-256 sidecars with NTFS ACLs limited to the current user, SYSTEM and local Administrators. Existing Harbor Transfer Portal backup files in a selected backup directory are also re-protected; use a dedicated NTFS directory. ACL enforcement failures stop the operation. The ZIP and persistent data contain secrets and must never be attached to CI artifacts or issue comments.
 
 ## Backup
 
@@ -161,11 +167,30 @@ Release payload включает version metadata, checksums, changelog/release 
 
 ## Автоматическая release qualification
 
-Offline release contract не основан только на документации. CI содержит отдельные fail-able gates:
+Offline release contract не основан только на документации. CI и внешняя приёмка покрывают разные его части.
 
-- deterministic offline-kit/lifecycle smoke проверяет checksums, no-pull/no-build semantics, idempotent install, backup/restore/upgrade/uninstall и fail-closed version identity;
-- **Offline release — clean-host install qualification** собирает immutable kit, удаляет release images из runner и устанавливает один и тот же archive с predictable bootstrap role; проверяет health, Alembic, Skopeo/Helm, version identity и сохранение persistent state после rerun/restart;
-- runtime lifecycle tests отдельно проверяют migration/backfill, authoritative persisted mode после restart, SQLite backup/restore mode+revision, concurrent switch serialization и SOURCE → TARGET → SOURCE без process restart;
-- **Acceptance — isolated SOURCE → TARGET transfer** проверяет реальный image + Helm chart через SOURCE export, signed physical bundle boundary и отдельный TARGET registry, включая receipt/history/report, replay `SKIPPED`, conflict default-deny и tamper rejection до mutation.
+CI ветки `main` (в backend job) выполняет runtime lifecycle tests, которые проверяют migration/backfill, authoritative persisted mode после restart, SQLite backup/restore mode+revision, concurrent switch serialization и SOURCE → TARGET → SOURCE без process restart.
 
-Эти gates входят в общий CI `quality-gate` для соответствующего release/transfer scope. Они уже реализованы и являются частью v1 release qualification, а не будущей работой.
+CI также выполняет следующие fail-able проверки:
+
+- `Compose — проверка docker-compose` запускает `make test-offline-kit` (checksums, no-pull/no-build semantics, idempotent install, backup/restore/upgrade/uninstall и fail-closed version identity);
+- **Offline release — clean-host install qualification** (`deploy/qualify-clean-offline-install.sh`) в job `Integration — интеграционные тесты` собирает immutable kit, удаляет release images из runner и устанавливает один и тот же archive с predictable bootstrap role; проверяет health, Alembic, Skopeo/Helm, version identity и сохранение persistent state после rerun/restart;
+- **Acceptance — isolated SOURCE → TARGET transfer** (`deploy/qualify-isolated-transfer.sh`) в том же job проверяет реальный image + Helm chart через SOURCE export, signed physical bundle boundary и отдельный TARGET registry, включая receipt/history/report, replay `SKIPPED`, conflict default-deny и tamper rejection до mutation;
+- `Windows Offline — install and lifecycle contracts` на `windows-2022` проверяет PowerShell install и lifecycle contracts.
+
+Эти проверки входят в общий CI `quality-gate` для соответствующего release/transfer scope. Те же clean-host и isolated acceptance-скрипты доступны standalone для внешнего release-прогона; зелёный `quality-gate` остаётся merge gate, а финальная региональная приёмка требует отдельного стенда.
+
+
+## Windows 10/11 offline lifecycle
+
+The release kit ships PowerShell 5.1+ wrappers alongside the Linux scripts. Use Docker Desktop in Linux-containers mode and Compose v2.
+
+- First install / same-version rerun: `install.cmd` (or `install.ps1`).
+- Start with health wait: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\start.ps1`; stop without data removal: `.\\stop.ps1`. It verifies every kit checksum before loading images; it never builds or pulls images.
+- Backup: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\backup.ps1`. The ZIP contains `.env`, a persistent-volume snapshot, metadata and per-file hashes; the archive and sidecar are secret-bearing backup material.
+- Restore: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\restore.ps1 -BackupArchive <path.zip> -ConfirmRestore`. Restore requires the matching version kit and contour.
+- Upgrade: unpack the new version into a separate directory, then run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <new-kit>\\upgrade.ps1 -NewKitDir <new-kit> -InstallDir <current-kit>`. It creates a mandatory pre-upgrade backup, preserves the stable Docker project/volume identity, and attempts matching-kit rollback on failed startup. Keep both kits and the backup until post-upgrade acceptance.
+- Stop/uninstall without deleting data: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\uninstall.ps1`. Persistent volume and `.env` remain.
+- Destructive data purge: add `-PurgeData -ConfirmPurge DELETE_PORTAL_DATA`. Without the exact confirmation phrase, volume deletion is refused.
+
+Windows lifecycle is supported only for the same CPU architecture and same-version restore. Cross-architecture upgrade and direct downgrade are not supported. Automatic upgrade accepts only stable numeric versions that compare strictly higher (for example, `1.0.0` to `1.1.0`); prerelease/non-numeric version ordering is refused. Keep the old kit and a verified backup for recovery. Follow the controlled checklist in docs/windows-offline-acceptance.md. These scripts do not qualify a real clean Windows host by themselves; CI mock-Docker tests must pass, followed by a controlled Windows Docker Desktop acceptance run before production rollout.

@@ -79,7 +79,7 @@ test-frontend:
 	cd frontend && npm test
 
 test-ci-scope:
-	python3 -m unittest tools.test_ci_scope
+	python3 -m unittest tools.test_ci_scope tools.test_ci_workflow_contract
 
 dependency-locks-check:
 	python3 -m unittest tools.test_dependency_locks

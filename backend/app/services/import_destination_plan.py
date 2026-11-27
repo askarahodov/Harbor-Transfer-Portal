@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import secrets
 from collections.abc import Callable
 from contextvars import ContextVar
@@ -952,6 +951,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     "import_destination_plan_tampered",
                     "Destination plan не совпадает с persisted artifact rows",
                 )
+            policy = self._policy_object(operation)
             receipt = ImportReceiptResponse(
                 operation_id=operation.id,
                 source_delivery_id=preview.source_delivery_id,
@@ -960,6 +960,7 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                 started_at=requested_at,
                 finished_at=now,
                 overwrite_conflicts=overwrite,
+                skip_conflicts=bool(policy.get("skip_conflicts", False)),
                 destination_plan_id=plan.plan_id,
                 destination_plan_hash=plan.plan_hash,
                 result="FAILED" if failures else "COMPLETED",
@@ -984,21 +985,6 @@ class ImportDestinationPlanOrchestrator(ImportPreviewProjectionOrchestrator):
                     )
                 ],
             )
-            payload = receipt.model_dump_json(indent=2) + "\n"
+            self.persistence.publish_receipt_file(receipt)
             operation.import_receipt_json = receipt.model_dump_json()
             session.commit()
-
-        self.receipt_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        path = self.receipt_root / f"import-{operation_id}.json"
-        try:
-            with path.open("x", encoding="utf-8") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.chmod(path, 0o440)
-            self._fsync_directory(self.receipt_root)
-        except FileExistsError as exc:
-            raise OperationTaskFailure(
-                "import_receipt_exists",
-                "Immutable import receipt уже существует",
-            ) from exc

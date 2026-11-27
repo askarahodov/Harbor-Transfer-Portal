@@ -23,10 +23,9 @@ Route `/settings` доступен только роли `admin`. Огранич
 всего на readiness и key-management controls, но не превращает Settings в отдельную
 конфигурацию другого физического Harbor.
 
-## Профили реестров в Nexus RC :id=rc-registry-profiles
+## Профили реестров Nexus :id=rc-registry-profiles
 
-В едином тестовом Nexus-кандидате (Draft #503)
-карточка настроек управляет именованными Harbor и Nexus profiles.
+В v1.1.0 карточка настроек управляет именованными Harbor и Nexus profiles.
 При редактировании форма содержит три секции:
 «Подключение», «Параметры Nexus» (только Nexus) и «Доступ и TLS».
 Поля одинаковой высоты, длинные пояснения не сдвигают соседние контролы;
@@ -42,8 +41,10 @@ Route `/settings` доступен только роли `admin`. Огранич
 а не Helm OCI. Секреты/CA не показываются при редактировании и не изменяются
 при пустом поле. Подробнее: [Nexus setup](nexus-setup.md).
 
-Это **Nexus RC**, а не обещание наличия таких элементов в выпущенном
-`main` или разрешение на работу с корпоративным Nexus. Действует региональный NO-GO.
+Это Nexus workflow, выпущенный в v1.1.0. Региональная приёмка подтверждена
+владельцем (owner-attested, Windows); независимые evidence и подписи по
+[#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436)
+собираются по [шаблонам приёмки](acceptance-evidence-templates.md).
 
 ## Harbor profiles :id=harbor-profiles
 

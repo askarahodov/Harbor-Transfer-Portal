@@ -8,12 +8,12 @@
 | --- | --- |
 | Работа с экспортом/импортом | [User guide](user-guide.md) |
 | Пользователи, ключи, политики, резервные копии | [Admin guide](admin-guide.md) |
-| Быстрая установка из Git на Windows/Linux | [Пошаговая инструкция](install-windows-linux.md) |
-| Разработка и команды source checkout | [Development](development.md) |
+| Запуск source checkout (Windows/Linux) | [Development](development.md) |
 | Установка готового offline kit | [Offline installation](../deploy/offline/README.md) |
 | Диагностика ошибок | [Troubleshooting](troubleshooting.md) |
 | Оценка безопасности | [Security](security.md) |
 | Архитектура и сопровождение | [Architecture](architecture.md), [Testing](testing.md) |
+| Внешняя приёмка: evidence и подписи | [Шаблоны evidence](acceptance-evidence-templates.md) |
 | Текущий backlog и release decision | [ROADMAP](../ROADMAP.md), [GitHub Issues](https://github.com/askarahodov/Harbor-Transfer-Portal/issues) |
 
 Быстрый обзор продукта — [паспорт](project-passport.md). Главная страница репозитория — [README](../README.md). Правила участия — [CONTRIBUTING](../CONTRIBUTING.md).
@@ -21,7 +21,7 @@
 ## Статус возможностей — не путать ветки
 
 - **Поддерживается в `main`:** Harbor SOURCE/TARGET, signed Offline Bundle v1, browser/physical handoff, verify-before-import, роли, сессия по **действиям** пользователя, история и аудит.
-- **Реализовано в отдельной тестовой ветке, но не выпущено:** Nexus Docker v2 + classic Helm HTTP (единый [Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503), историческая основа [#501](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/501), [задача #504](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/504)); CI/disposable E2E успешны на последнем проверенном изменении, **региональный NO-GO** до [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
+- **Выпущено в v1.1.0:** Nexus Docker v2 + classic Helm HTTP ([PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)). Региональная приёмка подтверждена владельцем (owner-attested, Windows); независимые evidence и подписи фиксируются по [шаблонам приёмки](acceptance-evidence-templates.md).
 - **В `main`:** безопасный первый запуск исходного checkout ([#481](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/481), [#482](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/482)): Linux `./run.sh`, Windows CMD `run.cmd`, автоматическая подготовка `.env` и сохранение `JWT_SECRET`; на пустой базе временный `admin/admin` с обязательной сменой пароля от 12 символов. Это не замена offline release kit, а для переноса нужен реальный Harbor profile.
 - **Историческая неопределённость:** исправление ошибки экспорта внедрено, но первопричина инцидента 03.11.2026 не доказана ([#422](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/422)).
 
@@ -44,37 +44,22 @@
 ## Каталог: интерфейс и эксплуатация
 
 - [Dashboard](dashboard.md), [Frontend](frontend.md), [History UI](history-ui.md), [History/Audit API](history-audit-api.md)
-- [Settings](settings.md), [UI/UX contract](ui-design-system.md), [Admin user management](admin-user-management.md), [Harbor profiles](harbor-profiles.md), [Harbor browse API](harbor-browse-api.md)
+- [Settings](settings.md), [Admin user management](admin-user-management.md), [Harbor profiles](harbor-profiles.md), [Harbor browse API](harbor-browse-api.md)
 - [Runtime mode](runtime-mode.md), [Universal mode key isolation](universal-mode-key-isolation.md)
 - [Key management](key-management.md), [Transfer policies](transfer-policies.md), [Storage retention](storage-retention.md)
 - [Offline lifecycle](offline-lifecycle.md), [Structured logging](structured-logging.md), [Troubleshooting](troubleshooting.md)
 - [Deployment](../deploy/README.md), [Offline install kit](../deploy/offline/README.md)
-- [Testing/CI](testing.md), [Docsify shell](docsify.md), [Release notes 1.0.0](release-notes-v1.0.0.md), [CHANGELOG](../CHANGELOG.md)
+- [Testing/CI](testing.md), [Шаблоны evidence внешней приёмки](acceptance-evidence-templates.md), [Docsify shell](docsify.md), [Release notes 1.0.0](release-notes-v1.0.0.md), [CHANGELOG](../CHANGELOG.md)
 
 ## Nexus — отдельно от baseline
 
-- [Сравнение с Harbor](registry-comparison.md) — матрица с честным разделением `main`/Draft.
-- [Nexus setup](nexus-setup.md) — подготовка **тестового кандидата**, не production-инструкция.
-- [Региональная приёмка](nexus-regional-acceptance-runbook.md) — актуальный runbook: требуется отдельная приёмка в реальных контурах; Nexus **NO-GO**.
+- [Сравнение с Harbor](registry-comparison.md) — матрица Harbor/Nexus для v1.1.0.
+- [Nexus setup](nexus-setup.md) — подготовка **тестового кандидата**, не production-инструкция; Docker v2 E2E против pre-OCI Nexus 3 выполняется scoped-шагами в CI job `Integration — интеграционные тесты` (см. [testing](testing.md)).
+- [Региональная приёмка](nexus-regional-acceptance-runbook.md) — runbook v1.1.0.
 
 ## Исторический материал (не source of truth)
 
-| Документ | Для чего | Статус |
-|---|---|---|
-| [project-passport.md](project-passport.md) | простое описание продукта, ролей и целевого процесса | актуальный product overview |
-| [development.md](development.md) | source build/run на Windows и Linux, Docker Desktop/Engine boundary | актуальный developer workflow |
-| [install-windows-linux.md](install-windows-linux.md) | пошаговый запуск, обновление, диагностика, отдельный RC | source installation guide |
-| [user-guide.md](user-guide.md) | пошаговый browser flow SOURCE → physical transfer → TARGET | актуальный |
-| [admin-guide.md](admin-guide.md) | bootstrap, Harbor, users/policies/keys, lifecycle, limits | актуальный |
-| [settings.md](settings.md) | фактический admin Settings UI: Harbor profiles/readiness/keys/policies/retention/mapping | актуальный |
-| [runtime-mode.md](runtime-mode.md) | persistent SOURCE/TARGET role, switch, restart, migration, backup/restore | актуальный runtime/admin contract |
-| [key-management.md](key-management.md) | SOURCE signing identity и TARGET trusted-key lifecycle | актуальный |
-| [transfer-policies.md](transfer-policies.md) | admin-managed transfer policies и limits | актуальный |
-| [troubleshooting.md](troubleshooting.md) | symptom → cause → diagnostic → safe resolution | актуальный |
-| [../deploy/offline/README.md](../deploy/offline/README.md) | versioned offline kit install/backup/restore/upgrade/uninstall | актуальный release/install guide |
-| [../deploy/README.md](../deploy/README.md) | development/runtime Compose deployment | актуальный development/runtime guide |
-| [release-notes-v1.0.0.md](release-notes-v1.0.0.md) | release identity, scope и ограничения v1.0.0 | актуальный release artifact |
-| [nexus-release-readiness-2026-11-03.md](nexus-release-readiness-2026-11-03.md) | журнал доработок Nexus, CI evidence, blockers и форма региональной приёмки | кандидат; **не выпущен**, NO-GO |
+[Исходный дизайн](harbor-transfer-portal.md) и [первоначальное Nexus ТЗ](nexus-integration-task.md) сведены к коротким страницам-ссылкам на pinned Git history. Старые скрипты-генераторы, устаревшие протоколы, оценки и ASCII-макеты больше не копируются в текущие руководства. [Deferred work](deferred-tasks.md) теперь только перенаправляет в живые Issues.
 
 ## Как проверять изменения документации
 
@@ -82,6 +67,6 @@
 make docs-check
 ```
 
-Gate содержит два независимых слоя: **Markdown link checker** проверяет локальные ссылки и разрешённые Docsify **site-root Markdown targets**; **documentation contract tests** фиксируют runtime/UX/security и запрещают возврат устаревших описаний. Markdown links не должны выходить за пределы репозитория, code fences имеют явный language tag. Дополнительно **Compose smoke** проверяет реальную раздачу Markdown/assets через `/docs/` и отсутствие Vue SPA fallback для несуществующих путей. CI запускает documentation gate по `tools/ci_scope.py`.
+Gate содержит два независимых слоя: **Markdown link checker** проверяет локальные ссылки и разрешённые Docsify **site-root Markdown targets**; **documentation contract tests** фиксируют runtime/UX/security и запрещают возврат устаревших описаний. Markdown links не должны выходить за пределы репозитория, code fences имеют явный language tag. Дополнительно **Compose smoke** (`make smoke-compose`) проверяет реальную раздачу Markdown/assets через `/docs/` и отсутствие Vue SPA fallback для несуществующих путей; это отдельная локальная проверка, `make docs-check` и CI docs job её не запускают. CI запускает documentation gate по `tools/ci_scope.py`.
 
-При каждом изменении code/API/config обновите соответствующий guide в том же PR. Проверяйте отличия SOURCE/TARGET, значения `main`/Draft, безопасные error codes, существование команд и отсутствие secret/internal DNS. Результат независимого code review и зелёного CI не подменяет реальную региональную приёмку.
+При каждом изменении code/API/config обновите соответствующий guide в том же PR. Проверяйте отличия SOURCE/TARGET, значения v1.1.0, безопасные error codes, существование команд и отсутствие secret/internal DNS. Результат независимого code review и зелёного CI не подменяет реальную региональную приёмку.

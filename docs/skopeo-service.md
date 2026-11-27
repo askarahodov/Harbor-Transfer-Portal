@@ -42,26 +42,13 @@ TLS-политика берётся из effective Harbor settings (#12):
 - `false` передаётся только если admin явно отключил verification;
 - автоматического fallback на `--tls-verify=false` нет.
 
-## Компактный inspect для многотеговых Docker repositories
+## Компактный inspect
 
-SOURCE/OCI/TARGET `skopeo inspect` в Nexus и Harbor теперь использует
-`--no-tags --format` с JSON-выводом только `Digest`, `Architecture`
-и `Os`. Шаблон использует встроенный Go `printf %q`, совместимый
-с Skopeo 1.9.3 в контейнерном smoke-test (в отличие от более
-новой template-функции `json`). Это не изменяет вычисление `Digest`: в команде Skopeo
-используется тот же manifest инспектируемого `image:tag`, но
-огромный `RepoTags` не загружается и не сериализуется в stdout.
-`skopeo inspect` с обычным выводом мог возвращать >65 536 байт
-для одного `node:18-alpine`, из-за чего обрезанный JSON ошибочно
-попадал в операторский `registry_inspection_failed`. Ограничение
-`SKOPEO_OUTPUT_LIMIT_BYTES` не повышалось, а pipe по-прежнему полностью
-дренируется. Если даже компактный результат когда-нибудь превысит лимит,
-проверка возвращает отдельный безопасный код `skopeo_output_truncated`
-(либо `nexus_output_truncated` для Nexus), не `invalid_output`.
+Все три места вызова `skopeo inspect` (`inspect_target`, SOURCE inspect перед export, inspect локального OCI payload) используют `--no-tags` и фиксированный `--format`-шаблон, который возвращает только `Digest`, `Architecture` и `Os`. Полный JSON inspect по умолчанию включает `RepoTags`, поэтому на репозиториях с тысячами тегов вывод превышал `SKOPEO_OUTPUT_LIMIT_BYTES` и обрезался до невалидного JSON.
 
-Нужны реальные `image:tag`, доступный Docker connector и права read.
-Компактный inspect не меняет проверку digest source/payload/target,
-`skopeo copy --all --preserve-digests`, TLS/CA или подписанный handoff.
+Шаблон использует Go template built-in `printf "%q"` для безопасного квотирования/экранирования полей и совместим со Skopeo 1.9.3 (более новый `json()` недоступен в этой версии). Шаблон является константой: registry/user data в CLI-аргументы Python не интерполирует.
+
+Если вывод всё же обрезан, runner добавляет синтетический маркер `[output truncated]`. `_parse_inspection` распознаёт его **до** `json.loads` и возвращает типизированную ошибку `skopeo_output_truncated` вместо общего `skopeo_invalid_output`; частичный JSON никогда не принимается, а содержимое тегов в сообщение не попадает.
 
 ## Export
 
@@ -133,4 +120,4 @@ Unit tests используют injectable command runner и проверяют:
 - target absent/same/conflict states;
 - payload path confinement.
 
-Scoped CI также содержит `Integration — Skopeo/Helm local registry`, где Skopeo и Helm проверяются на disposable OCI registry, и isolated SOURCE → TARGET acceptance для сквозного lifecycle. Эти тяжёлые проверки запускаются только для затрагивающих соответствующую boundary изменений согласно `tools/ci_scope.py`.
+Scoped CI содержит `Integration — интеграционные тесты`, который через `make test-registry-integration` проверяет Skopeo и Helm на disposable OCI registry, а затем выполняет clean-host offline qualification и полный isolated SOURCE → TARGET acceptance (см. [testing.md](testing.md)). Реальная региональная приёмка остаётся внешним gate. Эти тяжёлые проверки запускаются только для затрагивающих соответствующую boundary изменений согласно `tools/ci_scope.py`.

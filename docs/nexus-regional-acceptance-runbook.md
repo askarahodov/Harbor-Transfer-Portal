@@ -1,11 +1,11 @@
 # Региональная приёмка Nexus Docker + обычного Helm HTTP — SOURCE → TARGET
 
-> **Состояние: NO-GO / региональная приёмка не выполнена.**
-> Этот документ — исполняемый протокол и форма сбора доказательств, но **не**
-> свидетельство доступа к корпоративным системам. Изменения находятся в
-> [едином Draft #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503), наследующем #501,
-> не в production или \`main\`. Без подписанного разрешения владельца контуров
-> и фактических тестов в региональной сети статус не может стать GO.
+> **Состояние: owner-attested PASS, независимые доказательства собираются.**
+> Документ — исполняемый протокол и форма сбора доказательств, но **не**
+> свидетельство доступа к корпоративным системам. Nexus workflow выпущен в v1.1.0
+> ([PR #503](https://github.com/askarahodov/Harbor-Transfer-Portal/pull/503)), наследующем #501.
+> Владелец подтвердил прогон на Windows; артефакты, отказные сценарии и подписи
+> оператора/безопасности/владельца фиксируются в [#434](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/434)/[#436](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/436).
 
 Область: [#429](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/429),
 [#435](https://github.com/askarahodov/Harbor-Transfer-Portal/issues/435),
@@ -644,6 +644,6 @@ TLS/certificate SAN, reverse proxy и firewall; утверждённые namespa
 и физический air-gap handoff с операторским receipt, digest и подписями.
 Подтверждение CI нельзя использовать как разрешение production push,
 как доказательство ролей реальной сервисной учётной записи или как
-полномочие merge. При отсутствии таких доказательств релиз остаётся
-**NO-GO**, а PR — Draft.
+полномочие merge или релиз. При отсутствии таких доказательств gate
+остаётся **NO-GO** до приложения артефактов и подписей.
 

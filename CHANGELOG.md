@@ -3,25 +3,26 @@
 All notable user-facing changes to Harbor Transfer Portal are documented here.
 The project follows Semantic Versioning for product releases.
 
-## Unreleased — Nexus Docker v2 (release candidate; NOT in main)
+## 1.1.0 - 2026-11-27
 
-This section records **draft PR changes**, not published product features.
-Release version, merge, offline kit and regional deployment have **not** been approved.
-Detailed evidence and acceptance tracker: [Nexus release readiness](docs/nexus-release-readiness-2026-11-03.md).
+### Added
+- Nexus Docker Registry v2 SOURCE/TARGET (profile-based browse, inspect, export, TARGET import).
+- Classic Nexus Helm HTTP (non-OCI) hosted repositories with exact-repository fail-closed writes.
+- Type-aware registry profiles and UI labels for Harbor / Nexus Docker / Nexus Helm.
+- Bundle v1.1 registry origin metadata with backward compatibility to Harbor v1.0 bundles.
 
-### Proposed improvements (draft; not shipped)
-- Nexus Docker Registry v2 connection probe, independent of any particular image (#438).
-- Type-aware Nexus SOURCE exact repository/tag inspection and selection, without Harbor browse API calls (#439).
-- Nexus SOURCE export preview/digest revalidation; fail-closed legacy Helm rejection (#440).
-- Signed Nexus origin in Bundle v1.1, maintaining historical Harbor v1.0 canonical metadata (#441).
-- Full disposable Nexus 3.69.0-02 OSS SOURCE API → signed bundle → download test (#442).
-- Nexus TARGET Docker v2 destination planning and disposable SOURCE→TARGET API E2E: separate hosted connectors, signed handoff, digest/receipt, SAME and conflict default-deny/explicit skip (#446, draft; not shipped).
+### Fixed
+- Helm OCI transport flags for Nexus: `--plain-http`, conditional `--insecure-skip-tls-verify`, `--ca-file`.
+- Compact `skopeo inspect` survives very large RepoTags; truncated output raises `skopeo_output_truncated`.
+- Immutable import receipt publication is atomic; success receipt only after `COMPLETED`; `skip_conflicts` recorded on all receipt paths.
+- Harbor connection probe runs off the event loop.
 
-### Verified / not yet verified
-- Integrated draft branch #442: [CI success](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41633770476), [Nexus Docker v2 E2E success](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41633770502).
-- CI verified for disposable Nexus TARGET import E2E (#446): [Nexus E2E](https://github.com/askarahodov/Harbor-Transfer-Portal/actions/runs/41649019315). Not verified: real corporate TARGET/network acceptance (#436), physical isolation and mixed registry combinations (#434), remaining UX (#431), Helm decision (#435).
-- Independent Harbor export incident #422 remains open.
-- **Release gate: NO-GO** pending the items above and review/merges.
+### Changed
+- pytest 9.2 / pytest-asyncio 1.5 and minimatch 11 close the open Dependabot alerts.
+- Nexus legacy Docker v2 E2E runs as scoped `Integration` steps; CI scope contract test guards job/gate wiring.
+
+### Acceptance
+- Regional acceptance owner-attested on Windows; independent artifacts and sign-offs tracked in #434/#436.
 
 ## 1.0.0 - 2026-09-14
 
@@ -34,7 +35,7 @@ Detailed evidence and acceptance tracker: [Nexus release readiness](docs/nexus-r
 - Persistent operation history, immutable import receipts and CSV/PDF reporting.
 - Offline installation kit with prebuilt images, checksums and one-command install for SOURCE or TARGET.
 - Backup, restore, upgrade and uninstall lifecycle helpers.
-- Scoped CI gates covering backend, frontend, protocol/security, Compose, OCI integration, clean-host installation and isolated SOURCE-to-TARGET acceptance.
+- Scoped CI gates covering backend, frontend, protocol/security, Compose and OCI integration, plus clean-host offline installation and isolated SOURCE-to-TARGET acceptance in the `Integration` job and Windows offline lifecycle contracts on `windows-2022`; real Windows Docker Desktop and regional acceptance remain external gates (issue #507).
 
 ### Security
 - Archive extraction, signing-key handling, registry credentials and transfer paths are validated fail-closed.
