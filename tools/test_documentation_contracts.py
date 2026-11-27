@@ -230,9 +230,167 @@ def _acceptance_gates_in_workflow(workflow: str) -> list[str]:
     return gates
 
 
+#
+# Guard against reintroducing self-triggering one-shot workflows.
+#
+# A one-shot workflow triggers on `pull_request`/`push` path filters pointing
+# at its own file (`on.<event>.paths` contains `.github/workflows/<self>.yml`),
+# so once merged it keeps re-running on every later PR/push that touches it.
+# Branch pruning now lives in the reusable, non-self-triggering
+# `tools/prune_branch_refs.py` helper plus the dry-run
+# `tools/branch_inventory_audit.py` audit, never in self-triggering workflows.
+#
+# Reusable, reviewed workflows that legitimately re-run only when their own
+# definition changes may be listed here with the reason.
+_SELF_TRIGGER_ALLOWLIST: dict[str, str] = {
+    # Long-running Nexus E2E suite: only its own file (or its dependencies)
+    # arms it; it never deletes refs and is re-reviewed, not one-shot.
+    "nexus-legacy-e2e.yml": "scoped E2E suite, re-reviewed on each change",
+}
+_WORKFLOWS_DIR = ".github/workflows"
+
+
+def _workflow_trigger_paths(document: str) -> list[str]:
+    """Return every `paths:` filter under the top-level `on:` block.
+
+    Supports the block form (`paths:` then `- item` lines) and the inline form
+    (`paths: [a, b]` or a single scalar). Everything after the `on:` block ends
+    at the next top-level key, so job-level `paths`/`outputs` keys are ignored.
+    """
+
+    lines = document.splitlines()
+    start = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if re.match(r"^(?:on|'on'|\"on\")\s*:", line)
+        ),
+        None,
+    )
+    if start is None:
+        return []
+
+    paths: list[str] = []
+    in_paths = False
+    for line in lines[start + 1 :]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 0 and not stripped.startswith("- "):
+            break
+        if stripped.startswith("- "):
+            if in_paths:
+                paths.append(stripped[2:].strip().strip("'\""))
+            continue
+        in_paths = False
+        if stripped.startswith("paths:"):
+            value = stripped[len("paths:") :].strip()
+            if value.startswith("[") and value.endswith("]"):
+                paths.extend(
+                    part.strip().strip("'\"")
+                    for part in value[1:-1].split(",")
+                    if part.strip()
+                )
+            elif value:
+                paths.append(value.strip("'\""))
+            else:
+                in_paths = True
+    return paths
+
+
+def _self_triggering_workflows(workflows: dict[str, str]) -> list[str]:
+    """Workflow file names whose `on:` path filters reference the file itself."""
+
+    offenders: list[str] = []
+    for name, document in workflows.items():
+        self_path = f"{_WORKFLOWS_DIR}/{name}"
+        if self_path in _workflow_trigger_paths(document):
+            offenders.append(name)
+    return sorted(offenders)
+
+
 class DocumentationContractTests(unittest.TestCase):
     def read(self, relative: str) -> str:
         return (_REPOSITORY_ROOT / relative).read_text(encoding="utf-8")
+
+    def test_workflows_do_not_self_trigger_on_their_own_file(self) -> None:
+        workflows = {
+            path.name: path.read_text(encoding="utf-8")
+            for path in sorted((_REPOSITORY_ROOT / _WORKFLOWS_DIR).glob("*.y*ml"))
+        }
+
+        self.assertTrue(workflows, "no workflow files discovered")
+        discovered = _self_triggering_workflows(workflows)
+        allowed = sorted(name for name in discovered if name in _SELF_TRIGGER_ALLOWLIST)
+        self.assertEqual(
+            allowed,
+            sorted(_SELF_TRIGGER_ALLOWLIST),
+            "allowlist must cite real self-triggering workflows",
+        )
+        for name in discovered:
+            if name in _SELF_TRIGGER_ALLOWLIST:
+                self.assertTrue(_SELF_TRIGGER_ALLOWLIST[name].strip())
+                continue
+            self.fail(
+                f"{name} triggers on its own file: one-shot self-triggering "
+                "workflows are retired. Use tools/prune_branch_refs.py or "
+                "tools/branch_inventory_audit.py, or add a justified "
+                "_SELF_TRIGGER_ALLOWLIST entry."
+            )
+
+    def test_self_trigger_detector_matches_known_forms(self) -> None:
+        cases = {
+            "block": (
+                "on:\n"
+                "  pull_request:\n"
+                "    paths:\n"
+                "      - .github/workflows/block.yml\n"
+                "      - tools/prune_x.py\n"
+                "  push:\n"
+                "    branches: [main]\n"
+                "    paths:\n"
+                "      - .github/workflows/block.yml\n"
+            ),
+            "inline_list": "on:\n  push:\n    paths: [.github/workflows/inline_list.yml]\n",
+            "scalar": "on:\n  pull_request:\n    paths: '.github/workflows/scalar.yml'\n",
+            "yaml_extension": (
+                "on:\n  pull_request:\n    paths:\n"
+                "      - .github/workflows/yaml_extension.yaml\n"
+            ),
+        }
+        workflows = {
+            name + (".yaml" if name == "yaml_extension" else ".yml"): doc
+            for name, doc in cases.items()
+        }
+        self.assertEqual(
+            _self_triggering_workflows(workflows),
+            ["block.yml", "inline_list.yml", "scalar.yml", "yaml_extension.yaml"],
+        )
+
+    def test_self_trigger_detector_ignores_normal_workflows(self) -> None:
+        workflows = {
+            "ci.yml": (
+                "on:\n"
+                "  pull_request:\n"
+                "  push:\n"
+                "    branches: [main]\n"
+                "  workflow_dispatch:\n"
+                "jobs:\n"
+                "  build:\n"
+                "    outputs:\n"
+                "      paths: [.github/workflows/ci.yml]\n"
+            ),
+            "helper-tests.yml": (
+                "on:\n"
+                "  pull_request:\n"
+                "    paths:\n"
+                "      - tools/atomic_ref_cleanup.py\n"
+                "      - tools/test_atomic_ref_cleanup.py\n"
+            ),
+            "lint.yml": "on: [push, pull_request]\n",
+        }
+        self.assertEqual(_self_triggering_workflows(workflows), [])
 
     def test_user_guide_distinguishes_terminal_history_from_lifecycle_actions(self) -> None:
         guide = self.read("docs/user-guide.md")
