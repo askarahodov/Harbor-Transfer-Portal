@@ -103,6 +103,12 @@ _INTEGRATION_DEPLOY_FILES = {
     "deploy/qualify-isolated-transfer.sh",
     "deploy/smoke-registry-integration.sh",
 }
+_OFFLINE_LIFECYCLE_FILES = {
+    # The Linux clean-host qualification in the Integration job executes these
+    # files, so any offline-kit contract change must run it in addition to the
+    # Windows mock-Docker contracts from the Compose scope.
+    "deploy/build-offline-kit.sh",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +145,19 @@ def _starts_with(path: PurePosixPath, *parts: str) -> bool:
 
 def _is_deploy_markdown(path: PurePosixPath) -> bool:
     return len(path.parts) >= 2 and path.parts[0] == "deploy" and path.suffix == ".md"
+
+
+def _is_offline_lifecycle(path: PurePosixPath, path_text: str) -> bool:
+    """Paths that define the offline kit lifecycle contract.
+
+    ``deploy/offline/*.sh`` is already integration-scoped, but the PowerShell and
+    CMD wrappers are only mock-tested in the Windows jobs. Linux clean-host
+    qualification installs the real kit, so its lifecycle contract must also
+    re-run whenever any non-Markdown offline file changes.
+    """
+    if path_text in _OFFLINE_LIFECYCLE_FILES:
+        return True
+    return _starts_with(path, "deploy", "offline") and path.suffix != ".md"
 
 
 def _is_protocol_adr(path: PurePosixPath) -> bool:
@@ -189,6 +208,8 @@ def _is_local_registry_integration_path(path: PurePosixPath, path_text: str) -> 
     if _starts_with(path, "backend", "integration"):
         return True
     if _starts_with(path, "deploy", "offline") and path.suffix == ".sh":
+        return True
+    if _is_offline_lifecycle(path, path_text):
         return True
     return path_text in _INTEGRATION_DEPLOY_FILES
 

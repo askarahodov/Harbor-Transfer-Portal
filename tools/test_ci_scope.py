@@ -329,12 +329,43 @@ class CiScopeTest(TestCase):
             Scope(backend=True, integration=True, compose=True),
         )
 
+    def test_offline_lifecycle_scripts_run_integration_and_compose(self):
+        root = self._root()
+        for path in (
+            "deploy/offline/install.ps1",
+            "deploy/offline/upgrade.ps1",
+            "deploy/offline/windows-lifecycle-common.ps1",
+            "deploy/offline/install.cmd",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    classify_paths([path], root=root),
+                    Scope(integration=True, compose=True),
+                )
+
+    def test_offline_compose_yaml_runs_integration_and_compose(self):
+        # deploy/offline/compose.yaml keeps the backend regression from
+        # _classify_path, and now also arms the Linux clean-host qualification
+        # because it defines the lifecycle the integration job installs.
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["deploy/offline/compose.yaml"], root=root),
+            Scope(backend=True, integration=True, compose=True),
+        )
+
+    def test_offline_markdown_stays_docs_only(self):
+        root = self._root()
+        self.assertEqual(
+            classify_paths(["deploy/offline/README.md"], root=root),
+            Scope(docs=True),
+        )
+
     def test_browser_runtime_boundary_files_run_backend_regression(self):
         root = self._root()
         cases = {
             ".env.example": Scope(backend=True),
             "frontend/nginx.conf": Scope(backend=True, frontend=True, compose=True),
-            "deploy/offline/compose.yaml": Scope(backend=True, compose=True),
+            "deploy/offline/compose.yaml": Scope(backend=True, integration=True, compose=True),
         }
         for path, expected in cases.items():
             with self.subTest(path=path):
